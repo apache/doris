@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -217,7 +219,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     @Override
     public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(logicalSink);
+        return pruneChildren(logicalSink, logicalSink.getOutputSet());
     }
 
     // the backend not support filter(project(agg)), so we can not prune the key set in the agg,
@@ -345,6 +347,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         }
         List<NamedExpression> prunedOutputs = Lists.newArrayList();
         List<List<NamedExpression>> constantExprsList = union.getConstantExprsList();
+        List<List<SlotReference>> regularChildrenOutputs = union.getRegularChildrenOutputs();
+        List<Plan> children = union.children();
         List<Integer> extractColumnIndex = Lists.newArrayList();
         for (int i = 0; i < originOutput.size(); i++) {
             NamedExpression output = originOutput.get(i);
@@ -353,31 +357,41 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 extractColumnIndex.add(i);
             }
         }
-        int len = extractColumnIndex.size();
+
         ImmutableList.Builder<List<NamedExpression>> prunedConstantExprsList
                 = ImmutableList.builderWithExpectedSize(constantExprsList.size());
-        for (List<NamedExpression> row : constantExprsList) {
-            ImmutableList.Builder<NamedExpression> newRow = ImmutableList.builderWithExpectedSize(len);
-            for (int idx : extractColumnIndex) {
-                newRow.add(row.get(idx));
-            }
-            prunedConstantExprsList.add(newRow.build());
-        }
-
         if (prunedOutputs.isEmpty()) {
-            List<NamedExpression> candidates = Lists.newArrayList(originOutput);
-            candidates.retainAll(keys);
-            if (candidates.isEmpty()) {
-                candidates = originOutput;
+            // process prune all columns
+            NamedExpression originSlot = originOutput.get(0);
+            prunedOutputs = ImmutableList.of(new SlotReference(originSlot.getExprId(), originSlot.getName(),
+                    TinyIntType.INSTANCE, false, originSlot.getQualifier()));
+            regularChildrenOutputs = Lists.newArrayListWithCapacity(regularChildrenOutputs.size());
+            children = Lists.newArrayListWithCapacity(children.size());
+            for (int i = 0; i < union.getArity(); i++) {
+                LogicalProject<?> project = new LogicalProject<>(
+                        ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1))), union.child(i));
+                regularChildrenOutputs.add((List) project.getOutput());
+                children.add(project);
             }
-            NamedExpression minimumColumn = ExpressionUtils.selectMinimumColumn(candidates);
-            prunedOutputs = ImmutableList.of(minimumColumn);
+            for (int i = 0; i < constantExprsList.size(); i++) {
+                prunedConstantExprsList.add(ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1))));
+            }
+        } else {
+            int len = extractColumnIndex.size();
+            for (List<NamedExpression> row : constantExprsList) {
+                ImmutableList.Builder<NamedExpression> newRow = ImmutableList.builderWithExpectedSize(len);
+                for (int idx : extractColumnIndex) {
+                    newRow.add(row.get(idx));
+                }
+                prunedConstantExprsList.add(newRow.build());
+            }
         }
 
-        if (prunedOutputs.equals(originOutput)) {
+        if (prunedOutputs.equals(originOutput) && !context.requiredSlots.isEmpty()) {
             return union;
         } else {
-            return union.withNewOutputsAndConstExprsList(prunedOutputs, prunedConstantExprsList.build());
+            return union.withNewOutputsChildrenAndConstExprsList(prunedOutputs, children,
+                    regularChildrenOutputs, prunedConstantExprsList.build());
         }
     }
 

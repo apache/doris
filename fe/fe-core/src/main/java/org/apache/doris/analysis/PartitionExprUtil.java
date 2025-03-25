@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
@@ -26,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.thrift.TNullableStringLiteral;
 
+import com.google.common.base.Objects;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -96,7 +98,7 @@ public class PartitionExprUtil {
         } else {
             throw new AnalysisException("now range partition only support date_trunc/date_floor/date_ceil.");
         }
-        return partitionExprUtil.new FunctionIntervalInfo(timeUnit, interval);
+        return partitionExprUtil.new FunctionIntervalInfo(fnName, timeUnit, interval);
     }
 
     private static DateLiteral getRangeEnd(DateLiteral beginTime, FunctionIntervalInfo intervalInfo)
@@ -230,7 +232,12 @@ public class PartitionExprUtil {
 
             SinglePartitionDesc singleRangePartitionDesc = new SinglePartitionDesc(true, partitionName,
                     partitionKeyDesc, partitionProperties);
-
+            // iff table's storage medium is not equal default storage medium,
+            // should add storage medium in partition properties
+            if (!DataProperty.DEFAULT_STORAGE_MEDIUM.equals(olapTable.getStorageMedium())) {
+                partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
+                        olapTable.getStorageMedium().name());
+            }
             AddPartitionClause addPartitionClause = new AddPartitionClause(singleRangePartitionDesc,
                     distributionDesc, partitionProperties, false);
             result.put(partitionName, addPartitionClause);
@@ -294,12 +301,32 @@ public class PartitionExprUtil {
     }
 
     public class FunctionIntervalInfo {
+        public String fnName;
         public String timeUnit;
         public long interval;
 
-        public FunctionIntervalInfo(String timeUnit, long interval) {
+        public FunctionIntervalInfo(String fnName, String timeUnit, long interval) {
+            this.fnName = fnName;
             this.timeUnit = timeUnit;
             this.interval = interval;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            FunctionIntervalInfo that = (FunctionIntervalInfo) o;
+            return interval == that.interval && Objects.equal(fnName, that.fnName)
+                    && Objects.equal(timeUnit, that.timeUnit);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hashCode(fnName, timeUnit, interval);
         }
     }
 }

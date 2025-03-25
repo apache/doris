@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.WindowFuncType;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -43,7 +44,8 @@ import java.util.stream.Collectors;
 /**
  * Physical partition-top-N plan.
  */
-public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements PartitionTopN {
+public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE>
+        implements PartitionTopN, PropagateFuncDeps {
     private final WindowFuncType function;
     private final List<Expression> partitionKeys;
     private final List<OrderKey> orderKeys;

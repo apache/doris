@@ -62,34 +62,13 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /*
  * TabletSchedCtx contains all information which is created during tablet scheduler processing.
  */
 public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private static final Logger LOG = LogManager.getLogger(TabletSchedCtx.class);
-
-    /*
-     * SCHED_FAILED_COUNTER_THRESHOLD:
-     *    threshold of times a tablet failed to be scheduled
-     *
-     * MIN_ADJUST_PRIORITY_INTERVAL_MS:
-     *    min interval time of adjusting a tablet's priority
-     *
-     * MAX_NOT_BEING_SCHEDULED_INTERVAL_MS:
-     *    max gap time of a tablet NOT being scheduled.
-     *
-     * These 3 params is for adjusting priority.
-     * If a tablet being scheduled failed for more than SCHED_FAILED_COUNTER_THRESHOLD times, its priority
-     * will be downgraded. And the interval between adjustment is larger than MIN_ADJUST_PRIORITY_INTERVAL_MS,
-     * to avoid being downgraded too soon.
-     * And if a tablet is not being scheduled longer than MAX_NOT_BEING_SCHEDULED_INTERVAL_MS, its priority
-     * will be upgraded, to avoid starvation.
-     *
-     */
-    private static final int SCHED_FAILED_COUNTER_THRESHOLD = 5;
-    private static final long MIN_ADJUST_PRIORITY_INTERVAL_MS = 5 * 60 * 1000L; // 5 min
-    private static final long MAX_NOT_BEING_SCHEDULED_INTERVAL_MS = 30 * 60 * 1000L; // 30 min
 
     /*
      * A clone task timeout is between Config.min_clone_task_timeout_sec and Config.max_clone_task_timeout_sec,
@@ -450,10 +429,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         schedFailedCode = code;
     }
 
-    public CloneTask getCloneTask() {
-        return cloneTask;
-    }
-
     public long getCopySize() {
         return copySize;
     }
@@ -464,7 +439,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public long getSrcBackendId() {
         if (srcReplica != null) {
-            return srcReplica.getBackendId();
+            return srcReplica.getBackendIdWithoutException();
         } else {
             return -1;
         }
@@ -485,7 +460,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public long getTempSrcBackendId() {
         if (tempSrcReplica != null) {
-            return tempSrcReplica.getBackendId();
+            return tempSrcReplica.getBackendIdWithoutException();
         }
         return -1;
     }
@@ -536,27 +511,28 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
         String host = backend.getHost();
         for (Replica replica : tablet.getReplicas()) {
-            Backend be = infoService.getBackend(replica.getBackendId());
+            long replicaBeId = replica.getBackendIdWithoutException();
+            Backend be = infoService.getBackend(replicaBeId);
             if (be == null) {
                 // BE has been dropped, skip it
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("replica's backend {} does not exist, skip. tablet: {}",
-                            replica.getBackendId(), tabletId);
+                            replicaBeId, tabletId);
                 }
                 continue;
             }
             if (!Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && host.equals(be.getHost())) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("replica's backend {} is on same host {}, skip. tablet: {}",
-                            replica.getBackendId(), host, tabletId);
+                            replicaBeId, host, tabletId);
                 }
                 return true;
             }
 
-            if (replica.getBackendId() == beId) {
+            if (replicaBeId == beId) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("replica's backend {} is same as dest backend {}, skip. tablet: {}",
-                            replica.getBackendId(), beId, tabletId);
+                            replicaBeId, beId, tabletId);
                 }
                 return true;
             }
@@ -612,10 +588,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
          */
         List<Replica> candidates = Lists.newArrayList();
         for (Replica replica : tablet.getReplicas()) {
-            if (exceptBeId != -1 && replica.getBackendId() == exceptBeId) {
+            long replicaBeId = replica.getBackendIdWithoutException();
+            if (exceptBeId != -1 && replicaBeId == exceptBeId) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("replica's backend {} is same as except backend {}, skip. tablet: {}",
-                            replica.getBackendId(), exceptBeId, tabletId);
+                            replicaBeId, exceptBeId, tabletId);
                 }
                 continue;
             }
@@ -628,12 +605,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
 
-            Backend be = infoService.getBackend(replica.getBackendId());
+            Backend be = infoService.getBackend(replicaBeId);
             if (be == null || !be.isAlive()) {
                 // backend which is in decommission can still be the source backend
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("replica's backend {} does not exist or is not alive, skip. tablet: {}",
-                            replica.getBackendId(), tabletId);
+                            replicaBeId, tabletId);
                 }
                 continue;
             }
@@ -665,11 +642,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // sort replica by version count asc, so that we prefer to choose replicas with fewer versions
         Collections.sort(candidates, VERSION_COUNTER_COMPARATOR);
         for (Replica srcReplica : candidates) {
-            PathSlot slot = backendsWorkingSlots.get(srcReplica.getBackendId());
+            long replicaBeId = srcReplica.getBackendIdWithoutException();
+            PathSlot slot = backendsWorkingSlots.get(replicaBeId);
             if (slot == null) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("replica's backend {} does not have working slot, skip. tablet: {}",
-                            srcReplica.getBackendId(), tabletId);
+                            replicaBeId, tabletId);
                 }
                 continue;
             }
@@ -678,7 +656,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             if (srcPathHash == -1) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("replica's backend {} does not have available slot, skip. tablet: {}",
-                            srcReplica.getBackendId(), tabletId);
+                            replicaBeId, tabletId);
                 }
                 continue;
             }
@@ -697,7 +675,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     public void chooseSrcReplicaForVersionIncomplete(Map<Long, PathSlot> backendsWorkingSlots)
             throws SchedException {
         chooseSrcReplica(backendsWorkingSlots, destBackendId);
-        Preconditions.checkState(srcReplica.getBackendId() != destBackendId,
+        Preconditions.checkState(srcReplica.getBackendIdWithoutException() != destBackendId,
                 "wrong be id: " + destBackendId);
     }
 
@@ -726,10 +704,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
 
             if (!replica.isScheduleAvailable()) {
-                if (Env.getCurrentSystemInfo().checkBackendScheduleAvailable(replica.getBackendId())) {
+                long replicaBeId = replica.getBackendIdWithoutException();
+                if (Env.getCurrentSystemInfo().checkBackendScheduleAvailable(replicaBeId)) {
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("replica's backend {} does not exist or is not scheduler available, skip. tablet: {}",
-                                replica.getBackendId(), tabletId);
+                                replicaBeId, tabletId);
                     }
                 } else {
                     if (LOG.isDebugEnabled()) {
@@ -762,7 +741,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
 
-            if (colocateBackendsSet != null && colocateBackendsSet.contains(replica.getBackendId())) {
+            if (colocateBackendsSet != null && colocateBackendsSet.contains(replica.getBackendIdWithoutException())) {
                 colocateCand.add(replica);
             } else {
                 notColocateCand.add(replica);
@@ -799,7 +778,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
         Replica chosenReplica = null;
         for (Replica replica : candidates) {
-            PathSlot slot = backendsWorkingSlots.get(replica.getBackendId());
+            PathSlot slot = backendsWorkingSlots.get(replica.getBackendIdWithoutException());
             if (slot == null || !slot.hasAvailableSlot(replica.getPathHash())) {
                 if (!replica.needFurtherRepair()) {
                     throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
@@ -831,7 +810,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
         // check if the dest replica has available slot
         // it should not happen cause it just check hasAvailableSlot yet.
-        PathSlot slot = backendsWorkingSlots.get(chosenReplica.getBackendId());
+        PathSlot slot = backendsWorkingSlots.get(chosenReplica.getBackendIdWithoutException());
         if (slot == null) {
             throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                     "backend of dest replica is missing");
@@ -841,6 +820,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                     "unable to take slot of dest path");
         }
+        long chosenReplicaBeId = chosenReplica.getBackendIdWithoutException();
 
         if (chosenReplica.getState() == ReplicaState.DECOMMISSION) {
             // Since this replica is selected as the repair object of VERSION_INCOMPLETE,
@@ -863,9 +843,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             setDecommissionTime(-1);
             LOG.info("choose replica {} on backend {} of tablet {} as dest replica for version incomplete,"
                     + " and change state from DECOMMISSION to NORMAL",
-                    chosenReplica.getId(), chosenReplica.getBackendId(), tabletId);
+                    chosenReplica.getId(), chosenReplicaBeId, tabletId);
         }
-        setDest(chosenReplica.getBackendId(), chosenReplica.getPathHash());
+        setDest(chosenReplicaBeId, chosenReplica.getPathHash());
     }
 
     private boolean checkFurtherRepairFinish(Replica replica, long version) {
@@ -905,7 +885,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     public void releaseResource(TabletScheduler tabletScheduler, boolean reserveTablet) {
         if (srcReplica != null) {
             Preconditions.checkState(srcPathHash != -1);
-            PathSlot slot = tabletScheduler.getBackendsWorkingSlots().get(srcReplica.getBackendId());
+            PathSlot slot = tabletScheduler.getBackendsWorkingSlots().get(srcReplica.getBackendIdWithoutException());
             if (slot != null) {
                 if (type == Type.REPAIR) {
                     slot.freeSlot(srcPathHash);
@@ -932,12 +912,14 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
         if (cloneTask != null) {
             AgentTaskQueue.removeTask(cloneTask.getBackendId(), TTaskType.CLONE, cloneTask.getSignature());
+            cloneTask = null;
 
             // clear all CLONE replicas
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db != null) {
                 Table table = db.getTableNullable(tblId);
-                if (table != null && table.writeLockIfExist()) {
+                // try get table write lock, if failed TabletScheduler will try next time
+                if (table != null && table.tryWriteLockIfExist(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                     try {
                         List<Replica> cloneReplicas = Lists.newArrayList();
                         tablet.getReplicas().stream().filter(r -> r.getState() == ReplicaState.CLONE).forEach(r -> {
@@ -979,7 +961,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     }
 
     public void deleteReplica(Replica replica) {
-        tablet.deleteReplicaByBackendId(replica.getBackendId());
+        tablet.deleteReplicaByBackendId(replica.getBackendIdWithoutException());
     }
 
     public StorageMediaMigrationTask createStorageMediaMigrationTask() throws SchedException {
@@ -987,7 +969,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 getSchemaHash(), getStorageMedium());
         if (destPath == null || destPath.isEmpty()) {
             throw new SchedException(Status.UNRECOVERABLE,
-                "backend " + srcReplica.getBackendId() + ", dest path is empty");
+                "backend " + srcReplica.getBackendIdWithoutException() + ", dest path is empty");
         }
         storageMediaMigrationTask.setDataDir(destPath);
         this.taskTimeoutMs = getApproximateTimeoutMs();
@@ -997,10 +979,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     // database lock should be held.
     public CloneTask createCloneReplicaAndTask() throws SchedException {
-        Backend srcBe = infoService.getBackend(srcReplica.getBackendId());
+        long beId = srcReplica.getBackendIdWithoutException();
+        Backend srcBe = infoService.getBackend(beId);
         if (srcBe == null) {
             throw new SchedException(Status.SCHEDULE_FAILED,
-                "src backend " + srcReplica.getBackendId() + " does not exist");
+                "src backend " + beId + " does not exist");
         }
 
         Backend destBe = infoService.getBackend(destBackendId);
@@ -1281,7 +1264,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // show the real priority value, higher this value, higher sched priority. Add 10 hour to make it
         // to be a positive value.
         result.add(String.valueOf((System.currentTimeMillis() - getCompareValue()) / 1000 + 10 * 3600L));
-        result.add(srcReplica == null ? "-1" : String.valueOf(srcReplica.getBackendId()));
+        result.add(srcReplica == null ? "-1" : String.valueOf(srcReplica.getBackendIdWithoutException()));
         result.add(String.valueOf(srcPathHash));
         result.add(String.valueOf(destBackendId));
         result.add(String.valueOf(destPathHash));
@@ -1334,13 +1317,13 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 if (tabletHealth.aliveAndVersionCompleteNum < (replicaNum / 2 + 1)) {
                     value -= 3 * baseTime;
                     if (tabletHealth.hasRecentLoadFailed) {
-                        value -= 3 * baseTime;
+                        value -= 4 * baseTime;
                     }
                 }
                 if (tabletHealth.hasAliveAndVersionIncomplete) {
                     value -= 1 * baseTime;
                     if (isUniqKeyMergeOnWrite) {
-                        value -= 1 * baseTime;
+                        value -= 2 * baseTime;
                     }
                 }
             }
@@ -1372,7 +1355,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         sb.append(", priority: ").append(tabletHealth.priority.name());
         sb.append(", tablet size: ").append(tabletSize);
         if (srcReplica != null) {
-            sb.append(", from backend: ").append(srcReplica.getBackendId());
+            sb.append(", from backend: ").append(srcReplica.getBackendIdWithoutException());
             sb.append(", src path hash: ").append(srcPathHash);
         }
         if (destPathHash != -1) {
@@ -1421,7 +1404,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     replica.setPostWatermarkTxnId(-1);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("reset replica {} on backend {} of tablet {} state from DECOMMISSION to NORMAL",
-                                replica.getId(), replica.getBackendId(), tabletId);
+                                replica.getId(), replica.getBackendIdWithoutException(), tabletId);
                     }
                 }
             }

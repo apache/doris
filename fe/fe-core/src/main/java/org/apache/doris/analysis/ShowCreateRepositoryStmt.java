@@ -28,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW CREATE REPOSITORY statement
-public class ShowCreateRepositoryStmt extends ShowStmt {
+public class ShowCreateRepositoryStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()

@@ -46,8 +46,8 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_MAPPED_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_exists").add("array_sortby")
             .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
-            .add("element_at").add("array_split").add("array_reverse_split")
-            .build();
+            .add("element_at").add("array_split").add("array_reverse_split").add("array_match_any")
+            .add("array_match_all").build();
 
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
 

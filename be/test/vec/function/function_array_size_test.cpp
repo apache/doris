@@ -47,8 +47,8 @@ TEST(function_array_size_test, size) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
 
-        Array vec1 = {Field("abc", 3), Field("", 0), Field("def", 3)};
-        Array vec2 = {Field("abc", 3), Field("123", 0), Field("def", 3)};
+        Array vec1 = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
+        Array vec2 = {Field(String("abc", 3)), Field(String("123", 0)), Field(String("def", 3))};
         DataSet data_set = {{{vec1}, Int64(3)},
                             {{vec2}, Int64(3)},
                             {{Null()}, Null()},
@@ -76,8 +76,8 @@ TEST(function_array_size_test, cardinality) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
 
-        Array vec1 = {Field("abc", 3), Field("", 0), Field("def", 3)};
-        Array vec2 = {Field("abc", 3), Field("123", 0), Field("def", 3)};
+        Array vec1 = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
+        Array vec2 = {Field(String("abc", 3)), Field(String("123", 0)), Field(String("def", 3))};
         DataSet data_set = {{{vec1}, Int64(3)},
                             {{vec2}, Int64(3)},
                             {{Null()}, Null()},
@@ -105,8 +105,8 @@ TEST(function_array_size_test, array_size) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
 
-        Array vec1 = {Field("abc", 3), Field("", 0), Field("def", 3)};
-        Array vec2 = {Field("abc", 3), Field("123", 0), Field("def", 3)};
+        Array vec1 = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
+        Array vec2 = {Field(String("abc", 3)), Field(String("123", 0)), Field(String("def", 3))};
         DataSet data_set = {{{vec1}, Int64(3)},
                             {{vec2}, Int64(3)},
                             {{Null()}, Null()},

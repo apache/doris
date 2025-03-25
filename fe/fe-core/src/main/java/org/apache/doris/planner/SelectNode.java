@@ -109,4 +109,10 @@ public class SelectNode extends PlanNode {
         }
         return output.toString();
     }
+
+    // Determined by its child.
+    @Override
+    public boolean isSerialOperator() {
+        return children.get(0).isSerialOperator();
+    }
 }

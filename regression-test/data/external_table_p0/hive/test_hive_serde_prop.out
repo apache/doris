@@ -27,6 +27,30 @@ b	2.2
 1	abc
 2	def
 
+-- !8 --
+1	\N
+2	|||
+3	aaa
+4	"null"
+
+-- !9 --
+1	\N
+2	|||
+3	aaa
+4	"null"
+
+-- !test_open_csv_default_prop --
+1	John Doe	28	50000.75	TRUE	2022-01-15	2023-10-21 14:30:00	4.5	Senior Developer
+2	Jane,Smith				2020-05-20			""Project Manager""
+
+-- !test_open_csv_standard_prop --
+1	John Doe	28	50000.75	TRUE	2022-01-15	2023-10-21 14:30:00	4.5	Senior Developer
+2	Jane,Smith				2020-05-20			"Project Manager"
+
+-- !test_open_csv_custom_prop --
+1	John Doe	28	50000.75	TRUE	2022-01-15	2023-10-21 14:30:00	4.5	Senior Developer
+2	Jane,Smith				2020-05-20			"Project Manager"
+
 -- !1 --
 a	1.1
 b	2.2
@@ -54,4 +78,28 @@ b	2.2
 -- !7 --
 1	abc
 2	def
+
+-- !8 --
+1	\N
+2	|||
+3	aaa
+4	"null"
+
+-- !9 --
+1	\N
+2	|||
+3	aaa
+4	"null"
+
+-- !test_open_csv_default_prop --
+1	John Doe	28	50000.75	TRUE	2022-01-15	2023-10-21 14:30:00	4.5	Senior Developer
+2	Jane,Smith			FALSE	2020-05-20			""Project Manager""
+
+-- !test_open_csv_standard_prop --
+1	John Doe	28	50000.75	TRUE	2022-01-15	2023-10-21 14:30:00	4.5	Senior Developer
+2	Jane,Smith			FALSE	2020-05-20			"Project Manager"
+
+-- !test_open_csv_custom_prop --
+1	John Doe	28	50000.75	TRUE	2022-01-15	2023-10-21 14:30:00	4.5	Senior Developer
+2	Jane,Smith			FALSE	2020-05-20			"Project Manager"
 

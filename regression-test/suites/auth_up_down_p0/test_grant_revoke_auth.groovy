@@ -45,7 +45,7 @@ suite("test_upgrade_downgrade_compatibility_auth","p0,auth,restart_fe") {
     }
 
     // user
-    connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "select username from ${dbName}.${tableName1}"
         } catch (Exception e) {
@@ -53,12 +53,12 @@ suite("test_upgrade_downgrade_compatibility_auth","p0,auth,restart_fe") {
             assertTrue(e.getMessage().contains("denied"))
         }
     }
-    connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
         sql "select username from ${dbName}.${tableName2}"
     }
 
     // role
-    connect(user=user2, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user2, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "select username from ${dbName}.${tableName1}"
         } catch (Exception e) {
@@ -66,18 +66,18 @@ suite("test_upgrade_downgrade_compatibility_auth","p0,auth,restart_fe") {
             assertTrue(e.getMessage().contains("denied"))
         }
     }
-    connect(user=user2, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user2, "${pwd}", context.config.jdbcUrl) {
         sql """insert into ${dbName}.`${tableName1}` values (5, "555")"""
     }
 
     // workload group
-    connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
         sql """set workload_group = '${wg1}';"""
         sql """select username from ${dbName}.${tableName2}"""
     }
 
     // resource group
-    connect(user=user1, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user1, "${pwd}", context.config.jdbcUrl) {
         def res = sql """SHOW RESOURCES;"""
         assertTrue(res.size() == 10)
     }

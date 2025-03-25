@@ -60,9 +60,9 @@ suite("test_get_stream_load_state", "p0") {
     def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} http://${context.config.feHttpAddress}/api/${db}/get_load_state?label=${label}"
     log.info("test_get_stream_load_state: ${command}")
     def process = command.execute()
-    code = process.waitFor()
-    out = process.text
-    json = parseJson(out)
+    def code = process.waitFor()
+    def out = process.text
+    def json = parseJson(out)
     log.info("test_get_stream_load_state: ${out}".toString())
     assertEquals("success", json.msg.toLowerCase())
     assertEquals("VISIBLE", json.data)

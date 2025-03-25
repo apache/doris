@@ -25,7 +25,6 @@ Checks: |
   -readability-named-parameter,
   -readability-avoid-const-params-in-decls,
   -readability-convert-member-functions-to-static,
-  portability-simd-intrinsics,
   performance-type-promotion-in-math-fn,
   performance-faster-string-find,
   performance-inefficient-algorithm,

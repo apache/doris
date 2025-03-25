@@ -18,11 +18,13 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -174,5 +176,38 @@ public class PhysicalDeferMaterializeTopN<CHILD_TYPE extends Plan>
                 "deferMaterializeSlotIds", deferMaterializeSlotIds,
                 "columnIdSlot", columnIdSlot
         );
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        if (getLimit() == 1) {
+            getOutput().forEach(builder::addUniqueSlot);
+        } else {
+            builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
+        }
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        if (getLimit() == 1) {
+            getOutput().forEach(builder::addUniformSlot);
+        } else {
+            builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
+        }
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public ObjectId getObjectId() {
+        return id;
     }
 }

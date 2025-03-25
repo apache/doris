@@ -21,13 +21,13 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -42,7 +42,7 @@ import java.util.Optional;
  * unbound result sink
  */
 public class UnboundResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
-        implements Unbound, Sink, BlockFuncDepsPropagation {
+        implements NeedAuditEncryption, Unbound, Sink, BlockFuncDepsPropagation {
 
     public UnboundResultSink(CHILD_TYPE child) {
         super(PlanType.LOGICAL_UNBOUND_RESULT_SINK, ImmutableList.of(), child);
@@ -62,11 +62,6 @@ public class UnboundResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitUnboundResultSink(this, context);
-    }
-
-    @Override
-    public List<? extends Expression> getExpressions() {
-        throw new UnsupportedOperationException(this.getClass().getSimpleName() + " don't support getExpression()");
     }
 
     @Override
@@ -99,5 +94,10 @@ public class UnboundResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
     @Override
     public StmtType stmtType() {
         return StmtType.SELECT;
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return anyMatch(node -> node instanceof UnboundTVFRelation);
     }
 }

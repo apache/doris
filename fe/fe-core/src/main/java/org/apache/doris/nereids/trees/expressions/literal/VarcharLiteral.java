@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
-import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -37,17 +35,7 @@ public class VarcharLiteral extends StringLikeLiteral {
     }
 
     @Override
-    public String getValue() {
-        return getStringValue();
-    }
-
-    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitVarcharLiteral(this, context);
-    }
-
-    @Override
-    public LiteralExpr toLegacyLiteral() {
-        return new StringLiteral(value);
     }
 }

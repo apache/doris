@@ -42,7 +42,7 @@ suite("test_schema_change_statistics") {
         def result1 = sql """show column cached stats $table"""
         def result2 = sql """show column stats $table"""
         boolean dropped = false
-        for (int i = 0; i < 120; i++) {
+        for (int i = 0; i < 200; i++) {
             if (0 == result1.size() && 0 == result2.size()) {
                 dropped = true;
                 break;
@@ -100,15 +100,11 @@ suite("test_schema_change_statistics") {
     result = sql """show column cached stats change"""
     assertEquals(8, result.size())
 
-    sql """ALTER TABLE change DROP COLUMN mv_value1 from mv1;"""
-    wait_schema_change_finished()
-    stats_dropped("change")
-
     sql """analyze table change with sync;"""
     result = sql """show column stats change"""
-    assertEquals(7, result.size())
+    assertEquals(8, result.size())
     result = sql """show column cached stats change"""
-    assertEquals(7, result.size())
+    assertEquals(8, result.size())
 
     sql """ALTER TABLE change ADD COLUMN new_key INT key DEFAULT "0" AFTER key2;"""
     wait_schema_change_finished()
@@ -116,9 +112,9 @@ suite("test_schema_change_statistics") {
 
     sql """analyze table change with sync;"""
     result = sql """show column stats change"""
-    assertEquals(8, result.size())
+    assertEquals(9, result.size())
     result = sql """show column cached stats change"""
-    assertEquals(8, result.size())
+    assertEquals(9, result.size())
 
     sql """ALTER TABLE change DROP COLUMN new_key;"""
     wait_schema_change_finished()
@@ -126,19 +122,15 @@ suite("test_schema_change_statistics") {
 
     sql """analyze table change with sync;"""
     result = sql """show column stats change"""
-    assertEquals(7, result.size())
+    assertEquals(8, result.size())
     result = sql """show column cached stats change"""
-    assertEquals(7, result.size())
-
-    sql """ALTER TABLE change MODIFY COLUMN value2 BIGINT AFTER value3;"""
-    wait_schema_change_finished()
-    stats_dropped("change")
+    assertEquals(8, result.size())
 
     sql """analyze table change with sync;"""
     result = sql """show column stats change"""
-    assertEquals(7, result.size())
+    assertEquals(8, result.size())
     result = sql """show column cached stats change"""
-    assertEquals(7, result.size())
+    assertEquals(8, result.size())
 
 
     sql """CREATE TABLE change_no_index (

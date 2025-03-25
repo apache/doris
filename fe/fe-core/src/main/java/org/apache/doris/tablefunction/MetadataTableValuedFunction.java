@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.tvf.source.MetadataScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
@@ -40,6 +41,8 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
                 return FrontendsDisksTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case ICEBERG:
                 return IcebergTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            case HUDI:
+                return HudiTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case CATALOGS:
                 return CatalogsTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case MATERIALIZED_VIEWS:
@@ -60,7 +63,7 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
     public abstract TMetaScanRange getMetaScanRange();
 
     @Override
-    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
+    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
         return new MetadataScanNode(id, desc, this);
     }
 }

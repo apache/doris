@@ -73,15 +73,15 @@ suite("test_query_limit", "query,p0") {
     qt_limit16 "select * from (select * from ${tableName} order by k1, k2, k3, k4 limit 1, 2) a limit 2, 2"
     qt_limit17 "select * from (select * from ${tableName} order by k1, k2, k3, k4 limit 1, 2) a limit 2, 3"
     test {
-        sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=4)*/ * from ${tableName} limit 1, 10"
+        sql "select /*+SET_VAR(parallel_pipeline_task_num=4)*/ * from ${tableName} limit 1, 10"
         rowNum 2
     }
     test {
-        sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=4)*/ * from ${tableName} limit 2, 10"
+        sql "select /*+SET_VAR(parallel_pipeline_task_num=4)*/ * from ${tableName} limit 2, 10"
         rowNum 1
     }
     test {
-        sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=4)*/ * from ${tableName} limit 3, 10"
+        sql "select /*+SET_VAR(parallel_pipeline_task_num=4)*/ * from ${tableName} limit 3, 10"
         rowNum 0
     }
 }

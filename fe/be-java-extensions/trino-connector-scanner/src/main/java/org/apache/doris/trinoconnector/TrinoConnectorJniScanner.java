@@ -179,6 +179,9 @@ public class TrinoConnectorJniScanner extends JniScanner {
 
     @Override
     public void close() throws IOException {
+        if (source != null) {
+            source.close();
+        }
     }
 
     @Override

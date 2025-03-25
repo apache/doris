@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -43,6 +44,10 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                 // topN -> join
                 logicalTopN(logicalJoin())
                         // TODO: complex orderby
+                        .when(topn ->
+                                ConnectContext.get() != null
+                                        && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
+                                        >= topn.getLimit() + topn.getOffset())
                         .when(topN -> topN.getOrderKeys().stream().map(OrderKey::getExpr)
                                 .allMatch(Slot.class::isInstance))
                         .then(topN -> {
@@ -102,7 +107,6 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                 }
                 return null;
             case CROSS_JOIN:
-
                 if (join.left().getOutputSet().containsAll(orderbySlots)) {
                     return join.withChildren(
                             topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0, join.left()),

@@ -29,6 +29,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class FunctionArrayContainsAll : public IFunction {
 public:
@@ -36,8 +37,6 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionArrayContainsAll>(); }
 
     String get_name() const override { return name; }
-
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     bool is_variadic() const override { return false; }
 
@@ -59,7 +58,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& [left_column, left_is_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         const auto& [right_column, right_is_const] =
@@ -191,12 +190,12 @@ private:
         for (ssize_t row = 0; row < input_rows_count; ++row) {
             auto left_index = index_check_const(row, left_is_const);
             auto right_index = index_check_const(row, right_is_const);
-            ssize_t left_start = (*left_data.offsets_ptr)[left_index - 1];
-            ssize_t left_end = (*left_data.offsets_ptr)[left_index];
-            ssize_t left_size = left_end - left_start;
-            ssize_t right_start = (*right_data.offsets_ptr)[right_index - 1];
-            ssize_t right_end = (*right_data.offsets_ptr)[right_index];
-            ssize_t right_size = right_end - right_start;
+            size_t left_start = (*left_data.offsets_ptr)[left_index - 1];
+            size_t left_end = (*left_data.offsets_ptr)[left_index];
+            size_t left_size = left_end - left_start;
+            size_t right_start = (*right_data.offsets_ptr)[right_index - 1];
+            size_t right_end = (*right_data.offsets_ptr)[right_index];
+            size_t right_size = right_end - right_start;
             // case: [1,2,3] : []
             if (right_size == 0) {
                 dst_data[row] = 1;
@@ -218,7 +217,7 @@ private:
                     is_equal_value = false;
                     break;
                 }
-                int left_nested_loop_pos = left_pos;
+                size_t left_nested_loop_pos = left_pos;
                 right_pos = right_start;
                 while (right_pos < right_end) {
                     bool left_nested_data_is_null =
@@ -232,8 +231,9 @@ private:
                         is_equal_value = false;
                     } else {
                         // all is not null, check the data is equal
-                        const auto* left_column = assert_cast<const T*>(left_data.nested_col);
-                        const auto* right_column = assert_cast<const T*>(right_data.nested_col);
+                        const auto* left_column = assert_cast<const T*>(left_data.nested_col.get());
+                        const auto* right_column =
+                                assert_cast<const T*>(right_data.nested_col.get());
                         auto res = left_column->compare_at(left_nested_loop_pos, right_pos,
                                                            *right_column, -1);
                         is_equal_value = (res == 0);
@@ -263,5 +263,5 @@ void register_function_array_contains_all(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayContainsAll>();
     factory.register_alias("array_contains_all", "hasSubstr");
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -336,6 +336,11 @@ public class BDBEnvironment {
 
     // get journal db names and sort the names
     public List<Long> getDatabaseNames() {
+        // The operation before may set the current thread as interrupted.
+        // MUST reset the interrupted flag of current thread to false,
+        // otherwise replicatedEnvironment.getDatabaseNames() will fail because it will call lock.tryLock(),
+        // which will check the interrupted flag.
+        Thread.interrupted();
         List<Long> ret = new ArrayList<Long>();
         List<String> names = null;
         int tried = 0;

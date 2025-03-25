@@ -266,8 +266,7 @@ public:
 
         auto total = *n;
         size_t read_count = 0;
-        _len_array.resize(total);
-        _start_offset_array.resize(total);
+        _binary_data.resize(total);
         for (size_t i = 0; i < total; ++i) {
             ordinal_t ord = rowids[i] - page_first_ordinal;
             if (UNLIKELY(ord >= _num_elems)) {
@@ -275,14 +274,13 @@ public:
             }
 
             const uint32_t start_offset = offset(ord);
-            _start_offset_array[read_count] = start_offset;
-            _len_array[read_count] = offset(ord + 1) - start_offset;
+            _binary_data[read_count].data = _data.mutable_data() + start_offset;
+            _binary_data[read_count].size = offset(ord + 1) - start_offset;
             read_count++;
         }
 
         if (LIKELY(read_count > 0)) {
-            dst->insert_many_binary_data(_data.mutable_data(), _len_array.data(),
-                                         _start_offset_array.data(), read_count);
+            dst->insert_many_strings(_binary_data.data(), read_count);
         }
 
         *n = read_count;
@@ -342,13 +340,11 @@ private:
         if (idx >= _num_elems) {
             return _offsets_pos;
         }
-        const uint8_t* p =
-                reinterpret_cast<const uint8_t*>(&_data[_offsets_pos + idx * SIZE_OF_INT32]);
-        return decode_fixed32_le(p);
+        return guarded_offset(idx);
     }
 
     uint32_t guarded_offset(size_t idx) const {
-        const uint8_t* p =
+        const auto* p =
                 reinterpret_cast<const uint8_t*>(&_data[_offsets_pos + idx * SIZE_OF_INT32]);
         return decode_fixed32_le(p);
     }
@@ -361,8 +357,7 @@ private:
     uint32_t _offsets_pos;
 
     std::vector<uint32_t> _offsets;
-    std::vector<uint32_t> _len_array;
-    std::vector<uint32_t> _start_offset_array;
+    std::vector<StringRef> _binary_data;
 
     // Index of the currently seeked element in the page.
     uint32_t _cur_idx;

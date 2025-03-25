@@ -38,7 +38,7 @@ suite("test_grant_priv") {
 
     // test only have select_priv, can not grant to other user
     sql """grant select_priv on ${dbName}.* to ${user1}"""
-    connect(user=user1, password="${pwd}", url=url) {
+    connect(user1, "${pwd}", url) {
         try {
             sql """grant select_priv on ${dbName}.* to ${user2}"""
             Assert.fail("can not grant to other user");
@@ -49,7 +49,7 @@ suite("test_grant_priv") {
 
     // test both have select_priv and grant_priv , can grant to other user
     sql """grant grant_priv on ${dbName}.* to ${user1}"""
-    connect(user=user1, password="${pwd}", url=url) {
+    connect(user1, "${pwd}", url) {
         try {
             sql """grant select_priv on ${dbName}.* to ${user2}"""
         } catch (Exception e) {

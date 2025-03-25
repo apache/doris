@@ -21,6 +21,8 @@
 namespace doris {
 
 class CloudStreamLoadExecutor final : public StreamLoadExecutor {
+    ENABLE_FACTORY_CREATOR(CloudStreamLoadExecutor);
+
 public:
     CloudStreamLoadExecutor(ExecEnv* exec_env);
 

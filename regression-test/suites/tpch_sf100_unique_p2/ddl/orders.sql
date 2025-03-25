@@ -13,5 +13,6 @@ UNIQUE KEY(`o_orderkey`, `o_orderdate`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
 PROPERTIES (
+    "enable_mow_light_delete" = "true",
     "replication_num" = "3"
 )

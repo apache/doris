@@ -50,46 +50,50 @@ suite("push_topn_to_agg") {
         notContains("STREAMING")
     }
 
-    // order key should be prefix of group key
+    // order keys are part of group keys, 
+    // 1. adjust group keys (o_custkey, o_clerk) -> o_clerk, o_custkey
+    // 2. append o_custkey to order key 
     explain{
-        sql "select o_custkey, sum(o_shippriority), o_clerk  from orders group by o_custkey, o_clerk order by o_clerk, o_custkey limit 11;"
-        multiContains("sortByGroupKey:false", 2)
-    }
-
-    // order key should be prefix of group key
-    explain{
-        sql "select o_custkey, o_clerk, sum(o_shippriority) as x from orders group by o_custkey, o_clerk order by o_custkey, x limit 12;"
-        multiContains("sortByGroupKey:false", 2)
-    }
-
-    // one phase agg is optimized 
-    explain {
-        sql "select sum(o_shippriority) from orders group by o_orderkey limit 13; "
+        sql "select sum(o_shippriority)  from orders group by o_custkey, o_clerk order by o_clerk limit 11;"
         contains("sortByGroupKey:true")
+        contains("group by: o_clerk[#10], o_custkey[#9]")
+        contains("order by: o_clerk[#18] ASC, o_custkey[#19] ASC")
     }
 
-    // group key is not output of limit, deny opt
+
+    // one distinct 
+    explain {
+        sql "select sum(distinct o_shippriority) from orders group by o_orderkey limit 13; "
+        contains("VTOP-N")
+        contains("order by: o_orderkey")
+        multiContains("sortByGroupKey:true", 1)
+    }
+
+    // multi distinct 
+    explain {
+        sql "select count(distinct o_clerk), sum(distinct o_shippriority) from orders group by o_orderkey limit 14; "
+        contains("VTOP-N")
+        contains("order by: o_orderkey")
+        multiContains("sortByGroupKey:true", 2)
+    }
+
+    // use group key as sort key to enable topn-push opt
     explain {
         sql "select sum(o_shippriority) from orders group by o_clerk limit 14; "
-        contains("sortByGroupKey:false")
-    }
-
-    // group key is part of output of limit, apply opt
-    explain {
-        sql "select sum(o_shippriority), o_clerk from orders group by o_clerk limit 15; "
         contains("sortByGroupKey:true")
     }
 
-    // order key is not prefix of group key
+    // group key is expression
+    explain {
+        sql "select sum(o_shippriority), o_clerk+1 from orders group by o_clerk+1 limit 15; "
+        contains("sortByGroupKey:true")
+    }
+
+    // order key is not part of group key
     explain {
         sql "select o_custkey, sum(o_shippriority) from orders group by o_custkey order by o_custkey+1 limit 16; "
         contains("sortByGroupKey:false")
-    }
-
-    // order key is not prefix of group key
-    explain {
-        sql "select o_custkey, sum(o_shippriority) from orders group by o_custkey order by o_custkey+1 limit 17; "
-        contains("sortByGroupKey:false")
+        notContains("sortByGroupKey:true")
     }
 
     // topn + one phase agg
@@ -98,72 +102,85 @@ suite("push_topn_to_agg") {
         contains("sortByGroupKey:true")
     }
 
-    // sort key is prefix of group key, make all group key to sort key(ps_suppkey) and then apply push-topn-agg rule
-    explain {
-        sql "select sum(ps_availqty), ps_partkey, ps_suppkey from partsupp group by ps_partkey, ps_suppkey order by ps_partkey limit 19;"
-        contains("sortByGroupKey:true")
-    }
+    qt_shape_distinct_agg "explain shape plan select o_custkey, o_shippriority from orders group by o_custkey, o_shippriority limit 1";
+
+    qt_shape_distinct "explain shape plan select distinct o_custkey from orders group by o_custkey limit 1"
 
     explain {
-        sql "select sum(ps_availqty), ps_suppkey, ps_availqty from partsupp group by ps_suppkey, ps_availqty order by ps_suppkey limit 19;"
-        contains("sortByGroupKey:true")
+        sql "select o_custkey, o_shippriority from orders group by o_custkey, o_shippriority limit 1"
+        multiContains("limit: 1", 3)
     }
-
-    // sort key is not prefix of group key, deny
-    explain {
-        sql "select sum(ps_availqty), ps_partkey, ps_suppkey from partsupp group by ps_partkey, ps_suppkey order by ps_suppkey limit 20;"
-        contains("sortByGroupKey:false")
-    }
-
-    multi_sql """
-    drop table if exists t1;
-    CREATE TABLE IF NOT EXISTS t1
-        (
-        k1 TINYINT
-        )
-        ENGINE=olap
-        AGGREGATE KEY(k1)
-        DISTRIBUTED BY HASH(k1) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "1"
-        );
-
-    insert into t1 values (0),(1);
-
-    drop table if exists t2;
-    CREATE TABLE IF NOT EXISTS t2
-        (
-        k1 TINYINT
-        )
-        ENGINE=olap
-        AGGREGATE KEY(k1)
-        DISTRIBUTED BY HASH(k1) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "1"
-        );
-    insert into t2 values(5),(6);
-    """
-
-    // the result of following sql may be unstable, run 3 times
-    qt_stable_1 """
-    select * from (
-        select k1 from t1
-        UNION
-        select k1 from t2
-    ) as b order by k1  limit 2;
-    """
-    qt_stable_2 """
-    select * from (
-        select k1 from t1
-        UNION
-        select k1 from t2
-    ) as b order by k1  limit 2;
-    """
-    qt_stable_3 """
-    select * from (
-        select k1 from t1
-        UNION
-        select k1 from t2
-    ) as b order by k1  limit 2;
-    """
+    /**
+    "limit 1" in 3 plan nodes:
+    4:VEXCHANGE/ 3:VAGGREGATE (merge finalize) / 1:VAGGREGATE (update serialize)
++--------------------------------------------------------------------------------+
+| PLAN FRAGMENT 0                                                                |
+|   OUTPUT EXPRS:                                                                |
+|     o_custkey[#11]                                                             |
+|   PARTITION: UNPARTITIONED                                                     |
+|                                                                                |
+|   HAS_COLO_PLAN_NODE: false                                                    |
+|                                                                                |
+|   VRESULT SINK                                                                 |
+|      MYSQL_PROTOCAL                                                            |
+|                                                                                |
+|   4:VEXCHANGE                                                                  |
+|      offset: 0                                                                 |
+|      limit: 1                                                                  |
+|      distribute expr lists: o_custkey[#11]                                     |
+|                                                                                |
+| PLAN FRAGMENT 1                                                                |
+|                                                                                |
+|   PARTITION: HASH_PARTITIONED: o_custkey[#10]                                  |
+|                                                                                |
+|   HAS_COLO_PLAN_NODE: true                                                     |
+|                                                                                |
+|   STREAM DATA SINK                                                             |
+|     EXCHANGE ID: 04                                                            |
+|     UNPARTITIONED                                                              |
+|                                                                                |
+|   3:VAGGREGATE (merge finalize)(233)                                           |
+|   |  group by: o_custkey[#10]                                                  |
+|   |  sortByGroupKey:false                                                      |
+|   |  cardinality=50,000                                                        |
+|   |  limit: 1                                                                  |
+|   |  distribute expr lists: o_custkey[#10]                                     |
+|   |                                                                            |
+|   2:VEXCHANGE                                                                  |
+|      offset: 0                                                                 |
+|      distribute expr lists:                                                    |
+|                                                                                |
+| PLAN FRAGMENT 2                                                                |
+|                                                                                |
+|   PARTITION: HASH_PARTITIONED: O_ORDERKEY[#0]                                  |
+|                                                                                |
+|   HAS_COLO_PLAN_NODE: false                                                    |
+|                                                                                |
+|   STREAM DATA SINK                                                             |
+|     EXCHANGE ID: 02                                                            |
+|     HASH_PARTITIONED: o_custkey[#10]                                           |
+|                                                                                |
+|   1:VAGGREGATE (update serialize)(223)                                         |
+|   |  STREAMING                                                                 |
+|   |  group by: o_custkey[#9]                                                   |
+|   |  sortByGroupKey:false                                                      |
+|   |  cardinality=50,000                                                        |
+|   |  limit: 1                                                                  |
+|   |  distribute expr lists:                                                    |
+|   |                                                                            |
+|   0:VOlapScanNode(213)                                                         |
+|      TABLE: regression_test_nereids_tpch_p0.orders(orders), PREAGGREGATION: ON |
+|      partitions=1/1 (orders)                                                   |
+|      tablets=3/3, tabletList=1738740551790,1738740551792,1738740551794         |
+|      cardinality=150000, avgRowSize=165.10652, numNodes=1                      |
+|      pushAggOp=NONE                                                            |
+|      final projections: O_CUSTKEY[#1]                                          |
+|      final project output tuple id: 1                                          |
+|                                                                                |
+|                                                                                |
+|                                                                                |
+| ========== STATISTICS ==========                                               |
+| planed with unknown column statistics                                          |
++--------------------------------------------------------------------------------+
+    **/
 }

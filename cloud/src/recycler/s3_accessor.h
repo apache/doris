@@ -69,6 +69,7 @@ struct S3Conf {
     std::string region;
     std::string bucket;
     std::string prefix;
+    bool use_virtual_addressing {true};
 
     enum Provider : uint8_t {
         S3,

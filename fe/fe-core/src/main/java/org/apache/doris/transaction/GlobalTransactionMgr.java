@@ -200,7 +200,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    public void preCommitTransaction2PC(long dbId, List<Table> tableList, long transactionId,
+    private void preCommitTransaction2PC(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         if (Config.disable_load_job) {
@@ -214,10 +214,12 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         dbTransactionMgr.preCommitTransaction2PC(tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
     }
 
-    public void commitTransaction(long dbId, List<Table> tableList,
+    @Deprecated
+    @Override
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
-        commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, null);
+        commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, null);
     }
 
     @Override
@@ -233,7 +235,8 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
      * @note it is necessary to optimize the `lock` mechanism and `lock` scope resulting from wait lock long time
      * @note callers should get all tables' write locks before call this api
      */
-    public void commitTransaction(long dbId, List<Table> tableList, long transactionId,
+    @Override
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         if (Config.disable_load_job) {
@@ -250,7 +253,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     /**
      * @note callers should get all tables' write locks before call this api
      */
-    public void commitTransaction(long dbId, List<Table> tableList, long transactionId,
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<SubTransactionState> subTransactionStates, long timeout) throws UserException {
         if (Config.disable_load_job) {
             throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
@@ -261,6 +264,21 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.commitTransaction(transactionId, tableList, subTransactionStates);
+    }
+
+    @Override
+    public void commitTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis, TxnCommitAttachment txnCommitAttachment)
+            throws UserException {
+        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+            throw new UserException("get tableList write lock timeout, tableList=("
+                    + StringUtils.join(tableList, ",") + ")");
+        }
+        try {
+            commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+        } finally {
+            MetaLockUtils.writeUnlockTables(tableList);
+        }
     }
 
     private void commitTransaction2PC(long dbId, long transactionId)
@@ -290,7 +308,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
                     + StringUtils.join(tableList, ",") + ")");
         }
         try {
-            commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+            commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }
@@ -319,7 +337,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
                     + StringUtils.join(tableList, ",") + ")");
         }
         try {
-            commitTransaction(db.getId(), tableList, transactionId, subTransactionStates, timeoutMillis);
+            commitTransactionWithoutLock(db.getId(), tableList, transactionId, subTransactionStates, timeoutMillis);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }
@@ -350,7 +368,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         stopWatch.stop();
         LOG.info("stream load tasks are committed successfully. txns: {}. time cost: {} ms."
-                + " data will be visable later.", transactionId, stopWatch.getTime());
+                + " data will be visible later.", transactionId, stopWatch.getTime());
     }
 
     @Override
@@ -634,6 +652,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
                 TransactionState transactionState = dbTransactionMgr.getTransactionState(txnInfo.second);
                 long coordStartTime = transactionState.getCoordinator().startTime;
                 if (coordStartTime > 0 && coordStartTime < beStartTime) {
+                    // does not hold table write lock
                     dbTransactionMgr.abortTransaction(txnInfo.second, "coordinate BE restart", null);
                 }
             } catch (UserException e) {
@@ -652,6 +671,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
                 = getPrepareTransactionIdByCoordinateBe(coordinateBeId, coordinateHost, limit);
         for (Pair<Long, Long> txnInfo : transactionIdByCoordinateBe) {
             try {
+                // does not hold table write lock
                 DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(txnInfo.first);
                 dbTransactionMgr.abortTransaction(txnInfo.second, "coordinate BE is down", null);
             } catch (UserException e) {

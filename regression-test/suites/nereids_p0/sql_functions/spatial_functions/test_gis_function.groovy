@@ -71,4 +71,22 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_AsText(ST_GeomFromWKB(ST_AsBinary(ST_GeometryFromText(\"LINESTRING (1 1, 2 2)\"))));"
     qt_sql "SELECT ST_AsText(ST_GeomFromWKB(ST_AsBinary(ST_Polygon(\"POLYGON ((114.104486 22.547119,114.093758 22.547753,114.096504 22.532057,114.104229 22.539826,114.106203 22.542680,114.104486 22.547119))\"))));"
 
+    // test const
+    sql "drop table if exists test_gis_const"
+    sql """
+    CREATE TABLE test_gis_const (
+        `userid` varchar(32) NOT NULL COMMENT '个人账号id',
+        `c_1` double NOT NULL COMMENT '发送时间',
+        `c_2` double NOT NULL COMMENT '信源类型'
+    ) ENGINE=OLAP
+    UNIQUE KEY(`userid`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`userid`) BUCKETS 6
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    sql "insert into test_gis_const values ('xxxx',78.73,31.5);"
+    qt_sql_part_const_dis_sph "select st_distance_sphere(78.73,31.53,c_1,c_2) from test_gis_const; "
+    qt_sql_part_const_ang_sph "select st_angle_sphere(78.73,31.53,c_1,c_2) from test_gis_const; "
 }

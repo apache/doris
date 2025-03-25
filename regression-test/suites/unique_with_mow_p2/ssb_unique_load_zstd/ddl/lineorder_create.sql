@@ -28,6 +28,7 @@ PARTITION p1997 VALUES [("19970101"), ("19980101")),
 PARTITION p1998 VALUES [("19980101"), ("19990101")))
 DISTRIBUTED BY HASH(`lo_orderkey`) BUCKETS 48
 PROPERTIES (
+"enable_mow_light_delete" = "true",
 "compression"="zstd",
 "replication_num" = "1",
 "enable_unique_key_merge_on_write" = "true"

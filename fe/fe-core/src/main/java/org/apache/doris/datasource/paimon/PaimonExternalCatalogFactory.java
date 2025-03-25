@@ -19,6 +19,7 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -38,6 +39,9 @@ public class PaimonExternalCatalogFactory {
                 return new PaimonHMSExternalCatalog(catalogId, name, resource, props, comment);
             case PaimonExternalCatalog.PAIMON_FILESYSTEM:
                 return new PaimonFileExternalCatalog(catalogId, name, resource, props, comment);
+            case PaimonExternalCatalog.PAIMON_DLF:
+                props.put(HMSProperties.HIVE_METASTORE_TYPE, HMSProperties.DLF_TYPE);
+                return new PaimonDLFExternalCatalog(catalogId, name, resource, props, comment);
             default:
                 throw new DdlException("Unknown " + PaimonExternalCatalog.PAIMON_CATALOG_TYPE
                         + " value: " + metastoreType);

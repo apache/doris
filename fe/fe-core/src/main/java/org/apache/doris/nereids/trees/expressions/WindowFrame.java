@@ -90,12 +90,12 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(frameUnits, leftBoundary, rightBoundary);
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         StringBuilder sb = new StringBuilder();
         sb.append(frameUnits + " ");
         if (rightBoundary != null) {

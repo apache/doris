@@ -53,11 +53,12 @@ suite("test_truncate_table") {
     sql "insert into ${testTable} values ('2020-03-10', 1.0, 'a', 1)"
     order_qt_select_1 "SELECT * FROM ${testTable}"
 
+    // if truncate without force, empty partions also kept in recycle bin.
     sql """truncate table ${testTable};"""
     def partitionIds2 = getPartitionIds()
     assertEquals(["p1", "p2", "p3"].toSet(), partitionIds2.keySet())
     assertNotEquals(partitionIds1.get("p1"), partitionIds2.get("p1"))
-    assertEquals(partitionIds1.get("p2"), partitionIds2.get("p2"))
+    assertNotEquals(partitionIds1.get("p2"), partitionIds2.get("p2"))
     assertNotEquals(partitionIds1.get("p3"), partitionIds2.get("p3"))
     order_qt_select_2 "SELECT * FROM ${testTable}"
 
@@ -68,7 +69,7 @@ suite("test_truncate_table") {
 
     def partitionIds3 = getPartitionIds()
     assertEquals(["p1", "p2", "p3"].toSet(), partitionIds3.keySet())
-    assertEquals(partitionIds2.get("p1"), partitionIds3.get("p1"))
+    assertNotEquals(partitionIds2.get("p1"), partitionIds3.get("p1"))
     assertNotEquals(partitionIds2.get("p2"), partitionIds3.get("p2"))
     assertEquals(partitionIds2.get("p3"), partitionIds3.get("p3"))
 

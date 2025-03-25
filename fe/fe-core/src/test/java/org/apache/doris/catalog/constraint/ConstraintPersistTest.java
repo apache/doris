@@ -239,8 +239,8 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
 
         Env.getCurrentEnv().changeCatalog(connectContext, "es");
         EsExternalCatalog esCatalog = (EsExternalCatalog) getCatalog("es");
-        EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1");
-        EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_db1", esCatalog);
+        EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1", "es_db1");
+        EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_db1", esCatalog, db);
         ImmutableList<Column> schema = ImmutableList.of(new Column("k1", PrimitiveType.INT));
         tbl.setNewFullSchema(schema);
         db.addTableForTest(tbl);
@@ -302,8 +302,8 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
 
         Env.getCurrentEnv().changeCatalog(connectContext, "es2");
         EsExternalCatalog esCatalog = (EsExternalCatalog) getCatalog("es2");
-        EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1");
-        EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_db1", esCatalog);
+        EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1", "es_db1");
+        EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_db1", esCatalog, db);
         ImmutableList<Column> schema = ImmutableList.of(new Column("k1", PrimitiveType.INT));
         tbl.setNewFullSchema(schema);
         db.addTableForTest(tbl);

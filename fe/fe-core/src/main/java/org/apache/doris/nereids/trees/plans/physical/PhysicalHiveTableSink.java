@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -123,7 +123,8 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalBase
             List<ExprId> exprIds = columnIdx.stream()
                     .map(idx -> child().getOutput().get(idx).getExprId())
                     .collect(Collectors.toList());
-            DistributionSpecTableSinkHashPartitioned shuffleInfo = new DistributionSpecTableSinkHashPartitioned();
+            DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
+                    = new DistributionSpecHiveTableSinkHashPartitioned();
             shuffleInfo.setOutputColExprIds(exprIds);
             return new PhysicalProperties(shuffleInfo);
         }

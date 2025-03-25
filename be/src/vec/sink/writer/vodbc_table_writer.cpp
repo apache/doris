@@ -29,6 +29,7 @@
 
 namespace doris {
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 ODBCConnectorParam VOdbcTableWriter::create_connect_param(const doris::TDataSink& t_sink) {
     const TOdbcTableSink& t_odbc_sink = t_sink.odbc_table_sink;

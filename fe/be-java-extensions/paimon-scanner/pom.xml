@@ -39,12 +39,6 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>java-common</artifactId>
             <version>${project.version}</version>
-            <exclusions>
-                <exclusion>
-                    <artifactId>fe-common</artifactId>
-                    <groupId>org.apache.doris</groupId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
         <dependency>
@@ -75,6 +69,7 @@ under the License.
 
     <build>
         <finalName>paimon-scanner</finalName>
+        <directory>${project.basedir}/target/</directory>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

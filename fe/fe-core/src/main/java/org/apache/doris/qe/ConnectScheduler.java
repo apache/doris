@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -33,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TimerTask;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -77,7 +79,7 @@ public class ConnectScheduler {
         }
     }
 
-    // submit one MysqlContext to this scheduler.
+    // submit one MysqlContext or ArrowFlightSqlContext to this scheduler.
     // return true, if this connection has been successfully submitted, otherwise return false.
     // Caller should close ConnectContext if return false.
     public boolean submit(ConnectContext context) {
@@ -145,11 +147,11 @@ public class ConnectScheduler {
         return null;
     }
 
-    public void cancelQuery(String queryId) {
+    public void cancelQuery(String queryId, Status cancelReason) {
         for (ConnectContext ctx : connectionMap.values()) {
             TUniqueId qid = ctx.queryId();
             if (qid != null && DebugUtil.printId(qid).equals(queryId)) {
-                ctx.cancelQuery();
+                ctx.cancelQuery(cancelReason);
                 break;
             }
         }
@@ -174,7 +176,8 @@ public class ConnectScheduler {
     }
 
     // used for thrift
-    public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql) {
+    public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql,
+            Optional<String> timeZone) {
         List<List<String>> list = new ArrayList<>();
         long nowMs = System.currentTimeMillis();
         for (ConnectContext ctx : connectionMap.values()) {
@@ -184,7 +187,7 @@ public class ConnectScheduler {
                     .checkGlobalPriv(userIdentity, PrivPredicate.GRANT)) {
                 continue;
             }
-            list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs));
+            list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs, timeZone));
         }
         return list;
     }

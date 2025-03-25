@@ -27,7 +27,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public class ShowRolesStmt extends ShowStmt {
+public class ShowRolesStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA;
 
     static {
@@ -45,6 +45,7 @@ public class ShowRolesStmt extends ShowStmt {
         builder.addColumn(new Column("CloudStagePrivs", ScalarType.createVarchar(300)));
         builder.addColumn(new Column("StorageVaultPrivs", ScalarType.createVarchar(300)));
         builder.addColumn(new Column("WorkloadGroupPrivs", ScalarType.createVarchar(300)));
+        builder.addColumn(new Column("ComputeGroupPrivs", ScalarType.createVarchar(300)));
 
         META_DATA = builder.build();
     }

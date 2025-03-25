@@ -30,7 +30,7 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
-public class AdminCompactTableStmt extends DdlStmt {
+public class AdminCompactTableStmt extends DdlStmt implements NotFallbackInParser {
 
     private TableRef tblRef;
     private Expr where;

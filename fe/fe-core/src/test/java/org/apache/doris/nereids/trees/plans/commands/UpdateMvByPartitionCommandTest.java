@@ -45,7 +45,7 @@ class UpdateMvByPartitionCommandTest {
         RangePartitionItem item1 = new RangePartitionItem(range1);
 
         Set<Expression> predicates = UpdateMvByPartitionCommand.constructPredicates(Sets.newHashSet(item1), "s");
-        Assertions.assertEquals("((s < 1) OR s IS NULL)", predicates.iterator().next().toSql());
+        Assertions.assertEquals("OR[(s < 1),s IS NULL]", predicates.iterator().next().toSql());
 
     }
 
@@ -82,6 +82,6 @@ class UpdateMvByPartitionCommandTest {
         listPartitionItem = new ListPartitionItem(ImmutableList.of(v1, v2));
         expr = UpdateMvByPartitionCommand.constructPredicates(Sets.newHashSet(listPartitionItem), "s").iterator()
                 .next();
-        Assertions.assertEquals("(s IS NULL OR s IN (1))", expr.toSql());
+        Assertions.assertEquals("OR[s IS NULL,s IN (1)]", expr.toSql());
     }
 }

@@ -143,7 +143,7 @@ private:
     uint64_t _estimated_size = 0;
 };
 
-class ZoneMapIndexReader {
+class ZoneMapIndexReader : public MetadataAdder<ZoneMapIndexReader> {
 public:
     explicit ZoneMapIndexReader(io::FileReaderSPtr file_reader,
                                 const IndexedColumnMetaPB& page_zone_maps)
@@ -154,14 +154,18 @@ public:
     virtual ~ZoneMapIndexReader();
 
     // load all page zone maps into memory
-    Status load(bool use_page_cache, bool kept_in_memory);
+    Status load(bool use_page_cache, bool kept_in_memory,
+                OlapReaderStatistics* index_load_stats = nullptr);
 
     const std::vector<ZoneMapPB>& page_zone_maps() const { return _page_zone_maps; }
 
     int32_t num_pages() const { return _page_zone_maps.size(); }
 
 private:
-    Status _load(bool use_page_cache, bool kept_in_memory, std::unique_ptr<IndexedColumnMetaPB>);
+    Status _load(bool use_page_cache, bool kept_in_memory, std::unique_ptr<IndexedColumnMetaPB>,
+                 OlapReaderStatistics* index_load_stats);
+
+    int64_t get_metadata_size() const override;
 
 private:
     DorisCallOnce<Status> _load_once;
@@ -169,6 +173,7 @@ private:
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<IndexedColumnMetaPB> _page_zone_maps_meta;
     std::vector<ZoneMapPB> _page_zone_maps;
+    int64_t _pb_meta_size {0};
 };
 
 } // namespace segment_v2

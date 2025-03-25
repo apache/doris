@@ -51,4 +51,39 @@ suite("test_map") {
     qt_sql """
         select * from test_map_table left join test_map_table_right on test_map_table.k1 = test_map_table_right.value order by 1,2,4,5;
     """
+
+    sql "DROP TABLE IF EXISTS `task_map_agg_with_bitmap`"
+    sql """
+        CREATE TABLE `task_map_agg_with_bitmap` (
+            `cache_key` varchar(65533) NOT NULL,
+            `result_cnt` int NULL COMMENT '人群包人数'
+        ) ENGINE = OLAP duplicate KEY(`cache_key`) COMMENT 'OLAP' DISTRIBUTED BY HASH(`cache_key`) BUCKETS 1 PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql 'insert into `task_map_agg_with_bitmap` values ("aa",null);'
+    sql 'insert into `task_map_agg_with_bitmap` values ("bb",null);'
+    sql 'insert into `task_map_agg_with_bitmap` values ("bb",1);'
+    sql 'insert into `task_map_agg_with_bitmap` values ("bb",2);'
+    sql 'insert into `task_map_agg_with_bitmap` values ("bb",3);'
+
+    qt_sql2 """
+        select bitmap_count(id_map['2024-11-03']) cnt,
+            bitmap_contains(id_map['2024-11-03'], 1) c1,
+            bitmap_contains(id_map['2024-11-03'], 2) c2,
+            bitmap_contains(id_map['2024-11-03'], 3) c3
+        from (
+            select
+                map_agg(tag_logymd, result) id_map
+            from
+                (
+                    select
+                        '2024-11-03' tag_logymd,
+                        bitmap_agg(result_cnt) result
+                    from
+                        `task_map_agg_with_bitmap`
+                ) t1
+        ) t2;
+    """
 }

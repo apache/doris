@@ -17,3 +17,10 @@
 -- !sql --
 DUP
 
+-- !default --
+id	largeint	YES	\N
+name	varchar(20)	YES	无
+age	smallint(6)	YES	0
+address	varchar(100)	YES	beijing
+date	datetime	YES	20240101
+

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.pattern.generator;
 
 import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
 
-import java.lang.reflect.Modifier;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -45,8 +44,7 @@ public class PlanPatternGeneratorAnalyzer {
         Map<ClassDeclaration, Set<String>> planClassMap = analyzer.getParentClassMap().entrySet().stream()
                 .filter(kv -> kv.getValue().contains("org.apache.doris.nereids.trees.plans.Plan"))
                 .filter(kv -> !kv.getKey().name.equals("GroupPlan"))
-                .filter(kv -> !Modifier.isAbstract(kv.getKey().modifiers.mod)
-                        && kv.getKey() instanceof ClassDeclaration)
+                .filter(kv -> kv.getKey() instanceof ClassDeclaration)
                 .collect(Collectors.toMap(kv -> (ClassDeclaration) kv.getKey(), kv -> kv.getValue()));
 
         List<PlanPatternGenerator> generators = planClassMap.entrySet()

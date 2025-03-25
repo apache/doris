@@ -192,6 +192,11 @@ public class GroupByClause implements ParseNode {
                         "GROUP BY expression must not contain aggregate functions: "
                                 + groupingExpr.toSql());
             }
+            if (groupingExpr.contains(GroupingFunctionCallExpr.class)) {
+                throw new AnalysisException(
+                        "GROUP BY expression must not contain grouping scalar functions: "
+                                + groupingExpr.toSql());
+            }
             if (groupingExpr.contains(AnalyticExpr.class)) {
                 // reference the original expr in the error msg
                 throw new AnalysisException(

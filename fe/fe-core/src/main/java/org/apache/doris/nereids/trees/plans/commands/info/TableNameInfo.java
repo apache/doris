@@ -38,6 +38,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 
 /**
  * table name info
@@ -91,6 +92,22 @@ public class TableNameInfo implements Writable {
     }
 
     /**
+     * TableNameInfo
+     * @param ctl catalogName
+     * @param db dbName
+     * @param tbl tblName
+     */
+    public TableNameInfo(String ctl, String db, String tbl) {
+        Objects.requireNonNull(tbl, "require tbl object");
+        this.ctl = ctl;
+        this.tbl = tbl;
+        if (Env.isStoredTableNamesLowerCase()) {
+            this.tbl = tbl.toLowerCase();
+        }
+        this.db = db;
+    }
+
+    /**
      * analyze tableNameInfo
      * @param ctx ctx
      */
@@ -114,6 +131,14 @@ public class TableNameInfo implements Writable {
     }
 
     /**
+     * Returns true if this name has a non-empty catalog and a non-empty database field
+     * and a non-empty table name.
+     */
+    public boolean isFullyQualified() {
+        return Stream.of(ctl, db, tbl).noneMatch(Strings::isNullOrEmpty);
+    }
+
+    /**
      * get catalog name
      * @return ctlName
      */
@@ -127,6 +152,14 @@ public class TableNameInfo implements Writable {
      */
     public String getDb() {
         return db;
+    }
+
+    /**
+     * set a new database name
+     * @param db new database name
+     */
+    public void setDb(String db) {
+        this.db = db;
     }
 
     /**
@@ -161,5 +194,58 @@ public class TableNameInfo implements Writable {
         ctl = fromJson.ctl;
         db = fromJson.db;
         tbl = fromJson.tbl;
+    }
+
+    /**
+     * equals
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        TableNameInfo that = (TableNameInfo) o;
+        return tbl.equals(that.tbl) && db.equals(that.db) && ctl.equals(that.ctl);
+    }
+
+    /**
+     * hashCode
+     */
+    @Override
+    public int hashCode() {
+        return Objects.hash(tbl, db, ctl);
+    }
+
+    /**
+     * toSql
+     */
+    public String toSql() {
+        StringBuilder stringBuilder = new StringBuilder();
+        if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            stringBuilder.append("`").append(ctl).append("`.");
+        }
+        if (db != null) {
+            stringBuilder.append("`").append(db).append("`.");
+        }
+        stringBuilder.append("`").append(tbl).append("`");
+        return stringBuilder.toString();
+    }
+
+    /**
+     * toFullyQualified
+     */
+    public String toFullyQualified() {
+        StringBuilder stringBuilder = new StringBuilder();
+        if (ctl != null) {
+            stringBuilder.append("`").append(ctl).append("`.");
+        }
+        if (db != null) {
+            stringBuilder.append("`").append(db).append("`.");
+        }
+        stringBuilder.append("`").append(tbl).append("`");
+        return stringBuilder.toString();
     }
 }

@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_match_phrase_edge", "p0"){
+suite("test_index_match_phrase_edge", "nonConcurrent"){
     def indexTbName1 = "test_index_match_phrase_edge"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -56,6 +56,8 @@ suite("test_index_match_phrase_edge", "p0"){
 
     try {
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true; """
+        GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         qt_sql """ select * from ${indexTbName1} where b match_phrase_edge 'x.h'; """
         qt_sql """ select * from ${indexTbName1} where b match_phrase_edge 'v_i'; """
@@ -75,6 +77,104 @@ suite("test_index_match_phrase_edge", "p0"){
         qt_sql """ select count() from ${indexTbName1} where c match_phrase_edge 'b'; """
 
     } finally {
-        //try_sql("DROP TABLE IF EXISTS ${testTable}")
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
+    }
+
+    def indexTbName2 = "test_index_match_phrase_edge2"
+    def indexTbName3 = "test_index_match_phrase_edge3"
+
+    sql "DROP TABLE IF EXISTS ${indexTbName2}"
+    sql "DROP TABLE IF EXISTS ${indexTbName3}"
+
+    sql """
+      CREATE TABLE ${indexTbName2} (
+      `@timestamp` int(11) NULL COMMENT "",
+      `clientip` varchar(20) NULL COMMENT "",
+      `request` text NULL COMMENT "",
+      `status` int(11) NULL COMMENT "",
+      `size` int(11) NULL COMMENT "",
+      INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT ''
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`@timestamp`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY RANDOM BUCKETS 1
+      PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+      );
+    """
+
+    sql """
+      CREATE TABLE ${indexTbName3} (
+      `@timestamp` int(11) NULL COMMENT "",
+      `clientip` varchar(20) NULL COMMENT "",
+      `request` text NULL COMMENT "",
+      `status` int(11) NULL COMMENT "",
+      `size` int(11) NULL COMMENT ""
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`@timestamp`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY RANDOM BUCKETS 1
+      PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+      );
+    """
+
+    def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
+                        expected_succ_rows = -1, load_to_single_tablet = 'true' ->
+        
+        // load the json data
+        streamLoad {
+            table "${table_name}"
+            
+            // set http request header params
+            set 'label', label + "_" + UUID.randomUUID().toString()
+            set 'read_json_by_line', read_flag
+            set 'format', format_flag
+            file file_name // import json file
+            time 10000 // limit inflight 10s
+            if (expected_succ_rows >= 0) {
+                set 'max_filter_ratio', '1'
+            }
+
+            // if declared a check callback, the default check condition will ignore.
+            // So you must check all condition
+            check { result, exception, startTime, endTime ->
+		        if (ignore_failure && expected_succ_rows < 0) { return }
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    if (expected_succ_rows >= 0) {
+                        assertEquals(json.NumberLoadedRows, expected_succ_rows)
+                    } else {
+                        assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
+                        assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                }
+            }
+        }
+    }
+
+    try {
+        load_httplogs_data.call(indexTbName2, indexTbName2, 'true', 'json', 'documents-1000.json')
+        load_httplogs_data.call(indexTbName3, indexTbName3, 'true', 'json', 'documents-1000.json')
+
+        sql "sync"
+        sql """ set enable_common_expr_pushdown = true; """
+
+        GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
+        qt_sql """ select count() from ${indexTbName2} where request match_phrase_edge ''; """
+        qt_sql """ select count() from ${indexTbName2} where request match_phrase_edge 'age'; """
+        qt_sql """ select count() from ${indexTbName2} where request match_phrase_edge 'es/na'; """
+        qt_sql """ select count() from ${indexTbName2} where request match_phrase_edge 'ets/images/ti'; """
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
+
+        qt_sql """ select count() from ${indexTbName3} where request match_phrase_edge ''; """
+        qt_sql """ select count() from ${indexTbName3} where request match_phrase_edge 'age'; """
+        qt_sql """ select count() from ${indexTbName3} where request match_phrase_edge 'es/na'; """
+        qt_sql """ select count() from ${indexTbName3} where request match_phrase_edge 'ets/images/ti'; """
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
     }
 }

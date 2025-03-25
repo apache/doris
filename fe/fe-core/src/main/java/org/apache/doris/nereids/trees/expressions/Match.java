@@ -76,7 +76,7 @@ public abstract class Match extends BinaryOperator implements PropagateNullable 
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return "(" + left().toSql() + " " + symbol + " " + right().toSql() + ")";
     }
 

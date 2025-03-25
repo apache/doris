@@ -42,7 +42,7 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
         ) engine=olap
         DISTRIBUTED BY HASH(`k`) 
         BUCKETS 5 
-        properties("replication_num" = "1")
+        properties("replication_num" = "1", "group_commit_interval_ms" = "10")
         """
 
     GetDebugPoint().clearDebugPointsForAllBEs()
@@ -79,7 +79,7 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
         ) engine=olap
         DISTRIBUTED BY HASH(`k`) 
         BUCKETS 5 
-        properties("replication_num" = "1")
+        properties("replication_num" = "1", "group_commit_interval_ms" = "10")
         """
 
     GetDebugPoint().clearDebugPointsForAllBEs()
@@ -118,7 +118,7 @@ suite("test_group_commit_async_wal_msg_fault_injection","nonConcurrent") {
         ) engine=olap
         DISTRIBUTED BY HASH(`k`) 
         BUCKETS 5 
-        properties("replication_num" = "1")
+        properties("replication_num" = "1", "group_commit_interval_ms" = "10")
         """
 
     GetDebugPoint().clearDebugPointsForAllBEs()

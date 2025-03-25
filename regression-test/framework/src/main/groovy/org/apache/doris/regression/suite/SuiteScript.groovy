@@ -61,6 +61,10 @@ abstract class SuiteScript extends Script {
         }
         List<String> groups = ["default"]
 
+        if (groupPath.contains("nonConcurrent")) {
+            groups.add("nonConcurrent")
+        }
+
         def grouped_p = groupPath.split(File.separator)
             .collect {it.trim()}
             .findAll {it != "." && it != ".." && !it.isEmpty()}

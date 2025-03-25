@@ -65,7 +65,7 @@ suite ("test_uniq_vals_schema_change") {
                 (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2020-01-03', 1, 32, 20)
             """
 
-        qt_sc"""
+        qt_sc """
                         select count(*) from ${tableName}
                         """
 
@@ -76,7 +76,7 @@ suite ("test_uniq_vals_schema_change") {
 
         // add column
         sql """
-            ALTER table ${tableName} ADD COLUMN new_column INT default "1" 
+            ALTER table ${tableName} ADD COLUMN new_column INT default "1"
             """
 
         sql """ SELECT * FROM ${tableName} WHERE user_id=2 """
@@ -101,7 +101,7 @@ suite ("test_uniq_vals_schema_change") {
         sql """
             ALTER TABLE ${tableName} DROP COLUMN last_visit_date
             """
-        qt_sc = sql """ select * from ${tableName} where user_id = 3 """
+        qt_sc """ select * from ${tableName} where user_id = 3 """
 
         sql """ INSERT INTO ${tableName} VALUES
                 (4, '2017-10-01', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', 1, 32, 20, 2)
@@ -130,29 +130,7 @@ suite ("test_uniq_vals_schema_change") {
             """
 
         // compaction
-        String[][] tablets = sql """ show tablets from ${tableName}; """
-        for (String[] tablet in tablets) {
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
-                logger.info("run compaction:" + tablet_id)
-                (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                //assertEquals(code, 0)
-        }
-
-        // wait for all compactions done
-        for (String[] tablet in tablets) {
-            Awaitility.await().untilAsserted(() -> {
-                    String tablet_id = tablet[0]
-                    backend_id = tablet[2]
-                    (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                    logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                    assertEquals(code, 0)
-                    def compactionStatus = parseJson(out.trim())
-                    assertEquals("success", compactionStatus.status.toLowerCase())
-                    return compactionStatus.run_status;
-                });
-        }
+        trigger_and_wait_compaction(tableName, "cumulative")
         qt_sc """ select count(*) from ${tableName} """
 
         qt_sc """  SELECT * FROM ${tableName} WHERE user_id=2 """

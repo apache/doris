@@ -18,7 +18,7 @@
 import org.junit.Assert;
 
 suite("test_alter_distribution_type_mtmv","mtmv") {
-    String suiteName = "test_light_schema_change_mtmv"
+    String suiteName = "test_alter_distribution_type_mtmv"
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
 

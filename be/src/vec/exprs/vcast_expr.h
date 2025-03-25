@@ -61,7 +61,6 @@ private:
     std::string _target_data_type_name;
 
     DataTypePtr _cast_param_data_type;
-    ColumnPtr _cast_param;
 
     static const constexpr char* function_name = "CAST";
 };

@@ -55,7 +55,7 @@ public class IsNull extends Expression implements UnaryExpression, AlwaysNotNull
     }
 
     @Override
-    public String toSql() throws UnboundException {
+    public String computeToSql() throws UnboundException {
         return child().toSql() + " IS NULL";
     }
 
@@ -74,7 +74,7 @@ public class IsNull extends Expression implements UnaryExpression, AlwaysNotNull
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return child().hashCode();
     }
 

@@ -20,7 +20,11 @@ suite("extract_from_disjunction_in_join") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "set ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
-    sql "set runtime_filter_mode=OFF"
+    sql """
+        set runtime_filter_mode=OFF;
+        set disable_join_reorder=true;
+        set disable_join_reorder=true;
+        """
 
 
     sql "drop table if exists extract_from_disjunction_in_join_t1"

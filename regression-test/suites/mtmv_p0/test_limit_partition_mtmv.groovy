@@ -57,7 +57,7 @@ suite("test_limit_partition_mtmv") {
             AS
             SELECT * FROM ${tableName};
     """
-    showPartitionsResult = sql """show partitions from ${mvName}"""
+    def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertEquals(1, showPartitionsResult.size())
     assertTrue(showPartitionsResult.toString().contains("p_20380101"))

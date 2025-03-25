@@ -24,10 +24,13 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -46,7 +49,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -136,19 +141,24 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
 
     @Override
     public Optional<ResultSet> computeResultInFe(
-            CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext) {
+            CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext, List<Slot> outputSlots) {
         List<Column> columns = Lists.newArrayList();
         List<String> data = Lists.newArrayList();
-        for (int i = 0; i < projects.size(); i++) {
-            NamedExpression item = projects.get(i);
-            NamedExpression output = getOutput().get(i);
-            Expression expr = item.child(0);
-            if (expr instanceof Literal) {
-                LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
-                columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
-                data.add(legacyExpr.getStringValueInFe(cascadesContext.getStatementContext().getFormatOptions()));
-            } else {
-                return Optional.empty();
+        for (Slot outputSlot : outputSlots) {
+            for (int i = 0; i < projects.size(); i++) {
+                NamedExpression item = projects.get(i);
+                NamedExpression output = getOutput().get(i);
+                if (!outputSlot.getExprId().equals(output.getExprId())) {
+                    continue;
+                }
+                Expression expr = item.child(0);
+                if (expr instanceof Literal) {
+                    LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
+                    columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
+                    data.add(legacyExpr.getStringValueInFe(cascadesContext.getStatementContext().getFormatOptions()));
+                } else {
+                    return Optional.empty();
+                }
             }
         }
 
@@ -165,5 +175,33 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
             );
         }
         return Optional.of(resultSet);
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        getOutput().forEach(builder::addUniqueSlot);
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        getOutput().forEach(builder::addUniformSlot);
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        Map<Expression, NamedExpression> aliasMap = new HashMap<>();
+        for (NamedExpression namedExpr : projects) {
+            if (namedExpr instanceof Alias) {
+                if (aliasMap.containsKey(namedExpr.child(0))) {
+                    builder.addEqualPair(namedExpr.toSlot(), aliasMap.get(namedExpr.child(0)).toSlot());
+                }
+                aliasMap.put(namedExpr.child(0), namedExpr);
+            }
+        }
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        // don't generate
     }
 }

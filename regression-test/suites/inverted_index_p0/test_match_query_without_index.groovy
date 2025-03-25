@@ -59,7 +59,7 @@ suite("test_match_query_without_index", "inverted_index_select"){
         ("san zhang", "grade 5", "", "", "", 10, "2017-10-01", "tall:100cm, weight: 30kg, hobbies:", "", ""),
         ("li sisi", "grade 6", "li ba", "li liuliu", "", 11, "2016-10-01", "tall:150cm, weight: 40kg, hobbies: sing, dancing, running", "good at handiwork and beaty", "")
     """
-    
+    sql """ set enable_common_expr_pushdown = true """
     // case1: match any
     try {
         sql """ select * from ${indexTbName1} where ${varchar_colume1} match_any "" order by name; """

@@ -30,7 +30,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.ImmutableList;
 
-public class ShowFrontendsStmt extends ShowStmt {
+public class ShowFrontendsStmt extends ShowStmt implements NotFallbackInParser {
     private String detail;
 
     public ShowFrontendsStmt() {

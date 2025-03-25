@@ -120,6 +120,8 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     PageCacheHandle cache_handle;
     StoragePageCache::CacheKey cache_key(opts.file_reader->path().native(),
                                          opts.file_reader->size(), opts.page_pointer.offset);
+    VLOG_DEBUG << fmt::format("Reading page {}:{}:{}", cache_key.fname, cache_key.fsize,
+                              cache_key.offset);
     if (opts.use_page_cache && cache && cache->lookup(cache_key, &cache_handle, opts.type)) {
         // we find page in cache, use it
         *handle = PageHandle(std::move(cache_handle));

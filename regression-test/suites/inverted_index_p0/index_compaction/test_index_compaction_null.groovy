@@ -24,6 +24,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
+    sql """ set global enable_match_without_inverted_index = false """
     boolean disableAutoCompaction = false
   
     def set_be_config = { key, value ->
@@ -119,6 +120,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
     }
 
     def run_sql = { -> 
+        sql """ set enable_common_expr_pushdown=true """
         // select all data
         qt_select_0 "SELECT * FROM ${tableName} ORDER BY id"
 
@@ -258,7 +260,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
                 `compy` varchar(20) NULL COMMENT "",
                 `n` int NULL COMMENT "",
                 INDEX idx_city(city) USING INVERTED,
-                INDEX idx_addr(addr) USING INVERTED PROPERTIES("parser"="english"),
+                INDEX idx_addr(addr) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
                 INDEX idx_n(n) USING INVERTED
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
@@ -293,7 +295,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
                 `compy` varchar(20) NULL COMMENT "",
                 `n` int NULL COMMENT "",
                 INDEX idx_city(city) USING INVERTED,
-                INDEX idx_addr(addr) USING INVERTED PROPERTIES("parser"="english"),
+                INDEX idx_addr(addr) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
                 INDEX idx_n(n) USING INVERTED
             ) ENGINE=OLAP
             UNIQUE KEY(`id`)
@@ -308,6 +310,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
                 "inverted_index_storage_format" = "V1"
             )
             """
+        sql """ set enable_common_expr_pushdown = true """
 
         tablets = sql_return_maparray """ show tablets from ${tableName}; """
         run_test.call(tablets)
@@ -316,5 +319,7 @@ suite("test_index_compaction_null", "nonConcurrent") {
         if (has_update_be_config) {
             set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
         }
+
+        sql """ set global enable_match_without_inverted_index = true """
     }
 }

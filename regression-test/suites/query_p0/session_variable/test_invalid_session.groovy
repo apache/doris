@@ -21,10 +21,4 @@ suite("test_invalid_session") {
     } catch (Exception ex) {
         assert("${ex}".contains("parallel_pipeline_task_num value should greater than or equal 0, you set value is: -1"))
     }
-
-    try {
-        sql "set parallel_fragment_exec_instance_num = 0;"
-    } catch (Exception ex) {
-        assert("${ex}".contains("parallel_fragment_exec_instance_num value should greater than or equal 1, you set value is: 0"))
-    }
 }

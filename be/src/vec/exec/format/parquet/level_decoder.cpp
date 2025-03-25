@@ -27,13 +27,15 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 
 static constexpr size_t V1_LEVEL_SIZE = 4;
+#include "common/cast_set.h"
+#include "common/compile_check_begin.h"
 
 doris::Status doris::vectorized::LevelDecoder::init(doris::Slice* slice,
                                                     tparquet::Encoding::type encoding,
                                                     doris::vectorized::level_t max_level,
                                                     uint32_t num_levels) {
     _encoding = encoding;
-    _bit_width = BitUtil::log2(max_level + 1);
+    _bit_width = cast_set<level_t>(BitUtil::log2(max_level + 1));
     _max_level = max_level;
     _num_levels = num_levels;
     switch (encoding) {
@@ -75,11 +77,12 @@ doris::Status doris::vectorized::LevelDecoder::init_v2(const doris::Slice& level
                                                        doris::vectorized::level_t max_level,
                                                        uint32_t num_levels) {
     _encoding = tparquet::Encoding::RLE;
-    _bit_width = BitUtil::log2(max_level + 1);
+    _bit_width = cast_set<level_t>(BitUtil::log2(max_level + 1));
     _max_level = max_level;
     _num_levels = num_levels;
     size_t byte_length = levels.size;
-    _rle_decoder = RleDecoder<level_t>((uint8_t*)levels.data, byte_length, _bit_width);
+    _rle_decoder =
+            RleDecoder<level_t>((uint8_t*)levels.data, cast_set<int>(byte_length), _bit_width);
     return Status::OK();
 }
 
@@ -90,7 +93,16 @@ size_t doris::vectorized::LevelDecoder::get_levels(doris::vectorized::level_t* l
         _num_levels -= num_decoded;
         return num_decoded;
     } else if (_encoding == tparquet::Encoding::BIT_PACKED) {
-        // TODO(gaoxin): BIT_PACKED encoding
+        n = std::min((size_t)_num_levels, n);
+        for (size_t i = 0; i < n; ++i) {
+            if (!_bit_packed_decoder.GetValue(_bit_width, &levels[i])) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "Failed to decode BIT_PACKED levels");
+            }
+        }
+        _num_levels -= n;
+        return n;
     }
     return 0;
 }
+#include "common/compile_check_end.h"

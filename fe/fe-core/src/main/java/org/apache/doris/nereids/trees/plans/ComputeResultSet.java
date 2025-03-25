@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.qe.ResultSet;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -51,5 +53,6 @@ import java.util.Optional;
   * </pre>
   */
 public interface ComputeResultSet {
-    Optional<ResultSet> computeResultInFe(CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext);
+    Optional<ResultSet> computeResultInFe(CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext,
+            List<Slot> outputSlots);
 }

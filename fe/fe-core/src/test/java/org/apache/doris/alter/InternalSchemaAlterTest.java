@@ -28,7 +28,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.plugin.audit.AuditLoaderPlugin;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -54,11 +54,12 @@ public class InternalSchemaAlterTest extends TestWithFeService {
     public void testModifyTblReplicaCount() throws AnalysisException {
         Database db = Env.getCurrentEnv().getCatalogMgr()
                 .getInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
+
         InternalSchemaInitializer.modifyTblReplicaCount(db, StatisticConstants.TABLE_STATISTIC_TBL_NAME);
-        InternalSchemaInitializer.modifyTblReplicaCount(db, AuditLoaderPlugin.AUDIT_LOG_TABLE);
+        InternalSchemaInitializer.modifyTblReplicaCount(db, AuditLoader.AUDIT_LOG_TABLE);
 
         checkReplicationNum(db, StatisticConstants.TABLE_STATISTIC_TBL_NAME);
-        checkReplicationNum(db, AuditLoaderPlugin.AUDIT_LOG_TABLE);
+        checkReplicationNum(db, AuditLoader.AUDIT_LOG_TABLE);
     }
 
     private void checkReplicationNum(Database db, String tblName) throws AnalysisException {
@@ -77,7 +78,7 @@ public class InternalSchemaAlterTest extends TestWithFeService {
         Database db = Env.getCurrentEnv().getCatalogMgr()
                 .getInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
         Assertions.assertNotNull(db);
-        OlapTable table = db.getOlapTableOrAnalysisException(AuditLoaderPlugin.AUDIT_LOG_TABLE);
+        OlapTable table = db.getOlapTableOrAnalysisException(AuditLoader.AUDIT_LOG_TABLE);
         Assertions.assertNotNull(table);
         for (ColumnDef def : InternalSchema.AUDIT_SCHEMA) {
             Assertions.assertNotNull(table.getColumn(def.getName()));

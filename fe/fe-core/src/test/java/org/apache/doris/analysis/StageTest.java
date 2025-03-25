@@ -103,7 +103,8 @@ public class StageTest extends TestWithFeService {
                 + "'prefix' = 'tmp_prefix', "
                 + "'provider' = 'abc', "
                 + "'ak'='tmp_ak', 'sk'='tmp_sk', 'access_type'='aksk');";
-        parseAndAnalyzeWithException(sql, "Property provider with invalid value abc");
+        // S3 Provider will be converted to upper case.
+        parseAndAnalyzeWithException(sql, "Property provider with invalid value ABC");
 
         // test getObjectInfoPB
         sql = "create stage if not exists ex_stage_1 " + OBJ_INFO + ")";
@@ -312,6 +313,16 @@ public class StageTest extends TestWithFeService {
         Map<String, String> propertiesMap = stagePB.getPropertiesMap();
         Assert.assertEquals(4, propertiesMap.size());
         Assert.assertEquals("csv", propertiesMap.get("default.file.type"));
+    }
+
+    @Test
+    public void testCreateStageTrimPropertyKey() throws Exception {
+        String sql = CREATE_STAGE_SQL + ", ' default.file.type' = 'csv', ' default.file.compression '='gz')";
+        Assert.assertEquals("csv", parseAndAnalyze(sql).getStageProperties().getFileType());
+        Assert.assertEquals("gz", parseAndAnalyze(sql).getStageProperties().getCompression());
+
+        sql = CREATE_STAGE_SQL + ", 'default.file. type' = 'orc')";
+        parseAndAnalyzeWithException(sql, "Property 'default.file. type' is invalid");
     }
 
     private void parseAndAnalyzeWithException(String sql, String errorMsg) {

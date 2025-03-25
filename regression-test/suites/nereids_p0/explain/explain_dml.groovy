@@ -119,4 +119,6 @@ suite("explain_dml") {
         sql "update duptbl set v1=1 where k1=1;"
         exception "Only unique table could be updated."
     }
+
+    sql """explain with tmp as (select 1, 2, '3', 4.0, '2000-01-01') insert into epldel1 select * from tmp"""
 }

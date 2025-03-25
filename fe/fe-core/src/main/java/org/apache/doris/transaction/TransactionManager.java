@@ -27,5 +27,5 @@ public interface TransactionManager {
 
     void rollback(long id);
 
-    Transaction getTransaction(long id);
+    Transaction getTransaction(long id) throws UserException;
 }

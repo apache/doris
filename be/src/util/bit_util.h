@@ -20,6 +20,9 @@
 
 #pragma once
 
+#include <type_traits>
+
+#include "vec/core/wide_integer.h"
 #ifndef __APPLE__
 #include <endian.h>
 #endif
@@ -209,7 +212,11 @@ public:
 
     template <typename T>
     static T big_endian_to_host(T value) {
-        if constexpr (std::is_same_v<T, __int128>) {
+        if constexpr (std::is_same_v<T, wide::Int256>) {
+            return BigEndian::ToHost256(value);
+        } else if constexpr (std::is_same_v<T, wide::UInt256>) {
+            return BigEndian::ToHost256(value);
+        } else if constexpr (std::is_same_v<T, __int128>) {
             return BigEndian::ToHost128(value);
         } else if constexpr (std::is_same_v<T, unsigned __int128>) {
             return BigEndian::ToHost128(value);
@@ -230,9 +237,7 @@ public:
         } else if constexpr (std::is_same_v<T, uint8_t>) {
             return value;
         } else {
-            __builtin_unreachable();
-            LOG(FATAL) << "__builtin_unreachable";
-            return value;
+            throw Exception(Status::FatalError("__builtin_unreachable"));
         }
     }
 
@@ -365,7 +370,9 @@ public:
         return (value + (factor - 1)) & ~(factor - 1);
     }
 
-    static inline int64_t RoundDownToPowerOf2(int64_t value, int64_t factor) {
+    template <typename T>
+    static inline T RoundDownToPowerOf2(T value, T factor) {
+        static_assert(std::is_integral<T>::value, "T must be an integral type");
         DCHECK((factor > 0) && ((factor & (factor - 1)) == 0));
         return value & ~(factor - 1);
     }

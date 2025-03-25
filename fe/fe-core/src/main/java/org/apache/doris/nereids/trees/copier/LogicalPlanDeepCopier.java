@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapS
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
-import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -150,7 +149,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions().stream()
                 .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalAggregate<>(groupByExpressions, outputExpressions, child);
+        return aggregate.withChildGroupByAndOutput(groupByExpressions, outputExpressions, child);
     }
 
     @Override
@@ -190,28 +189,12 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     }
 
     @Override
-    public Plan visitLogicalExternalRelation(LogicalExternalRelation relation,
-            DeepCopierContext context) {
-        if (context.getRelationReplaceMap().containsKey(relation.getRelationId())) {
-            return context.getRelationReplaceMap().get(relation.getRelationId());
-        }
-        LogicalExternalRelation newRelation = relation.withRelationId(StatementScopeIdGenerator.newRelationId());
-        updateReplaceMapWithOutput(relation, newRelation, context.exprIdReplaceMap);
-        Set<Expression> conjuncts = relation.getConjuncts().stream()
-                .map(p -> ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
-                .collect(ImmutableSet.toImmutableSet());
-        newRelation = newRelation.withConjuncts(conjuncts);
-        context.putRelation(relation.getRelationId(), newRelation);
-        return newRelation;
-    }
-
-    @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, DeepCopierContext context) {
         Plan child = project.child().accept(this, context);
         List<NamedExpression> newProjects = project.getProjects().stream()
                 .map(p -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalProject<>(newProjects, child);
+        return new LogicalProject<>(newProjects, project.isDistinct(), child);
     }
 
     @Override
@@ -370,7 +353,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<Slot> generatorOutput = generate.getGeneratorOutput().stream()
                 .map(o -> (Slot) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalGenerate<>(generators, generatorOutput, child);
+        return new LogicalGenerate<>(generators, generatorOutput, generate.getExpandColumnAlias(), child);
     }
 
     @Override
@@ -379,7 +362,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> windowExpressions = window.getWindowExpressions().stream()
                 .map(w -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(w, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalWindow<>(windowExpressions, child);
+        return new LogicalWindow<>(windowExpressions, window.isChecked(), child);
     }
 
     @Override

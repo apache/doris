@@ -32,7 +32,7 @@ suite("test_index_failure_injection", "nonConcurrent") {
                           INDEX size_idx (`size`) USING INVERTED COMMENT '',
                           INDEX status_idx (`status`) USING INVERTED COMMENT '',
                           INDEX clientip_idx (`clientip`) USING INVERTED COMMENT '',
-                          INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+                          INDEX request_idx (`request`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
                         ) ENGINE=OLAP
                         DUPLICATE KEY(`@timestamp`)
                         COMMENT 'OLAP'
@@ -68,7 +68,7 @@ suite("test_index_failure_injection", "nonConcurrent") {
                               INDEX size_idx (`size`) USING INVERTED COMMENT '',
                               INDEX status_idx (`status`) USING INVERTED COMMENT '',
                               INDEX clientip_idx (`clientip`) USING INVERTED COMMENT '',
-                              INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+                              INDEX request_idx (`request`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
                             ) ENGINE=OLAP
                             UNIQUE KEY(`@timestamp`)
                             COMMENT 'OLAP'

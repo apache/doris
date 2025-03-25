@@ -15,21 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <limits.h>
-#include <stdint.h>
-
-#include <cmath>
-#include <iomanip>
+#include <climits>
+#include <cstdint>
 #include <limits>
 #include <string>
-#include <vector>
 
-#include "common/status.h"
 #include "function_test_util.h"
-#include "gtest/gtest_pred_impl.h"
-#include "testutil/any_type.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -51,6 +43,21 @@ TEST(MathFunctionTest, acos_test) {
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
+TEST(MathFunctionTest, acosh_test) {
+    std::string func_name = "acosh"; // acosh(x) = ln(x + sqrt(x^2 - 1)), x ∈ [1, +∞)
+
+    std::vector input_types = {TypeIndex::Float64};
+
+    DataSet data_set = {{{1.0}, 0.0},
+                        {{2.0}, 1.3169578969248168},
+                        {{3.0}, 1.7627471740390861},
+                        {{10.0}, 2.9932228461263808},
+                        {{100.0}, 5.2982923656104850}};
+
+    static_cast<void>(
+            check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
 TEST(MathFunctionTest, asin_test) {
     std::string func_name = "asin"; //[-1,1] -->[-pi_2, pi_2]
 
@@ -60,6 +67,21 @@ TEST(MathFunctionTest, asin_test) {
             {{-1.0}, -M_PI / 2}, {{0.0}, 0.0}, {{0.5}, 0.52359877559829893}, {{1.0}, M_PI / 2}};
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, asinh_test) {
+    std::string func_name = "asinh"; // asinh(x) = ln(x + sqrt(x^2 + 1)), x ∈ (-∞, +∞)
+
+    std::vector input_types = {TypeIndex::Float64};
+
+    DataSet data_set = {{{0.0}, 0.0},
+                        {{1.0}, 0.8813735870195430},
+                        {{-1.0}, -0.8813735870195430},
+                        {{2.0}, 1.4436354751788103},
+                        {{-2.0}, -1.4436354751788103}};
+
+    static_cast<void>(
+            check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, atan_test) {
@@ -73,6 +95,21 @@ TEST(MathFunctionTest, atan_test) {
                         {{1.0}, 0.78539816339744828}};
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, atanh_test) {
+    std::string func_name = "atanh"; // atanh(x) = 0.5 * ln((1 + x) / (1 - x)), x ∈ (-1, 1)
+
+    std::vector input_types = {TypeIndex::Float64};
+
+    DataSet data_set = {{{0.0}, 0.0},
+                        {{0.5}, 0.5493061443340549},
+                        {{-0.5}, -0.5493061443340549},
+                        {{0.9}, 1.4722194895832204},
+                        {{-0.9}, -1.4722194895832204}};
+
+    static_cast<void>(
+            check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, cos_test) {
@@ -101,6 +138,21 @@ TEST(MathFunctionTest, sin_test) {
                         {{1.0}, 0.8414709848078965}};
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, sinh_test) {
+    std::string func_name = "sinh"; // sinh(x) = (e^x - e^(-x)) / 2, x ∈ (-∞, +∞)
+
+    std::vector input_types = {TypeIndex::Float64};
+
+    DataSet data_set = {{{0.0}, 0.0},
+                        {{1.0}, 1.1752011936438014},
+                        {{-1.0}, -1.1752011936438014},
+                        {{2.0}, 3.6268604078470186},
+                        {{-2.0}, -3.6268604078470186}};
+
+    static_cast<void>(
+            check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(MathFunctionTest, sqrt_test) {
@@ -291,7 +343,7 @@ TEST(MathFunctionTest, abs_test) {
                             {{INT(0)}, BIGINT(0)},
                             {{INT(-60)}, BIGINT(60)},
                             {{INT(INT_MAX)}, BIGINT(INT_MAX)},
-                            {{INT(INT_MIN)}, BIGINT(-1ll * INT_MIN)}};
+                            {{INT(INT_MIN)}, BIGINT(-1LL * INT_MIN)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
@@ -498,7 +550,6 @@ TEST(MathFunctionTest, money_format_test) {
 
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
-
     {
         InputTypeSet input_types = {TypeIndex::Int128};
         DataSet data_set = {{{Null()}, Null()},
@@ -519,10 +570,18 @@ TEST(MathFunctionTest, money_format_test) {
     {
         InputTypeSet input_types = {TypeIndex::Decimal128V2};
         DataSet data_set = {{{Null()}, Null()},
-                            {{DECIMAL(17014116.67)}, VARCHAR("17,014,116.67")},
-                            {{DECIMAL(-17014116.67)}, VARCHAR("-17,014,116.67")}};
+                            {{DECIMALV2(17014116.67)}, VARCHAR("17,014,116.67")},
+                            {{DECIMALV2(-17014116.67)}, VARCHAR("-17,014,116.67")}};
 
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+    }
+    {
+        BaseInputTypeSet input_types = {TypeIndex::Decimal64};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{DECIMAL64(17014116, 670000000)}, VARCHAR("17,014,116.67")},
+                            {{DECIMAL64(-17014116, -670000000)}, VARCHAR("-17,014,116.67")}};
+
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
 }
 

@@ -61,9 +61,13 @@ public class PullUpProjectUnderApply extends OneRewriteRuleFactory {
                     Plan newCorrelate = apply.withChildren(apply.left(), project.child());
                     List<NamedExpression> newProjects = new ArrayList<>(apply.left().getOutput());
                     if (apply.getSubqueryExpr() instanceof ScalarSubquery) {
-                        Preconditions.checkState(project.getProjects().size() == 1,
-                                "ScalarSubquery should only have one output column");
-                        newProjects.add(project.getProjects().get(0));
+                        // unnest correlated scalar subquery may add count(*) and any_value() to project list
+                        // the previous SubqueryToApply rule will make sure of it. So the output column
+                        // may be 1 or 2, we add a check here.
+                        int size = project.getProjects().size();
+                        Preconditions.checkState(size == 1 || size == 2,
+                                "ScalarSubquery should only have one or two output column");
+                        newProjects.addAll(project.getProjects());
                     }
                     if (apply.isMarkJoin()) {
                         newProjects.add(apply.getMarkJoinSlotReference().get());

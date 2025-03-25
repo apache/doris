@@ -34,7 +34,7 @@ class InjectCase {
 
 }
 
-suite('test_min_load_replica_num_complicate') {
+suite('test_min_load_replica_num_complicate', 'docker') {
     def beCloneCostMs = 3000
 
     def random = new Random()

@@ -22,6 +22,7 @@
 #include <math.h>
 #include <stdint.h>
 
+#include <cassert>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -30,6 +31,8 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
+#include "common/exception.h"
 #include "gen_cpp/descriptors.pb.h"
 #include "gtest/gtest_pred_impl.h"
 #include "olap/hll.h"
@@ -263,6 +266,20 @@ TEST(BlockSerializeTest, Map) {
     EXPECT_EQ(block.dump_data(), new_block.dump_data());
 }
 
+TEST(BlockSerializeTest, Bigstr) {
+    DataTypePtr s = std::make_shared<DataTypeString>();
+    MutableColumnPtr col = ColumnString::create();
+    std::string bigdata;
+    bigdata.resize(std::numeric_limits<int32_t>::max() - 5);
+    col->insert_data(bigdata.data(), bigdata.length());
+    try {
+        s->get_uncompressed_serialized_bytes(*col, BeExecVersionManager::get_newest_version());
+    } catch (std::exception e) {
+        return;
+    }
+    assert(false);
+}
+
 TEST(BlockSerializeTest, Struct) {
     TabletSchema schema;
     TabletColumn struct_col;
@@ -277,7 +294,7 @@ TEST(BlockSerializeTest, Struct) {
         DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
         DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
         Tuple t1, t2;
-        t1.push_back(String("amory cute"));
+        t1.push_back(Field(String("amory cute")));
         t1.push_back(__int128_t(37));
         t1.push_back(true);
         t2.push_back("null");
@@ -431,7 +448,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(string_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         vectorized::ColumnWithTypeAndName type_and_name(nullable_column->get_ptr(),
                                                         nullable_data_type, "test_nullable");
         block.insert(type_and_name);
@@ -442,7 +459,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
         vectorized::DataTypePtr nullable_data_type(
                 std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         vectorized::ColumnWithTypeAndName type_and_name(
                 nullable_column->get_ptr(), nullable_data_type, "test_nullable_decimal");
         block.insert(type_and_name);
@@ -466,7 +483,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
         auto& date_v2_data = column_vector_date_v2->get_data();
         for (int i = 0; i < 1024; ++i) {
             DateV2Value<DateV2ValueType> value;
-            value.from_date((uint32_t)((2022 << 9) | (6 << 5) | 6));
+            value.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);
             date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
         }
         vectorized::DataTypePtr date_v2_type(std::make_shared<vectorized::DataTypeDateV2>());

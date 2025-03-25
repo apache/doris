@@ -138,7 +138,7 @@ suite("test_grant_revoke_cluster_stage_to_role", "cloud_auth") {
         insert into ${tbl} (k1, k2) values (1, "10");
     """
 
-    connect(user = "${user1}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    connect("${user1}", 'Cloud12345', context.config.jdbcUrl) {
         sql """use @${validCluster}"""
         def sqlRet = sql """SELECT * FROM ${db}.${tbl}"""
         assertEquals(sqlRet[0][0] as int, 1)
@@ -276,7 +276,7 @@ suite("test_grant_revoke_cluster_stage_to_role", "cloud_auth") {
     assertEquals(m.values().toUnique().asList().get(0) as String, "Cluster_usage_priv")
 
     // still can select, because have global * cluster
-    connect(user = "${user1}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    connect("${user1}", 'Cloud12345', context.config.jdbcUrl) {
         sql """use @${validCluster}"""
         def sqlRet = sql """SELECT * FROM ${db}.${tbl}"""
         assertEquals(sqlRet[0][0] as int, 1)
@@ -312,7 +312,7 @@ suite("test_grant_revoke_cluster_stage_to_role", "cloud_auth") {
     commonAuth result, "'${user1}'@'%'", "Yes", "testRole", "Select_priv"
 
     // can not use @cluster, because no cluster auth
-    connect(user = "${user1}", password = 'Cloud12345', url = context.config.jdbcUrl) {
+    connect("${user1}", 'Cloud12345', context.config.jdbcUrl) {
         test {
             sql """use @${validCluster}"""
             exception "USAGE denied to user"

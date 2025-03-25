@@ -28,6 +28,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -61,7 +62,7 @@ public abstract class QueryTableValueFunction extends TableValuedFunctionIf {
 
         // check priv
         UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
-        if (!Env.getCurrentEnv().getAuth().checkCtlPriv(userIdentity, catalogName, PrivPredicate.SELECT)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(userIdentity, catalogName, PrivPredicate.SELECT)) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "user " + userIdentity + " has no privilege to query in catalog " + catalogName);
         }
@@ -87,5 +88,5 @@ public abstract class QueryTableValueFunction extends TableValuedFunctionIf {
     public abstract List<Column> getTableColumns() throws AnalysisException;
 
     @Override
-    public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc);
+    public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv);
 }

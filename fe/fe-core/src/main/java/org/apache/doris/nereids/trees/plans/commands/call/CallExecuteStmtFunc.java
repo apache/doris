@@ -92,7 +92,7 @@ public class CallExecuteStmtFunc extends CallFunc {
         }
 
         // check priv
-        if (!Env.getCurrentEnv().getAuth().checkCtlPriv(user, catalogName, PrivPredicate.LOAD)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(user, catalogName, PrivPredicate.LOAD)) {
             throw new AnalysisException("user " + user + " has no privilege to execute stmt in catalog " + catalogName);
         }
 

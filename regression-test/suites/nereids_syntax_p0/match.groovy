@@ -37,11 +37,11 @@ suite("match") {
             `fatherName`     varchar(50),
             `matherName`     varchar(50),
             `selfComment`    text,
-            INDEX name_idx(name) USING INVERTED PROPERTIES("parser"="english") COMMENT 'name index',
+            INDEX name_idx(name) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT 'name index',
             INDEX age_idx(age) USING INVERTED COMMENT 'age index',
             INDEX grade_idx(grade) USING INVERTED PROPERTIES("parser"="none") COMMENT 'grade index',
-            INDEX fatherName_idx(fatherName) USING INVERTED PROPERTIES("parser"="english") COMMENT 'fatherName index',
-            INDEX matherName_idx(matherName) USING INVERTED PROPERTIES("parser"="english") COMMENT 'matherName index',
+            INDEX fatherName_idx(fatherName) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT 'fatherName index',
+            INDEX matherName_idx(matherName) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT 'matherName index',
             INDEX selfComment_idx(selfComment) USING INVERTED PROPERTIES("parser"="standard") COMMENT 'selfComment index'
         ) ENGINE=OLAP
         DUPLICATE KEY(`name`)

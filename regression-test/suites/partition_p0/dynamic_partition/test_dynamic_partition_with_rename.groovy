@@ -38,23 +38,26 @@ suite("test_dynamic_partition_with_rename") {
     assertEquals(7, result.size())
 
     // rename distributed column, then try to add too more dynamic partition
-    sql "alter table test_dynamic_partition_with_rename rename column k1 renamed_k1"
-    sql """ ADMIN SET FRONTEND CONFIG ('dynamic_partition_check_interval_seconds' = '1') """
-    sql """ alter table ${tbl} set('dynamic_partition.end'='5') """
-    result = sql_return_maparray "show partitions from ${tbl}"
-    for (def retry = 0; retry < 120; retry++) { // at most wait 120s
-        if (result.size() == 9) {
-            break;
-        }
-        logger.info("wait dynamic partition scheduler, sleep 1s")
-        sleep(1000); // sleep 1s
-        result = sql_return_maparray "show partitions from ${tbl}"
+    test {
+        sql "alter table test_dynamic_partition_with_rename rename column k1 renamed_k1"
+        exception """Renaming partition columns has problems, forbidden in current Doris version"""
     }
-    assertEquals(9, result.size())
-    for (def line = 0; line < result.size(); line++) {
-        // XXX: DistributionKey at pos(7), next maybe impl by sql meta
-        assertEquals("renamed_k1", result.get(line).DistributionKey)
-    }
+    // sql """ ADMIN SET FRONTEND CONFIG ('dynamic_partition_check_interval_seconds' = '1') """
+    // sql """ alter table ${tbl} set('dynamic_partition.end'='5') """
+    // result = sql_return_maparray "show partitions from ${tbl}"
+    // for (def retry = 0; retry < 120; retry++) { // at most wait 120s
+    //    if (result.size() == 9) {
+    //        break;
+    //    }
+    //    logger.info("wait dynamic partition scheduler, sleep 1s")
+    //    sleep(1000); // sleep 1s
+    //    result = sql_return_maparray "show partitions from ${tbl}"
+    // }
+    // assertEquals(9, result.size())
+    // for (def line = 0; line < result.size(); line++) {
+    //    // XXX: DistributionKey at pos(7), next maybe impl by sql meta
+    //    assertEquals("renamed_k1", result.get(line).DistributionKey)
+    // }
 
-    sql "drop table test_dynamic_partition_with_rename"
+    // sql "drop table test_dynamic_partition_with_rename"
 }

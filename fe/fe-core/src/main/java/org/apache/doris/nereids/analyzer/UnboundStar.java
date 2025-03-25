@@ -98,7 +98,7 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         StringBuilder builder = new StringBuilder();
         builder.append(Utils.qualifiedName(qualifier, "*"));
         if (!exceptedSlots.isEmpty()) {
@@ -150,8 +150,8 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), qualifier, exceptedSlots, replacedAlias);
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), qualifier, exceptedSlots, replacedAlias);
     }
 
     public UnboundStar withIndexInSql(Pair<Integer, Integer> index) {

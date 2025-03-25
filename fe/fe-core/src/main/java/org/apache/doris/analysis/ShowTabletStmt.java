@@ -37,7 +37,7 @@ import com.google.common.base.Strings;
 import java.util.ArrayList;
 import java.util.List;
 
-public class ShowTabletStmt extends ShowStmt {
+public class ShowTabletStmt extends ShowStmt implements NotFallbackInParser {
     private TableName dbTableName;
     private String dbName;
     private String tableName;

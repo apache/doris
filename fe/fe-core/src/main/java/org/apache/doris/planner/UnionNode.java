@@ -42,4 +42,11 @@ public class UnionNode extends SetOperationNode {
     protected void toThrift(TPlanNode msg) {
         toThrift(msg, TPlanNodeType.UNION_NODE);
     }
+
+    // If it is a union without children which means it will output some constant values, we should use a serial union
+    // to output non-duplicated data.
+    @Override
+    public boolean isSerialOperator() {
+        return children.isEmpty();
+    }
 }

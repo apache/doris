@@ -25,7 +25,6 @@
 #include "runtime/thread_context.h"
 #include "vec/columns/column.h"
 #include "vec/common/arena.h"
-#include "vec/common/hash_table/hash_map.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"

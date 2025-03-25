@@ -35,4 +35,6 @@ public interface CoordInterface {
     public default void close() {}
 
     List<TNetworkAddress> getInvolvedBackends();
+
+    void setIsProfileSafeStmt(boolean isSafe);
 }

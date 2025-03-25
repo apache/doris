@@ -19,15 +19,18 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/cloud.pb.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
 #include <algorithm>
+#include <mutex>
 #include <variant>
 
 #include "cloud/cloud_base_compaction.h"
+#include "cloud/cloud_compaction_stop_token.h"
 #include "cloud/cloud_cumulative_compaction.h"
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_full_compaction.h"
@@ -37,6 +40,9 @@
 #include "cloud/cloud_txn_delete_bitmap_cache.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
+#include "common/config.h"
+#include "common/signal_handler.h"
+#include "common/status.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
@@ -52,6 +58,7 @@
 #include "util/parse_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 using namespace std::literals;
 
@@ -160,30 +167,14 @@ struct RefreshFSVaultVisitor {
 };
 
 Status CloudStorageEngine::open() {
-    cloud::StorageVaultInfos vault_infos;
-    do {
-        auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
-        if (st.ok()) {
-            break;
-        }
-
-        LOG(WARNING) << "failed to get vault info, retry after 5s, err=" << st;
-        std::this_thread::sleep_for(5s);
-    } while (vault_infos.empty());
-
-    for (auto& [id, vault_info, path_format] : vault_infos) {
-        if (auto st = std::visit(VaultCreateFSVisitor {id, path_format}, vault_info); !st.ok())
-                [[unlikely]] {
-            return vault_process_error(id, vault_info, std::move(st));
-        }
-    }
-    set_latest_fs(get_filesystem(std::get<0>(vault_infos.back())));
+    sync_storage_vault();
 
     // TODO(plat1ko): DeleteBitmapTxnManager
 
     _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
     // Use file cache disks number
-    _memtable_flush_executor->init(io::FileCacheFactory::instance()->get_cache_instance_size());
+    _memtable_flush_executor->init(
+            cast_set<int32_t>(io::FileCacheFactory::instance()->get_cache_instance_size()));
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
@@ -204,6 +195,9 @@ Status CloudStorageEngine::open() {
     _cloud_warm_up_manager = std::make_unique<CloudWarmUpManager>(*this);
 
     _tablet_hotspot = std::make_unique<TabletHotspot>();
+
+    _schema_cloud_dictionary_cache =
+            std::make_unique<SchemaCloudDictionaryCache>(config::schema_dict_cache_capacity);
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
             init_stream_load_recorder(ExecEnv::GetInstance()->store_paths()[0].path),
@@ -248,7 +242,7 @@ Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id) {
     });
 }
 
-Status CloudStorageEngine::start_bg_threads() {
+Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
     RETURN_IF_ERROR(Thread::create(
             "CloudStorageEngine", "refresh_s3_info_thread",
             [this]() { this->_refresh_storage_vault_info_thread_callback(); },
@@ -274,7 +268,7 @@ Status CloudStorageEngine::start_bg_threads() {
 
     // add calculate tablet delete bitmap task thread pool
     RETURN_IF_ERROR(ThreadPoolBuilder("TabletCalDeleteBitmapThreadPool")
-                            .set_min_threads(1)
+                            .set_min_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .set_max_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .build(&_calc_tablet_delete_bitmap_task_thread_pool));
 
@@ -283,6 +277,7 @@ Status CloudStorageEngine::start_bg_threads() {
     // compaction tasks producer thread
     int base_thread_num = get_base_thread_num();
     int cumu_thread_num = get_cumu_thread_num();
+
     RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
                             .set_min_threads(base_thread_num)
                             .set_max_threads(base_thread_num)
@@ -302,45 +297,21 @@ Status CloudStorageEngine::start_bg_threads() {
             "StorageEngine", "lease_compaction_thread",
             [this]() { this->_lease_compaction_thread_callback(); }, &_bg_threads.emplace_back()));
 
-    if (config::file_cache_ttl_valid_check_interval_second != 0) {
-        RETURN_IF_ERROR(Thread::create(
-                "StorageEngine", "check_file_cache_ttl_block_valid_thread",
-                [this]() { this->_check_file_cache_ttl_block_valid(); },
-                &_bg_threads.emplace_back()));
-        LOG(INFO) << "check file cache ttl block valid thread started";
-    }
-
     LOG(INFO) << "lease compaction thread started";
+
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "check_tablet_delete_bitmap_score_thread",
+            [this]() { this->_check_tablet_delete_bitmap_score_callback(); },
+            &_bg_threads.emplace_back()));
+    LOG(INFO) << "check tablet delete bitmap score thread started";
 
     return Status::OK();
 }
 
-void CloudStorageEngine::_check_file_cache_ttl_block_valid() {
-    int64_t interval_seconds = config::file_cache_ttl_valid_check_interval_second / 2;
-    auto check_ttl = [](const std::weak_ptr<CloudTablet>& tablet_wk) {
-        auto tablet = tablet_wk.lock();
-        if (!tablet) return;
-        if (tablet->tablet_meta()->ttl_seconds() == 0) return;
-        auto rowsets = tablet->get_snapshot_rowset();
-        for (const auto& rowset : rowsets) {
-            int64_t ttl_seconds = tablet->tablet_meta()->ttl_seconds();
-            if (rowset->newest_write_timestamp() + ttl_seconds <= UnixSeconds()) continue;
-            for (int64_t seg_id = 0; seg_id < rowset->num_segments(); seg_id++) {
-                auto hash = Segment::file_cache_key(rowset->rowset_id().to_string(), seg_id);
-                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(hash);
-                file_cache->update_ttl_atime(hash);
-            }
-        }
-    };
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval_seconds))) {
-        auto weak_tablets = tablet_mgr().get_weak_tablets();
-        std::for_each(weak_tablets.begin(), weak_tablets.end(), check_ttl);
-    }
-}
-
 void CloudStorageEngine::sync_storage_vault() {
     cloud::StorageVaultInfos vault_infos;
-    auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
+    bool enable_storage_vault = false;
+    auto st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
     if (!st.ok()) {
         LOG(WARNING) << "failed to get storage vault info. err=" << st;
         return;
@@ -353,17 +324,17 @@ void CloudStorageEngine::sync_storage_vault() {
 
     for (auto& [id, vault_info, path_format] : vault_infos) {
         auto fs = get_filesystem(id);
-        auto st = (fs == nullptr)
-                          ? std::visit(VaultCreateFSVisitor {id, path_format}, vault_info)
-                          : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
-                                       vault_info);
-        if (!st.ok()) [[unlikely]] {
+        auto status = (fs == nullptr)
+                              ? std::visit(VaultCreateFSVisitor {id, path_format}, vault_info)
+                              : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
+                                           vault_info);
+        if (!status.ok()) [[unlikely]] {
             LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
         }
     }
 
     if (auto& id = std::get<0>(vault_infos.back());
-        latest_fs() == nullptr || latest_fs()->id() != id) {
+        (latest_fs() == nullptr || latest_fs()->id() != id) && !enable_storage_vault) {
         set_latest_fs(get_filesystem(id));
     }
 }
@@ -507,13 +478,13 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
             /// If it is not cleaned up, the reference count of the tablet will always be greater than 1,
             /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
-                Status st = submit_compaction_task(tablet, compaction_type);
-                if (st.ok()) continue;
-                if ((!st.is<ErrorCode::BE_NO_SUITABLE_VERSION>() &&
-                     !st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) ||
+                Status status = submit_compaction_task(tablet, compaction_type);
+                if (status.ok()) continue;
+                if ((!status.is<ErrorCode::BE_NO_SUITABLE_VERSION>() &&
+                     !status.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) ||
                     VLOG_DEBUG_IS_ON) {
                     LOG(WARNING) << "failed to submit compaction task for tablet: "
-                                 << tablet->tablet_id() << ", err: " << st;
+                                 << tablet->tablet_id() << ", err: " << status;
                 }
             }
             interval = config::generate_compaction_tasks_interval_ms;
@@ -547,7 +518,8 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     int num_cumu =
             std::accumulate(submitted_cumu_compactions.begin(), submitted_cumu_compactions.end(), 0,
                             [](int a, auto& b) { return a + b.second.size(); });
-    int num_base = submitted_base_compactions.size() + submitted_full_compactions.size();
+    int num_base =
+            cast_set<int>(submitted_base_compactions.size() + submitted_full_compactions.size());
     int n = thread_per_disk - num_cumu - num_base;
     if (compaction_type == CompactionType::BASE_COMPACTION) {
         // We need to reserve at least one thread for cumulative compaction,
@@ -574,14 +546,16 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     } else if (config::enable_parallel_cumu_compaction) {
         filter_out = [&tablet_preparing_cumu_compaction](CloudTablet* t) {
             return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
-                   (t->tablet_state() != TABLET_RUNNING && t->alter_version() == -1);
+                   (t->tablet_state() != TABLET_RUNNING &&
+                    (!config::enable_new_tablet_do_compaction || t->alter_version() == -1));
         };
     } else {
         filter_out = [&tablet_preparing_cumu_compaction,
                       &submitted_cumu_compactions](CloudTablet* t) {
             return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
                    submitted_cumu_compactions.contains(t->tablet_id()) ||
-                   (t->tablet_state() != TABLET_RUNNING && t->alter_version() == -1);
+                   (t->tablet_state() != TABLET_RUNNING &&
+                    (!config::enable_new_tablet_do_compaction || t->alter_version() == -1));
         };
     }
 
@@ -638,6 +612,7 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         _submitted_base_compactions[tablet->tablet_id()] = compaction;
     }
     st = _base_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
+        signal::tablet_id = tablet->tablet_id();
         auto st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
@@ -675,7 +650,8 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
     auto st = compaction->prepare_compact();
     if (!st.ok()) {
         long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-        if (st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) {
+        if (st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>() &&
+            st.msg() != "_last_delete_version.first not equal to -1") {
             // Backoff strategy if no suitable version
             tablet->last_cumu_no_suitable_version_ms = now;
         }
@@ -706,6 +682,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         }
     };
     st = _cumu_compaction_thread_pool->submit_func([=, compaction = std::move(compaction)]() {
+        signal::tablet_id = tablet->tablet_id();
         auto st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
@@ -749,6 +726,7 @@ Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& t
         _submitted_full_compactions[tablet->tablet_id()] = compaction;
     }
     st = _base_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
+        signal::tablet_id = tablet->tablet_id();
         auto st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
@@ -790,8 +768,10 @@ Status CloudStorageEngine::submit_compaction_task(const CloudTabletSPtr& tablet,
 void CloudStorageEngine::_lease_compaction_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::lease_compaction_interval_seconds))) {
+        std::vector<std::shared_ptr<CloudFullCompaction>> full_compactions;
         std::vector<std::shared_ptr<CloudBaseCompaction>> base_compactions;
         std::vector<std::shared_ptr<CloudCumulativeCompaction>> cumu_compactions;
+        std::vector<std::shared_ptr<CloudCompactionStopToken>> compation_stop_tokens;
         {
             std::lock_guard lock(_compaction_mtx);
             for (auto& [_, base] : _submitted_base_compactions) {
@@ -804,13 +784,51 @@ void CloudStorageEngine::_lease_compaction_thread_callback() {
                     cumu_compactions.push_back(cumu);
                 }
             }
+            for (auto& [_, full] : _submitted_full_compactions) {
+                if (full) {
+                    full_compactions.push_back(full);
+                }
+            }
+            for (auto& [_, stop_token] : _active_compaction_stop_tokens) {
+                if (stop_token) {
+                    compation_stop_tokens.push_back(stop_token);
+                }
+            }
         }
         // TODO(plat1ko): Support batch lease rpc
+        for (auto& stop_token : compation_stop_tokens) {
+            stop_token->do_lease();
+        }
+        for (auto& comp : full_compactions) {
+            comp->do_lease();
+        }
         for (auto& comp : cumu_compactions) {
             comp->do_lease();
         }
         for (auto& comp : base_compactions) {
             comp->do_lease();
+        }
+    }
+}
+
+void CloudStorageEngine::_check_tablet_delete_bitmap_score_callback() {
+    LOG(INFO) << "try to start check tablet delete bitmap score!";
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::check_tablet_delete_bitmap_interval_seconds))) {
+        if (!config::enable_check_tablet_delete_bitmap_score) {
+            return;
+        }
+        uint64_t max_delete_bitmap_score = 0;
+        uint64_t max_base_rowset_delete_bitmap_score = 0;
+        std::vector<CloudTabletSPtr> tablets;
+        tablet_mgr().get_topn_tablet_delete_bitmap_score(&max_delete_bitmap_score,
+                                                         &max_base_rowset_delete_bitmap_score);
+        if (max_delete_bitmap_score > 0) {
+            _tablet_max_delete_bitmap_score_metrics->set_value(max_delete_bitmap_score);
+        }
+        if (max_base_rowset_delete_bitmap_score > 0) {
+            _tablet_max_base_rowset_delete_bitmap_score_metrics->set_value(
+                    max_base_rowset_delete_bitmap_score);
         }
     }
 }
@@ -823,7 +841,7 @@ Status CloudStorageEngine::get_compaction_status_json(std::string* result) {
     // cumu
     std::string_view cumu = "CumulativeCompaction";
     rapidjson::Value cumu_key;
-    cumu_key.SetString(cumu.data(), cumu.length(), root.GetAllocator());
+    cumu_key.SetString(cumu.data(), cast_set<uint32_t>(cumu.length()), root.GetAllocator());
     rapidjson::Document cumu_arr;
     cumu_arr.SetArray();
     for (auto& [tablet_id, v] : _submitted_cumu_compactions) {
@@ -835,7 +853,7 @@ Status CloudStorageEngine::get_compaction_status_json(std::string* result) {
     // base
     std::string_view base = "BaseCompaction";
     rapidjson::Value base_key;
-    base_key.SetString(base.data(), base.length(), root.GetAllocator());
+    base_key.SetString(base.data(), cast_set<uint32_t>(base.length()), root.GetAllocator());
     rapidjson::Document base_arr;
     base_arr.SetArray();
     for (auto& [tablet_id, _] : _submitted_base_compactions) {
@@ -858,4 +876,57 @@ std::shared_ptr<CloudCumulativeCompactionPolicy> CloudStorageEngine::cumu_compac
     return _cumulative_compaction_policies.at(compaction_policy);
 }
 
+Status CloudStorageEngine::register_compaction_stop_token(CloudTabletSPtr tablet,
+                                                          int64_t initiator) {
+    {
+        std::lock_guard lock(_compaction_mtx);
+        auto [_, success] = _active_compaction_stop_tokens.emplace(tablet->tablet_id(), nullptr);
+        if (!success) {
+            return Status::AlreadyExist("stop token already exists for tablet_id={}",
+                                        tablet->tablet_id());
+        }
+    }
+
+    auto stop_token = std::make_shared<CloudCompactionStopToken>(*this, tablet, initiator);
+    auto st = stop_token->do_register();
+
+    if (!st.ok()) {
+        std::lock_guard lock(_compaction_mtx);
+        _active_compaction_stop_tokens.erase(tablet->tablet_id());
+        return st;
+    }
+
+    {
+        std::lock_guard lock(_compaction_mtx);
+        _active_compaction_stop_tokens[tablet->tablet_id()] = stop_token;
+    }
+    LOG_INFO(
+            "successfully register compaction stop token for tablet_id={}, "
+            "delete_bitmap_lock_initiator={}",
+            tablet->tablet_id(), initiator);
+    return st;
+}
+
+Status CloudStorageEngine::unregister_compaction_stop_token(CloudTabletSPtr tablet) {
+    std::shared_ptr<CloudCompactionStopToken> stop_token;
+    {
+        std::lock_guard lock(_compaction_mtx);
+        if (auto it = _active_compaction_stop_tokens.find(tablet->tablet_id());
+            it != _active_compaction_stop_tokens.end()) {
+            stop_token = it->second;
+        } else {
+            return Status::NotFound("stop token not found for tablet_id={}", tablet->tablet_id());
+        }
+        _active_compaction_stop_tokens.erase(tablet->tablet_id());
+    }
+    // stop token will be removed when SC commit or abort
+    // RETURN_IF_ERROR(stop_token->do_unregister());
+    LOG_INFO(
+            "successfully unregister compaction stop token for tablet_id={}, "
+            "delete_bitmap_lock_initiator={}",
+            tablet->tablet_id(), stop_token->initiator());
+    return Status::OK();
+}
+
+#include "common/compile_check_end.h"
 } // namespace doris

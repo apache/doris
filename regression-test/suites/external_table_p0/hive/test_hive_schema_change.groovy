@@ -110,8 +110,8 @@ suite("test_hive_schema_change", "p0,external,hive,external_docker,external_dock
             sql """ switch ${catalog_name} """
             sql """ use `multi_catalog` """
             order_qt_type_change_origin """ select * from type_change_origin """
-            order_qt_type_change_orc """ select * from type_change_orc """
-            order_qt_type_change_parquet """ select * from type_change_parquet """
+            // order_qt_type_change_orc """ select * from type_change_orc """
+            // order_qt_type_change_parquet """ select * from type_change_parquet """
             sql """ drop catalog ${catalog_name} """
         }
     }

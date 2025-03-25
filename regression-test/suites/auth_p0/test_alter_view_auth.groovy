@@ -42,7 +42,7 @@ suite("test_alter_view_auth","p0,auth") {
         """
     sql """grant select_priv on regression_test to ${user}"""
     sql """create view ${dbName}.${viewName} as select * from ${dbName}.${tableName};"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "alter view ${dbName}.${viewName} as select * from ${dbName}.${tableName};"
         } catch (Exception e) {
@@ -51,7 +51,7 @@ suite("test_alter_view_auth","p0,auth") {
         }
     }
     sql """grant Alter_priv on ${dbName}.${viewName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "alter view ${dbName}.${viewName} as select * from ${dbName}.${tableName};"
         } catch (Exception e) {

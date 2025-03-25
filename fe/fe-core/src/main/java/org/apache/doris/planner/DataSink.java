@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TExplainLevel;
 public abstract class DataSink {
     // Fragment that this DataSink belongs to. Set by the PlanFragment enclosing this sink.
     protected PlanFragment fragment;
+    protected boolean isMerge = false;
 
     /**
      * Return an explain string for the DataSink. Each line of the explain will be
@@ -76,5 +77,13 @@ public abstract class DataSink {
         } else {
             throw new AnalysisException("Unknown table type " + table.getType());
         }
+    }
+
+    public boolean isMerge() {
+        return isMerge;
+    }
+
+    public void setMerge(boolean merge) {
+        isMerge = merge;
     }
 }

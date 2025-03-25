@@ -22,7 +22,7 @@ suite("test_show_data") {
 
     def jdbcUrlWithoutDbStr = (context.config.jdbcUrl).split(context.config.defaultDb)
     logger.info("jdbcUrlWithoutDbStr:${jdbcUrlWithoutDbStr}");
-    def result2 = connect(context.config.jdbcUser, password = context.config.jdbcPassword, url = jdbcUrlWithoutDbStr[0]) {
+    def result2 = connect(context.config.jdbcUser, context.config.jdbcPassword, jdbcUrlWithoutDbStr[0]) {
         sql """show data;"""
     }
 

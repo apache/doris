@@ -32,19 +32,22 @@
 
 #include "arrow/record_batch.h"
 #include "arrow/type_fwd.h"
-#include "runtime/buffer_control_block.h"
+#include "common/status.h"
+#include "runtime/result_block_buffer.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/thread.h"
 #include "util/uid_util.h"
+#include "vec/sink/varrow_flight_result_writer.h"
+#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(result_buffer_block_count, MetricUnit::NOUNIT);
 
 ResultBufferMgr::ResultBufferMgr() : _stop_background_threads_latch(1) {
-    // Each BufferControlBlock has a limited queue size of 1024, it's not needed to count the
-    // actual size of all BufferControlBlock.
+    // Each ResultBlockBufferBase has a limited queue size of 1024, it's not needed to count the
+    // actual size of all ResultBlockBufferBase.
     REGISTER_HOOK_METRIC(result_buffer_block_count, [this]() {
         // std::lock_guard<std::mutex> l(_buffer_map_lock);
         return _buffer_map.size();
@@ -67,102 +70,79 @@ Status ResultBufferMgr::init() {
 }
 
 Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
-                                      std::shared_ptr<BufferControlBlock>* sender, int exec_timout,
-                                      int batch_size) {
-    *sender = find_control_block(query_id);
-    if (*sender != nullptr) {
-        LOG(WARNING) << "already have buffer control block for this instance " << query_id;
-        return Status::OK();
+                                      std::shared_ptr<ResultBlockBufferBase>* sender,
+                                      RuntimeState* state, bool arrow_flight,
+                                      std::shared_ptr<arrow::Schema> schema) {
+    {
+        std::shared_lock<std::shared_mutex> rlock(_buffer_map_lock);
+        auto iter = _buffer_map.find(query_id);
+
+        if (_buffer_map.end() != iter) {
+            LOG(WARNING) << "already have buffer control block for this instance " << query_id;
+            *sender = iter->second;
+            return Status::OK();
+        }
     }
 
-    std::shared_ptr<BufferControlBlock> control_block = nullptr;
+    std::shared_ptr<ResultBlockBufferBase> control_block = nullptr;
 
-    control_block = std::make_shared<BufferControlBlock>(query_id, buffer_size, batch_size);
+    if (arrow_flight) {
+        control_block = std::make_shared<vectorized::ArrowFlightResultBlockBuffer>(
+                query_id, state, schema, buffer_size);
+    } else {
+        control_block =
+                std::make_shared<vectorized::MySQLResultBlockBuffer>(query_id, state, buffer_size);
+    }
 
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
         _buffer_map.insert(std::make_pair(query_id, control_block));
-        // BufferControlBlock should destroy after max_timeout
+        // ResultBlockBufferBase should destroy after max_timeout
         // for exceed max_timeout FE will return timeout to client
         // otherwise in some case may block all fragment handle threads
         // details see issue https://github.com/apache/doris/issues/16203
         // add extra 5s for avoid corner case
-        int64_t max_timeout = time(nullptr) + exec_timout + 5;
+        int64_t max_timeout = time(nullptr) + state->execution_timeout() + 5;
         cancel_at_time(max_timeout, query_id);
     }
     *sender = control_block;
     return Status::OK();
 }
 
-std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TUniqueId& query_id) {
+template <typename ResultBlockBufferType>
+std::shared_ptr<ResultBlockBufferType> ResultBufferMgr::_find_control_block(
+        const TUniqueId& query_id) {
     std::shared_lock<std::shared_mutex> rlock(_buffer_map_lock);
     auto iter = _buffer_map.find(query_id);
 
     if (_buffer_map.end() != iter) {
-        return iter->second;
+        return std::dynamic_pointer_cast<ResultBlockBufferType>(iter->second);
     }
 
     return {};
 }
 
-void ResultBufferMgr::register_arrow_schema(const TUniqueId& query_id,
-                                            const std::shared_ptr<arrow::Schema>& arrow_schema) {
-    std::unique_lock<std::shared_mutex> wlock(_arrow_schema_map_lock);
-    _arrow_schema_map.insert(std::make_pair(query_id, arrow_schema));
+template <typename ResultBlockBufferType>
+Status ResultBufferMgr::find_buffer(const TUniqueId& finst_id,
+                                    std::shared_ptr<ResultBlockBufferType>& buffer) {
+    buffer = _find_control_block<ResultBlockBufferType>(finst_id);
+    return buffer == nullptr ? Status::InternalError(
+                                       "no arrow schema for this query, maybe query has been "
+                                       "canceled, finst_id={}",
+                                       print_id(finst_id))
+                             : Status::OK();
 }
 
-std::shared_ptr<arrow::Schema> ResultBufferMgr::find_arrow_schema(const TUniqueId& query_id) {
-    std::shared_lock<std::shared_mutex> rlock(_arrow_schema_map_lock);
-    auto iter = _arrow_schema_map.find(query_id);
+bool ResultBufferMgr::cancel(const TUniqueId& query_id, const Status& reason) {
+    std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
+    auto iter = _buffer_map.find(query_id);
 
-    if (_arrow_schema_map.end() != iter) {
-        return iter->second;
+    auto exist = _buffer_map.end() != iter;
+    if (exist) {
+        iter->second->cancel(reason);
+        _buffer_map.erase(iter);
     }
-
-    return nullptr;
-}
-
-void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx) {
-    TUniqueId tid;
-    tid.__set_hi(finst_id.hi());
-    tid.__set_lo(finst_id.lo());
-    std::shared_ptr<BufferControlBlock> cb = find_control_block(tid);
-    if (cb == nullptr) {
-        ctx->on_failure(Status::InternalError("no result for this query, tid={}", print_id(tid)));
-        return;
-    }
-    cb->get_batch(ctx);
-}
-
-Status ResultBufferMgr::fetch_arrow_data(const TUniqueId& finst_id,
-                                         std::shared_ptr<arrow::RecordBatch>* result) {
-    std::shared_ptr<BufferControlBlock> cb = find_control_block(finst_id);
-    if (cb == nullptr) {
-        return Status::InternalError("no result for this query, finst_id={}", print_id(finst_id));
-    }
-    RETURN_IF_ERROR(cb->get_arrow_batch(result));
-    return Status::OK();
-}
-
-void ResultBufferMgr::cancel(const TUniqueId& query_id) {
-    {
-        std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
-        auto iter = _buffer_map.find(query_id);
-
-        if (_buffer_map.end() != iter) {
-            iter->second->cancel();
-            _buffer_map.erase(iter);
-        }
-    }
-
-    {
-        std::unique_lock<std::shared_mutex> wlock(_arrow_schema_map_lock);
-        auto arrow_schema_iter = _arrow_schema_map.find(query_id);
-
-        if (_arrow_schema_map.end() != arrow_schema_iter) {
-            _arrow_schema_map.erase(arrow_schema_iter);
-        }
-    }
+    return exist;
 }
 
 void ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& query_id) {
@@ -200,11 +180,19 @@ void ResultBufferMgr::cancel_thread() {
 
         // cancel query
         for (const auto& id : query_to_cancel) {
-            cancel(id);
+            cancel(id, Status::Cancelled("Clean up expired ResultBlockBuffer, queryId: {}",
+                                         print_id(id)));
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 
     LOG(INFO) << "result buffer manager cancel thread finish.";
 }
+
+template Status ResultBufferMgr::find_buffer(
+        const TUniqueId& finst_id,
+        std::shared_ptr<doris::vectorized::ArrowFlightResultBlockBuffer>& buffer);
+template Status ResultBufferMgr::find_buffer(
+        const TUniqueId& finst_id,
+        std::shared_ptr<doris::ResultBlockBuffer<doris::vectorized::GetResultBatchCtx>>& buffer);
 
 } // namespace doris

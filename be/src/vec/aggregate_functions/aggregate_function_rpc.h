@@ -43,6 +43,8 @@
 #include "vec/functions/function_rpc.h"
 #include "vec/io/io_helper.h"
 namespace doris::vectorized {
+#include "common/compile_check_avoid_begin.h"
+// The rpc function has now been deprecated to avoid compilation checks.
 
 #define error_default_str "#$@"
 
@@ -364,7 +366,7 @@ public:
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         static_cast<void>(this->data(place).add(columns, 0, batch_size, argument_types));
     }
 
@@ -393,4 +395,5 @@ private:
     DataTypePtr _return_type;
 };
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

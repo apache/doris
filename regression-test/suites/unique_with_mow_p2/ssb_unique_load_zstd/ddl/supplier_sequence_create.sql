@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS `supplier` (
 UNIQUE KEY (`s_suppkey`)
 DISTRIBUTED BY HASH(`s_suppkey`) BUCKETS 10
 PROPERTIES (
+"enable_mow_light_delete" = "true",
 "function_column.sequence_col" = 's_suppkey',
 "compression"="zstd",
 "replication_num" = "1",

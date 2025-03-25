@@ -24,6 +24,8 @@
 #include <string>
 #include <vector>
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
@@ -51,12 +53,6 @@ void TabletsInfoAction::handle(HttpRequest* req) {
 
 EasyJson TabletsInfoAction::get_tablets_info(string tablet_num_to_return) {
     EasyJson tablets_info_ej;
-    if (config::is_cloud_mode()) {
-        // TODO(plat1ko): CloudStorageEngine
-        tablets_info_ej["msg"] = "TabletsInfoAction::get_tablets_info is not implemented";
-        tablets_info_ej["code"] = 0;
-        return tablets_info_ej;
-    }
 
     int64_t number;
     std::string msg;
@@ -74,9 +70,15 @@ EasyJson TabletsInfoAction::get_tablets_info(string tablet_num_to_return) {
         msg = "Parameter Error";
     }
     std::vector<TabletInfo> tablets_info;
-    TabletManager* tablet_manager =
-            ExecEnv::GetInstance()->storage_engine().to_local().tablet_manager();
-    tablet_manager->obtain_specific_quantity_tablets(tablets_info, number);
+    if (!config::is_cloud_mode()) {
+        TabletManager* tablet_manager =
+                ExecEnv::GetInstance()->storage_engine().to_local().tablet_manager();
+        tablet_manager->obtain_specific_quantity_tablets(tablets_info, number);
+    } else {
+        CloudTabletMgr& cloud_tablet_manager =
+                ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_mgr();
+        cloud_tablet_manager.get_tablet_info(number, &tablets_info);
+    }
 
     tablets_info_ej["msg"] = msg;
     tablets_info_ej["code"] = 0;

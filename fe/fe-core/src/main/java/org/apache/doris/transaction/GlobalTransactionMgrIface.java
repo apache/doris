@@ -77,12 +77,18 @@ public interface GlobalTransactionMgrIface extends Writable {
             TxnCommitAttachment txnCommitAttachment)
             throws UserException;
 
-    public void commitTransaction(long dbId, List<Table> tableList,
+    @Deprecated
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException;
 
-    public void commitTransaction(long dbId, List<Table> tableList, long transactionId,
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
+            throws UserException;
+
+    public void commitTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment)
             throws UserException;
 
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,

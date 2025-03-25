@@ -82,6 +82,7 @@
 #endif
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 namespace {
 
 DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable) {
@@ -428,8 +429,8 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     } else if (least_common_type.get_base_type_id() != base_type.idx && !base_type.is_nothing()) {
         if (schema_util::is_conversion_required_between_integers(
                     base_type.idx, least_common_type.get_base_type_id())) {
-            LOG_EVERY_N(INFO, 100) << "Conversion between " << getTypeName(base_type.idx) << " and "
-                                   << getTypeName(least_common_type.get_type_id());
+            VLOG_DEBUG << "Conversion between " << getTypeName(base_type.idx) << " and "
+                       << getTypeName(least_common_type.get_type_id());
             DataTypePtr base_data_type;
             TypeIndex base_data_type_id;
             get_least_supertype_jsonb(
@@ -644,8 +645,8 @@ void ColumnObject::resize(size_t n) {
     num_rows = n;
 }
 
-bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
-    if (num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
+bool ColumnObject::Subcolumn::check_if_sparse_column(size_t arg_num_rows) {
+    if (arg_num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
         return false;
     }
     std::vector<double> defaults_ratio;
@@ -653,7 +654,7 @@ bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
         defaults_ratio.push_back(data[i]->get_ratio_of_default_rows());
     }
     double default_ratio = std::accumulate(defaults_ratio.begin(), defaults_ratio.end(), 0.0) /
-                           defaults_ratio.size();
+                           static_cast<double>(defaults_ratio.size());
     return default_ratio >= config::variant_ratio_of_defaults_as_sparse_column;
 }
 
@@ -734,6 +735,9 @@ void ColumnObject::Subcolumn::pop_back(size_t n) {
     size_t sz = data.size() - num_removed;
     data.resize(sz);
     data_types.resize(sz);
+    // need to update least_common_type when pop_back a column from the last
+    least_common_type = sz > 0 ? LeastCommonType {data_types[sz - 1]}
+                               : LeastCommonType {std::make_shared<DataTypeNothing>()};
     num_of_defaults_in_prefix -= n;
 }
 
@@ -1071,6 +1075,8 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
             if (entry->path.has_nested_part()) {
                 FieldInfo field_info {
                         .scalar_type_id = entry->data.least_common_type.get_base_type_id(),
+                        .have_nulls = false,
+                        .need_convert = false,
                         .num_dimensions = entry->data.get_dimensions()};
                 add_nested_subcolumn(entry->path, field_info, num_rows);
             } else {
@@ -1268,7 +1274,7 @@ bool ColumnObject::is_finalized() const {
 void ColumnObject::Subcolumn::wrapp_array_nullable() {
     // Wrap array with nullable, treat empty array as null to elimate conflict at present
     auto& result_column = get_finalized_column_ptr();
-    if (result_column->is_column_array() && !result_column->is_nullable()) {
+    if (is_column<vectorized::ColumnArray>(result_column.get()) && !result_column->is_nullable()) {
         auto new_null_map = ColumnUInt8::create();
         new_null_map->reserve(result_column->size());
         auto& null_map_data = new_null_map->get_data();
@@ -1292,7 +1298,11 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
     if (!json.IsObject()) {
         return nullptr;
     }
-    rapidjson::Value name(current_key.data(), current_key.size());
+    /*! RapidJSON uses 32-bit array/string indices even on 64-bit platforms,
+    instead of using \c size_t. Users may override the SizeType by defining
+    \ref RAPIDJSON_NO_SIZETYPEDEFINE.
+    */
+    rapidjson::Value name(current_key.data(), cast_set<unsigned>(current_key.size()));
     auto it = json.FindMember(name);
     if (it == json.MemberEnd()) {
         return nullptr;
@@ -1309,14 +1319,14 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
 // 2. nested array with only nulls, eg. [null. null],todo: think a better way to deal distinguish array null value and real null value.
 // 3. empty root jsonb value(not null)
 // 4. type is nothing
-bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type, int row,
-                     const PathInData& path) {
+bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type,
+                     TypeIndex base_type_id, size_t row, const PathInData& path) {
     // skip nulls
     if (nullable && nullable->is_null_at(row)) {
         return true;
     }
     // check if it is empty nested json array, then skip
-    if (type->equals(*ColumnObject::NESTED_TYPE)) {
+    if (base_type_id == TypeIndex::VARIANT && type->equals(*ColumnObject::NESTED_TYPE)) {
         Field field = (*nullable)[row];
         if (field.get_type() == Field::Types::Array) {
             const auto& array = field.get<Array>();
@@ -1336,7 +1346,7 @@ bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type, in
         return true;
     }
     // skip nothing type
-    if (WhichDataType(remove_nullable(get_base_type_of_array(type))).is_nothing()) {
+    if (base_type_id == TypeIndex::Nothing) {
         return true;
     }
     return false;
@@ -1344,17 +1354,19 @@ bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type, in
 
 Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                                 const DataTypeSerDeSPtr& type_serde, const DataTypePtr& type,
-                                rapidjson::Value& root,
+                                TypeIndex base_type_index, rapidjson::Value& root,
                                 rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                int row) {
+                                size_t row) {
+#ifndef NDEBUG
     // sanitize type and column
     if (column->get_name() != type->create_column()->get_name()) {
         return Status::InternalError(
                 "failed to set value for path {}, expected type {}, but got {} at row {}",
                 path.get_path(), type->get_name(), column->get_name(), row);
     }
+#endif
     const auto* nullable = check_and_get_column<ColumnNullable>(column);
-    if (skip_empty_json(nullable, type, row, path)) {
+    if (skip_empty_json(nullable, type, base_type_index, row, path)) {
         return Status::OK();
     }
     // TODO could cache the result of leaf nodes with it's path info
@@ -1412,7 +1424,7 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
     }
 }
 
-Status ColumnObject::serialize_one_row_to_string(int row, std::string* output) const {
+Status ColumnObject::serialize_one_row_to_string(size_t row, std::string* output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
@@ -1428,7 +1440,7 @@ Status ColumnObject::serialize_one_row_to_string(int row, std::string* output) c
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output) const {
+Status ColumnObject::serialize_one_row_to_string(size_t row, BufferWritable& output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
@@ -1443,7 +1455,7 @@ Status ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBuffer* output,
+Status ColumnObject::serialize_one_row_to_json_format(size_t row, rapidjson::StringBuffer* output,
                                                       bool* is_null) const {
     CHECK(is_finalized());
     if (subcolumns.empty()) {
@@ -1470,19 +1482,47 @@ Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::String
         root.CopyFrom(*doc_structure, doc_structure->GetAllocator());
     }
     Arena mem_pool;
+
+    bool serialize_root = true; // Assume all subcolumns are null by default
+    for (const auto& subcolumn : subcolumns) {
+        if (subcolumn->data.is_root) {
+            continue; // Skip the root column
+        }
+
+        // If any non-root subcolumn is NOT null, set serialize_root to false and exit early
+        if (!assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                     *subcolumn->data.get_finalized_column_ptr())
+                     .is_null_at(row)) {
+            serialize_root = false;
+            break;
+        }
+    }
 #ifndef NDEBUG
     VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
 #endif
+    if (serialize_root && subcolumns.get_root()->is_scalar()) {
+        // only serialize root when all other subcolumns is null
+        RETURN_IF_ERROR(
+                subcolumns.get_root()->data.get_least_common_type_serde()->write_one_cell_to_json(
+                        subcolumns.get_root()->data.get_finalized_column(), root,
+                        doc_structure->GetAllocator(), mem_pool, row));
+        output->Clear();
+        compact_null_values(root, doc_structure->GetAllocator());
+        rapidjson::Writer<rapidjson::StringBuffer> writer(*output);
+        root.Accept(writer);
+        return Status::OK();
+    }
+    // handle subcolumns exclude root node
     for (const auto& subcolumn : subcolumns) {
-        RETURN_IF_ERROR(find_and_set_leave_value(subcolumn->data.get_finalized_column_ptr(),
-                                                 subcolumn->path,
-                                                 subcolumn->data.get_least_common_type_serde(),
-                                                 subcolumn->data.get_least_common_type(), root,
-                                                 doc_structure->GetAllocator(), mem_pool, row));
-        if (subcolumn->path.empty() && !root.IsObject()) {
-            // root was modified, only handle root node
-            break;
+        if (subcolumn->data.is_root) {
+            continue;
         }
+        RETURN_IF_ERROR(find_and_set_leave_value(
+                subcolumn->data.get_finalized_column_ptr().get(), subcolumn->path,
+                subcolumn->data.get_least_common_type_serde(),
+                subcolumn->data.get_least_common_type(),
+                subcolumn->data.least_common_type.get_base_type_id(), root,
+                doc_structure->GetAllocator(), mem_pool, row));
     }
     compact_null_values(root, doc_structure->GetAllocator());
     if (root.IsNull() && is_null != nullptr) {
@@ -1547,10 +1587,11 @@ Status ColumnObject::merge_sparse_to_root_column() {
                 ++null_count;
                 continue;
             }
-            bool succ = find_and_set_leave_value(column, subcolumn->path,
-                                                 subcolumn->data.get_least_common_type_serde(),
-                                                 subcolumn->data.get_least_common_type(), root,
-                                                 doc_structure->GetAllocator(), mem_pool, i);
+            bool succ = find_and_set_leave_value(
+                    column.get(), subcolumn->path, subcolumn->data.get_least_common_type_serde(),
+                    subcolumn->data.get_least_common_type(),
+                    subcolumn->data.least_common_type.get_base_type_id(), root,
+                    doc_structure->GetAllocator(), mem_pool, i);
             if (succ && subcolumn->path.empty() && !root.IsObject()) {
                 // root was modified, only handle root node
                 break;
@@ -1592,7 +1633,7 @@ Status ColumnObject::merge_sparse_to_root_column() {
     return Status::OK();
 }
 
-void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) const {
+void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& arg_subcolumns) const {
     entry->data.finalize();
     auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
     auto* nested_column_nullable = assert_cast<ColumnNullable*>(nested_column.get());
@@ -1623,7 +1664,7 @@ void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& subcolumns) co
         auto type = make_nullable(
                 std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
         Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
-        subcolumns.add(path_builder.build(), subcolumn);
+        arg_subcolumns.add(path_builder.build(), subcolumn);
     }
 }
 
@@ -1694,7 +1735,7 @@ bool ColumnObject::empty() const {
 }
 
 ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
-    if (const auto* column_array = check_and_get_column<ColumnArray>(column)) {
+    if (const auto* column_array = check_and_get_column<ColumnArray>(column.get())) {
         return column_array->get_data_ptr();
     }
     return column;
@@ -1803,6 +1844,12 @@ void ColumnObject::create_root(const DataTypePtr& type, MutableColumnPtr&& colum
     add_sub_column({}, std::move(column), type);
 }
 
+DataTypePtr ColumnObject::get_most_common_type() const {
+    auto type = is_nullable ? make_nullable(std::make_shared<MostCommonType>())
+                            : std::make_shared<MostCommonType>();
+    return type;
+}
+
 bool ColumnObject::is_null_root() const {
     auto* root = subcolumns.get_root();
     if (root == nullptr) {
@@ -1858,9 +1905,29 @@ Status ColumnObject::extract_root(const PathInData& path, MutableColumnPtr& dst)
 
 void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
-    for (const auto* x = indices_begin; x != indices_end; ++x) {
-        ColumnObject::insert_from(src, *x);
+    // optimize when src and this column are scalar variant, since try_insert is inefficiency
+    const auto* src_v = check_and_get_column<ColumnObject>(src);
+
+    bool src_can_do_quick_insert =
+            src_v != nullptr && src_v->is_scalar_variant() && src_v->is_finalized();
+    // num_rows == 0 means this column is empty, we not need to check it type
+    if (num_rows == 0 && src_can_do_quick_insert) {
+        // add a new root column, and insert from src root column
+        clear();
+        add_sub_column({}, src_v->get_root()->clone_empty(), src_v->get_root_type());
+
+        get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
+        num_rows += indices_end - indices_begin;
+    } else if (src_can_do_quick_insert && is_scalar_variant() &&
+               src_v->get_root_type()->equals(*get_root_type())) {
+        get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
+        num_rows += indices_end - indices_begin;
+    } else {
+        for (const auto* x = indices_begin; x != indices_end; ++x) {
+            try_insert(src[*x]);
+        }
     }
+    finalize();
 }
 
 void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) const {
@@ -1875,6 +1942,16 @@ void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) 
             callback(*part);
         }
     }
+}
+
+bool ColumnObject::is_exclusive() const {
+    bool is_exclusive = IColumn::is_exclusive();
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        if (!subcolumn.is_exclusive()) {
+            is_exclusive = false;
+        }
+    });
+    return is_exclusive;
 }
 
 void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
@@ -1913,7 +1990,7 @@ void ColumnObject::update_crc_with_value(size_t start, size_t end, uint32_t& has
 
 std::string ColumnObject::debug_string() const {
     std::stringstream res;
-    res << get_family_name() << "(num_row = " << num_rows;
+    res << get_name() << "(num_row = " << num_rows;
     for (auto& entry : subcolumns) {
         if (entry->data.is_finalized()) {
             res << "[column:" << entry->data.data[0]->dump_structure()
@@ -1926,12 +2003,13 @@ std::string ColumnObject::debug_string() const {
 }
 
 Status ColumnObject::sanitize() const {
+#ifndef NDEBUG
     RETURN_IF_CATCH_EXCEPTION(check_consistency());
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_finalized()) {
             auto column = subcolumn->data.get_least_common_type()->create_column();
-            std::string original = subcolumn->data.get_finalized_column().get_family_name();
-            std::string expected = column->get_family_name();
+            std::string original = subcolumn->data.get_finalized_column().get_name();
+            std::string expected = column->get_name();
             if (original != expected) {
                 return Status::InternalError("Incompatible type between {} and {}, debug_info:",
                                              original, expected, debug_string());
@@ -1940,6 +2018,7 @@ Status ColumnObject::sanitize() const {
     }
 
     VLOG_DEBUG << "sanitized " << debug_string();
+#endif
     return Status::OK();
 }
 
@@ -1969,6 +2048,8 @@ bool ColumnObject::try_insert_many_defaults_from_nested(const Subcolumns::NodePt
     size_t old_size = entry->data.size();
     FieldInfo field_info = {
             .scalar_type_id = entry->data.least_common_type.get_base_type_id(),
+            .have_nulls = false,
+            .need_convert = false,
             .num_dimensions = entry->data.get_dimensions(),
     };
 

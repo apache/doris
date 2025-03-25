@@ -70,6 +70,8 @@ header:
     - "be/src/util/sse2neon.h"
     - "be/src/util/utf8_check.cpp"
     - "be/src/pch/*"
+    - "be/test/data"
+    - "be/test/expected_result"
     - "build-support/run_clang_format.py"
     - "regression-test/data"
     - "docs/.vuepress/public/css/animate.min.css"
@@ -93,4 +95,5 @@ header:
     - "pytest/sys/data"
     - "pytest/deploy/*.conf"
     - "tools/jeprof"
+    - "tools/FlameGraph/*"
   comment: on-failure

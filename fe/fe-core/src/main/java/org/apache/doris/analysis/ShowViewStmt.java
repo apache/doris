@@ -43,7 +43,7 @@ import java.util.Set;
 //
 // Syntax:
 //      SHOW VIEW { FROM | IN } table [ FROM db ]
-public class ShowViewStmt extends ShowStmt {
+public class ShowViewStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("View", ScalarType.createVarchar(30)))

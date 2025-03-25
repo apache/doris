@@ -34,4 +34,10 @@ public class OutfileInfo {
 
     @SerializedName("url")
     private String url;
+
+    @SerializedName("writeTime")
+    private String writeTime;
+
+    @SerializedName("writeSpeed")
+    private String writeSpeed;
 }

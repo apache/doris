@@ -26,6 +26,7 @@ import com.google.common.base.Strings;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.DecimalFormat;
+import java.util.List;
 import java.util.UUID;
 
 public class DebugUtil {
@@ -176,5 +177,63 @@ public class DebugUtil {
         StringWriter sw = new StringWriter();
         e.printStackTrace(new PrintWriter(sw));
         return sw.toString();
+    }
+
+    public static String prettyPrintChangedSessionVar(List<List<String>> nestedList) {
+        if (nestedList == null || nestedList.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder output = new StringBuilder();
+
+        // Assuming each inner list has exactly 3 columns
+        int[] columnWidths = new int[3];
+
+        // Calculate the maximum width of each column
+        // First consider the header widths: "VarName", "CurrentValue", "DefaultValue"
+        String[] headers = {"VarName", "CurrentValue", "DefaultValue"};
+        for (int i = 0; i < headers.length; i++) {
+            columnWidths[i] = headers[i].length();  // Initialize with header length
+        }
+
+        // Update column widths based on data
+        for (List<String> row : nestedList) {
+            for (int i = 0; i < row.size(); i++) {
+                columnWidths[i] = Math.max(columnWidths[i], row.get(i).length());
+            }
+        }
+
+        // Build the table header
+        for (int i = 0; i < headers.length; i++) {
+            output.append(String.format("%-" + columnWidths[i] + "s", headers[i]));
+            if (i < headers.length - 1) {
+                output.append(" | ");  // Separator between columns
+            }
+        }
+        output.append("\n");  // Newline after the header
+
+        // Add a separator line for better readability (optional)
+        for (int i = 0; i < headers.length; i++) {
+            output.append(String.format("%-" + columnWidths[i] + "s", Strings.repeat("-", columnWidths[i])));
+            if (i < headers.length - 1) {
+                output.append("-|-");  // Separator between columns
+            }
+        }
+        output.append("\n");  // Newline after the separator
+
+        // Build the table body with proper alignment based on column widths
+        for (List<String> row : nestedList) {
+            for (int i = 0; i < row.size(); i++) {
+                String element = row.get(i);
+                // Pad with spaces if the element is shorter than the column width
+                output.append(String.format("%-" + columnWidths[i] + "s", element));
+                if (i < row.size() - 1) {
+                    output.append(" | ");  // Separator between columns
+                }
+            }
+            output.append("\n");  // Newline after each row
+        }
+
+        return output.toString();
     }
 }

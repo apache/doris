@@ -136,7 +136,7 @@ public class SelectReplaceTest extends AnalyzeCheckTestBase implements MemoPatte
                 ));
 
         // need select *
-        String sql3 = "seelct k1, k2, v1, v2 replace(k1 / 2 as k1) from t1";
+        String sql3 = "select k1, k2, v1, v2 replace(k1 / 2 as k1) from t1";
         Assertions.assertThrows(ParseException.class, () -> PlanChecker.from(MemoTestUtils.createConnectContext())
                 .checkParse(sql3, (checker) -> checker.matches(
                         logicalProject(
@@ -152,7 +152,7 @@ public class SelectReplaceTest extends AnalyzeCheckTestBase implements MemoPatte
                 .checkParse(sql4, (checker) -> checker.matches(
                         logicalProject(
                                 logicalCheckPolicy(
-                                        unboundRelation()
+                                        logicalOneRowRelation()
                                 )
                         )
                 )));
@@ -162,9 +162,7 @@ public class SelectReplaceTest extends AnalyzeCheckTestBase implements MemoPatte
         Assertions.assertThrows(ParseException.class, () -> PlanChecker.from(MemoTestUtils.createConnectContext())
                 .checkParse(sql5, (checker) -> checker.matches(
                         logicalProject(
-                                logicalCheckPolicy(
-                                        unboundRelation()
-                                )
+                                logicalOneRowRelation()
                         )
                 )));
 

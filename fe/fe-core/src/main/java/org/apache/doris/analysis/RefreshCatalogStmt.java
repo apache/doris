@@ -33,7 +33,7 @@ import java.util.Map;
  * RefreshCatalogStmt
  * Manually refresh the catalog metadata.
  */
-public class RefreshCatalogStmt extends DdlStmt {
+public class RefreshCatalogStmt extends DdlStmt implements NotFallbackInParser {
     private static final String INVALID_CACHE = "invalid_cache";
 
     private final String catalogName;

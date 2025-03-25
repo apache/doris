@@ -21,7 +21,7 @@ suite("test_index_skip_read_data", "p0"){
     def indexTbName2 = "test_index_skip_read_data_mow"
     def indexTbName3 = "test_index_skip_read_data_mor"
 
-
+    sql """ set enable_common_expr_pushdown = true; """
     // dup
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
 

@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -39,6 +40,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -52,6 +54,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -92,8 +95,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     // table family group map
     private final Map<Long, Table> idToTable;
     private ConcurrentMap<String, Table> nameToTable;
-    // table name lower cast -> table name
-    private final Map<String, String> lowerCaseToTableName;
+    // table name lower case -> table name
+    private final ConcurrentMap<String, String> lowerCaseToTableName;
 
     // user define function
     @SerializedName(value = "name2Function")
@@ -289,6 +292,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public void setDbProperties(DatabaseProperty dbProperties) {
         this.dbProperties = dbProperties;
+        if (PropertyAnalyzer.hasBinlogConfig(dbProperties.getProperties())) {
+            binlogConfig = dbProperties.getBinlogConfig();
+        }
     }
 
     public long getUsedDataQuotaWithLock() {
@@ -407,8 +413,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 isTableExist = true;
             } else {
                 idToTable.put(table.getId(), table);
-                nameToTable.put(table.getName(), table);
                 lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+                nameToTable.put(table.getName(), table);
+                if (table.isTemporary()) {
+                    Env.getCurrentEnv().registerTempTableAndSession(table);
+                }
 
                 if (!isReplay) {
                     // Write edit log
@@ -454,8 +463,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         Table table = getTableNullable(tableName);
         if (table != null) {
             this.nameToTable.remove(tableName);
-            this.idToTable.remove(table.getId());
             this.lowerCaseToTableName.remove(tableName.toLowerCase());
+            this.idToTable.remove(table.getId());
+            if (table.isTemporary()) {
+                Env.getCurrentEnv().unregisterTempTable(table);
+            }
             table.markDropped();
         }
     }
@@ -487,6 +499,19 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     public List<Table> getViews() {
         List<Table> views = new ArrayList<>();
         for (Table table : idToTable.values()) {
+            if (table.getType() == TableType.VIEW) {
+                views.add(table);
+            }
+        }
+        return views;
+    }
+
+    public List<Table> getViewsOnIdOrder() {
+        List<Table> tables = idToTable.values().stream()
+                .sorted(Comparator.comparing(Table::getId))
+                .collect(Collectors.toList());
+        List<Table> views = new ArrayList<>();
+        for (Table table : tables) {
             if (table.getType() == TableType.VIEW) {
                 views.add(table);
             }
@@ -535,6 +560,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
     }
 
+    public Set<String> getTableNames() {
+        return new HashSet<>(this.nameToTable.keySet());
+    }
+
     /**
      * This is a thread-safe method when nameToTable is a concurrent hash map
      */
@@ -549,7 +578,33 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 return null;
             }
         }
-        return nameToTable.get(tableName);
+
+        // return temp table first
+        Table table = nameToTable.get(Util.generateTempTableInnerName(tableName));
+        if (table == null) {
+            table = nameToTable.get(tableName);
+        }
+
+        return table;
+    }
+
+    /**
+     * This is a thread-safe method when nameToTable is a concurrent hash map
+     */
+    @Override
+    public Table getNonTempTableNullable(String tableName) {
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+        if (Env.isTableNamesCaseInsensitive()) {
+            tableName = lowerCaseToTableName.get(tableName.toLowerCase());
+            if (tableName == null) {
+                return null;
+            }
+        }
+
+        Table table = nameToTable.get(tableName);
+        return table;
     }
 
     /**
@@ -969,8 +1024,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                     try {
                         if (!olapTable.getBinlogConfig().isEnable()) {
                             String errMsg = String
-                                    .format("binlog is not enable in table[%s] in db [%s]", table.getName(),
-                                            getFullName());
+                                    .format("binlog is not enable in table[%s] in db [%s]",
+                                        table.getDisplayName(), getFullName());
                             throw new DdlException(errMsg);
                         }
                     } finally {
@@ -980,12 +1035,33 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             }
         }
 
+        checkStorageVault(properties);
         replayUpdateDbProperties(properties);
         return true;
     }
 
     public BinlogConfig getBinlogConfig() {
         return binlogConfig;
+    }
+
+    public void checkStorageVault(Map<String, String> properties) throws DdlException {
+        Env env = Env.getCurrentEnv();
+        if (!Config.isCloudMode() || !((CloudEnv) env).getEnableStorageVault()) {
+            return;
+        }
+
+        Map<String, String> propertiesCheck = new HashMap<>(properties);
+        String storageVaultName = PropertyAnalyzer.analyzeStorageVaultName(propertiesCheck);
+        if (Strings.isNullOrEmpty(storageVaultName)) {
+            return;
+        }
+
+        String storageVaultId = env.getStorageVaultMgr().getVaultIdByName(storageVaultName);
+        if (Strings.isNullOrEmpty(storageVaultId)) {
+            throw new DdlException("Storage vault '" + storageVaultName + "' does not exist. "
+                    + "You can use `SHOW STORAGE VAULT` to get all available vaults, "
+                    + "or create a new one with `CREATE STORAGE VAULT`.");
+        }
     }
 
     public String toJson() {
@@ -995,5 +1071,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     @Override
     public String toString() {
         return toJson();
+    }
+
+    public int getTableNum() {
+        return idToTable.size();
     }
 }

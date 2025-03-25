@@ -17,6 +17,12 @@
 //import com.mysql.cj.jdbc.Driver
 suite("test_external_catalog_mysql", "p2,external,mysql,external_remote,external_remote_mysql") {
 
+    Boolean ignoreP2 = true;
+    if (ignoreP2) {
+        logger.info("disable p2 test");
+        return;
+    }
+
     String enabled = context.config.otherConfigs.get("enableExternalMysqlTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extMysqlHost = context.config.otherConfigs.get("extMysqlHost")

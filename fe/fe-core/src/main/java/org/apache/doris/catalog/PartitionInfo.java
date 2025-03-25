@@ -128,6 +128,19 @@ public class PartitionInfo {
         return partitionColumns;
     }
 
+    public String getDisplayPartitionColumns() {
+        StringBuilder sb = new StringBuilder();
+        int index = 0;
+        for (Column c : partitionColumns) {
+            if (index  != 0) {
+                sb.append(", ");
+            }
+            sb.append(c.getDisplayName());
+            index++;
+        }
+        return sb.toString();
+    }
+
     public Map<Long, PartitionItem> getIdToItem(boolean isTemp) {
         if (isTemp) {
             return idToTempItem;
@@ -424,7 +437,7 @@ public class PartitionInfo {
                 idToItem.put(entry.getKey(), origIdToItem.get(entry.getValue()));
             }
             idToInMemory.put(entry.getKey(), origIdToInMemory.get(entry.getValue()));
-            idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.get(entry.getValue()));
+            idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.getOrDefault(entry.getValue(), ""));
         }
     }
 

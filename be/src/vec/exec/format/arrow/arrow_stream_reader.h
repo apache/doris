@@ -18,7 +18,6 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -30,19 +29,17 @@
 #include "common/status.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "util/slice.h"
-#include "vec/data_types/data_type.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
-
 namespace io {
 class FileSystem;
 struct IOContext;
 } // namespace io
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 struct ScannerCounter;
 class Block;
@@ -73,4 +70,5 @@ private:
     cctz::time_zone _ctzz;
 };
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

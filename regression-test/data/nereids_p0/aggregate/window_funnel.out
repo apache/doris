@@ -11,6 +11,9 @@
 -- !window_funnel --
 2
 
+-- !window_funnel_deduplication_compat --
+4
+
 -- !window_funnel_deduplication --
 2
 
@@ -124,4 +127,7 @@
 100125	3
 100126	2
 100127	2
+
+-- !window_funnel_datetimev2 --
+2
 

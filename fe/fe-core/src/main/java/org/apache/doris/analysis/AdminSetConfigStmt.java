@@ -33,7 +33,7 @@ import com.google.common.collect.Maps;
 import java.util.Map;
 
 // admin set frontend config ("key" = "value");
-public class AdminSetConfigStmt extends DdlStmt {
+public class AdminSetConfigStmt extends DdlStmt implements NotFallbackInParser {
 
     private boolean applyToAll;
     private NodeType type;

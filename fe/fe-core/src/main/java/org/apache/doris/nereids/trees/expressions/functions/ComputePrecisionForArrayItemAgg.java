@@ -21,6 +21,10 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.qe.ConnectContext;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /** ComputePrecisionForSum */
 public interface ComputePrecisionForArrayItemAgg extends ComputePrecision {
@@ -29,8 +33,25 @@ public interface ComputePrecisionForArrayItemAgg extends ComputePrecision {
         if (getArgumentType(0) instanceof ArrayType) {
             DataType itemType = ((ArrayType) getArgument(0).getDataType()).getItemType();
             if (itemType instanceof DecimalV3Type) {
+                boolean enableDecimal256 = false;
+                ConnectContext connectContext = ConnectContext.get();
+                if (connectContext != null) {
+                    enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
+                }
                 DecimalV3Type returnType = DecimalV3Type.createDecimalV3Type(
-                        DecimalV3Type.MAX_DECIMAL128_PRECISION, ((DecimalV3Type) itemType).getScale());
+                        enableDecimal256 ? DecimalV3Type.MAX_DECIMAL256_PRECISION
+                                : DecimalV3Type.MAX_DECIMAL128_PRECISION,
+                        ((DecimalV3Type) itemType).getScale());
+                List<DataType> newArgumentsTypes = new ArrayList<>(signature.argumentsTypes.size());
+                for (int i = 0; i < signature.argumentsTypes.size(); i++) {
+                    DataType argType = signature.argumentsTypes.get(i);
+                    if (argType instanceof ArrayType && i == 0) {
+                        newArgumentsTypes.add(ArrayType.of(returnType));
+                    } else {
+                        newArgumentsTypes.add(argType);
+                    }
+                }
+                signature = signature.withArgumentTypes(signature.hasVarArgs, newArgumentsTypes);
                 if (signature.returnType instanceof ArrayType) {
                     signature = signature.withReturnType(ArrayType.of(returnType));
                 } else {

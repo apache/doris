@@ -27,7 +27,7 @@ import com.google.common.collect.Maps;
 
 import java.util.Map;
 
-public class BackupStmt extends AbstractBackupStmt {
+public class BackupStmt extends AbstractBackupStmt implements NotFallbackInParser {
     private static final String PROP_TYPE = "type";
     public static final String PROP_CONTENT = "content";
 

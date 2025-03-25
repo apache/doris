@@ -52,11 +52,15 @@ public class ColStatsMeta {
     @SerializedName("rowCount")
     public long rowCount;
 
+    @SerializedName("tv")
+    public long tableVersion;
+
     @SerializedName("pur")
     public ConcurrentMap<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
 
-    public ColStatsMeta(long updatedTime, AnalysisMethod analysisMethod, AnalysisType analysisType, JobType jobType,
-            long queriedTimes, long rowCount, long updatedRows, Map<Long, Long> partitionUpdateRows) {
+    public ColStatsMeta(long updatedTime, AnalysisMethod analysisMethod, AnalysisType analysisType,
+                        JobType jobType, long queriedTimes, long rowCount, long updatedRows,
+                        long tableVersion, Map<Long, Long> partitionUpdateRows) {
         this.updatedTime = updatedTime;
         this.analysisMethod = analysisMethod;
         this.analysisType = analysisType;
@@ -64,6 +68,7 @@ public class ColStatsMeta {
         this.queriedTimes.addAndGet(queriedTimes);
         this.updatedRows = updatedRows;
         this.rowCount = rowCount;
+        this.tableVersion = tableVersion;
         if (partitionUpdateRows != null) {
             this.partitionUpdateRows.putAll(partitionUpdateRows);
         }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_bitmap_index_load") {
+suite("load") {
     def tbName = "test_decimal_bitmap_index_multi_page"
 
     sql """

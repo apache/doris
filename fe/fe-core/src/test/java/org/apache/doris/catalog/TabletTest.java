@@ -98,9 +98,9 @@ public class TabletTest {
         Assert.assertEquals(replica3, tablet.getReplicaById(replica3.getId()));
 
         Assert.assertEquals(3, tablet.getReplicas().size());
-        Assert.assertEquals(replica1, tablet.getReplicaByBackendId(replica1.getBackendId()));
-        Assert.assertEquals(replica2, tablet.getReplicaByBackendId(replica2.getBackendId()));
-        Assert.assertEquals(replica3, tablet.getReplicaByBackendId(replica3.getBackendId()));
+        Assert.assertEquals(replica1, tablet.getReplicaByBackendId(replica1.getBackendIdWithoutException()));
+        Assert.assertEquals(replica2, tablet.getReplicaByBackendId(replica2.getBackendIdWithoutException()));
+        Assert.assertEquals(replica3, tablet.getReplicaByBackendId(replica3.getBackendIdWithoutException()));
 
 
         long newTabletId = 20000;
@@ -111,11 +111,11 @@ public class TabletTest {
     @Test
     public void deleteReplicaTest() {
         // delete replica1
-        Assert.assertTrue(tablet.deleteReplicaByBackendId(replica1.getBackendId()));
+        Assert.assertTrue(tablet.deleteReplicaByBackendId(replica1.getBackendIdWithoutException()));
         Assert.assertNull(tablet.getReplicaById(replica1.getId()));
 
         // err: re-delete replica1
-        Assert.assertFalse(tablet.deleteReplicaByBackendId(replica1.getBackendId()));
+        Assert.assertFalse(tablet.deleteReplicaByBackendId(replica1.getBackendIdWithoutException()));
         Assert.assertFalse(tablet.deleteReplica(replica1));
         Assert.assertNull(tablet.getReplicaById(replica1.getId()));
 
@@ -214,5 +214,41 @@ public class TabletTest {
                 Tablet.TabletStatus.COLOCATE_REDUNDANT,
                 Pair.of(1L, false), Pair.of(2L, false), Pair.of(3L, false), Pair.of(4L, true)
         );
+    }
+
+    @Test
+    public void testGetMinReplicaRowCount() {
+        Tablet t = new Tablet(1);
+        long row = t.getMinReplicaRowCount(1);
+        Assert.assertEquals(0, row);
+
+        Replica r1 = new Replica(1, 1, 10, 0, 0, 0, 100, ReplicaState.NORMAL, 0, 10);
+        t.addReplica(r1);
+        row = t.getMinReplicaRowCount(10);
+        Assert.assertEquals(100, row);
+
+        row = t.getMinReplicaRowCount(11);
+        Assert.assertEquals(0, row);
+
+        Replica r2 = new Replica(2, 2, 10, 0, 0, 0, 110, ReplicaState.NORMAL, 0, 10);
+        Replica r3 = new Replica(3, 3, 10, 0, 0, 0, 90, ReplicaState.NORMAL, 0, 10);
+        t.addReplica(r2);
+        t.addReplica(r3);
+        row = t.getMinReplicaRowCount(11);
+        Assert.assertEquals(0, row);
+        row = t.getMinReplicaRowCount(9);
+        Assert.assertEquals(90, row);
+
+        r3.setBad(true);
+        row = t.getMinReplicaRowCount(9);
+        Assert.assertEquals(100, row);
+
+        r3.setBad(false);
+        row = t.getMinReplicaRowCount(9);
+        Assert.assertEquals(90, row);
+
+        r2.updateVersion(11);
+        row = t.getMinReplicaRowCount(9);
+        Assert.assertEquals(110, row);
     }
 }

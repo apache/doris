@@ -23,12 +23,14 @@
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 const std::string AggregateFunctionGroupConcatImplStr::separator = ",";
 
 AggregateFunctionPtr create_aggregate_function_group_concat(const std::string& name,
                                                             const DataTypes& argument_types,
-                                                            const bool result_is_nullable) {
+                                                            const bool result_is_nullable,
+                                                            const AggregateFunctionAttr& attr) {
     if (argument_types.size() == 1) {
         return creator_without_type::create<
                 AggregateFunctionGroupConcat<AggregateFunctionGroupConcatImplStr>>(

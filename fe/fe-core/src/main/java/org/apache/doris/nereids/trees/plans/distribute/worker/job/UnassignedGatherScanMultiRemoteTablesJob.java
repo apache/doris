@@ -17,8 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
-import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
 import org.apache.doris.planner.DataGenScanNode;
 import org.apache.doris.planner.ExchangeNode;
@@ -38,9 +39,9 @@ import java.util.Map;
 /** UnassignedGatherScanMultiRemoteTablesJob */
 public class UnassignedGatherScanMultiRemoteTablesJob extends AbstractUnassignedJob {
 
-    public UnassignedGatherScanMultiRemoteTablesJob(PlanFragment fragment,
+    public UnassignedGatherScanMultiRemoteTablesJob(StatementContext statementContext, PlanFragment fragment,
             List<ScanNode> scanNodes, ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob) {
-        super(fragment, scanNodes, exchangeToChildJob);
+        super(statementContext, fragment, scanNodes, exchangeToChildJob);
     }
 
     /** canApply */
@@ -61,9 +62,9 @@ public class UnassignedGatherScanMultiRemoteTablesJob extends AbstractUnassigned
     }
 
     @Override
-    public List<AssignedJob> computeAssignedJobs(DistributedPlanWorkerManager workerManager,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        ConnectContext context = ConnectContext.get();
+    public List<AssignedJob> computeAssignedJobs(
+            DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+        ConnectContext connectContext = statementContext.getConnectContext();
         Map<ScanNode, ScanRanges> scanNodeToScanRanges = Maps.newLinkedHashMap();
         for (ScanNode scanNode : scanNodes) {
             List<TScanRangeLocations> scanRangeLocations = scanNode.getScanRangeLocations(0);
@@ -77,9 +78,9 @@ public class UnassignedGatherScanMultiRemoteTablesJob extends AbstractUnassigned
             scanNodeToScanRanges.put(scanNode, scanRanges);
         }
 
-        DistributedPlanWorker randomWorker = workerManager.randomAvailableWorker();
+        DistributedPlanWorker randomWorker = distributeContext.selectedWorkers.tryToSelectRandomUsedWorker();
         return ImmutableList.of(
-                assignWorkerAndDataSources(0, context.nextInstanceId(),
+                assignWorkerAndDataSources(0, connectContext.nextInstanceId(),
                         randomWorker, new DefaultScanSource(scanNodeToScanRanges)
                 )
         );

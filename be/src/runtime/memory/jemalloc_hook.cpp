@@ -60,7 +60,7 @@ void* doris_realloc(void* p, size_t size) __THROW {
         return nullptr;
     }
 
-#if USE_MEM_TRACKER
+#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
     int64_t old_size = jemalloc_usable_size(p);
     CONSUME_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(
             [](size_t size, int64_t old_size) { return jenallocx(size, 0) - old_size; }, size,

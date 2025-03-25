@@ -68,14 +68,17 @@ public class MysqlServer {
     // return true if success, otherwise false
     public boolean start() {
         try {
+            OptionMap optionMap = OptionMap.builder()
+                    .set(Options.TCP_NODELAY, true)
+                    .set(Options.BACKLOG, Config.mysql_nio_backlog_num)
+                    .set(Options.KEEP_ALIVE, Config.mysql_nio_enable_keep_alive)
+                    .getMap();
             if (FrontendOptions.isBindIPV6()) {
                 server = xnioWorker.createStreamConnectionServer(new InetSocketAddress("::0", port), acceptListener,
-                    OptionMap.create(Options.TCP_NODELAY, true, Options.BACKLOG, Config.mysql_nio_backlog_num));
-
+                    optionMap);
             } else {
                 server = xnioWorker.createStreamConnectionServer(new InetSocketAddress(port), acceptListener,
-                    OptionMap.create(Options.TCP_NODELAY, true, Options.BACKLOG, Config.mysql_nio_backlog_num));
-
+                    optionMap);
             }
             server.resumeAccepts();
             running = true;

@@ -53,7 +53,7 @@ class Http {
         conn.setRequestProperty('Authorization', 'Basic cm9vdDo=') //token for root
         def code = conn.responseCode
         def text = conn.content.text
-        logger.info("http post url=${url}, isJson=${isJson}, response code=${code}, text=${text}")
+        logger.info("http get url=${url}, isJson=${isJson}, response code=${code}, text=${text}")
         Assert.assertEquals(200, code)
         if (isJson) {
             def json = new JsonSlurper()

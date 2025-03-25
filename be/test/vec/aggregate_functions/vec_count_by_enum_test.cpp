@@ -43,7 +43,7 @@ public:
         DataTypes data_types = {
                 std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
         };
-        agg_function = factory.get("count_by_enum", data_types, true);
+        agg_function = factory.get("count_by_enum", data_types, true, -1);
         EXPECT_NE(agg_function, nullptr);
     }
 

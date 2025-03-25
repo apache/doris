@@ -80,7 +80,7 @@ public class DropColumnClause extends AlterTableClause {
         StringBuilder sb = new StringBuilder();
         sb.append("DROP COLUMN `").append(colName).append("`");
         if (rollupName != null) {
-            sb.append(" IN `").append(rollupName).append("`");
+            sb.append(" FROM `").append(rollupName).append("`");
         }
         return sb.toString();
     }

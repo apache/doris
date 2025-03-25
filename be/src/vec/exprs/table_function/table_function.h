@@ -18,13 +18,15 @@
 #pragma once
 
 #include <fmt/core.h>
-#include <stddef.h>
+
+#include <cstddef>
 
 #include "common/status.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 constexpr auto COMBINATOR_SUFFIX_OUTER = "_outer";
 
@@ -101,4 +103,6 @@ protected:
     bool _is_nullable = false;
     bool _is_const = false;
 };
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

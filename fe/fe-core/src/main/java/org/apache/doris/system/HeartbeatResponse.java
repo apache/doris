@@ -51,10 +51,12 @@ public class HeartbeatResponse implements Writable {
     protected boolean isTypeRead = false;
 
     /**
-     * msg and hbTime are no need to be synchronized to other Frontends,
+     * msg no need to be synchronized to other Frontends,
      * and only Master Frontend has these info
      */
     protected String msg;
+
+    @SerializedName(value = "hbTime")
     protected long hbTime;
 
     public HeartbeatResponse(Type type) {

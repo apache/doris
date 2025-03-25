@@ -19,15 +19,15 @@ package org.apache.doris.udf;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.JavaUdfDataType;
 import org.apache.doris.common.jni.utils.OffHeap;
+import org.apache.doris.common.jni.utils.UdfClassCache;
 import org.apache.doris.common.jni.utils.UdfUtils;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.common.jni.vec.VectorTable;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
-import com.esotericsoftware.reflectasm.MethodAccess;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import org.apache.log4j.Logger;
@@ -37,9 +37,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.lang.reflect.Array;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
-import java.net.MalformedURLException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
@@ -51,11 +49,16 @@ public class UdafExecutor extends BaseExecutor {
 
     private static final Logger LOG = Logger.getLogger(UdafExecutor.class);
 
-    private HashMap<String, Method> allMethods;
+    private static final String UDAF_CREATE_FUNCTION = "create";
+    private static final String UDAF_DESTROY_FUNCTION = "destroy";
+    private static final String UDAF_ADD_FUNCTION = "add";
+    private static final String UDAF_RESET_FUNCTION = "reset";
+    private static final String UDAF_SERIALIZE_FUNCTION = "serialize";
+    private static final String UDAF_DESERIALIZE_FUNCTION = "deserialize";
+    private static final String UDAF_MERGE_FUNCTION = "merge";
+    private static final String UDAF_RESULT_FUNCTION = "getValue";
+
     private HashMap<Long, Object> stateObjMap;
-    private Class retClass;
-    private int addIndex;
-    private VectorTable outputTable = null;
 
     /**
      * Constructor to create an object.
@@ -69,27 +72,10 @@ public class UdafExecutor extends BaseExecutor {
      */
     @Override
     public void close() {
-        if (outputTable != null) {
-            outputTable.close();
+        if (!isStaticLoad) {
+            super.close();
         }
-        super.close();
-        allMethods = null;
         stateObjMap = null;
-    }
-
-    private Map<Integer, ColumnValueConverter> getInputConverters(int numColumns) {
-        Map<Integer, ColumnValueConverter> converters = new HashMap<>();
-        for (int j = 0; j < numColumns; ++j) {
-            ColumnValueConverter converter = getInputConverter(argTypes[j].getPrimitiveType(), argClass[j + 1]);
-            if (converter != null) {
-                converters.put(j, converter);
-            }
-        }
-        return converters;
-    }
-
-    private ColumnValueConverter getOutputConverter() {
-        return getOutputConverter(retType, retClass);
     }
 
     public void addBatch(boolean isSinglePlace, int rowStart, int rowEnd, long placeAddr, int offset,
@@ -97,7 +83,7 @@ public class UdafExecutor extends BaseExecutor {
         try {
             VectorTable inputTable = VectorTable.createReadableTable(inputParams);
             Object[][] inputs = inputTable.getMaterializedData(rowStart, rowEnd,
-                    getInputConverters(inputTable.getNumColumns()));
+                    getInputConverters(inputTable.getNumColumns(), true));
             if (isSinglePlace) {
                 addBatchSingle(rowStart, rowEnd, placeAddr, inputs);
             } else {
@@ -111,7 +97,7 @@ public class UdafExecutor extends BaseExecutor {
 
     public void addBatchSingle(int rowStart, int rowEnd, long placeAddr, Object[][] inputs) throws UdfRuntimeException {
         Long curPlace = placeAddr;
-        Object[] inputArgs = new Object[argTypes.length + 1];
+        Object[] inputArgs = new Object[objCache.argTypes.length + 1];
         Object state = stateObjMap.get(curPlace);
         if (state != null) {
             inputArgs[0] = state;
@@ -126,7 +112,7 @@ public class UdafExecutor extends BaseExecutor {
             for (int j = 0; j < numColumns; ++j) {
                 inputArgs[j + 1] = inputs[j][i];
             }
-            methodAccess.invoke(udf, addIndex, inputArgs);
+            objCache.methodAccess.invoke(udf, objCache.methodIndex, inputArgs);
         }
     }
 
@@ -146,15 +132,15 @@ public class UdafExecutor extends BaseExecutor {
                 placeState[row - rowStart] = newState;
             }
         }
-        //spilt into two for loop
+        // spilt into two for loop
 
-        Object[] inputArgs = new Object[argTypes.length + 1];
+        Object[] inputArgs = new Object[objCache.argTypes.length + 1];
         for (int row = 0; row < numRows; ++row) {
             inputArgs[0] = placeState[row];
             for (int j = 0; j < numColumns; ++j) {
                 inputArgs[j + 1] = inputs[j][row];
             }
-            methodAccess.invoke(udf, addIndex, inputArgs);
+            objCache.methodAccess.invoke(udf, objCache.methodIndex, inputArgs);
         }
     }
 
@@ -163,7 +149,7 @@ public class UdafExecutor extends BaseExecutor {
      */
     public Object createAggState() throws UdfRuntimeException {
         try {
-            return allMethods.get(UDAF_CREATE_FUNCTION).invoke(udf, null);
+            return objCache.allMethods.get(UDAF_CREATE_FUNCTION).invoke(udf, null);
         } catch (Exception e) {
             LOG.warn("invoke createAggState function meet some error: ", e);
             throw new UdfRuntimeException("UDAF failed to create: ", e);
@@ -176,7 +162,7 @@ public class UdafExecutor extends BaseExecutor {
     public void destroy() throws UdfRuntimeException {
         try {
             for (Object obj : stateObjMap.values()) {
-                allMethods.get(UDAF_DESTROY_FUNCTION).invoke(udf, obj);
+                objCache.allMethods.get(UDAF_DESTROY_FUNCTION).invoke(udf, obj);
             }
             stateObjMap.clear();
         } catch (Exception e) {
@@ -194,7 +180,7 @@ public class UdafExecutor extends BaseExecutor {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             args[0] = stateObjMap.get(place);
             args[1] = new DataOutputStream(baos);
-            allMethods.get(UDAF_SERIALIZE_FUNCTION).invoke(udf, args);
+            objCache.allMethods.get(UDAF_SERIALIZE_FUNCTION).invoke(udf, args);
             return baos.toByteArray();
         } catch (Exception e) {
             LOG.info("evaluate exception debug: " + debugString());
@@ -213,7 +199,7 @@ public class UdafExecutor extends BaseExecutor {
             if (args[0] == null) {
                 return;
             }
-            allMethods.get(UDAF_RESET_FUNCTION).invoke(udf, args);
+            objCache.allMethods.get(UDAF_RESET_FUNCTION).invoke(udf, args);
         } catch (Exception e) {
             LOG.info("evaluate exception debug: " + debugString());
             LOG.warn("invoke reset function meet some error: ", e);
@@ -231,7 +217,7 @@ public class UdafExecutor extends BaseExecutor {
             ByteArrayInputStream bins = new ByteArrayInputStream(data);
             args[0] = createAggState();
             args[1] = new DataInputStream(bins);
-            allMethods.get(UDAF_DESERIALIZE_FUNCTION).invoke(udf, args);
+            objCache.allMethods.get(UDAF_DESERIALIZE_FUNCTION).invoke(udf, args);
             args[1] = args[0];
             Long curPlace = place;
             Object state = stateObjMap.get(curPlace);
@@ -242,7 +228,7 @@ public class UdafExecutor extends BaseExecutor {
                 stateObjMap.put(curPlace, newState);
                 args[0] = newState;
             }
-            allMethods.get(UDAF_MERGE_FUNCTION).invoke(udf, args);
+            objCache.allMethods.get(UDAF_MERGE_FUNCTION).invoke(udf, args);
         } catch (Exception e) {
             LOG.info("evaluate exception debug: " + debugString());
             LOG.warn("invoke merge function meet some error: ", e);
@@ -262,12 +248,12 @@ public class UdafExecutor extends BaseExecutor {
             if (stateObjMap.get(place) == null) {
                 stateObjMap.put(place, createAggState());
             }
-            Object value = allMethods.get(UDAF_RESULT_FUNCTION).invoke(udf, stateObjMap.get(place));
+            Object value = objCache.allMethods.get(UDAF_RESULT_FUNCTION).invoke(udf, stateObjMap.get(place));
             // If the return type is primitive, we can't cast the array of primitive type as array of Object,
             // so we have to new its wrapped Object.
             Object[] result = outputTable.getColumnType(0).isPrimitive()
                     ? outputTable.getColumn(0).newObjectContainerArray(1)
-                    : (Object[]) Array.newInstance(retClass, 1);
+                    : (Object[]) Array.newInstance(objCache.retClass, 1);
             result[0] = value;
             boolean isNullable = Boolean.parseBoolean(outputParams.getOrDefault("is_nullable", "true"));
             outputTable.appendData(0, result, getOutputConverter(), isNullable);
@@ -279,109 +265,85 @@ public class UdafExecutor extends BaseExecutor {
         }
     }
 
-    @Override
     protected void init(TJavaUdfExecutorCtorParams request, String jarPath, Type funcRetType,
             Type... parameterTypes) throws UdfRuntimeException {
-        String className = request.fn.aggregate_fn.symbol;
-        allMethods = new HashMap<>();
+        className = fn.aggregate_fn.symbol;
+        super.init(request, jarPath, funcRetType, parameterTypes);
         stateObjMap = new HashMap<>();
+    }
 
+    @Override
+    protected void checkAndCacheUdfClass(UdfClassCache cache, Type funcRetType,
+            Type... parameterTypes) throws InternalException, UdfRuntimeException {
         ArrayList<String> signatures = Lists.newArrayList();
-        try {
-            ClassLoader loader;
-            if (jarPath != null) {
-                ClassLoader parent = getClass().getClassLoader();
-                classLoader = UdfUtils.getClassLoader(jarPath, parent);
-                loader = classLoader;
-            } else {
-                // for test
-                loader = ClassLoader.getSystemClassLoader();
-            }
-            Class<?> c = Class.forName(className, true, loader);
-            methodAccess = MethodAccess.get(c);
-            Constructor<?> ctor = c.getConstructor();
-            udf = ctor.newInstance();
-            Method[] methods = c.getDeclaredMethods();
-            int idx = 0;
-            for (idx = 0; idx < methods.length; ++idx) {
-                signatures.add(methods[idx].toGenericString());
-                switch (methods[idx].getName()) {
-                    case UDAF_DESTROY_FUNCTION:
-                    case UDAF_CREATE_FUNCTION:
-                    case UDAF_MERGE_FUNCTION:
-                    case UDAF_SERIALIZE_FUNCTION:
-                    case UDAF_RESET_FUNCTION:
-                    case UDAF_DESERIALIZE_FUNCTION: {
-                        allMethods.put(methods[idx].getName(), methods[idx]);
-                        break;
-                    }
-                    case UDAF_RESULT_FUNCTION: {
-                        allMethods.put(methods[idx].getName(), methods[idx]);
-                        Pair<Boolean, JavaUdfDataType> returnType = UdfUtils.setReturnType(funcRetType,
-                                methods[idx].getReturnType());
-                        if (!returnType.first) {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("result function set return parameterTypes has error");
-                            }
-                        } else {
-                            retType = returnType.second;
-                            retClass = methods[idx].getReturnType();
-                        }
-                        break;
-                    }
-                    case UDAF_ADD_FUNCTION: {
-                        allMethods.put(methods[idx].getName(), methods[idx]);
-                        addIndex = methodAccess.getIndex(UDAF_ADD_FUNCTION);
-                        argClass = methods[idx].getParameterTypes();
-                        if (argClass.length != parameterTypes.length + 1) {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("add function parameterTypes length not equal " + argClass.length + " "
-                                        + parameterTypes.length + " " + methods[idx].getName());
-                            }
-                        }
-                        if (!(parameterTypes.length == 0)) {
-                            Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes,
-                                    argClass, true);
-                            if (!inputType.first) {
-                                if (LOG.isDebugEnabled()) {
-                                    LOG.debug("add function set arg parameterTypes has error");
-                                }
-                            } else {
-                                argTypes = inputType.second;
-                            }
-                        } else {
-                            // Special case where the UDF doesn't take any input args
-                            argTypes = new JavaUdfDataType[0];
-                        }
-                        break;
-                    }
-                    default:
-                        break;
+        Class<?> c = cache.udfClass;
+        Method[] methods = c.getMethods();
+        int idx = 0;
+        for (idx = 0; idx < methods.length; ++idx) {
+            signatures.add(methods[idx].toGenericString());
+            switch (methods[idx].getName()) {
+                case UDAF_DESTROY_FUNCTION:
+                case UDAF_CREATE_FUNCTION:
+                case UDAF_MERGE_FUNCTION:
+                case UDAF_SERIALIZE_FUNCTION:
+                case UDAF_RESET_FUNCTION:
+                case UDAF_DESERIALIZE_FUNCTION: {
+                    cache.allMethods.put(methods[idx].getName(), methods[idx]);
+                    break;
                 }
+                case UDAF_RESULT_FUNCTION: {
+                    cache.allMethods.put(methods[idx].getName(), methods[idx]);
+                    Pair<Boolean, JavaUdfDataType> returnType = UdfUtils.setReturnType(funcRetType,
+                            methods[idx].getReturnType());
+                    if (!returnType.first) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("result function set return parameterTypes has error");
+                        }
+                    } else {
+                        cache.retType = returnType.second;
+                        cache.retClass = methods[idx].getReturnType();
+                    }
+                    break;
+                }
+                case UDAF_ADD_FUNCTION: {
+                    cache.allMethods.put(methods[idx].getName(), methods[idx]);
+                    cache.methodIndex = cache.methodAccess.getIndex(UDAF_ADD_FUNCTION);
+                    cache.argClass = methods[idx].getParameterTypes();
+                    if (cache.argClass.length != parameterTypes.length + 1) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("add function parameterTypes length not equal " + cache.argClass.length + " "
+                                    + parameterTypes.length + " " + methods[idx].getName());
+                        }
+                    }
+                    if (!(parameterTypes.length == 0)) {
+                        Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes,
+                                cache.argClass, true);
+                        if (!inputType.first) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("add function set arg parameterTypes has error");
+                            }
+                        } else {
+                            cache.argTypes = inputType.second;
+                        }
+                    } else {
+                        // Special case where the UDF doesn't take any input args
+                        cache.argTypes = new JavaUdfDataType[0];
+                    }
+                    break;
+                }
+                default:
+                    break;
             }
-            if (idx == methods.length) {
-                return;
-            }
-            StringBuilder sb = new StringBuilder();
-            sb.append("Unable to find evaluate function with the correct signature: ")
-                    .append(className)
-                    .append(".evaluate(")
-                    .append(Joiner.on(", ").join(parameterTypes)).append(")\n").append("UDF contains: \n    ")
-                    .append(Joiner.on("\n    ").join(signatures));
-            throw new UdfRuntimeException(sb.toString());
-
-        } catch (MalformedURLException e) {
-            throw new UdfRuntimeException("Unable to load jar.", e);
-        } catch (SecurityException e) {
-            throw new UdfRuntimeException("Unable to load function.", e);
-        } catch (ClassNotFoundException e) {
-            throw new UdfRuntimeException("Unable to find class.", e);
-        } catch (NoSuchMethodException e) {
-            throw new UdfRuntimeException("Unable to find constructor with no arguments.", e);
-        } catch (IllegalArgumentException e) {
-            throw new UdfRuntimeException("Unable to call UDAF constructor with no arguments.", e);
-        } catch (Exception e) {
-            throw new UdfRuntimeException("Unable to call create UDAF instance.", e);
         }
+        if (idx == methods.length) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("Unable to find evaluate function with the correct signature: ")
+                .append(className)
+                .append(".evaluate(")
+                .append(Joiner.on(", ").join(parameterTypes)).append(")\n").append("UDF contains: \n    ")
+                .append(Joiner.on("\n    ").join(signatures));
+        throw new UdfRuntimeException(sb.toString());
     }
 }

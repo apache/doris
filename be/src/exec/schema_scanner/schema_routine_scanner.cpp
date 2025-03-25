@@ -26,6 +26,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 std::vector<SchemaScanner::ColumnDesc> SchemaRoutinesScanner::_s_tbls_columns = {
         {"SPECIFIC_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"ROUTINE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -62,7 +64,7 @@ Status SchemaRoutinesScanner::start(RuntimeState* state) {
 }
 
 Status SchemaRoutinesScanner::get_block_from_fe() {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
     TSchemaTableRequestParams schema_table_request_params;
     for (int i = 0; i < _s_tbls_columns.size(); i++) {
         schema_table_request_params.__isset.columns_name = true;
@@ -94,48 +96,17 @@ Status SchemaRoutinesScanner::get_block_from_fe() {
     }
     _routines_block->reserve(_block_rows_limit);
     if (result_data.size() > 0) {
-        int col_size = result_data[0].column_value.size();
+        auto col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
             return Status::InternalError<false>("routine table schema is not match for FE and BE");
         }
     }
-    auto insert_string_value = [&](int col_index, std::string str_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_val.data(),
-                                                                          str_val.size());
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
-    auto insert_datetime_value = [&](int col_index, const std::vector<void*>& datas,
-                                     vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        auto data = datas[0];
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
-                reinterpret_cast<char*>(data), 0);
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
 
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
-
         for (int j = 0; j < _s_tbls_columns.size(); j++) {
-            if (_s_tbls_columns[j].type == TYPE_DATETIME) {
-                std::vector<void*> datas(1);
-                VecDateTimeValue src[1];
-                src[0].from_date_str(row.column_value[j].stringVal.data(),
-                                     row.column_value[j].stringVal.size());
-                datas[0] = src;
-                insert_datetime_value(j, datas, _routines_block.get());
-            } else {
-                insert_string_value(j, row.column_value[j].stringVal, _routines_block.get());
-            }
+            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _routines_block.get(),
+                                                _s_tbls_columns[j].type));
         }
     }
     return Status::OK();
@@ -152,7 +123,7 @@ Status SchemaRoutinesScanner::get_next_block_internal(vectorized::Block* block, 
 
     if (_routines_block == nullptr) {
         RETURN_IF_ERROR(get_block_from_fe());
-        _total_rows = _routines_block->rows();
+        _total_rows = (int)_routines_block->rows();
     }
 
     if (_row_idx == _total_rows) {

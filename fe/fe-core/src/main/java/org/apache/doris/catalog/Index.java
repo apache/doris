@@ -48,13 +48,13 @@ import java.util.Set;
 
 /**
  * Internal representation of index, including index type, name, columns and comments.
- * This class will used in olaptable
+ * This class will be used in olap table
  */
 public class Index implements Writable {
     public static final int INDEX_ID_INIT_VALUE = -1;
 
     @SerializedName(value = "i", alternate = {"indexId"})
-    private long indexId = -1; // -1 for compatibale
+    private long indexId = -1; // -1 for compatiable
     @SerializedName(value = "in", alternate = {"indexName"})
     private String indexName;
     @SerializedName(value = "c", alternate = {"columns"})
@@ -238,7 +238,21 @@ public class Index implements Writable {
         return sb.toString();
     }
 
-    public TOlapTableIndex toThrift() {
+    public List<Integer> getColumnUniqueIds(List<Column> schema) {
+        List<Integer> columnUniqueIds = new ArrayList<>();
+        if (schema != null) {
+            for (String columnName : columns) {
+                for (Column column : schema) {
+                    if (columnName.equalsIgnoreCase(column.getName())) {
+                        columnUniqueIds.add(column.getUniqueId());
+                    }
+                }
+            }
+        }
+        return columnUniqueIds;
+    }
+
+    public TOlapTableIndex toThrift(List<Integer> indexColumnUniqueIds) {
         TOlapTableIndex tIndex = new TOlapTableIndex();
         tIndex.setIndexId(indexId);
         tIndex.setIndexName(indexName);
@@ -247,18 +261,19 @@ public class Index implements Writable {
         if (properties != null) {
             tIndex.setProperties(properties);
         }
+        tIndex.setColumnUniqueIds(indexColumnUniqueIds);
         return tIndex;
     }
 
-    public OlapFile.TabletIndexPB toPb(List<Column> schemaColumns) {
+    public OlapFile.TabletIndexPB toPb(Map<Integer, Column> columnMap, List<Integer> indexColumnUniqueIds) {
         OlapFile.TabletIndexPB.Builder builder = OlapFile.TabletIndexPB.newBuilder();
         builder.setIndexId(indexId);
         builder.setIndexName(indexName);
-        for (String columnName : columns) {
-            for (Column column : schemaColumns) {
-                if (column.getName().equals(columnName)) {
-                    builder.addColUniqueId(column.getUniqueId());
-                }
+
+        for (Integer columnUniqueId : indexColumnUniqueIds) {
+            Column column = columnMap.get(columnUniqueId);
+            if (column != null) {
+                builder.addColUniqueId(column.getUniqueId());
             }
         }
 

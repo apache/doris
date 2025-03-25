@@ -358,7 +358,8 @@ public class DeleteHandlerTest {
         new Expectations(globalTransactionMgr) {
             {
                 try {
-                    globalTransactionMgr.commitTransaction(anyLong, (List<Table>) any, anyLong, (List<TabletCommitInfo>) any, (TxnCommitAttachment) any);
+                    globalTransactionMgr.commitTransactionWithoutLock(
+                            anyLong, (List<Table>) any, anyLong, (List<TabletCommitInfo>) any, (TxnCommitAttachment) any);
                 } catch (UserException e) {
                     // CHECKSTYLE IGNORE THIS LINE
                 }

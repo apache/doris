@@ -95,6 +95,7 @@ import java.util.TreeMap;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+@Deprecated
 public class GenerateFunction {
 
     static final Set<String> unaryArithmeticOperators = Arrays.stream(ArithmeticExpr.Operator.values())
@@ -182,6 +183,7 @@ public class GenerateFunction {
             .put("any", "any_value")
             .put("char_length", "character_length")
             .put("stddev_pop", "stddev")
+            .put("percentile_cont", "percentile")
             .put("var_pop", "variance")
             .put("variance_pop", "variance")
             .put("var_samp", "variance_samp")

@@ -20,51 +20,87 @@
 #include "common/signal_handler.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
-#include "runtime/workload_group/workload_group_manager.h"
 
 namespace doris {
 class MemTracker;
 
-QueryThreadContext ThreadContext::query_thread_context() {
-    DCHECK(doris::pthread_context_ptr_init);
-    ORPHAN_TRACKER_CHECK();
-    return {_task_id, thread_mem_tracker_mgr->limiter_mem_tracker(), _wg_wptr};
+void AttachTask::init(const std::shared_ptr<ResourceContext>& rc) {
+    ThreadLocalHandle::create_thread_local_if_not_exits();
+    signal::set_signal_task_id(rc->task_controller()->task_id());
+    thread_context()->attach_task(rc);
 }
 
-void AttachTask::init(const QueryThreadContext& query_thread_context) {
-    ThreadLocalHandle::create_thread_local_if_not_exits();
-    signal::set_signal_task_id(query_thread_context.query_id);
-    thread_context()->attach_task(query_thread_context.query_id,
-                                  query_thread_context.query_mem_tracker,
-                                  query_thread_context.wg_wptr);
+AttachTask::AttachTask(const std::shared_ptr<ResourceContext>& rc) {
+    init(rc);
 }
 
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-    QueryThreadContext query_thread_context = {TUniqueId(), mem_tracker};
-    init(query_thread_context);
+    std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
+    rc->memory_context()->set_mem_tracker(mem_tracker);
+    init(rc);
 }
 
 AttachTask::AttachTask(RuntimeState* runtime_state) {
     signal::set_signal_is_nereids(runtime_state->is_nereids());
-    QueryThreadContext query_thread_context = {runtime_state->query_id(),
-                                               runtime_state->query_mem_tracker(),
-                                               runtime_state->get_query_ctx()->workload_group()};
-    init(query_thread_context);
-}
-
-AttachTask::AttachTask(const QueryThreadContext& query_thread_context) {
-    init(query_thread_context);
+    init(runtime_state->get_query_ctx()->resource_ctx());
 }
 
 AttachTask::AttachTask(QueryContext* query_ctx) {
-    QueryThreadContext query_thread_context = {query_ctx->query_id(), query_ctx->query_mem_tracker,
-                                               query_ctx->workload_group()};
-    init(query_thread_context);
+    init(query_ctx->resource_ctx());
 }
 
 AttachTask::~AttachTask() {
+    signal::set_signal_task_id(TUniqueId());
     thread_context()->detach_task();
     ThreadLocalHandle::del_thread_local_if_count_is_zero();
+}
+
+SwitchResourceContext::SwitchResourceContext(const std::shared_ptr<ResourceContext>& rc) {
+    DCHECK(rc != nullptr);
+    doris::ThreadLocalHandle::create_thread_local_if_not_exits();
+    if (thread_context()->is_attach_task()) {
+        old_resource_ctx_ = thread_context()->resource_ctx();
+        if (rc != old_resource_ctx_) {
+            signal::set_signal_task_id(rc->task_controller()->task_id());
+            thread_context()->resource_ctx_ = rc;
+            thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
+                    rc->memory_context()->mem_tracker(), rc->workload_group());
+        }
+    } else {
+        signal::set_signal_task_id(rc->task_controller()->task_id());
+        thread_context()->attach_task(rc);
+    }
+}
+
+SwitchResourceContext::~SwitchResourceContext() {
+    if (old_resource_ctx_ != thread_context()->resource_ctx()) {
+        if (old_resource_ctx_ != nullptr) {
+            signal::set_signal_task_id(old_resource_ctx_->task_controller()->task_id());
+            thread_context()->resource_ctx_ = old_resource_ctx_;
+            thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker();
+        } else {
+            signal::set_signal_task_id(TUniqueId());
+            thread_context()->detach_task();
+        }
+    }
+    doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
+}
+
+SwitchThreadMemTrackerLimiter::SwitchThreadMemTrackerLimiter(
+        const std::shared_ptr<doris::MemTrackerLimiter>& mem_tracker) {
+    DCHECK(mem_tracker);
+    doris::ThreadLocalHandle::create_thread_local_if_not_exits();
+    if (mem_tracker != thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()) {
+        thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker);
+        is_switched_ = true;
+    }
+}
+
+SwitchThreadMemTrackerLimiter::~SwitchThreadMemTrackerLimiter() {
+    if (is_switched_) {
+        thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker();
+    }
+    doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker) {

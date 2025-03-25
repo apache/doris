@@ -138,3 +138,137 @@ CREATE TABLE dbo.test_timestamp (
 id_col int PRIMARY KEY NOT NULL,
 timestamp_col timestamp NULL
 );
+
+CREATE TABLE dbo.TEST_LOWER (
+    id int PRIMARY KEY NOT NULL,
+    name varchar(10) NOT NULL
+);
+
+CREATE TABLE dbo.extreme_test
+(
+    ID BIGINT NOT NULL PRIMARY KEY,
+    -- Signed integer types:
+    -- For Int8 simulation, we use SMALLINT with a CHECK constraint between -128 and 127.
+    Int8_Col       SMALLINT NOT NULL CHECK (Int8_Col BETWEEN -128 AND 127),
+    Int8_Nullable  SMALLINT NULL CHECK (Int8_Nullable BETWEEN -128 AND 127),
+    -- Int16
+    Int16_Col      SMALLINT NOT NULL,
+    Int16_Nullable SMALLINT NULL,
+    -- Int32
+    Int32_Col      INT NOT NULL,
+    Int32_Nullable INT NULL,
+    -- Int64
+    Int64_Col      BIGINT NOT NULL,
+    Int64_Nullable BIGINT NULL,
+    -- Unsigned integer types (simulate using a larger type plus a CHECK constraint):
+    -- UInt8 (0 to 255) – SQL Server’s TINYINT is naturally unsigned.
+    UInt8_Col       TINYINT NOT NULL,
+    UInt8_Nullable  TINYINT NULL,
+    -- UInt16 (0 to 65535); use INT with a check constraint.
+    UInt16_Col       INT NOT NULL CHECK (UInt16_Col BETWEEN 0 AND 65535),
+    UInt16_Nullable  INT NULL CHECK (UInt16_Nullable BETWEEN 0 AND 65535),
+    -- UInt32 (0 to 4294967295); use BIGINT with a check constraint.
+    UInt32_Col       BIGINT NOT NULL CHECK (UInt32_Col BETWEEN 0 AND 4294967295),
+    UInt32_Nullable  BIGINT NULL CHECK (UInt32_Nullable BETWEEN 0 AND 4294967295),
+    -- UInt64; SQL Server has no 64-bit unsigned, so we use DECIMAL(20,0).
+    UInt64_Col       DECIMAL(20,0) NOT NULL CHECK (UInt64_Col >= 0),
+    UInt64_Nullable  DECIMAL(20,0) NULL CHECK (UInt64_Nullable >= 0),
+    -- Floating point types:
+    Float32_Col      REAL NOT NULL,
+    Float32_Nullable REAL NULL,
+    Float64_Col      FLOAT NOT NULL,
+    Float64_Nullable FLOAT NULL,
+    -- Decimal types with various precisions and scales:
+    Decimal_Col1       DECIMAL(18,2) NOT NULL,
+    Decimal_Nullable1  DECIMAL(18,2) NULL,
+    Decimal_Col2       DECIMAL(10,5) NOT NULL,
+    Decimal_Nullable2  DECIMAL(10,5) NULL,
+    Decimal_Col3       DECIMAL(38,10) NOT NULL,
+    Decimal_Nullable3  DECIMAL(38,10) NULL,
+    -- Date and DateTime types:
+    Date_Col        DATE NOT NULL,
+    Date_Nullable   DATE NULL,
+    Datetime_Col    DATETIME NOT NULL,
+    Datetime_Nullable DATETIME NULL,
+    -- String types:
+    String_Col         VARCHAR(100) NOT NULL,
+    String_Nullable    VARCHAR(100) NULL,
+    FixedString_Col       CHAR(10) NOT NULL,
+    FixedString_Nullable  CHAR(10) NULL,
+    -- Enum simulation (using CHAR(1) with a CHECK constraint):
+    Enum_Col         CHAR(1) NOT NULL CHECK (Enum_Col IN ('A','B','C')),
+    Enum_Nullable    CHAR(1) NULL CHECK (Enum_Nullable IN ('A','B','C') OR Enum_Nullable IS NULL),
+    -- UUID (SQL Server’s UNIQUEIDENTIFIER):
+    UUID_Col         UNIQUEIDENTIFIER NOT NULL,
+    UUID_Nullable    UNIQUEIDENTIFIER NULL,
+    -- IP address simulation:
+    IPv4_Col         VARCHAR(15) NOT NULL,  -- e.g., '255.255.255.255'
+    IPv4_Nullable    VARCHAR(15) NULL,
+    IPv6_Col         VARCHAR(39) NOT NULL,  -- e.g., 'FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF'
+    IPv6_Nullable    VARCHAR(39) NULL
+);
+
+
+CREATE TABLE dbo.extreme_test_multi_block
+(
+    ID BIGINT NOT NULL,
+    -- Signed integer types:
+    -- For Int8 simulation, we use SMALLINT with a CHECK constraint between -128 and 127.
+    Int8_Col       SMALLINT NOT NULL CHECK (Int8_Col BETWEEN -128 AND 127),
+    Int8_Nullable  SMALLINT NULL CHECK (Int8_Nullable BETWEEN -128 AND 127),
+    -- Int16
+    Int16_Col      SMALLINT NOT NULL,
+    Int16_Nullable SMALLINT NULL,
+    -- Int32
+    Int32_Col      INT NOT NULL,
+    Int32_Nullable INT NULL,
+    -- Int64
+    Int64_Col      BIGINT NOT NULL,
+    Int64_Nullable BIGINT NULL,
+    -- Unsigned integer types (simulate using a larger type plus a CHECK constraint):
+    -- UInt8 (0 to 255) – SQL Server’s TINYINT is naturally unsigned.
+    UInt8_Col       TINYINT NOT NULL,
+    UInt8_Nullable  TINYINT NULL,
+    -- UInt16 (0 to 65535); use INT with a check constraint.
+    UInt16_Col       INT NOT NULL CHECK (UInt16_Col BETWEEN 0 AND 65535),
+    UInt16_Nullable  INT NULL CHECK (UInt16_Nullable BETWEEN 0 AND 65535),
+    -- UInt32 (0 to 4294967295); use BIGINT with a check constraint.
+    UInt32_Col       BIGINT NOT NULL CHECK (UInt32_Col BETWEEN 0 AND 4294967295),
+    UInt32_Nullable  BIGINT NULL CHECK (UInt32_Nullable BETWEEN 0 AND 4294967295),
+    -- UInt64; SQL Server has no 64-bit unsigned, so we use DECIMAL(20,0).
+    UInt64_Col       DECIMAL(20,0) NOT NULL CHECK (UInt64_Col >= 0),
+    UInt64_Nullable  DECIMAL(20,0) NULL CHECK (UInt64_Nullable >= 0),
+    -- Floating point types:
+    Float32_Col      REAL NOT NULL,
+    Float32_Nullable REAL NULL,
+    Float64_Col      FLOAT NOT NULL,
+    Float64_Nullable FLOAT NULL,
+    -- Decimal types with various precisions and scales:
+    Decimal_Col1       DECIMAL(18,2) NOT NULL,
+    Decimal_Nullable1  DECIMAL(18,2) NULL,
+    Decimal_Col2       DECIMAL(10,5) NOT NULL,
+    Decimal_Nullable2  DECIMAL(10,5) NULL,
+    Decimal_Col3       DECIMAL(38,10) NOT NULL,
+    Decimal_Nullable3  DECIMAL(38,10) NULL,
+    -- Date and DateTime types:
+    Date_Col        DATE NOT NULL,
+    Date_Nullable   DATE NULL,
+    Datetime_Col    DATETIME NOT NULL,
+    Datetime_Nullable DATETIME NULL,
+    -- String types:
+    String_Col         VARCHAR(100) NOT NULL,
+    String_Nullable    VARCHAR(100) NULL,
+    FixedString_Col       CHAR(10) NOT NULL,
+    FixedString_Nullable  CHAR(10) NULL,
+    -- Enum simulation (using CHAR(1) with a CHECK constraint):
+    Enum_Col         CHAR(1) NOT NULL CHECK (Enum_Col IN ('A','B','C')),
+    Enum_Nullable    CHAR(1) NULL CHECK (Enum_Nullable IN ('A','B','C') OR Enum_Nullable IS NULL),
+    -- UUID (SQL Server’s UNIQUEIDENTIFIER):
+    UUID_Col         UNIQUEIDENTIFIER NOT NULL,
+    UUID_Nullable    UNIQUEIDENTIFIER NULL,
+    -- IP address simulation:
+    IPv4_Col         VARCHAR(15) NOT NULL,  -- e.g., '255.255.255.255'
+    IPv4_Nullable    VARCHAR(15) NULL,
+    IPv6_Col         VARCHAR(39) NOT NULL,  -- e.g., 'FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF'
+    IPv6_Nullable    VARCHAR(39) NULL
+);

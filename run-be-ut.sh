@@ -37,6 +37,7 @@ set +o posix
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
+export ROOT
 export DORIS_HOME="${ROOT}"
 
 . "${DORIS_HOME}/env.sh"
@@ -46,10 +47,10 @@ usage() {
     echo "
 Usage: $0 <options>
   Optional options:
-     --benchmark        build benchmark-tool
      --clean            clean and build ut
      --run              build and run all ut
      --run --filter=xx  build and run specified ut
+     --run --gen_out    generate expected check data for test
      --coverage         coverage after run ut
      -j                 build parallel
      -h                 print this help message
@@ -70,7 +71,7 @@ Usage: $0 <options>
     exit 1
 }
 
-if ! OPTS="$(getopt -n "$0" -o vhj:f: -l coverage,benchmark,run,clean,filter: -- "$@")"; then
+if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,coverage,benchmark,run,clean,filter: -- "$@")"; then
     usage
 fi
 
@@ -78,10 +79,10 @@ eval set -- "${OPTS}"
 
 CLEAN=0
 RUN=0
-BUILD_BENCHMARK_TOOL='OFF'
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
 FILTER=""
+GEN_OUT=""
 if [[ "$#" != 1 ]]; then
     while true; do
         case "$1" in
@@ -93,12 +94,12 @@ if [[ "$#" != 1 ]]; then
             RUN=1
             shift
             ;;
-        --benchmark)
-            BUILD_BENCHMARK_TOOL='ON'
-            shift
-            ;;
         --coverage)
             DENABLE_CLANG_COVERAGE='ON'
+            shift
+            ;;
+        --gen_out)
+            GEN_OUT='--gen_out'
             shift
             ;;
         -f | --filter)
@@ -239,7 +240,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
     -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \
-    -DBUILD_BENCHMARK_TOOL="${BUILD_BENCHMARK_TOOL}" \
+    -DBUILD_FILE_CACHE_MICROBENCH_TOOL=OFF \
     -DWITH_MYSQL=ON \
     -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_UNWIND="${USE_UNWIND}" \
@@ -464,7 +465,7 @@ profdata=${DORIS_TEST_BINARY_DIR}/doris_be_test.profdata
 file_name="${test##*/}"
 if [[ -f "${test}" ]]; then
     if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
-        LLVM_PROFILE_FILE="${profraw}" "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
+        LLVM_PROFILE_FILE="${profraw}" "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}" "${GEN_OUT}"
         if [[ -d "${DORIS_TEST_BINARY_DIR}"/report ]]; then
             rm -rf "${DORIS_TEST_BINARY_DIR}"/report
         fi
@@ -478,7 +479,7 @@ if [[ -f "${test}" ]]; then
         echo "${cmd2}"
         eval "${cmd2}"
     else
-        "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
+        "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}" "${GEN_OUT}"
     fi
     echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
 else

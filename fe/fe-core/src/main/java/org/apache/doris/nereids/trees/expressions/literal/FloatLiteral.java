@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.FloatType;
 
+import java.math.BigDecimal;
+
 /**
  * float type literal
  */
@@ -32,6 +34,11 @@ public class FloatLiteral extends FractionalLiteral {
     public FloatLiteral(float value) {
         super(FloatType.INSTANCE);
         this.value = value;
+    }
+
+    @Override
+    public BigDecimal getBigDecimalValue() {
+        return new BigDecimal(String.valueOf(value));
     }
 
     @Override

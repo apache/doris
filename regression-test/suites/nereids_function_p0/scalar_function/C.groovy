@@ -197,5 +197,5 @@ suite("nereids_scalar_fn_C") {
 	qt_bitmap_not_nullable "select count(kbitmap) from fn_test_bitmap_not_nullable"
 	qt_char "select char(68, 111, 114, 105, 115), char(68, 111, 114, 105, 115 using utf8);"
 	qt_convert "select convert(1 using gbk), convert(1, string);"
-
+	qt_convert_1 "select convert('装装装装装' using gbk);"
 }

@@ -58,10 +58,7 @@ public:
     }
 
     // Can only be used after calling prepare()
-    const VExprContextSPtrs& lhs_ordering_expr_ctxs() const { return _lhs_ordering_expr_ctxs; }
-
-    // Can only be used after calling open()
-    const VExprContextSPtrs& rhs_ordering_expr_ctxs() const { return _rhs_ordering_expr_ctxs; }
+    const VExprContextSPtrs& ordering_expr_ctxs() const { return _ordering_expr_ctxs; }
 
     bool need_materialize_tuple() const { return _materialize_tuple; }
 
@@ -73,8 +70,7 @@ public:
 
 private:
     // Create two VExprContexts for evaluating over the TupleRows.
-    VExprContextSPtrs _lhs_ordering_expr_ctxs;
-    VExprContextSPtrs _rhs_ordering_expr_ctxs;
+    VExprContextSPtrs _ordering_expr_ctxs;
 
     // If true, the tuples to be sorted are materialized by
     // _sort_tuple_slot_exprs before the actual sort is performed.
@@ -85,15 +81,9 @@ private:
     // _materialize_tuple is true.
     VExprContextSPtrs _sort_tuple_slot_expr_ctxs;
 
-    // for some reason, _sort_tuple_slot_expr_ctxs is not-null but _lhs_ordering_expr_ctxs is nullable
+    // for some reason, _sort_tuple_slot_expr_ctxs is not-null but _ordering_expr_ctxs is nullable
     // this flag list would be used to convert column to nullable.
     std::vector<bool> _need_convert_to_nullable_flags;
-
-    // Initialize directly from already-created VExprContexts. Callers should manually call
-    // Prepare(), Open(), and Close() on input VExprContexts (instead of calling the
-    // analogous functions in this class). Used for testing.
-    Status init(const VExprContextSPtrs& lhs_ordering_expr_ctxs,
-                const VExprContextSPtrs& rhs_ordering_expr_ctxs);
 
     // Initialize the ordering and (optionally) materialization expressions from the thrift
     // TExprs into the specified pool. sort_tuple_slot_exprs is NULL if the tuple is not

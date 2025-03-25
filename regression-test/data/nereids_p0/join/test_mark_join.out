@@ -53,3 +53,10 @@
 -- !mark_join_null_conjunct --
 \N
 
+-- !mark_join8 --
+1	1	1	false
+2	2	2	false
+3	\N	\N	\N
+3	\N	3	\N
+4	\N	4	true
+

@@ -20,14 +20,9 @@
 
 #pragma once
 
-#include <gen_cpp/PlanNodes_types.h>
-
-#include "common/compiler_util.h"
-#include "vec/columns/column_filter_helper.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
-#include "vec/common/hash_table/join_hash_table.h"
 
 namespace doris {
 /** NOTE HashMap could only be used for memmoveable (position independent) types.
@@ -193,27 +188,5 @@ public:
     }
     bool has_null_key_data() const { return false; }
 };
-
-template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
-          typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>
-using HashMap = HashMapTable<Key, HashMapCell<Key, Mapped, Hash>, Hash, Grower, Allocator>;
-
-template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
-using NormalHashMap = HashMapTable<Key, HashMapCell<Key, Mapped, Hash>, Hash>;
-
-template <typename Key, typename Hash = DefaultHash<Key>>
-using JoinHashMap = JoinHashTable<Key, Hash>;
-
-template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
-          typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>
-using HashMapWithSavedHash =
-        HashMapTable<Key, HashMapCellWithSavedHash<Key, Mapped, Hash>, Hash, Grower, Allocator>;
-
-template <typename Key, typename Mapped, typename Hash, size_t initial_size_degree>
-using HashMapWithStackMemory = HashMapTable<
-        Key, HashMapCellWithSavedHash<Key, Mapped, Hash>, Hash,
-        HashTableGrower<initial_size_degree>,
-        HashTableAllocatorWithStackMemory<(1ULL << initial_size_degree) *
-                                          sizeof(HashMapCellWithSavedHash<Key, Mapped, Hash>)>>;
 
 } // namespace doris

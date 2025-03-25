@@ -19,7 +19,7 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.NodeType
 
-suite('test_compaction_with_visible_version') {
+suite('test_compaction_with_visible_version', 'docker') {
     def options = new ClusterOptions()
     def compaction_keep_invisible_version_min_count = 50L
     options.feConfigs += [
@@ -268,7 +268,7 @@ suite('test_compaction_with_visible_version') {
             // E-230:
             //(1105, 'errCode = 2, detailMessage = (128.2.51.2)[CANCELLED]missed_versions is empty, spec_version 43,
             // max_version 123, tablet_id 10062')
-            exception 'missed_versions is empty'
+            exception 'versions are already compacted'
         }
 
         cluster.clearFrontendDebugPoints()

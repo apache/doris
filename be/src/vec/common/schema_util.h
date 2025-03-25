@@ -109,6 +109,8 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
 // inherit attributes like index/agg info from it's parent column
 void inherit_column_attributes(TabletSchemaSPtr& schema);
 
+// source: variant column
+// target: extracted column from variant column
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr& target_schema);
 
@@ -120,5 +122,8 @@ vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
 Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);
 
 std::string dump_column(DataTypePtr type, const ColumnPtr& col);
+
+bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
+                           int32_t new_col_idx, int32_t old_col_idx);
 
 } // namespace  doris::vectorized::schema_util

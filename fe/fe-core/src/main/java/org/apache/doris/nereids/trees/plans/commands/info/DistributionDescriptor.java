@@ -115,4 +115,37 @@ public class DistributionDescriptor {
     public boolean inDistributionColumns(String columnName) {
         return cols != null && cols.contains(columnName);
     }
+
+    /**
+     * toSql
+     */
+    public String toSql() {
+        StringBuilder stringBuilder = new StringBuilder();
+        if (isHash) {
+            stringBuilder.append("DISTRIBUTED BY HASH(");
+            int i = 0;
+            for (String columnName : cols) {
+                if (i != 0) {
+                    stringBuilder.append(", ");
+                }
+                stringBuilder.append("`").append(columnName).append("`");
+                i++;
+            }
+            stringBuilder.append(")\n");
+            if (isAutoBucket) {
+                stringBuilder.append("BUCKETS AUTO");
+            } else {
+                stringBuilder.append("BUCKETS ").append(bucketNum);
+            }
+        } else {
+            stringBuilder.append("DISTRIBUTED BY RANDOM\n")
+                    .append("BUCKETS ");
+            if (isAutoBucket) {
+                stringBuilder.append("AUTO");
+            } else {
+                stringBuilder.append(bucketNum);
+            }
+        }
+        return stringBuilder.toString();
+    }
 }

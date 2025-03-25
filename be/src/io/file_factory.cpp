@@ -30,6 +30,7 @@
 #include "io/fs/broker_file_writer.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
+#include "io/fs/hdfs/hdfs_mgr.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/hdfs_file_writer.h"
@@ -129,7 +130,7 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
         std::shared_ptr<io::HdfsHandler> handler;
-        RETURN_IF_ERROR_RESULT(io::HdfsHandlerCache::instance()->get_connection(
+        RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
                 hdfs_params, hdfs_params.fs_name, &handler));
         return io::HdfsFileWriter::create(path, handler, hdfs_params.fs_name, &options);
     }
@@ -173,7 +174,7 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
         if (fs_name->empty()) {
             fs_name = &system_properties.hdfs_params.fs_name;
         }
-        RETURN_IF_ERROR_RESULT(io::HdfsHandlerCache::instance()->get_connection(
+        RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
                 system_properties.hdfs_params, *fs_name, &handler));
         return io::HdfsFileReader::create(file_description.path, handler->hdfs_fs, *fs_name,
                                           reader_options, profile)
@@ -206,6 +207,7 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
     if (need_schema) {
+        RETURN_IF_ERROR(stream_load_ctx->allocate_schema_buffer());
         // Here, a portion of the data is processed to parse column information
         auto pipe = std::make_shared<io::StreamLoadPipe>(
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,

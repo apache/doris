@@ -17,41 +17,33 @@
 
 #include "util/url_coding.h"
 
+#include <curl/curl.h>
 #include <libbase64.h>
-#include <math.h>
 
-#include <memory>
 #include <sstream>
 
 namespace doris {
 
-static inline void url_encode(const char* in, int in_len, std::string* out) {
-    (*out).reserve(in_len);
-    std::stringstream ss;
-
-    for (int i = 0; i < in_len; ++i) {
-        const char ch = in[i];
-
-        // Escape the character iff a) we are in Hive-compat mode and the
-        // character is in the Hive whitelist or b) we are not in
-        // Hive-compat mode, and the character is not alphanumeric or one
-        // of the four commonly excluded characters.
-        ss << ch;
-    }
-
-    (*out) = ss.str();
+inline unsigned char to_hex(unsigned char x) {
+    return x + (x > 9 ? ('A' - 10) : '0');
 }
 
-void url_encode(const std::vector<uint8_t>& in, std::string* out) {
-    if (in.empty()) {
-        *out = "";
-    } else {
-        url_encode(reinterpret_cast<const char*>(&in[0]), in.size(), out);
+// Adapted from http://dlib.net/dlib/server/server_http.cpp.html
+void url_encode(const std::string_view& in, std::string* out) {
+    std::ostringstream os;
+    for (auto c : in) {
+        // impl as https://docs.oracle.com/javase/8/docs/api/java/net/URLEncoder.html
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+            c == '.' || c == '-' || c == '*' || c == '_') { // allowed
+            os << c;
+        } else if (c == ' ') {
+            os << '+';
+        } else {
+            os << '%' << to_hex(c >> 4) << to_hex(c % 16);
+        }
     }
-}
 
-void url_encode(const std::string& in, std::string* out) {
-    url_encode(in.c_str(), in.size(), out);
+    *out = os.str();
 }
 
 // Adapted from

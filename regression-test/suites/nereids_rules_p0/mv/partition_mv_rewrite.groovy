@@ -84,14 +84,32 @@ suite("partition_mv_rewrite") {
     sql"""
     insert into orders values 
     (1, 1, 'ok', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
+    (1, 1, 'ok', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
+    (1, 1, 'ok', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
+    (1, 1, 'ok', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
     (2, 2, 'ok', 109.2, '2023-10-18', 'c','d',2, 'mm'),
+    (2, 2, 'ok', 109.2, '2023-10-18', 'c','d',2, 'mm'),
+    (2, 2, 'ok', 109.2, '2023-10-18', 'c','d',2, 'mm'),
+    (2, 2, 'ok', 109.2, '2023-10-18', 'c','d',2, 'mm'),
+    (3, 3, 'ok', 99.5, '2023-10-19', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 99.5, '2023-10-19', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 99.5, '2023-10-19', 'a', 'b', 1, 'yy'),
     (3, 3, 'ok', 99.5, '2023-10-19', 'a', 'b', 1, 'yy'); 
     """
 
     sql """
     insert into lineitem values 
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+    (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx'),
+    (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx'),
+    (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx'),
     (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx');
     """
 
@@ -153,14 +171,11 @@ suite("partition_mv_rewrite") {
          analyze table mv_10086 with sync;
          """
     sleep(10000)
-    explain {
-        sql("${all_partition_sql}")
-        contains("mv_10086(mv_10086)")
-    }
-    explain {
-        sql("${partition_sql}")
-        contains("mv_10086(mv_10086)")
-    }
+    mv_rewrite_success(all_partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
+
+    mv_rewrite_success(partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
     // base table partition data change
     sql """
     insert into lineitem values
@@ -175,21 +190,17 @@ suite("partition_mv_rewrite") {
     sql "analyze table mv_10086 with sync"
     def memo = sql "explain memo plan ${all_partition_sql}"
     print(memo)
-    explain {
-        sql("${all_partition_sql}")
-        // should rewrite successful when union rewrite enalbe if sub partition is invalid
-        contains("mv_10086(mv_10086)")
-    }
+    // should rewrite successful when union rewrite enalbe if sub partition is invalid
+    mv_rewrite_success(all_partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
     order_qt_query_3_0_after "${all_partition_sql}"
 
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_4_0_before "${partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
-    explain {
-        sql("${partition_sql}")
-        // should rewrite successfully when union rewrite enable if doesn't query invalid partition
-        contains("mv_10086(mv_10086)")
-    }
+    // should rewrite successfully when union rewrite enable if doesn't query invalid partition
+    mv_rewrite_success(partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
     order_qt_query_4_0_after "${partition_sql}"
 
     // base table add partition
@@ -206,21 +217,17 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_7_0_before "${all_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
-    explain {
-        sql("${all_partition_sql}")
-        // should rewrite successful when union rewrite enalbe if base table add new partition
-        contains("mv_10086(mv_10086)")
-    }
+    // should rewrite successful when union rewrite enalbe if base table add new partition
+    mv_rewrite_success(all_partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
     order_qt_query_7_0_after "${all_partition_sql}"
 
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_8_0_before "${partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
-    explain {
-        sql("${partition_sql}")
-        // should rewrite successfully when union rewrite enable if doesn't query new partition
-        contains("mv_10086(mv_10086)")
-    }
+    // should rewrite successfully when union rewrite enable if doesn't query new partition
+    mv_rewrite_success(partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
     order_qt_query_8_0_after "${partition_sql}"
 
     // base table delete partition test
@@ -235,21 +242,17 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_11_0_before "${all_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
-    explain {
-        sql("${all_partition_sql}")
-        // should rewrite successful when union rewrite enalbe if base table delete partition
-        contains("mv_10086(mv_10086)")
-    }
+    // should rewrite successful when union rewrite enalbe if base table delete partition
+    mv_rewrite_success(all_partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
     order_qt_query_11_0_after "${all_partition_sql}"
 
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_12_0_before "${partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
-    explain {
-        sql("${partition_sql}")
-        // should rewrite successfully when union rewrite enable if doesn't query deleted partition
-        contains("mv_10086(mv_10086)")
-    }
+    // should rewrite successfully when union rewrite enable if doesn't query deleted partition
+    mv_rewrite_success(partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
     order_qt_query_12_0_after "${partition_sql}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_10086"""
 
@@ -363,20 +366,15 @@ suite("partition_mv_rewrite") {
     // test when mv is ttl
     // enable union rewrite
     sql "SET enable_materialized_view_rewrite=true"
-    explain {
-        sql("${ttl_all_partition_sql}")
-        // should rewrite successful when union rewrite enalbe and mv is ttl, query the partition which is in mv
-        contains("${ttl_mv_name}(${ttl_mv_name})")
-    }
+    // should rewrite successful when union rewrite enalbe and mv is ttl, query the partition which is in mv
+    mv_rewrite_success(ttl_all_partition_sql, ttl_mv_name, true,
+            is_partition_statistics_ready(db, ["lineitem_static", "orders", ttl_mv_name]))
 
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_16_0_before "${ttl_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
-    explain {
-        sql("${ttl_partition_sql}")
-        // should rewrite fail when union rewrite enalbe and query the partition which is not in mv
-        notContains("${ttl_mv_name}(${ttl_mv_name})")
-    }
+    // should rewrite fail when union rewrite enalbe and query the partition which is not in mv
+    mv_rewrite_fail(ttl_partition_sql, ttl_mv_name)
     order_qt_query_16_0_after "${ttl_partition_sql}"
 
     sql """ DROP MATERIALIZED VIEW IF EXISTS ${ttl_mv_name}"""
@@ -443,14 +441,10 @@ suite("partition_mv_rewrite") {
         analyze table orders with sync;
         """
 
-    explain {
-        sql("${roll_up_all_partition_sql}")
-        contains("mv_10086(mv_10086)")
-    }
-    explain {
-        sql("${roll_up_partition_sql}")
-        contains("mv_10086(mv_10086)")
-    }
+    mv_rewrite_success(roll_up_all_partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
+    mv_rewrite_success(roll_up_partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
     // base table add partition
     sql """
     insert into lineitem values
@@ -467,33 +461,19 @@ suite("partition_mv_rewrite") {
         analyze table lineitem with sync;
         analyze table orders with sync;
         """
-    explain {
-        sql("${roll_up_all_partition_sql}")
-        // should rewrite successful when union rewrite enalbe if base table add new partition
-        contains("mv_10086(mv_10086)")
-    }
+
+    // should rewrite successful when union rewrite enalbe if base table add new partition
+    mv_rewrite_success(roll_up_all_partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
     order_qt_query_17_0_after "${roll_up_all_partition_sql}"
 
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_18_0_before "${roll_up_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
-    explain {
-        sql("${roll_up_partition_sql}")
-        // should rewrite successfully when union rewrite enable if doesn't query new partition
-        contains("mv_10086(mv_10086)")
-    }
+    // should rewrite successfully when union rewrite enable if doesn't query new partition
+    mv_rewrite_success(roll_up_partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
     order_qt_query_18_0_after "${roll_up_partition_sql}"
-
-
-    def check_rewrite_but_not_chose = { query_sql, mv_name_param ->
-        explain {
-            sql("${query_sql}")
-            check {result ->
-                def splitResult = result.split("MaterializedViewRewriteFail")
-                splitResult.length == 2 ? splitResult[0].contains(mv_name_param) : false
-            }
-        }
-    }
 
 
     // base table partition add data
@@ -517,21 +497,23 @@ suite("partition_mv_rewrite") {
         analyze table lineitem with sync;
         analyze table orders with sync;
         """
-    explain {
-        sql("${roll_up_all_partition_sql}")
-        // should rewrite successful when union rewrite enalbe if base table add new partition
-        contains("mv_10086(mv_10086)")
-    }
+
+    sql """alter table orders modify column o_comment set stats ('row_count'='3');"""
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='6');"""
+    sql """alter table lineitem_static modify column l_comment set stats ('row_count'='4');"""
+
+    // should rewrite successful when union rewrite enalbe if base table add new partition
+    mv_rewrite_success(roll_up_all_partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
     order_qt_query_19_0_after "${roll_up_all_partition_sql}"
 
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_20_0_before "${roll_up_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
-    explain {
-        sql("${roll_up_partition_sql}")
-        // should rewrite successfully when union rewrite enable if doesn't query new partition
-        contains("mv_10086(mv_10086)")
-    }
+    // should rewrite successfully when union rewrite enable if doesn't query new partition
+    mv_rewrite_success(roll_up_partition_sql, "mv_10086", true,
+            is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
+
     order_qt_query_20_0_after "${roll_up_partition_sql}"
 
 

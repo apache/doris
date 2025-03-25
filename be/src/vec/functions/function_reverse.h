@@ -40,14 +40,14 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr& src_column = block.get_by_position(arguments[0]).column;
         if (const ColumnString* col_string = check_and_get_column<ColumnString>(src_column.get())) {
             auto col_res = ColumnString::create();
             RETURN_IF_ERROR(ReverseImpl::vector(col_string->get_chars(), col_string->get_offsets(),
                                                 col_res->get_chars(), col_res->get_offsets()));
             block.replace_by_position(result, std::move(col_res));
-        } else if (check_column<ColumnArray>(src_column.get())) {
+        } else if (is_column<ColumnArray>(src_column.get())) {
             return ArrayReverseImpl::_execute(block, arguments, result, input_rows_count);
         } else {
             return Status::RuntimeError("Illegal column {} used for argument of function {}",

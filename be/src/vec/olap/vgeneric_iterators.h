@@ -209,11 +209,10 @@ public:
         return Status::OK();
     }
 
-    bool update_profile(RuntimeProfile* profile) override {
+    void update_profile(RuntimeProfile* profile) override {
         if (!_origin_iters.empty()) {
-            return _origin_iters[0]->update_profile(profile);
+            _origin_iters[0]->update_profile(profile);
         }
-        return false;
     }
 
 private:

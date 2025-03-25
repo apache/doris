@@ -68,7 +68,8 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
 
 cacheDataPath="/data/regression/"
 
-s3Source="aliyun"
+s3Source = "aliyun"
+s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"
 
 max_failure_num=50
 

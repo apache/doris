@@ -22,8 +22,8 @@
 #include <string>
 #include <vector>
 
-namespace doris {
-namespace iceberg {
+namespace doris::iceberg {
+#include "common/compile_check_begin.h"
 
 class StructLike;
 class Schema;
@@ -78,7 +78,7 @@ public:
 
     const Schema& schema() const { return *_schema; }
 
-    int spec_id() { return _spec_id; }
+    int spec_id() const { return _spec_id; }
 
     const std::vector<PartitionField>& fields() const { return _fields; }
 
@@ -93,5 +93,5 @@ private:
     int _last_assigned_field_id;
 };
 
-} // namespace iceberg
-} // namespace doris
+#include "common/compile_check_end.h"
+} // namespace doris::iceberg

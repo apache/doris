@@ -18,20 +18,15 @@
 #pragma once
 #include <any>
 
-#include "vec/exec/format/table/iceberg/types.h"
-
-namespace doris {
-namespace iceberg {
+namespace doris::iceberg {
+#include "common/compile_check_begin.h"
 
 class StructLike {
 public:
     virtual ~StructLike() = default;
-    virtual int size() const = 0;
 
-    virtual std::any get(int pos) const = 0;
-
-    virtual void set(int pos, const std::any& value) = 0;
+    virtual std::any get(size_t pos) const = 0;
 };
 
-} // namespace iceberg
-} // namespace doris
+#include "common/compile_check_end.h"
+} // namespace doris::iceberg

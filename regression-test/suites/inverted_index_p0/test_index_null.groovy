@@ -42,7 +42,7 @@ suite("test__null_index", "inverted_index"){
  	    "replication_allocation" = "tag.location.default: 1"
 	);
     """
-    
+    sql """ set enable_common_expr_pushdown = true; """
     sql "INSERT INTO $indexTblName VALUES (1, []), (2, []), (3, []);"
     qt_sql "SELECT * FROM $indexTblName WHERE value match_all 'a';"
 }

@@ -34,8 +34,14 @@ Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
         reader = lucene::index::IndexReader::open(
                 directory, config::inverted_index_read_buffer_size, close_directory);
     } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "FulltextIndexSearcherBuilder build error: {}", e.what());
+        std::vector<std::string> file_names;
+        directory->list(&file_names);
+        LOG(ERROR) << fmt::format("Directory list: {}", fmt::join(file_names, ", "));
+        std::string msg = "FulltextIndexSearcherBuilder build error: " + std::string(e.what());
+        if (e.number() == CL_ERR_EmptyIndexSegment) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(msg);
+        }
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(msg);
     }
     bool close_reader = true;
     auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, close_reader);
@@ -61,6 +67,7 @@ Status BKDIndexSearcherBuilder::build(lucene::store::Directory* directory,
         if (!bkd_reader->open()) {
             LOG(INFO) << "bkd index file " << directory->toString() << " is empty";
         }
+        reader_size = bkd_reader->ram_bytes_used();
         output_searcher = bkd_reader;
         _CLDECDELETE(directory)
         return Status::OK();

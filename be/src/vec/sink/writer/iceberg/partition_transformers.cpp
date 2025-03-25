@@ -211,7 +211,7 @@ std::string PartitionColumnTransform::get_partition_value(const TypeDescriptor& 
     if (value.has_value()) {
         switch (type.type) {
         case TYPE_BOOLEAN: {
-            return std::to_string(std::any_cast<bool>(value));
+            return std::any_cast<bool>(value) ? "true" : "false";
         }
         case TYPE_TINYINT: {
             return std::to_string(std::any_cast<Int8>(value));

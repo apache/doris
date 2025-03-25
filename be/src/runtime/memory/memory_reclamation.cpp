@@ -17,7 +17,9 @@
 
 #include "runtime/memory/memory_reclamation.h"
 
-#include "runtime/memory/cache_manager.h"
+#include "runtime/exec_env.h"
+#include "runtime/memory/jemalloc_control.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"
@@ -26,9 +28,8 @@
 
 namespace doris {
 
-// step1: free all cache
-// step2: free resource groups memory that enable overcommit
-// step3: free global top overcommit query, if enable query memory overcommit
+// step1: free resource groups memory that enable overcommit
+// step2: free global top overcommit query, if enable query memory overcommit
 // TODO Now, the meaning is different from java minor gc + full gc, more like small gc + large gc.
 bool MemoryReclamation::process_minor_gc(std::string mem_info) {
     MonotonicStopWatch watch;
@@ -37,7 +38,6 @@ bool MemoryReclamation::process_minor_gc(std::string mem_info) {
     std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
 
     Defer defer {[&]() {
-        MemInfo::notify_je_purge_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -45,11 +45,6 @@ bool MemoryReclamation::process_minor_gc(std::string mem_info) {
                 PrettyPrinter::print(freed_mem, TUnit::BYTES), watch.elapsed_time() / 1000,
                 ss.str());
     }};
-
-    freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
-    if (freed_mem > MemInfo::process_minor_gc_size()) {
-        return true;
-    }
 
     if (config::enable_workload_group_memory_gc) {
         RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
@@ -61,9 +56,15 @@ bool MemoryReclamation::process_minor_gc(std::string mem_info) {
     }
 
     if (config::enable_query_memory_overcommit) {
-        VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-                "[MemoryGC] before free top memory overcommit query in minor GC",
-                MemTrackerLimiter::Type::QUERY);
+        if (config::crash_in_memory_tracker_inaccurate) {
+            LOG(INFO) << fmt::format(
+                    "[MemoryGC] before free top memory overcommit query in minor GC, Type:{}, "
+                    "Memory "
+                    "Tracker Summary: {}",
+                    MemTrackerLimiter::type_string(MemTrackerLimiter::Type::QUERY),
+                    MemTrackerLimiter::make_type_trackers_profile_str(
+                            MemTrackerLimiter::Type::QUERY));
+        }
         RuntimeProfile* toq_profile =
                 profile->create_child("FreeTopOvercommitMemoryQuery", true, true);
         freed_mem += MemTrackerLimiter::free_top_overcommit_query(
@@ -75,11 +76,10 @@ bool MemoryReclamation::process_minor_gc(std::string mem_info) {
     return false;
 }
 
-// step1: free all cache
-// step2: free resource groups memory that enable overcommit
-// step3: free global top memory query
-// step4: free top overcommit load, load retries are more expensive, So cancel at the end.
-// step5: free top memory load
+// step1: free resource groups memory that enable overcommit
+// step2: free global top memory query
+// step3: free top overcommit load, load retries are more expensive, So cancel at the end.
+// step4: free top memory load
 bool MemoryReclamation::process_full_gc(std::string mem_info) {
     MonotonicStopWatch watch;
     watch.start();
@@ -87,7 +87,6 @@ bool MemoryReclamation::process_full_gc(std::string mem_info) {
     std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
 
     Defer defer {[&]() {
-        MemInfo::notify_je_purge_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -95,11 +94,6 @@ bool MemoryReclamation::process_full_gc(std::string mem_info) {
                 PrettyPrinter::print(freed_mem, TUnit::BYTES), watch.elapsed_time() / 1000,
                 ss.str());
     }};
-
-    freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
-    if (freed_mem > MemInfo::process_full_gc_size()) {
-        return true;
-    }
 
     if (config::enable_workload_group_memory_gc) {
         RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
@@ -110,8 +104,14 @@ bool MemoryReclamation::process_full_gc(std::string mem_info) {
         }
     }
 
-    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-            "[MemoryGC] before free top memory query in full GC", MemTrackerLimiter::Type::QUERY);
+    if (config::crash_in_memory_tracker_inaccurate) {
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] before free top memory query in full GC, Type:{}, Memory Tracker "
+                "Summary: "
+                "{}",
+                MemTrackerLimiter::type_string(MemTrackerLimiter::Type::QUERY),
+                MemTrackerLimiter::make_type_trackers_profile_str(MemTrackerLimiter::Type::QUERY));
+    }
     RuntimeProfile* tmq_profile = profile->create_child("FreeTopMemoryQuery", true, true);
     freed_mem += MemTrackerLimiter::free_top_memory_query(
             MemInfo::process_full_gc_size() - freed_mem, mem_info, tmq_profile);
@@ -120,9 +120,14 @@ bool MemoryReclamation::process_full_gc(std::string mem_info) {
     }
 
     if (config::enable_query_memory_overcommit) {
-        VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-                "[MemoryGC] before free top memory overcommit load in full GC",
-                MemTrackerLimiter::Type::LOAD);
+        if (config::crash_in_memory_tracker_inaccurate) {
+            LOG(INFO) << fmt::format(
+                    "[MemoryGC] before free top memory overcommit load in full GC, Type:{}, Memory "
+                    "Tracker Summary: {}",
+                    MemTrackerLimiter::type_string(MemTrackerLimiter::Type::LOAD),
+                    MemTrackerLimiter::make_type_trackers_profile_str(
+                            MemTrackerLimiter::Type::LOAD));
+        }
         RuntimeProfile* tol_profile =
                 profile->create_child("FreeTopMemoryOvercommitLoad", true, true);
         freed_mem += MemTrackerLimiter::free_top_overcommit_load(
@@ -132,8 +137,14 @@ bool MemoryReclamation::process_full_gc(std::string mem_info) {
         }
     }
 
-    VLOG_NOTICE << MemTrackerLimiter::type_detail_usage(
-            "[MemoryGC] before free top memory load in full GC", MemTrackerLimiter::Type::LOAD);
+    if (config::crash_in_memory_tracker_inaccurate) {
+        LOG(INFO) << fmt::format(
+                "[MemoryGC] before free top memory load in full GC, Type:{}, Memory Tracker "
+                "Summary: "
+                "{}",
+                MemTrackerLimiter::type_string(MemTrackerLimiter::Type::LOAD),
+                MemTrackerLimiter::make_type_trackers_profile_str(MemTrackerLimiter::Type::LOAD));
+    }
     RuntimeProfile* tml_profile = profile->create_child("FreeTopMemoryLoad", true, true);
     freed_mem += MemTrackerLimiter::free_top_memory_load(
             MemInfo::process_full_gc_size() - freed_mem, mem_info, tml_profile);
@@ -225,7 +236,7 @@ int64_t MemoryReclamation::tg_enable_overcommit_group_gc(int64_t request_free_me
     int64_t total_free_memory = 0;
     bool gc_all_exceeded = request_free_memory >= total_exceeded_memory;
     std::string log_prefix = fmt::format(
-            "work load group that enable overcommit, number of group: {}, request_free_memory:{}, "
+            "workload group that enable overcommit, number of group: {}, request_free_memory:{}, "
             "total_exceeded_memory:{}",
             task_groups.size(), request_free_memory, total_exceeded_memory);
     if (gc_all_exceeded) {
@@ -265,6 +276,24 @@ int64_t MemoryReclamation::tg_enable_overcommit_group_gc(int64_t request_free_me
         total_free_memory += workload_group->gc_memory(tg_need_free_memory, profile, is_minor_gc);
     }
     return total_free_memory;
+}
+
+void MemoryReclamation::je_purge_dirty_pages() {
+#ifdef USE_JEMALLOC
+    if (config::disable_memory_gc || !config::enable_je_purge_dirty_pages) {
+        return;
+    }
+    std::unique_lock<std::mutex> l(doris::JemallocControl::je_purge_dirty_pages_lock);
+
+    // Allow `purge_all_arena_dirty_pages` again after the process memory changes by 256M,
+    // otherwise execute `decay_all_arena_dirty_pages`, because `purge_all_arena_dirty_pages` is very expensive.
+    if (doris::JemallocControl::je_purge_dirty_pages_notify.load(std::memory_order_relaxed)) {
+        doris::JemallocControl::je_purge_all_arena_dirty_pages();
+        doris::JemallocControl::je_purge_dirty_pages_notify.store(false, std::memory_order_relaxed);
+    } else {
+        doris::JemallocControl::je_decay_all_arena_dirty_pages();
+    }
+#endif
 }
 
 } // namespace doris

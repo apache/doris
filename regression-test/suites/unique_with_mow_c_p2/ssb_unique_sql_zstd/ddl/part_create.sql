@@ -13,6 +13,7 @@ UNIQUE KEY (`p_partkey`)
 CLUSTER BY (`p_color`, `p_container`)
 DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 10
 PROPERTIES (
+"enable_mow_light_delete" = "true",
 "compression"="zstd",
 "replication_num" = "1",
 "enable_unique_key_merge_on_write" = "true"

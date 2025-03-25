@@ -145,6 +145,11 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
         return null;
     }
 
+    @Override
+    public String parameterDisplayString() {
+        return nestedBuilder.parameterDisplayString();
+    }
+
     public static boolean isAggStateCombinator(String name) {
         return name.toLowerCase().endsWith(STATE_SUFFIX) || name.toLowerCase().endsWith(MERGE_SUFFIX)
                 || name.toLowerCase().endsWith(UNION_SUFFIX) || name.toLowerCase().endsWith(FOREACH_SUFFIX);

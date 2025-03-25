@@ -169,18 +169,25 @@ public class ColocateTableIndex implements Writable {
     }
 
     // group_name -> group_id
+    @SerializedName(value = "groupName2Id")
     private Map<String, GroupId> groupName2Id = Maps.newHashMap();
     // group_id -> table_ids
+    @SerializedName(value = "group2Tables")
     private Multimap<GroupId, Long> group2Tables = ArrayListMultimap.create();
     // table_id -> group_id
-    private Map<Long, GroupId> table2Group = Maps.newHashMap();
+    @SerializedName(value = "table2Group")
+    private Map<Long, GroupId> table2Group = Maps.newConcurrentMap();
     // group id -> group schema
+    @SerializedName(value = "group2Schema")
     private Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();
     // group_id -> bucketSeq -> backend ids
+    @SerializedName(value = "group2BackendsPerBucketSeq")
     private Table<GroupId, Tag, List<List<Long>>> group2BackendsPerBucketSeq = HashBasedTable.create();
     // the colocate group is unstable
+    @SerializedName(value = "unstableGroups")
     private Set<GroupId> unstableGroups = Sets.newHashSet();
     // save some error msg of the group for show. no need to persist
+    @SerializedName(value = "group2ErrMsgs")
     private Map<GroupId, String> group2ErrMsgs = Maps.newHashMap();
 
     private transient MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock();
@@ -378,6 +385,13 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
+    // ATTN: in cloud, CloudReplica.getBackendIdImpl has some logic,
+    // If the FE concurrency is high, the CPU may be fully loaded, so try not to lock it here
+    // table2Group is ConcurrentHashMap
+    public boolean isColocateTableNoLock(long tableId) {
+        return table2Group.containsKey(tableId);
+    }
+
     public boolean isColocateTable(long tableId) {
         readLock();
         try {
@@ -415,6 +429,14 @@ public class ColocateTableIndex implements Writable {
         } finally {
             readUnlock();
         }
+    }
+
+    // ATTN: in cloud, CloudReplica.getBackendIdImpl has some logic,
+    // If the FE concurrency is high, the CPU may be fully loaded, so try not to lock it here
+    // table2Group is ConcurrentHashMap
+    public GroupId getGroupNoLock(long tableId) {
+        Preconditions.checkState(table2Group.containsKey(tableId));
+        return table2Group.get(tableId);
     }
 
     public GroupId getGroup(long tableId) {

@@ -22,7 +22,4 @@ suite("test_mapagg_with_jsonfuncs") {
    sql """ create table t003 (a bigint, b json not null) properties ("replication_num"="1"); """
    sql """ insert into t003 values (1, '{"a":1,"b":2}'); """
    qt_sql """ select a, map_agg("k1", json_quote(b)) from t003 group by a; """
-
-   sql "set enable_nereids_planner = false"
-   qt_sql """ select a, map_agg("k1", json_quote(b)) from t003 group by a; """
 }

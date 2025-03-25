@@ -37,11 +37,12 @@ class Roaring;
 namespace doris {
 
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 class BitmapIndexIterator;
 class BitmapIndexPB;
 
-class BitmapIndexReader {
+class BitmapIndexReader : public MetadataAdder<BitmapIndexReader> {
 public:
     explicit BitmapIndexReader(io::FileReaderSPtr file_reader, const BitmapIndexPB& index_meta)
             : _file_reader(std::move(file_reader)),
@@ -107,7 +108,7 @@ public:
     // Read and union all bitmaps in range [from, to) into `result`
     Status read_union_bitmap(rowid_t from, rowid_t to, roaring::Roaring* result);
 
-    rowid_t bitmap_nums() const { return _reader->bitmap_nums(); }
+    rowid_t bitmap_nums() const { return static_cast<rowid_t>(_reader->bitmap_nums()); }
 
     rowid_t current_ordinal() const { return _current_rowid; }
 
@@ -115,8 +116,9 @@ private:
     BitmapIndexReader* _reader = nullptr;
     IndexedColumnIterator _dict_column_iter;
     IndexedColumnIterator _bitmap_column_iter;
-    rowid_t _current_rowid;
+    rowid_t _current_rowid = 0;
 };
 
 } // namespace segment_v2
 } // namespace doris
+#include "common/compile_check_end.h"

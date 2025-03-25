@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -132,6 +133,9 @@ public class MappingRollupHandler extends AggFunctionRollUpHandler {
         AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new HllUnion(Any.INSTANCE),
                 new HllUnion(Any.INSTANCE));
 
+        // support roll up when any_value
+        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new AnyValue(Any.INSTANCE),
+                Any.INSTANCE);
     }
 
     @Override
@@ -141,24 +145,20 @@ public class MappingRollupHandler extends AggFunctionRollUpHandler {
             Map<Expression, Expression> mvExprToMvScanExprQueryBasedMap) {
         // handle complex functions roll up by mapping and combinator expression
         // eg: query is count(distinct param), mv sql is bitmap_union(to_bitmap(param))
-        Expression viewExpression = mvExprToMvScanExprQueryBasedPair.key();
-        if (!super.canRollup(queryAggregateFunction, queryAggregateFunctionShuttled,
-                mvExprToMvScanExprQueryBasedPair, mvExprToMvScanExprQueryBasedMap)) {
-            return false;
-        }
-        Function viewFunction = (Function) viewExpression;
-        for (Map.Entry<Function, Collection<Expression>> equivalentFunctionEntry :
+        Expression actualViewExpression = mvExprToMvScanExprQueryBasedPair.key();
+        for (Map.Entry<Function, Collection<Expression>> queryToViewEquivalentMapEntry :
                 AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.asMap().entrySet()) {
-            if (equivalentFunctionEntry.getKey().equals(queryAggregateFunction)) {
-                // check is have equivalent function or not
-                for (Expression equivalentFunction : equivalentFunctionEntry.getValue()) {
-                    if (!Any.equals(equivalentFunction, viewFunction)) {
+            if (queryToViewEquivalentMapEntry.getKey().equals(queryAggregateFunction)) {
+                for (Expression mappedViewExpression : queryToViewEquivalentMapEntry.getValue()) {
+                    if (!Any.equals(mappedViewExpression, actualViewExpression)) {
+                        // check the mapping view expression is equivalent with actual view expression
                         continue;
                     }
                     // check param in query function is same as the view function
-                    List<Expression> viewFunctionArguments = extractArguments(equivalentFunction, viewFunction);
-                    List<Expression> queryFunctionArguments =
-                            extractArguments(equivalentFunctionEntry.getKey(), queryAggregateFunction);
+                    List<Expression> viewFunctionArguments = extractArguments(mappedViewExpression,
+                            actualViewExpression);
+                    List<Expression> queryFunctionArguments = extractArguments(queryToViewEquivalentMapEntry.getKey(),
+                            queryAggregateFunction);
                     // check argument size,we only support roll up function which has only one argument currently
                     if (queryFunctionArguments.size() != 1 || viewFunctionArguments.size() != 1) {
                         continue;

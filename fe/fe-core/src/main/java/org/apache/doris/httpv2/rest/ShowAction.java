@@ -30,13 +30,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
@@ -45,7 +45,6 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -104,6 +103,9 @@ public class ShowAction extends RestBaseController {
     //http://username:password@192.168.1.1:8030/api/show_proc?path=/
     @RequestMapping(path = "/api/show_proc", method = RequestMethod.GET)
     public Object show_proc(HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
         executeCheckPassword(request, response);
         // check authority
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
@@ -116,14 +118,8 @@ public class ShowAction extends RestBaseController {
         }
 
         // forward to master if necessary
-        if (!Env.getCurrentEnv().isMaster() && isForward) {
-            try {
-                RedirectView redirectView = redirectToMasterOrException(request, response);
-                Preconditions.checkNotNull(redirectView);
-                return redirectView;
-            } catch (Exception e) {
-                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
-            }
+        if (checkForwardToMaster(request) && isForward) {
+            return forwardToMaster(request);
         } else {
             ProcNodeInterface procNode = null;
             ProcService instance = ProcService.getInstance();
@@ -214,16 +210,23 @@ public class ShowAction extends RestBaseController {
     public Object show_table_data(HttpServletRequest request, HttpServletResponse response) {
         if (Config.enable_all_http_auth) {
             executeCheckPassword(request, response);
-            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
         }
-
         String dbName = request.getParameter(DB_KEY);
         String tableName = request.getParameter(TABLE_KEY);
+
+        if (StringUtils.isEmpty(dbName) && StringUtils.isEmpty(tableName)) {
+            return ResponseEntityBuilder.okWithCommonError("db and table cannot be empty at the same time");
+        }
+
         String singleReplica = request.getParameter(SINGLE_REPLICA_KEY);
         boolean singleReplicaBool = Boolean.parseBoolean(singleReplica);
         Map<String, Map<String, Long>> oneEntry = Maps.newHashMap();
         if (dbName != null) {
             String fullDbName = getFullDbName(dbName);
+            if (!StringUtils.isEmpty(tableName) && Config.enable_all_http_auth) {
+                checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.SHOW);
+            }
+
             DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
             if (db == null) {
                 return ResponseEntityBuilder.okWithCommonError("database " + fullDbName + " not found.");
@@ -234,6 +237,12 @@ public class ShowAction extends RestBaseController {
             for (long dbId : Env.getCurrentInternalCatalog().getDbIds()) {
                 DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
                 if (db == null || !(db instanceof Database) || ((Database) db) instanceof MysqlCompatibleDatabase) {
+                    continue;
+                }
+                if (Config.enable_all_http_auth && !Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get().getCurrentUserIdentity(),
+                                InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), tableName,
+                                PrivPredicate.SHOW)) {
                     continue;
                 }
                 Map<String, Long> tablesEntry = getDataSizeOfTables(db, tableName, singleReplicaBool);
@@ -331,6 +340,12 @@ public class ShowAction extends RestBaseController {
             if (Strings.isNullOrEmpty(tableName)) {
                 List<Table> tables = db.getTables();
                 for (Table table : tables) {
+                    if (Config.enable_all_http_auth && !Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
+                                    table.getName(),
+                                    PrivPredicate.SHOW)) {
+                        continue;
+                    }
                     Map<String, Long> tableEntry = getDataSizeOfTable(table, singleReplica);
                     oneEntry.putAll(tableEntry);
                 }

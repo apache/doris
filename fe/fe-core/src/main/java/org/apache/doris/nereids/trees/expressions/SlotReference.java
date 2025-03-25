@@ -183,7 +183,7 @@ public class SlotReference extends Slot {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         if (subPath.isEmpty()) {
             return name.get();
         } else {
@@ -232,7 +232,7 @@ public class SlotReference extends Slot {
 
     // The contains method needs to use hashCode, so similar to equals, it only compares exprId
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         // direct return exprId to speed up
         return exprId.asInt();
     }
@@ -304,6 +304,11 @@ public class SlotReference extends Slot {
                 Optional.ofNullable(index));
     }
 
+    public SlotReference withColumn(Column column) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, table, column, internalName, subPath,
+                indexInSqlString);
+    }
+
     public boolean isVisible() {
         return column == null || column.isVisible();
     }
@@ -331,5 +336,9 @@ public class SlotReference extends Slot {
 
     public String getQualifiedNameWithBackquote() throws UnboundException {
         return Utils.qualifiedNameWithBackquote(getQualifier(), getName());
+    }
+
+    public boolean hasAutoInc() {
+        return column != null ? column.isAutoInc() : false;
     }
 }

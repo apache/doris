@@ -33,6 +33,7 @@
 
 #include "common/arg_parser.h"
 #include "common/config.h"
+#include "common/configbase.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "meta-service/mem_txn_kv.h"
@@ -150,6 +151,9 @@ bvar::Status<uint64_t> doris_cloud_version_metrics("doris_cloud_version", [] {
     std::stringstream ss;
     ss << DORIS_CLOUD_BUILD_VERSION_MAJOR << 0 << DORIS_CLOUD_BUILD_VERSION_MINOR << 0
        << DORIS_CLOUD_BUILD_VERSION_PATCH;
+    if (DORIS_CLOUD_BUILD_VERSION_HOTFIX > 0) {
+        ss << 0 << DORIS_CLOUD_BUILD_VERSION_HOTFIX;
+    }
     return std::strtoul(ss.str().c_str(), nullptr, 10);
 }());
 
@@ -161,13 +165,13 @@ DECLARE_int64(socket_max_unwritten_bytes);
 int main(int argc, char** argv) {
     if (argc > 1) {
         if (auto ret = args.parse(argc - 1, argv + 1); !ret.empty()) {
-            std::cerr << ret << std::endl;
+            std::cerr << "parse arguments error: " << ret << std::endl;
             help();
             return -1;
         }
     }
 
-    if (argc < 2 || args.get<bool>(ARG_HELP)) {
+    if (args.get<bool>(ARG_HELP)) {
         help();
         return 0;
     }
@@ -177,21 +181,16 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // FIXME(gavin): do we need to enable running both MS and recycler within
-    //               single process
-    if (!(args.get<bool>(ARG_META_SERVICE) ^ args.get<bool>(ARG_RECYCLER))) {
-        std::cerr << "only one of --meta-service and --recycler must be specified" << std::endl;
-        return 1;
-    }
-
-    // There may be more roles to play
+    // There may be more roles to play in the future, if there are multi roles specified,
+    // use meta_service as the process name
     std::string process_name = args.get<bool>(ARG_META_SERVICE) ? "meta_service"
                                : args.get<bool>(ARG_RECYCLER)   ? "recycler"
-                                                                : "";
-    if (process_name.empty()) {
-        std::cerr << "failed to determine prcess name with given args" << std::endl;
-        return 1;
-    }
+                                                                : "meta_service";
+
+    using namespace std::chrono;
+
+    auto start = steady_clock::now();
+    auto end = start;
 
     auto pid_file_fd_holder = gen_pidfile("doris_cloud");
     if (pid_file_fd_holder == nullptr) {
@@ -201,6 +200,12 @@ int main(int argc, char** argv) {
     auto conf_file = args.get<std::string>(ARG_CONF);
     if (!config::init(conf_file.c_str(), true)) {
         std::cerr << "failed to init config file, conf=" << conf_file << std::endl;
+        return -1;
+    }
+    if (!std::filesystem::equivalent(conf_file, config::custom_conf_path) &&
+        !config::init(config::custom_conf_path.c_str(), false)) {
+        std::cerr << "failed to init custom config file, conf=" << config::custom_conf_path
+                  << std::endl;
         return -1;
     }
 
@@ -215,10 +220,18 @@ int main(int argc, char** argv) {
     }
 
     // We can invoke glog from now on
-
     std::string msg;
+    LOG(INFO) << "try to start " << process_name;
     LOG(INFO) << build_info();
     std::cout << build_info() << std::endl;
+
+    if (!args.get<bool>(ARG_META_SERVICE) && !args.get<bool>(ARG_RECYCLER)) {
+        std::get<0>(args.args()[ARG_META_SERVICE]) = true;
+        std::get<0>(args.args()[ARG_RECYCLER]) = true;
+        LOG(INFO) << "meta_service and recycler are both not specified, "
+                     "run doris_cloud as meta_service and recycler by default";
+        std::cout << "try to start meta_service, recycler" << std::endl;
+    }
 
     brpc::Server server;
     brpc::FLAGS_max_body_size = config::brpc_max_body_size;
@@ -238,19 +251,22 @@ int main(int argc, char** argv) {
         return 1;
     }
     LOG(INFO) << "begin to init txn kv";
+    auto start_init_kv = steady_clock::now();
     int ret = txn_kv->init();
     if (ret != 0) {
         LOG(WARNING) << "failed to init txnkv, ret=" << ret;
         return 1;
     }
-    LOG(INFO) << "successfully init txn kv";
+    end = steady_clock::now();
+    LOG(INFO) << "successfully init txn kv, elapsed milliseconds: "
+              << duration_cast<milliseconds>(end - start_init_kv).count();
 
     if (init_global_encryption_key_info_map(txn_kv.get()) != 0) {
         LOG(WARNING) << "failed to init global encryption key map";
         return -1;
     }
 
-    std::unique_ptr<MetaServer> meta_server;
+    std::unique_ptr<MetaServer> meta_server; // meta-service
     std::unique_ptr<Recycler> recycler;
     std::thread periodiccally_log_thread;
     std::mutex periodiccally_log_thread_lock;
@@ -266,10 +282,11 @@ int main(int argc, char** argv) {
             std::cerr << msg << std::endl;
             return ret;
         }
-        msg = "meta-service started";
+        msg = "MetaService has been started successfully";
         LOG(INFO) << msg;
         std::cout << msg << std::endl;
-    } else if (args.get<bool>(ARG_RECYCLER)) {
+    }
+    if (args.get<bool>(ARG_RECYCLER)) {
         recycler = std::make_unique<Recycler>(txn_kv);
         int ret = recycler->start(&server);
         if (ret != 0) {
@@ -278,21 +295,18 @@ int main(int argc, char** argv) {
             std::cerr << msg << std::endl;
             return ret;
         }
-        msg = "recycler started";
+        msg = "Recycler has been started successfully";
         LOG(INFO) << msg;
         std::cout << msg << std::endl;
         auto periodiccally_log = [&]() {
             while (periodiccally_log_thread_run) {
                 std::unique_lock<std::mutex> lck {periodiccally_log_thread_lock};
-                periodiccally_log_thread_cv.wait_for(
-                        lck, std::chrono::milliseconds(config::periodically_log_ms));
+                periodiccally_log_thread_cv.wait_for(lck,
+                                                     milliseconds(config::periodically_log_ms));
                 LOG(INFO) << "Periodically log for recycler";
             }
         };
         periodiccally_log_thread = std::thread {periodiccally_log};
-    } else {
-        std::cerr << "cloud starts without doing anything and exits" << std::endl;
-        return -1;
     }
     // start service
     brpc::ServerOptions options;
@@ -309,7 +323,11 @@ int main(int argc, char** argv) {
                      << ", errmsg=" << strerror_r(errno, buf, 64) << ", port=" << port;
         return -1;
     }
-    LOG(INFO) << "successfully started brpc listening on port=" << port;
+    end = steady_clock::now();
+    msg = "successfully started service listening on port=" + std::to_string(port) +
+          " time_elapsed_ms=" + std::to_string(duration_cast<milliseconds>(end - start).count());
+    LOG(INFO) << msg;
+    std::cout << msg << std::endl;
 
     server.RunUntilAskedToQuit(); // Wait for signals
     server.ClearServices();
@@ -326,7 +344,7 @@ int main(int argc, char** argv) {
             periodiccally_log_thread_run = false;
             // immediately notify the log thread to quickly exit in case it block the
             // whole procedure
-            periodiccally_log_thread_cv.notify_one();
+            periodiccally_log_thread_cv.notify_all();
         }
         periodiccally_log_thread.join();
     }

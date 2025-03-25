@@ -126,7 +126,7 @@ public class Lambda extends Expression {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         StringBuilder builder = new StringBuilder();
         String argStr = argumentNames.get(0);
         if (argumentNames.size() > 1) {

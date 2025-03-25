@@ -181,6 +181,8 @@ Status RowSourcesBuffer::_create_buffer_file() {
     } else if (_reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
                _reader_type == ReaderType::READER_SEGMENT_COMPACTION) {
         file_path_ss << "_cumu";
+    } else if (_reader_type == ReaderType::READER_FULL_COMPACTION) {
+        file_path_ss << "_full";
     } else if (_reader_type == ReaderType::READER_COLD_DATA_COMPACTION) {
         file_path_ss << "_cold";
     } else {

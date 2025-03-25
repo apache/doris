@@ -56,8 +56,9 @@ public class LakeSoulExternalTable extends ExternalTable {
 
     public final String tableId;
 
-    public LakeSoulExternalTable(long id, String name, String dbName, LakeSoulExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.LAKESOUl_EXTERNAL_TABLE);
+    public LakeSoulExternalTable(long id, String name, String remoteName, LakeSoulExternalCatalog catalog,
+            LakeSoulExternalDatabase db) {
+        super(id, name, remoteName, catalog, db, TableType.LAKESOUl_EXTERNAL_TABLE);
         TableInfo tableInfo = getLakeSoulTableInfo();
         if (tableInfo == null) {
             throw new RuntimeException(String.format("LakeSoul table %s.%s does not exist", dbName, name));
@@ -88,9 +89,9 @@ public class LakeSoulExternalTable extends ExternalTable {
                     return Type.BIGINT;
                 default:
                     throw new IllegalArgumentException("Invalid integer bit width: "
-                        + type.getBitWidth()
-                        + " for LakeSoul table: "
-                        + getTableIdentifier());
+                            + type.getBitWidth()
+                            + " for LakeSoul table: "
+                            + getTableIdentifier());
             }
         } else if (dt instanceof ArrowType.FloatingPoint) {
             ArrowType.FloatingPoint type = (ArrowType.FloatingPoint) dt;
@@ -101,16 +102,16 @@ public class LakeSoulExternalTable extends ExternalTable {
                     return Type.DOUBLE;
                 default:
                     throw new IllegalArgumentException("Invalid floating point precision: "
-                        + type.getPrecision()
-                        + " for LakeSoul table: "
-                        + getTableIdentifier());
+                            + type.getPrecision()
+                            + " for LakeSoul table: "
+                            + getTableIdentifier());
             }
         } else if (dt instanceof ArrowType.Utf8) {
             return Type.STRING;
         } else if (dt instanceof ArrowType.Decimal) {
             ArrowType.Decimal decimalType = (ArrowType.Decimal) dt;
             return ScalarType.createDecimalType(PrimitiveType.DECIMAL64, decimalType.getPrecision(),
-                decimalType.getScale());
+                    decimalType.getScale());
         } else if (dt instanceof ArrowType.Date) {
             return ScalarType.createDateV2Type();
         } else if (dt instanceof ArrowType.Timestamp) {

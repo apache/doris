@@ -41,28 +41,19 @@ suite ("testAggQuqeryOnAggMV7") {
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
     sql """analyze table emps with sync;"""
+    sql """alter table emps modify column time_col set stats ('row_count'='4');"""
+    sql """alter table emps modify column time_col set stats ('row_count'='4');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
-    explain {
-        sql("select deptno, sum(salary) from emps where deptno>=20 group by deptno;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select deptno, sum(salary) from emps where deptno>=20 group by deptno;", "emps_mv")
     qt_select_mv "select deptno, sum(salary) from emps where deptno>=20 group by deptno order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
 
-    explain {
-        sql("select deptno, sum(salary) from emps where deptno>=20 group by deptno;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
+
+    mv_rewrite_success("select deptno, sum(salary) from emps where deptno>=20 group by deptno;", "emps_mv")
 }

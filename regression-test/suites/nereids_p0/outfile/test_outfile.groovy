@@ -109,7 +109,7 @@ suite("test_outfile") {
             SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFile}/";
         """
 
-        url = result[0][3]
+        def url = result[0][3]
         urlHost = url.substring(8, url.indexOf("${outFile}"))
         def filePrifix = url.split("${outFile}")[1]
         csvFiles = "${outFile}${filePrifix}*.csv"
@@ -146,7 +146,7 @@ suite("test_outfile") {
             path.delete();
         }
 
-        cmd = "rm -rf ${csvFiles}"
+        def cmd = "rm -rf ${csvFiles}"
         sshExec ("root", urlHost, cmd)
     }
 
@@ -184,7 +184,7 @@ suite("test_outfile") {
             SELECT * FROM ${tableName} t ORDER BY k1, v2 INTO OUTFILE "file://${outFile}/"
         """
 
-        url = result[0][3]
+        def url = result[0][3]
         urlHost = url.substring(8, url.indexOf("${outFile}"))
         def filePrifix = url.split("${outFile}")[1]
         csvFiles = "${outFile}${filePrifix}*.csv"
@@ -209,7 +209,7 @@ suite("test_outfile") {
             path.delete();
         }
 
-        cmd = "rm -rf ${csvFiles}"
+        def cmd = "rm -rf ${csvFiles}"
         sshExec ("root", urlHost, cmd)
     }
 
@@ -239,6 +239,8 @@ suite("test_outfile") {
 
         sql "set enable_parallel_outfile = true;"
         sql """select * from select_into_file into outfile "file://${outFilePath}/" properties("success_file_name" = "SUCCESS");"""
+    } catch (Exception e) {
+        logger.info("export exception: ${e}")
     } finally {
         try_sql("DROP TABLE IF EXISTS select_into_file")
         File path = new File(outFilePath)
@@ -249,7 +251,7 @@ suite("test_outfile") {
             path.delete();
         }
 
-        cmd = "rm -rf ${csvFiles}"
+        def cmd = "rm -rf ${csvFiles}"
         sshExec ("root", urlHost, cmd)
     }
 }

@@ -16,7 +16,6 @@
 // under the License.
 
 suite("create_view_star_except_and_cast_to_sql") {
-    sql "SET enable_nereids_planner=false;"
     sql """
          DROP TABLE IF EXISTS mal_old_create_view
         """

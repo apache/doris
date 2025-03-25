@@ -148,7 +148,7 @@ suite("test_schema_change_duplicate", "p0") {
         time 600
     }
 
-    int val = 100000 + max_try_num
+    int val = 100000 + 500
     sql """ insert into ${tableName3} values (${val}, 2, 3, 4, 5, 6.6, 1.7, 8.8,
 'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 9527) """
 

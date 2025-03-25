@@ -39,6 +39,8 @@ suite('test_alter_muti_modify_column') {
         (3, 30, 'pqr', 'lmn');
     """
 
+    sql """ SYNC """
+
     def expectedResults = [
         [1, 10, 'abc', 'def'],
         [2, 20, 'xyz', 'uvw'],

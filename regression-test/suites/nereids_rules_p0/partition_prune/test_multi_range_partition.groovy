@@ -73,7 +73,7 @@ suite("test_multi_range_partition") {
     }
     explain{
         sql "select * from pt where sin(k1)=0"
-        contains "artitions=3/3 (p1,p2,p3)"
+        contains "partitions=1/3 (p1)"
     }
 
     // fix BUG: p1 missed
@@ -133,10 +133,10 @@ suite("test_multi_range_partition") {
         contains "partitions=2/3 (p2,p3)"
     }
 
-    //p3 NOT pruned
+    //p3 is pruned, because k2<7 is inferred
     explain {
         sql "select * from pt where k1=7 and (k1 > cast(k2 as bigint));"
-        contains "partitions=2/3 (p2,p3)"
+        contains "partitions=1/3 (p2)"
     }
 
     //fix BUG: p2 missed

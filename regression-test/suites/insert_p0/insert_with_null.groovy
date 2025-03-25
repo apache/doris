@@ -35,6 +35,11 @@ suite("insert_with_null") {
         );
     """
 
+    sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '100')"
+    onFinish {
+        sql "ADMIN SET FRONTEND CONFIG ('commit_timeout_second' = '30')"
+    }
+
     def getRowCount = { expectedRowCount ->
         def retry = 0
         while (retry < 30) {
@@ -48,7 +53,7 @@ suite("insert_with_null") {
         }
     }
 
-    def write_modes = ["insert", "txn_insert", "group_commit_legacy", "group_commit_nereids"]
+    def write_modes = ["insert", "txn_insert", "group_commit"]
 
     for (def write_mode : write_modes) {
         sql """ DROP TABLE IF EXISTS ${table} """
@@ -66,13 +71,8 @@ suite("insert_with_null") {
         """
         if (write_mode == "txn_insert") {
             sql "begin"
-        } else if (write_mode == "group_commit_legacy") {
+        } else if (write_mode == "group_commit") {
             sql """ set group_commit = async_mode; """
-            sql """ set enable_nereids_planner = false; """
-        } else if (write_mode == "group_commit_nereids") {
-            sql """ set group_commit = async_mode; """
-            sql """ set enable_nereids_planner=true; """
-            sql """ set enable_fallback_to_original_planner=false; """
         }
 
         sql """ insert into ${table} values(1, '"b"', ["k1=v1, k2=v2"]); """

@@ -32,6 +32,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Set;
 import javax.servlet.http.HttpServletRequest;
@@ -51,6 +53,23 @@ import javax.servlet.http.HttpServletResponse;
  */
 @RestController
 public class GetLogFileAction extends RestBaseController {
+    /**
+     * This method fetches internal logs via HTTP, which is no longer recommended and will
+     * be deprecated in future versions.
+     * <p>
+     * Using HTTP to fetch logs introduces serious security and performance issues:
+     * - **Security Risks**: Log content may expose sensitive information, allowing attackers to exploit the exposed
+     * HTTP endpoints.
+     * - **Performance Problems**: Frequent HTTP requests can cause significant system load, affecting the
+     * responsiveness and stability of the application.
+     * <p>
+     * It is strongly advised not to use this approach for accessing logs. Any new requirements should be
+     * handled using more secure, reliable, and efficient methods such as log aggregation tools (e.g., ELK, Splunk)
+     * or dedicated internal APIs.
+     * <p>
+     * **Note**: No new HTTP endpoints or types for log access will be accepted.
+     * Any further attempts to extend this HTTP-based log retrieval method will not be supported.
+     */
     private final Set<String> logFileTypes = Sets.newHashSet("fe.audit.log");
 
     @RequestMapping(path = "/api/get_log_file", method = {RequestMethod.GET, RequestMethod.HEAD})
@@ -79,7 +98,13 @@ public class GetLogFileAction extends RestBaseController {
             String fileInfos = getFileInfos(logType);
             response.setHeader("file_infos", fileInfos);
             return ResponseEntityBuilder.ok();
-        } else if (method.equals(RequestMethod.GET.name())) {
+        }
+        if (method.equals(RequestMethod.GET.name())) {
+            try {
+                checkAuditLogFileName(logFile);
+            } catch (SecurityException e) {
+                return ResponseEntityBuilder.internalError(e.getMessage());
+            }
             File log = getLogFile(logType, logFile);
             if (!log.exists() || !log.isFile()) {
                 return ResponseEntityBuilder.okWithCommonError("Log file not exist: " + log.getName());
@@ -95,6 +120,17 @@ public class GetLogFileAction extends RestBaseController {
             }
         }
         return ResponseEntityBuilder.ok();
+    }
+
+    private void checkAuditLogFileName(String logFile) {
+        if (!logFile.matches("^[a-zA-Z0-9._-]+$")) {
+            throw new SecurityException("Invalid file name");
+        }
+        Path normalizedPath = Paths.get(Config.audit_log_dir).resolve(logFile).normalize();
+        // check path is valid or not
+        if (!normalizedPath.startsWith(Config.audit_log_dir)) {
+            throw new SecurityException("Invalid file path: Access outside of permitted directory");
+        }
     }
 
     private String getFileInfos(String logType) {

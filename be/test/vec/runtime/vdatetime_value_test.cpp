@@ -75,7 +75,7 @@ TEST(VDateTimeValueTest, date_v2_from_uint32_test) {
         uint8_t day = 24;
 
         DateV2Value<DateV2ValueType> date_v2;
-        date_v2.from_date((uint32_t)((year << 9) | (month << 5) | day));
+        date_v2.unchecked_set_time(year, month, day, 0, 0, 0, 0);
 
         EXPECT_TRUE(date_v2.year() == year);
         EXPECT_TRUE(date_v2.month() == month);
@@ -114,10 +114,7 @@ TEST(VDateTimeValueTest, datetime_v2_from_uint64_test) {
         uint32_t microsecond = 999999;
 
         DateV2Value<DateTimeV2ValueType> datetime_v2;
-        datetime_v2.from_datetime((uint64_t)(((uint64_t)year << 46) | ((uint64_t)month << 42) |
-                                             ((uint64_t)day << 37) | ((uint64_t)hour << 32) |
-                                             ((uint64_t)minute << 26) | ((uint64_t)second << 20) |
-                                             (uint64_t)microsecond));
+        datetime_v2.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
 
         EXPECT_TRUE(datetime_v2.year() == year);
         EXPECT_TRUE(datetime_v2.month() == month);
@@ -142,10 +139,11 @@ TEST(VDateTimeValueTest, datetime_v2_from_uint64_test) {
         uint32_t microsecond = 123000;
 
         DateV2Value<DateTimeV2ValueType> datetime_v2;
-        datetime_v2.from_datetime((uint64_t)(((uint64_t)year << 46) | ((uint64_t)month << 42) |
-                                             ((uint64_t)day << 37) | ((uint64_t)hour << 32) |
-                                             ((uint64_t)minute << 26) | ((uint64_t)second << 20) |
-                                             (uint64_t)microsecond));
+        auto ui64 = (uint64_t)(((uint64_t)year << 46) | ((uint64_t)month << 42) |
+                               ((uint64_t)day << 37) | ((uint64_t)hour << 32) |
+                               ((uint64_t)minute << 26) | ((uint64_t)second << 20) |
+                               (uint64_t)microsecond);
+        datetime_v2 = (DateV2Value<DateTimeV2ValueType>&)ui64;
 
         EXPECT_TRUE(datetime_v2.year() == year);
         EXPECT_TRUE(datetime_v2.month() == month);
@@ -629,6 +627,51 @@ TEST(VDateTimeValueTest, date_v2_daynr_test) {
         EXPECT_TRUE(date_day_offset_dict::get().get_dict_init());
         EXPECT_FALSE(date_day_offset_dict::get().can_speed_up_calc_daynr(10000));
         EXPECT_FALSE(date_day_offset_dict::get().can_speed_up_daynr_to_date(3652425));
+    }
+}
+
+TEST(VDateTimeValueTest, date_v2_from_date_format_str_with_all_space) {
+    auto test_all_space = [](const std::string& format_str) {
+        std::string date_str = "   ";
+        {
+            DateV2Value<DateTimeV2ValueType> date;
+            EXPECT_FALSE(date.from_date_format_str(format_str.data(), format_str.size(),
+                                                   date_str.data(), date_str.size()));
+        }
+
+        {
+            DateV2Value<DateV2ValueType> date;
+            EXPECT_FALSE(date.from_date_format_str(format_str.data(), format_str.size(),
+                                                   date_str.data(), date_str.size()));
+        }
+
+        {
+            VecDateTimeValue date;
+            date._type = TIME_DATE;
+            EXPECT_FALSE(date.from_date_format_str(format_str.data(), format_str.size(),
+                                                   date_str.data(), date_str.size()));
+        }
+
+        {
+            VecDateTimeValue date;
+            date._type = TIME_DATETIME;
+            EXPECT_FALSE(date.from_date_format_str(format_str.data(), format_str.size(),
+                                                   date_str.data(), date_str.size()));
+        }
+    };
+
+    test_all_space("%Y-%m-%d %H:%i:%s.%f");
+    test_all_space("%Y");
+    test_all_space("%Y-%m-%d");
+    test_all_space("%Y-%m-%d %H:%i:%s");
+    test_all_space("%Y-%m-%d %H:%i:%s.%f %p");
+    for (char ch = 'a'; ch <= 'z'; ch++) {
+        std::string fomat_str = "%" + std::string(1, ch);
+        test_all_space(fomat_str);
+    }
+    for (char ch = 'A'; ch <= 'Z'; ch++) {
+        std::string fomat_str = "%" + std::string(1, ch);
+        test_all_space(fomat_str);
     }
 }
 

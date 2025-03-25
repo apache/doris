@@ -15,20 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <iomanip>
 #include <string>
-#include <vector>
 
-#include "common/status.h"
 #include "function_test_util.h"
-#include "gtest/gtest_pred_impl.h"
-#include "testutil/any_type.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -137,10 +131,10 @@ TEST(function_array_element_test, element_at) {
         Array vec = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
                      ut_type::DECIMALFIELD(0.0)};
         DataSet data_set = {{{vec, Int64(0)}, Null()},
-                            {{vec, Int64(1)}, ut_type::DECIMAL(17014116.67)},
+                            {{vec, Int64(1)}, ut_type::DECIMALV2(17014116.67)},
                             {{vec, Int64(4)}, Null()},
-                            {{vec, Int64(-1)}, ut_type::DECIMAL(0.0)},
-                            {{vec, Int64(-2)}, ut_type::DECIMAL(-17014116.67)},
+                            {{vec, Int64(-1)}, ut_type::DECIMALV2(0.0)},
+                            {{vec, Int64(-2)}, ut_type::DECIMALV2(-17014116.67)},
                             {{vec, Int64(-4)}, Null()},
                             {{Null(), Int64(1)}, Null()},
                             {{empty_arr, Int64(0)}, Null()},
@@ -154,7 +148,7 @@ TEST(function_array_element_test, element_at) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::Int32};
 
-        Array vec = {Field("abc", 3), Field("", 0), Field("def", 3)};
+        Array vec = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
         DataSet data_set = {{{vec, 1}, std::string("abc")},
                             {{vec, 2}, std::string("")},
                             {{vec, 10}, Null()},

@@ -45,7 +45,7 @@ suite("test_char_replace") {
  		"replication_allocation" = "tag.location.default: 1"
 	);
     """
-    
+    sql """ set enable_common_expr_pushdown = true """
     def var_result = sql "show variables"
     logger.info("show variales result: " + var_result )
 

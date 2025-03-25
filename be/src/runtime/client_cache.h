@@ -35,6 +35,7 @@
 #include <unordered_map>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "util/hash_util.hpp"
 #include "util/metrics.h"
@@ -189,7 +190,12 @@ public:
 
     inline bool is_alive() { return _client != nullptr; }
 
-    T* operator->() const { return _client; }
+    T* operator->() const {
+        if (_client == nullptr) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid RPC client!");
+        }
+        return _client;
+    }
 
 private:
     ClientCache<T>* _client_cache = nullptr;

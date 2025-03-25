@@ -66,7 +66,7 @@ suite("test_auth_compatibility", "account") {
         GRANT SHOW_VIEW_PRIV on ${dbName}.${viewName} TO ${user}
     """
 
-    connect(user = user, password = pwd, url = context.config.jdbcUrl) {
+    connect(user, pwd, context.config.jdbcUrl) {
         sql """USE ${dbName}"""
         // auth ok, no exception
         sql """SHOW CREATE TABLE ${viewName}"""

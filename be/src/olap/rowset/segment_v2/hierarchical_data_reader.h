@@ -165,15 +165,15 @@ private:
         // will type the type of ColumnObject::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnObject)>>.
         for (auto& entry : nested_subcolumns) {
             MutableColumnPtr nested_object = ColumnObject::create(true, false);
-            const auto* base_array =
-                    check_and_get_column<ColumnArray>(remove_nullable(entry.second[0].column));
+            const auto* base_array = check_and_get_column<ColumnArray>(
+                    remove_nullable(entry.second[0].column).get());
             MutableColumnPtr offset = base_array->get_offsets_ptr()->assume_mutable();
             auto* nested_object_ptr = assert_cast<ColumnObject*>(nested_object.get());
             // flatten nested arrays
             for (const auto& subcolumn : entry.second) {
                 const auto& column = subcolumn.column;
                 const auto& type = subcolumn.type;
-                if (!remove_nullable(column)->is_column_array()) {
+                if (!is_column<ColumnArray>(remove_nullable(column).get())) {
                     return Status::InvalidArgument(
                             "Meet none array column when flatten nested array, path {}, type {}",
                             subcolumn.path.get_path(), subcolumn.type->get_name());
@@ -242,6 +242,13 @@ private:
                         assert_cast<ColumnNullable&>(*_root_reader->column).get_nested_column())
                         .clear_subcolumns_data();
             } else {
+                if (dst->is_nullable()) {
+                    // No nullable info exist in hirearchical data, fill nullmap with all none null
+                    ColumnUInt8& dst_null_map =
+                            assert_cast<ColumnNullable&>(*dst).get_null_map_column();
+                    auto fake_nullable_column = ColumnUInt8::create(nrows, 0);
+                    dst_null_map.insert_range_from(*fake_nullable_column, 0, nrows);
+                }
                 ColumnObject& root_column = assert_cast<ColumnObject&>(*_root_reader->column);
                 root_column.clear_subcolumns_data();
             }

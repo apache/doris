@@ -28,17 +28,13 @@ import org.apache.arrow.flight.CallStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.concurrent.atomic.AtomicInteger;
-
 public class FlightSessionsWithTokenManager implements FlightSessionsManager {
     private static final Logger LOG = LogManager.getLogger(FlightSessionsWithTokenManager.class);
 
     private final FlightTokenManager flightTokenManager;
-    private final AtomicInteger nextConnectionId;
 
     public FlightSessionsWithTokenManager(FlightTokenManager flightTokenManager) {
         this.flightTokenManager = flightTokenManager;
-        this.nextConnectionId = new AtomicInteger(0);
     }
 
     @Override
@@ -69,8 +65,7 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
         flightTokenDetails.setCreatedSession(true);
         ConnectContext connectContext = FlightSessionsManager.buildConnectContext(peerIdentity,
                 flightTokenDetails.getUserIdentity(), flightTokenDetails.getRemoteIp());
-        connectContext.setConnectionId(nextConnectionId.getAndAdd(1));
-        connectContext.resetLoginTime();
+        ExecuteEnv.getInstance().getScheduler().submit(connectContext);
         if (!ExecuteEnv.getInstance().getScheduler().registerConnection(connectContext)) {
             String err = "Reach limit of connections, increase `qe_max_connection` in fe.conf, or decrease "
                     + "`arrow_flight_token_cache_size` to evict unused bearer tokens and it connections faster";

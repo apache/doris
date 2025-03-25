@@ -39,11 +39,10 @@ suite ("test_mv_mor") {
     sql "insert into u_table select 1,1,1,2;"
     sql "insert into u_table select 1,2,1,2;"
 
+    sql """alter table u_table modify column k1 set stats ('row_count'='2');"""
+
     // do not match mv coz preagg is off, mv need contains all key column to make row count correct
-    explain {
-        sql("select k1,k2+k3 from u_table order by k1;")
-        contains "(u_table)"
-    }
+    mv_rewrite_success("select k1,k2+k3 from u_table order by k1;", "k123p")
     qt_select_mv "select k1,k2+k3 from u_table order by k1;"
 
     qt_select_mv "select * from `u_table` index `k123p` order by 1,2;"

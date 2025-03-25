@@ -63,6 +63,7 @@ import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -647,8 +648,7 @@ public class RoutineLoadManagerTest {
                 throw new UserException("thread sleep failed");
             }
             routineLoadManager.updateRoutineLoadJob();
-            Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
-            Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+            Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
         }
         routineLoadManager.updateRoutineLoadJob();
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
@@ -1072,5 +1072,34 @@ public class RoutineLoadManagerTest {
         routineLoadManager.resumeRoutineLoadJob(resumeRoutineLoadStmt);
         Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob1.getState());
         Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob2.getState());
+    }
+
+    @Test
+    public void testCalAutoResumeInterval() throws Exception {
+        RoutineLoadJob jobRoutine = new KafkaRoutineLoadJob();
+
+        Field maxBackOffField = ScheduleRule.class.getDeclaredField("MAX_BACK_OFF_TIME_SEC");
+        maxBackOffField.setAccessible(true);
+        long maxBackOffTimeSec = (long) maxBackOffField.get(null);
+
+        Field backOffBasicField = ScheduleRule.class.getDeclaredField("BACK_OFF_BASIC_TIME_SEC");
+        backOffBasicField.setAccessible(true);
+        long backOffTimeSec = (long) backOffBasicField.get(null);
+
+        jobRoutine.autoResumeCount = 0;
+        long interval = ScheduleRule.calAutoResumeInterval(jobRoutine);
+        Assert.assertEquals(Math.min((long) Math.pow(2, 0) * backOffTimeSec, maxBackOffTimeSec), interval);
+
+        jobRoutine.autoResumeCount = 1;
+        interval = ScheduleRule.calAutoResumeInterval(jobRoutine);
+        Assert.assertEquals(Math.min((long) Math.pow(2, 1) * backOffTimeSec, maxBackOffTimeSec), interval);
+
+        jobRoutine.autoResumeCount = 5;
+        interval = ScheduleRule.calAutoResumeInterval(jobRoutine);
+        Assert.assertEquals(maxBackOffTimeSec, interval);
+
+        jobRoutine.autoResumeCount = 1000;
+        interval = ScheduleRule.calAutoResumeInterval(jobRoutine);
+        Assert.assertEquals(maxBackOffTimeSec, interval);
     }
 }

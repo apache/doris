@@ -249,6 +249,9 @@ public class DecimalLiteral extends NumericLiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
         if (expr instanceof DecimalLiteral) {
             return this.value.compareTo(((DecimalLiteral) expr).value);
         } else {
@@ -274,7 +277,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
 
     @Override
     public String getStringValue() {
-        return value.toString();
+        return value.toPlainString();
     }
 
     @Override

@@ -53,6 +53,7 @@ class ColumnSorter;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /// PaddedPODArray extended by Decimal scale
 template <typename T>
@@ -102,16 +103,15 @@ private:
     ColumnDecimal(const ColumnDecimal& src) : data(src.data), scale(src.scale) {}
 
 public:
-    const char* get_family_name() const override { return TypeName<T>::get(); }
-
-    bool is_numeric() const override { return false; }
-    bool is_column_decimal() const override { return true; }
-    bool is_fixed_and_contiguous() const override { return true; }
-    size_t size_of_value_if_fixed() const override { return sizeof(T); }
+    std::string get_name() const override { return TypeName<T>::get(); }
 
     size_t size() const override { return data.size(); }
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
+    bool has_enough_capacity(const IColumn& src) const override {
+        const ColumnDecimal& src_vec = assert_cast<const ColumnDecimal&>(src);
+        return data.capacity() - data.size() > src_vec.size();
+    }
     void reserve(size_t n) override { data.reserve(n); }
     void resize(size_t n) override { data.resize(n); }
 
@@ -158,6 +158,8 @@ public:
         memset(data.data() + old_size, 0, length * sizeof(data[0]));
     }
 
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+
     void pop_back(size_t n) override { data.resize_assume_reserved(data.size() - n); }
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
@@ -165,15 +167,14 @@ public:
 
     size_t get_max_row_byte_size() const override;
 
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override;
+    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
 
-    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+    void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                      const uint8_t* null_map) const override;
 
-    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
 
-    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+    void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
                                        const uint8_t* null_map) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
@@ -215,15 +216,6 @@ public:
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
-    }
 
     //    void gather(ColumnGathererStream & gatherer_stream) override;
 
@@ -270,7 +262,7 @@ protected:
         for (U i = 0; i < s; ++i) res[i] = i;
 
         auto sort_end = res.end();
-        if (limit && limit < s / 8.0) {
+        if (limit && static_cast<double>(limit) < static_cast<double>(s) / 8.0) {
             sort_end = res.begin() + limit;
             if (reverse)
                 std::partial_sort(res.begin(), sort_end, res.end(),
@@ -314,3 +306,4 @@ template <typename T>
 using ColumnVectorOrDecimal = typename ColumnVectorOrDecimalT<T, IsDecimalNumber<T>>::Col;
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

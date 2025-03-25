@@ -80,18 +80,14 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK(arguments.size() % 2 == 0)
                 << "function: " << get_name() << ", arguments should not be even number";
 
         size_t num_element = arguments.size();
 
         auto result_col = block.get_by_position(result).type->create_column();
-        auto* map_column = typeid_cast<ColumnMap*>(result_col.get());
-        if (!map_column) {
-            return Status::RuntimeError("unsupported types for function {} return {}", get_name(),
-                                        block.get_by_position(result).type->get_name());
-        }
+        auto* map_column = assert_cast<ColumnMap*>(result_col.get());
 
         // map keys column
         auto& result_col_map_keys_data = map_column->get_keys();
@@ -170,7 +166,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         // backup original argument 0
         auto orig_arg0 = block.get_by_position(arguments[0]);
         auto left_column =
@@ -265,7 +261,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnMap* map_column = nullptr;

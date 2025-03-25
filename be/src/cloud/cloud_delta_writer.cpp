@@ -29,7 +29,7 @@ CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteReques
                                    RuntimeProfile* profile, const UniqueId& load_id)
         : BaseDeltaWriter(req, profile, load_id), _engine(engine) {
     _rowset_builder = std::make_unique<CloudRowsetBuilder>(engine, req, profile);
-    _query_thread_context.init_unlocked();
+    _resource_ctx = thread_context()->resource_ctx();
 }
 
 CloudDeltaWriter::~CloudDeltaWriter() = default;
@@ -47,7 +47,7 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
         }
 
         tasks.emplace_back([writer] {
-            SCOPED_ATTACH_TASK(writer->query_thread_context());
+            SCOPED_ATTACH_TASK(writer->resource_context());
             std::lock_guard<bthread::Mutex> lock(writer->_mtx);
             if (writer->_is_init || writer->_is_cancelled) {
                 return Status::OK();
@@ -61,7 +61,7 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
 }
 
 Status CloudDeltaWriter::write(const vectorized::Block* block,
-                               const std::vector<uint32_t>& row_idxs) {
+                               const DorisVector<uint32_t>& row_idxs) {
     if (row_idxs.empty()) [[unlikely]] {
         return Status::OK();
     }

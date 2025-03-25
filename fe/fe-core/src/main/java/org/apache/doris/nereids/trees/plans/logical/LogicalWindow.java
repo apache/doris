@@ -218,7 +218,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         for (NamedExpression windowExpr : windowExpressions) {
             if (windowExpr == null || windowExpr.children().size() != 1
                     || !(windowExpr.child(0) instanceof WindowExpression)) {
-                continue;
+                return null;
             }
             WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
 
@@ -226,12 +226,12 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             if (!(windowFunc.getFunction() instanceof RowNumber
                     || windowFunc.getFunction() instanceof Rank
                     || windowFunc.getFunction() instanceof DenseRank)) {
-                continue;
+                return null;
             }
 
             // Check the partition key and order key.
             if (windowFunc.getPartitionKeys().isEmpty() && windowFunc.getOrderKeys().isEmpty()) {
-                continue;
+                return null;
             }
 
             // Check the window type and window frame.
@@ -240,10 +240,10 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 WindowFrame frame = windowFrame.get();
                 if (!(frame.getLeftBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.UNBOUNDED_PRECEDING
                         && frame.getRightBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.CURRENT_ROW)) {
-                    continue;
+                    return null;
                 }
             } else {
-                continue;
+                return null;
             }
 
             // Check filter conditions.

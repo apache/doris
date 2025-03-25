@@ -48,7 +48,6 @@ public class EventTest extends TestWithFeService {
     @Override
     public void runBeforeAll() {
         connectContext.getSessionVariable().setEnableNereidsTrace(true);
-        connectContext.getSessionVariable().setEnableNereidsPlanner(true);
         channel = new EventChannel()
                 .addConsumers(
                         new PrintConsumer(CounterEvent.class, printStream),

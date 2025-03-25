@@ -52,9 +52,7 @@ public class DirectRollupHandler extends AggFunctionRollUpHandler {
                 && viewExpression instanceof NullableAggregateFunction
                 ? ((NullableAggregateFunction) queryAggregateFunctionShuttled).equalsIgnoreNullable(viewExpression)
                 : queryAggregateFunctionShuttled.equals(viewExpression);
-        return isEquals && MappingRollupHandler.AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.keySet().stream()
-                .noneMatch(aggFunction -> aggFunction.equals(queryAggregateFunction))
-                && !(queryAggregateFunction instanceof Combinator);
+        return isEquals && !(queryAggregateFunction instanceof Combinator);
     }
 
     @Override

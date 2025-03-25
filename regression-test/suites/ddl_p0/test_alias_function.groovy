@@ -18,10 +18,10 @@
 suite("test_alias_function") {
 
     sql """DROP FUNCTION IF EXISTS mesh_udf_test1(INT,INT)"""
-    sql """CREATE ALIAS FUNCTION IF NOT EXISTS mesh_udf_test1(INT,INT) WITH PARAMETER(n,d) AS ROUND(1+floor(n/d));"""
+    sql """CREATE ALIAS FUNCTION mesh_udf_test1(INT,INT) WITH PARAMETER(n,d) AS ROUND(1+floor(n/d));"""
     qt_sql1 """select mesh_udf_test1(1,2);"""
 
     sql """DROP FUNCTION IF EXISTS mesh_udf_test2(INT,INT)"""
-    sql """CREATE ALIAS FUNCTION IF NOT EXISTS mesh_udf_test2(INT,INT) WITH PARAMETER(n,d) AS add(1,floor(divide(n,d)))"""
+    sql """CREATE ALIAS FUNCTION mesh_udf_test2(INT,INT) WITH PARAMETER(n,d) AS add(1,floor(divide(n,d)))"""
     qt_sql1 """select mesh_udf_test2(1,2);"""
 }

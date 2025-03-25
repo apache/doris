@@ -68,6 +68,11 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
             + "cte2 AS (SELECT sk FROM cte1 WHERE sk < 3)"
             + "SELECT * FROM cte1 JOIN cte2 ON cte1.sk = cte2.sk";
 
+    private final String cteLeadingJoin = "WITH cte1 AS (SELECT /*+ leading(supplier customer) */ s_suppkey AS sk "
+            + "FROM supplier join customer on c_nation = s_nation), "
+            + "cte2 AS (SELECT sk FROM cte1 WHERE sk < 3)"
+            + "SELECT /*+ leading(cte2 cte1) */ * FROM cte1 JOIN cte2 ON cte1.sk = cte2.sk";
+
     private final String cteReferToAnotherOne = "WITH V1 AS (SELECT s_suppkey FROM supplier), "
             + "V2 AS (SELECT s_suppkey FROM V1)"
             + "SELECT * FROM V2";
@@ -126,6 +131,15 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
             // Just to check whether translate will throw exception
             new PhysicalPlanTranslator(new PlanTranslatorContext()).translatePlan(plan);
         }
+    }
+
+    @Test
+    public void testLeadingCte() throws Exception {
+        StatementScopeIdGenerator.clear();
+        StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, cteLeadingJoin);
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        planner.planWithLock(parser.parseSingle(cteLeadingJoin), PhysicalProperties.ANY);
+        Assertions.assertTrue(planner.getCascadesContext().isLeadingDisableJoinReorder());
     }
 
     @Test

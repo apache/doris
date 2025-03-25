@@ -88,13 +88,15 @@ public:
      *
      * @param cluster cluster to update, only cluster name and cluster id are concered
      * @param action update operation code snippet
+     * @param replace_if_existing_empty_target_cluster, find cluster.cluster_name is a empty cluster(no node), drop it
      * @filter filter condition
      * @return empty string for success, otherwise failure reason returned
      */
     virtual std::string update_cluster(
             const std::string& instance_id, const ClusterInfo& cluster,
             std::function<bool(const ClusterPB&)> filter,
-            std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action);
+            std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action,
+            bool replace_if_existing_empty_target_cluster = false);
 
     /**
      * Get instance from underlying storage with given transaction.
@@ -113,6 +115,25 @@ public:
 
     bool check_cluster_params_valid(const ClusterPB& cluster, std::string* err,
                                     bool check_master_num);
+
+    /**
+     * Check cloud_unique_id is degraded format, and get instance_id from cloud_unique_id
+     * degraded format : "${version}:${instance_id}:${unique_id}"
+     * @param degraded cloud_unique_id
+     *
+     * @return a <is_degraded_format, instance_id> pair, if is_degraded_format == true , instance_id, if is_degraded_format == false, instance_id=""
+     */
+    static std::pair<bool, std::string> get_instance_id_by_cloud_unique_id(
+            const std::string& cloud_unique_id);
+
+    /**
+     * check instance_id is a valid instance, check by get fdb kv 
+     *
+     * @param instance_id
+     *
+     * @return true, instance_id in fdb kv
+     */
+    bool is_instance_id_registered(const std::string& instance_id);
 
     /**
      * Refreshes the cache of given instance. This process removes the instance in cache

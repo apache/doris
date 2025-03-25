@@ -73,6 +73,8 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     @SerializedName(value = "rollupFinishedVersion")
     private long rollupFinishedVersion;
 
+    private boolean rowCountReported = false;
+
     public MaterializedIndex() {
         this.state = IndexState.NORMAL;
         this.idToTablets = new HashMap<>();
@@ -195,6 +197,46 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         return replicaCount;
     }
 
+    public long getLocalIndexSize() {
+        long localIndexSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                localIndexSize += replica.getLocalInvertedIndexSize();
+            }
+        }
+        return localIndexSize;
+    }
+
+    public long getLocalSegmentSize() {
+        long localSegmentSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                localSegmentSize += replica.getLocalSegmentSize();
+            }
+        }
+        return localSegmentSize;
+    }
+
+    public long getRemoteIndexSize() {
+        long remoteIndexSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                remoteIndexSize += replica.getRemoteInvertedIndexSize();
+            }
+        }
+        return remoteIndexSize;
+    }
+
+    public long getRemoteSegmentSize() {
+        long remoteSegmentSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                remoteSegmentSize += replica.getRemoteSegmentSize();
+            }
+        }
+        return remoteSegmentSize;
+    }
+
     public int getTabletOrderIdx(long tabletId) {
         int idx = 0;
         for (Tablet tablet : tablets) {
@@ -204,6 +246,14 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
             idx++;
         }
         return -1;
+    }
+
+    public void setRowCountReported(boolean reported) {
+        this.rowCountReported = reported;
+    }
+
+    public boolean getRowCountReported() {
+        return this.rowCountReported;
     }
 
     @Deprecated

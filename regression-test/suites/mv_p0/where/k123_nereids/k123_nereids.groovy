@@ -50,7 +50,7 @@ suite ("k123p_nereids") {
 
     sql "analyze table d_table with sync;"
 
-    mv_rewrite_all_fail("select k1,k2+k3 from d_table order by k1;")
+    mv_rewrite_all_fail("select k1,k2+k3 from d_table order by k1;", ["k123p1w", "k123p4w", "kwh1", "kwh2"])
     
     qt_select_mv "select k1,k2+k3 from d_table order by k1;"
 
@@ -59,7 +59,7 @@ suite ("k123p_nereids") {
     
     qt_select_mv "select k1,k2+k3 from d_table where k1 = 1 order by k1;"
 
-    mv_rewrite_all_fail("select k1,k2+k3 from d_table where k1 = 2 order by k1;")
+    mv_rewrite_all_fail("select k1,k2+k3 from d_table where k1 = 2 order by k1;", ["k123p1w", "k123p4w", "kwh1", "kwh2"])
     
     qt_select_mv "select k1,k2+k3 from d_table where k1 = 2 order by k1;"
 
@@ -71,7 +71,7 @@ suite ("k123p_nereids") {
         
     qt_select_mv "select k1,k2+k3 from d_table where k4 = 'b' order by k1;"
 
-    mv_rewrite_all_fail("select k1,k2+k3 from d_table where k4 = 'a' order by k1;")
+    mv_rewrite_all_fail("select k1,k2+k3 from d_table where k4 = 'a' order by k1;", ["k123p1w", "k123p4w", "kwh1", "kwh2"])
         
     qt_select_mv "select k1,k2+k3 from d_table where k4 = 'a' order by k1;"
 
@@ -81,13 +81,13 @@ suite ("k123p_nereids") {
 
     qt_select_mv_constant """select bitmap_empty() from d_table where true;"""
 
-    mv_rewrite_all_fail("select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;")
+    mv_rewrite_success("select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;", "kwh1")
     
     qt_select_mv "select k2 from d_table where k1=1 and (k1>2 or k1 < 0) order by k2;"
 
     mv_rewrite_success("select k2 from d_table where k1>10 order by k2;", "kwh2")
 
-    mv_rewrite_all_fail("select k2 from d_table where k1>10 or k2 = 0 order by k2;")
+    mv_rewrite_all_fail("select k2 from d_table where k1>10 or k2 = 0 order by k2;", ["k123p1w", "k123p4w", "kwh1", "kwh2"])
 
     mv_rewrite_success("select k2 from d_table where k1=1 and (k2>2 or k2<0) order by k2;", "kwh1")
     
@@ -97,7 +97,7 @@ suite ("k123p_nereids") {
     
     qt_select_mv "select k2,k1=1 from d_table where k1=1 order by k2;"
 
-    mv_rewrite_all_fail("select k2,k1=2 from d_table where k1=1 order by k2;")
+    mv_rewrite_success("select k2,k1=2 from d_table where k1=1 order by k2;", "kwh1")
     
     qt_select_mv "select k2,k1=2 from d_table where k1=1 order by k2;"
 

@@ -37,7 +37,7 @@ suite("test_index_range_smaller_select", "inverted_index_select"){
                 INDEX name_idx(name) USING INVERTED COMMENT 'name index',
                 INDEX age_idx(age) USING INVERTED COMMENT 'age index',
                 INDEX grade_idx(grade) USING INVERTED PROPERTIES("parser"="none") COMMENT 'grade index',
-                INDEX tearchComment_idx(tearchComment) USING INVERTED PROPERTIES("parser"="english") COMMENT 'tearchComment index',
+                INDEX tearchComment_idx(tearchComment) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT 'tearchComment index',
                 INDEX studentInfo_idx(studentInfo) USING INVERTED PROPERTIES("parser"="standard") COMMENT 'studentInfo index',
                 INDEX selfComment_idx(selfComment) USING INVERTED PROPERTIES("parser"="standard") COMMENT 'studentInfo index',
                 INDEX fatherName_idx(fatherName) USING INVERTED PROPERTIES("parser"="standard") COMMENT ' fatherName index'
@@ -54,7 +54,7 @@ suite("test_index_range_smaller_select", "inverted_index_select"){
         ("san zhang", 10, "grade 5", "2017-10-01", "tall:100cm, weight: 30kg, hobbies:", "", "", "", "", ""),
         ("li sisi", 11, "grade 6", "2016-10-01", "tall:150cm, weight: 40kg, hobbies: sing, dancing, running", "good at handiwork and beaty", "", "li ba", "li liuliu", "")
     """
-
+    sql """ set enable_common_expr_pushdown = true; """
     // case1. test <
     // case1.0: test only <
     sql "select * from ${indexTbName1} where name<'' order by name "

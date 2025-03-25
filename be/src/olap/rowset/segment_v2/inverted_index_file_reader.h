@@ -59,8 +59,9 @@ public:
               _idx_file_info(idx_file_info) {}
 
     Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
-                bool open_idx_file_cache = false);
-    Result<std::unique_ptr<DorisCompoundReader>> open(const TabletIndex* index_meta) const;
+                const io::IOContext* io_ctx = nullptr);
+    Result<std::unique_ptr<DorisCompoundReader>> open(const TabletIndex* index_meta,
+                                                      const io::IOContext* io_ctx = nullptr) const;
     void debug_file_entries();
     std::string get_index_file_cache_key(const TabletIndex* index_meta) const;
     std::string get_index_file_path(const TabletIndex* index_meta) const;
@@ -69,18 +70,20 @@ public:
     Result<InvertedIndexDirectoryMap> get_all_directories();
     // open file v2, init _stream
     int64_t get_inverted_file_size() const { return _stream == nullptr ? 0 : _stream->length(); }
+    friend InvertedIndexFileWriter;
+
+protected:
+    Status _init_from(int32_t read_buffer_size, const io::IOContext* io_ctx);
+    Result<std::unique_ptr<DorisCompoundReader>> _open(int64_t index_id,
+                                                       const std::string& index_suffix,
+                                                       const io::IOContext* io_ctx = nullptr) const;
 
 private:
-    Status _init_from_v2(int32_t read_buffer_size);
-    Result<std::unique_ptr<DorisCompoundReader>> _open(int64_t index_id,
-                                                       const std::string& index_suffix) const;
-
     IndicesEntriesMap _indices_entries;
     std::unique_ptr<CL_NS(store)::IndexInput> _stream = nullptr;
     const io::FileSystemSPtr _fs;
     std::string _index_path_prefix;
     int32_t _read_buffer_size = -1;
-    bool _open_idx_file_cache = false;
     InvertedIndexStorageFormatPB _storage_format;
     mutable std::shared_mutex _mutex; // Use mutable for const read operations
     bool _inited = false;

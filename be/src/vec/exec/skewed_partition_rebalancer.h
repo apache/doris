@@ -45,6 +45,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include <algorithm>
 #include <iostream>
 #include <list>
@@ -54,15 +56,17 @@
 #include "util/indexed_priority_queue.hpp"
 
 namespace doris::vectorized {
-
 class SkewedPartitionRebalancer {
 private:
     struct TaskBucket {
+        // `task_bucket_count_` is always 1.
         int task_id;
         int id;
 
         TaskBucket(int task_id_, int bucket_id_, int task_bucket_count_)
-                : task_id(task_id_), id(task_id_ * task_bucket_count_ + bucket_id_) {}
+                : task_id(task_id_), id(task_id_ * task_bucket_count_ + bucket_id_) {
+            DCHECK_LT(bucket_id_, task_bucket_count_);
+        }
 
         bool operator==(const TaskBucket& other) const { return id == other.id; }
 
@@ -76,8 +80,6 @@ public:
                               long min_partition_data_processed_rebalance_threshold,
                               long min_data_processed_rebalance_threshold);
 
-    std::vector<std::list<int>> get_partition_assignments();
-    int get_task_count();
     int get_task_id(int partition_id, int64_t index);
     void add_data_processed(long data_size);
     void add_partition_row_count(int partition, long row_count);
@@ -111,12 +113,12 @@ private:
     bool _should_rebalance(long data_processed);
     void _rebalance_partitions(long data_processed);
 
-private:
     static constexpr double TASK_BUCKET_SKEWNESS_THRESHOLD = 0.7;
 
-    int _partition_count;
-    int _task_count;
-    int _task_bucket_count;
+    // One or more tasks in one partition. `_task_count` equals to the number of channels and `_task_bucket_count` is always 1.
+    const int _partition_count;
+    const int _task_count;
+    const int _task_bucket_count;
     long _min_partition_data_processed_rebalance_threshold;
     long _min_data_processed_rebalance_threshold;
     std::vector<long> _partition_row_count;

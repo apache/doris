@@ -17,12 +17,20 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdafBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdfBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
@@ -35,6 +43,8 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Modifier;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -155,19 +165,43 @@ public class FunctionRegistry {
             throw new AnalysisException("Can not found function '" + qualifiedName
                     + "' which has " + arity + " arity. Candidate functions are: " + candidateHints);
         }
+        if (!Config.enable_java_udf) {
+            candidateBuilders = candidateBuilders.stream()
+                    .filter(fb -> !(fb instanceof JavaUdfBuilder || fb instanceof JavaUdafBuilder
+                            || fb instanceof JavaUdtfBuilder))
+                    .collect(Collectors.toList());
+            if (candidateBuilders.isEmpty()) {
+                throw new AnalysisException("java_udf has been disabled.");
+            }
+        }
         if (candidateBuilders.size() > 1) {
-            String candidateHints = getCandidateHint(name, candidateBuilders);
-            // TODO: NereidsPlanner not supported override function by the same arity, we will support it later
-            if (ConnectContext.get() != null) {
-                try {
-                    ConnectContext.get().getSessionVariable().enableFallbackToOriginalPlannerOnce();
-                } catch (Throwable t) {
-                    // ignore error
+            boolean needChooseOne = true;
+            List<FunctionSignature> signatures = Lists.newArrayListWithCapacity(candidateBuilders.size());
+            for (FunctionBuilder functionBuilder : candidateBuilders) {
+                if (functionBuilder instanceof UdfBuilder) {
+                    signatures.addAll(((UdfBuilder) functionBuilder).getSignatures());
+                } else {
+                    needChooseOne = false;
+                    break;
                 }
             }
+            for (Object argument : arguments) {
+                if (!(argument instanceof Expression)) {
+                    needChooseOne = false;
+                    break;
+                }
+            }
+            if (needChooseOne) {
+                FunctionSignature signature = new UdfSignatureSearcher(signatures, (List) arguments).getSignature();
+                for (int i = 0; i < signatures.size(); i++) {
+                    if (signatures.get(i).equals(signature)) {
+                        return candidateBuilders.get(i);
+                    }
+                }
+            }
+            String candidateHints = getCandidateHint(name, candidateBuilders);
             throw new AnalysisException("Function '" + qualifiedName + "' is ambiguous: " + candidateHints);
         }
-
         return candidateBuilders.get(0);
     }
 
@@ -192,7 +226,6 @@ public class FunctionRegistry {
                 List<FunctionBuilder> candidate = name2UdfBuilders.getOrDefault(scope, ImmutableMap.of())
                         .get(name.toLowerCase());
                 if (candidate != null && !candidate.isEmpty()) {
-                    FunctionUtil.checkEnableJavaUdfForNereids();
                     return candidate;
                 }
             }
@@ -210,7 +243,25 @@ public class FunctionRegistry {
 
     public String getCandidateHint(String name, List<FunctionBuilder> candidateBuilders) {
         return candidateBuilders.stream()
-                .map(builder -> name + builder.toString())
+                .filter(builder -> {
+                    if (builder instanceof BuiltinFunctionBuilder) {
+                        Constructor<BoundFunction> builderMethod
+                                = ((BuiltinFunctionBuilder) builder).getBuilderMethod();
+                        if (Modifier.isAbstract(builderMethod.getModifiers())
+                                || !Modifier.isPublic(builderMethod.getModifiers())) {
+                            return false;
+                        }
+                        for (Class<?> parameterType : builderMethod.getParameterTypes()) {
+                            if (!Expression.class.isAssignableFrom(parameterType)
+                                    && !(parameterType.isArray()
+                                        && Expression.class.isAssignableFrom(parameterType.getComponentType()))) {
+                                return false;
+                            }
+                        }
+                    }
+                    return true;
+                })
+                .map(builder -> name + builder.parameterDisplayString())
                 .collect(Collectors.joining(", ", "[", "]"));
     }
 
@@ -233,6 +284,65 @@ public class FunctionRegistry {
             Map<String, List<FunctionBuilder>> builders = name2UdfBuilders.getOrDefault(dbName, ImmutableMap.of());
             builders.getOrDefault(name, Lists.newArrayList())
                     .removeIf(builder -> ((UdfBuilder) builder).getArgTypes().equals(argTypes));
+        }
+    }
+
+    /**
+     * use for search appropriate signature for UDFs if candidate more than one.
+     */
+    static class UdfSignatureSearcher implements ExplicitlyCastableSignature {
+
+        private final List<FunctionSignature> signatures;
+        private final List<Expression> arguments;
+
+        public UdfSignatureSearcher(List<FunctionSignature> signatures, List<Expression> arguments) {
+            this.signatures = signatures;
+            this.arguments = arguments;
+        }
+
+        @Override
+        public List<FunctionSignature> getSignatures() {
+            return signatures;
+        }
+
+        @Override
+        public FunctionSignature getSignature() {
+            return searchSignature(signatures);
+        }
+
+        @Override
+        public boolean nullable() {
+            throw new AnalysisException("could not call nullable on UdfSignatureSearcher");
+        }
+
+        @Override
+        public List<Expression> children() {
+            return arguments;
+        }
+
+        @Override
+        public Expression child(int index) {
+            return arguments.get(index);
+        }
+
+        @Override
+        public int arity() {
+            return arguments.size();
+        }
+
+        @Override
+        public <T> Optional<T> getMutableState(String key) {
+            return Optional.empty();
+        }
+
+        @Override
+        public void setMutableState(String key, Object value) {
+        }
+
+        @Override
+        public Expression withChildren(List<Expression> children) {
+            throw new AnalysisException("could not call withChildren on UdfSignatureSearcher");
+
         }
     }
 }

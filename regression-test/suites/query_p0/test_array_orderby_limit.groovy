@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_char_orderby", "query") {
+suite("test_array_orderby_limit", "query") {
     // define a sql table
     def testTable = "test_array_char_orderby"
 
     sql """
-            CREATE TABLE IF NOT EXISTS ${testTable} (
+            drop table if exists test_array_char_orderby;
+            CREATE TABLE IF NOT EXISTS test_array_char_orderby (
               `k1` INT(11) NULL,
               `k2` array<array<char(50)>> NULL
             ) ENGINE=OLAP
@@ -32,19 +33,24 @@ suite("test_array_char_orderby", "query") {
             "in_memory" = "false",
             "storage_format" = "V2",
             "disable_auto_compaction" = "false"
-            )
+            );
             """
     // prepare data
-    sql """ INSERT INTO ${testTable} VALUES (100, [['abc']]) """
+    sql """ INSERT INTO test_array_char_orderby VALUES (100, [['abc']]), (200, [['xyz']]) """
+    sql "analyze table test_array_char_orderby with sync"
     // set topn_opt_limit_threshold = 1024 to make sure _internal_service to be request with proto request
     sql """ set topn_opt_limit_threshold = 1024 """
-
+    sql """ set topn_filter_ratio = 2 """
+    def table_stats = sql("show table stats test_array_char_orderby")
+    log.info(table_stats.join("\n"))
+    def memo = sql ("explain memo plan select * from test_array_char_orderby order by k1 limit 1")
+    log.info(memo.join("\n"))
     explain{
-        sql("select * from ${testTable} order by k1 limit 1")
+        sql("select * from test_array_char_orderby order by k1 limit 1")
         contains "TOPN"
     }
 
-    qt_select """ select * from ${testTable} order by k1 limit 1 """
+    qt_select """ select * from test_array_char_orderby order by k1 limit 1 """
 
     sql "DROP TABLE IF EXISTS unpart_tbl_parquet_struct_3;"
     sql """

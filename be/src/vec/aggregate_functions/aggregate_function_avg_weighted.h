@@ -35,6 +35,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -57,7 +58,7 @@ struct AggregateFunctionAvgWeightedData {
             DecimalV2Value value = binary_cast<Int128, DecimalV2Value>(data_val);
             data_sum = data_sum + (double(value) * weight_val);
         } else {
-            data_sum = data_sum + (data_val * weight_val);
+            data_sum = data_sum + (double(data_val) * weight_val);
         }
         weight_sum = weight_sum + weight_val;
     }
@@ -138,3 +139,5 @@ public:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

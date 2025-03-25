@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -129,10 +130,10 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
 
     @Override
     public Optional<ResultSet> computeResultInFe(
-            CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext) {
+            CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext, List<Slot> outputSlots) {
         CHILD_TYPE child = child();
         if (child instanceof ComputeResultSet) {
-            return ((ComputeResultSet) child).computeResultInFe(cascadesContext, sqlCacheContext);
+            return ((ComputeResultSet) child).computeResultInFe(cascadesContext, sqlCacheContext, outputSlots);
         } else {
             return Optional.empty();
         }

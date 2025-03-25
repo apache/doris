@@ -101,6 +101,7 @@ suite("test_index_complex_match", "p0"){
         load_httplogs_data.call(indexTbName2, indexTbName2, 'true', 'json', 'documents-1000.json')
 
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true """
 
         qt_sql """ select count() from ${indexTbName1} where clientip match_phrase '247.37.0.0'; """
         qt_sql """ select count() from ${indexTbName1} where clientip match_phrase_prefix '247'; """

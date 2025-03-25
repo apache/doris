@@ -20,8 +20,8 @@
 namespace doris::segment_v2 {
 
 DisjunctionQuery::DisjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                                   const TQueryOptions& query_options)
-        : _searcher(searcher) {}
+                                   const TQueryOptions& query_options, const io::IOContext* io_ctx)
+        : _searcher(searcher), _io_ctx(io_ctx) {}
 
 void DisjunctionQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
     if (terms.empty()) {
@@ -36,7 +36,7 @@ void DisjunctionQuery::search(roaring::Roaring& roaring) {
     auto func = [this, &roaring](const std::string& term, bool first) {
         std::wstring ws_term = StringUtil::string_to_wstring(term);
         auto* t = _CLNEW Term(_field_name.c_str(), ws_term.c_str());
-        auto* term_doc = _searcher->getReader()->termDocs(t);
+        auto* term_doc = _searcher->getReader()->termDocs(t, _io_ctx);
         TermIterator iterator(term_doc);
 
         DocRange doc_range;

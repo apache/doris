@@ -52,6 +52,10 @@ public class CloudClusterChecker extends MasterDaemon {
 
     private CloudSystemInfoService cloudSystemInfoService;
 
+    private final Object checkLock = new Object();
+
+    boolean isUpdateCloudUniqueId = false;
+
     public CloudClusterChecker(CloudSystemInfoService cloudSystemInfoService) {
         super("cloud cluster check", Config.cloud_cluster_check_interval_second * 1000L);
         this.cloudSystemInfoService = cloudSystemInfoService;
@@ -168,6 +172,10 @@ public class CloudClusterChecker extends MasterDaemon {
             String endpoint = addr + ":" + node.getHeartbeatPort();
             Cloud.NodeStatusPB status = node.getStatus();
             Backend be = currentMap.get(endpoint);
+            if (be == null) {
+                LOG.warn("cant get valid be {} from fe mem, ignore it checker will add this be at next", endpoint);
+                continue;
+            }
 
             if (status == Cloud.NodeStatusPB.NODE_STATUS_DECOMMISSIONING) {
                 if (!be.isDecommissioned()) {
@@ -177,8 +185,21 @@ public class CloudClusterChecker extends MasterDaemon {
                     } catch (UserException e) {
                         LOG.warn("failed to register water shed txn id, decommission be {}", be.getId(), e);
                     }
-                    be.setDecommissioned(true);
+                    be.setDecommissioning(true);
                 }
+            }
+
+            if (status == Cloud.NodeStatusPB.NODE_STATUS_DECOMMISSIONED) {
+                // When the synchronization status of the node is "NODE_STATUS_DECOMMISSIONED",
+                // it indicates that the conditions for decommissioning have
+                // already been checked in CloudTabletRebalancer.java,
+                // such as the tablets having been successfully migrated and no remnants of WAL on the backend (BE).
+                if (!be.isDecommissioned()) {
+                    LOG.warn("impossible status, somewhere has bug,  backend: {} status: {}", be, status);
+                }
+                be.setDecommissioned(true);
+                // edit log
+                Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
             }
         }
     }
@@ -219,7 +240,19 @@ public class CloudClusterChecker extends MasterDaemon {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("current cluster status {} {}", currentClusterStatus, newClusterStatus);
             }
-            if (!currentClusterStatus.equals(newClusterStatus)) {
+            boolean needChange = false;
+            // ATTN: found bug, In the same cluster, the cluster status in the tags of BE nodes is inconsistent.
+            // Using a set to collect the cluster statuses from the BE nodes.
+            Set<String> clusterStatusInMem = new HashSet<>();
+            for (Backend backend : currentBes) {
+                String beClusterStatus = backend.getTagMap().get(Tag.CLOUD_CLUSTER_STATUS);
+                clusterStatusInMem.add(beClusterStatus == null ? "NOT_SET" : beClusterStatus);
+            }
+            if (clusterStatusInMem.size() != 1) {
+                LOG.warn("cluster {}, multi be nodes cluster status inconsistent, fix it {}", cid, clusterStatusInMem);
+                needChange = true;
+            }
+            if (!currentClusterStatus.equals(newClusterStatus) || needChange) {
                 // cluster's status changed
                 LOG.info("cluster_status corresponding to cluster_id has been changed,"
                         + " cluster_id : {} , current_cluster_status : {}, new_cluster_status :{}",
@@ -303,9 +336,11 @@ public class CloudClusterChecker extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        getCloudBackends();
-        updateCloudMetrics();
-        getCloudObserverFes();
+        synchronized (checkLock) {
+            checkCloudBackends();
+            updateCloudMetrics();
+            checkCloudFes();
+        }
     }
 
     private void checkFeNodesMapValid() {
@@ -348,7 +383,7 @@ public class CloudClusterChecker extends MasterDaemon {
         }
     }
 
-    private void getCloudObserverFes() {
+    private void checkCloudFes() {
         Cloud.GetClusterResponse response = cloudSystemInfoService.getCloudCluster(
                 Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
         if (!response.hasStatus() || !response.getStatus().hasCode()
@@ -371,11 +406,36 @@ public class CloudClusterChecker extends MasterDaemon {
             LOG.debug("get cloud cluster, clusterId={} nodes={}",
                     Config.cloud_sql_server_cluster_id, cpb.getNodesList());
         }
-        List<Frontend> currentFes = Env.getCurrentEnv().getFrontends(FrontendNodeType.OBSERVER);
+        List<Frontend> currentFollowers = Env.getCurrentEnv().getFrontends(FrontendNodeType.FOLLOWER);
+        List<Frontend> currentObservers = Env.getCurrentEnv().getFrontends(FrontendNodeType.OBSERVER);
+        currentFollowers.addAll(currentObservers);
+        List<Frontend> currentFes = new ArrayList<>(currentFollowers.stream().collect(Collectors.toMap(
+                fe -> fe.getHost() + ":" + fe.getEditLogPort(),
+                fe -> fe,
+                (existing, replacement) -> existing
+        )).values());
         List<Frontend> toAdd = new ArrayList<>();
         List<Frontend> toDel = new ArrayList<>();
         List<Cloud.NodeInfoPB> expectedFes = cpb.getNodesList();
+
+        if (!isUpdateCloudUniqueId) {
+            // Just run once and number of fes is small, so iterating is ok.
+            // newly addde fe has cloudUniqueId.
+            for (Frontend fe : currentFes) {
+                for (Cloud.NodeInfoPB node : expectedFes) {
+                    if (fe.getHost().equals(Config.enable_fqdn_mode ? node.getHost() : node.getIp())
+                            && fe.getEditLogPort() == node.getEditLogPort()) {
+                        fe.setCloudUniqueId(node.getCloudUniqueId());
+                        LOG.info("update cloud unique id result {}", fe);
+                        break;
+                    }
+                }
+            }
+            isUpdateCloudUniqueId = true;
+        }
+
         diffNodes(toAdd, toDel, () -> {
+            // memory
             Map<String, Frontend> currentMap = new HashMap<>();
             String selfNode = Env.getCurrentEnv().getSelfNode().getIdent();
             for (Frontend fe : currentFes) {
@@ -383,10 +443,14 @@ public class CloudClusterChecker extends MasterDaemon {
                 if (selfNode.equals(endpoint)) {
                     continue;
                 }
+                // add type to map key, for diff
+                endpoint = endpoint + "_" + fe.getRole();
                 currentMap.put(endpoint, fe);
             }
+            LOG.info("fes in memory {}", currentMap);
             return currentMap;
         }, () -> {
+            // meta service
             Map<String, Frontend> nodeMap = new HashMap<>();
             String selfNode = Env.getCurrentEnv().getSelfNode().getIdent();
             for (Cloud.NodeInfoPB node : expectedFes) {
@@ -399,15 +463,27 @@ public class CloudClusterChecker extends MasterDaemon {
                 if (selfNode.equals(endpoint)) {
                     continue;
                 }
-                Frontend fe = new Frontend(FrontendNodeType.OBSERVER,
+                Cloud.NodeInfoPB.NodeType type = node.getNodeType();
+                // ATTN: just allow to add follower or observer
+                if (Cloud.NodeInfoPB.NodeType.FE_MASTER.equals(type)) {
+                    LOG.warn("impossible !!!,  get fe node {} type equal master from ms", node);
+                }
+                FrontendNodeType role = type == Cloud.NodeInfoPB.NodeType.FE_OBSERVER
+                        ? FrontendNodeType.OBSERVER :  FrontendNodeType.FOLLOWER;
+                Frontend fe = new Frontend(role,
                         CloudEnv.genFeNodeNameFromMeta(host, node.getEditLogPort(),
                         node.getCtime() * 1000), host, node.getEditLogPort());
+                fe.setCloudUniqueId(node.getCloudUniqueId());
+                // add type to map key, for diff
+                endpoint = endpoint + "_" + fe.getRole();
                 nodeMap.put(endpoint, fe);
             }
+            LOG.info("fes in ms {}", nodeMap);
+
             return nodeMap;
         });
-        LOG.info("diffFrontends nodes: {}, current: {}, toAdd: {}, toDel: {}",
-                expectedFes, currentFes, toAdd, toDel);
+        LOG.info("diffFrontends nodes: {}, current: {}, toAdd: {}, toDel: {}, enable auto start: {}",
+                expectedFes, currentFes, toAdd, toDel, Config.enable_auto_start_for_cloud_cluster);
         if (toAdd.isEmpty() && toDel.isEmpty()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("runAfterCatalogReady getObserverFes nothing todo");
@@ -421,7 +497,7 @@ public class CloudClusterChecker extends MasterDaemon {
         }
     }
 
-    private void getCloudBackends() {
+    private void checkCloudBackends() {
         Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend();
         //rpc to ms, to get mysql user can use cluster_id
         // NOTE: rpc args all empty, use cluster_unique_id to get a instance's all cluster info.
@@ -474,7 +550,7 @@ public class CloudClusterChecker extends MasterDaemon {
         for (Map.Entry<String, String> entry : clusterNameToId.entrySet()) {
             int aliveNum = 0;
             List<Backend> bes = clusterIdToBackend.get(entry.getValue());
-            if (bes == null || bes.size() == 0) {
+            if (bes == null || bes.isEmpty()) {
                 LOG.info("cant get be nodes by cluster {}, bes {}", entry, bes);
                 continue;
             }
@@ -484,6 +560,14 @@ public class CloudClusterChecker extends MasterDaemon {
                 aliveNum = backend.isAlive() ? aliveNum + 1 : aliveNum;
             }
             MetricRepo.updateClusterBackendAliveTotal(entry.getKey(), entry.getValue(), aliveNum);
+        }
+    }
+
+    public void checkNow() {
+        if (Env.getCurrentEnv().isMaster()) {
+            synchronized (checkLock) {
+                runAfterCatalogReady();
+            }
         }
     }
 }

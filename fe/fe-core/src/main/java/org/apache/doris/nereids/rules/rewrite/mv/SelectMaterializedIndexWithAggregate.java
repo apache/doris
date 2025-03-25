@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -625,9 +626,13 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                         aggFuncsDiff(aggregateFunctions, aggRewriteResult), groupingExprs).isOn())
                 .collect(Collectors.toSet());
 
+        Set<MaterializedIndex> candidatesWithRewritingIndexes = candidatesWithRewriting.stream()
+                .map(result -> result.index)
+                .collect(Collectors.toSet());
+
         Set<MaterializedIndex> candidatesWithoutRewriting = indexesGroupByIsBaseOrNot
                 .getOrDefault(false, ImmutableList.of()).stream()
-                .filter(index -> !candidatesWithRewriting.contains(index))
+                .filter(index -> !candidatesWithRewritingIndexes.contains(index))
                 .filter(index -> preAggEnabledByHint(scan)
                         || checkPreAggStatus(scan, index.getId(), predicates, aggregateFunctions, groupingExprs).isOn())
                 .collect(Collectors.toSet());
@@ -855,7 +860,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                         matchingAggType, normalizeName(aggFunc.child(0).toSql())));
 
             boolean contains = containsAllColumn(aggFunc.child(0), ctx.keyNameToColumn.keySet());
-            if (contains || ctx.keyNameToColumn.containsKey(childNameWithFuncName)) {
+            if ((contains || ctx.keyNameToColumn.containsKey(childNameWithFuncName))
+                    && checkWhenUseKey(aggFunc, matchingAggType)) {
                 if (canUseKeyColumn || ctx.isDupKeysOrMergeOnWrite || (!ctx.isBaseIndex() && contains)) {
                     return PreAggStatus.on();
                 } else {
@@ -939,8 +945,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             returnExp.toSql(), matchingAggType));
                 }
                 if (ctx.keyNameToColumn.containsKey(exprName)) {
-                    if (matchingAggType != AggregateType.MAX && matchingAggType != AggregateType.MIN
-                            && (aggFunc instanceof Count && !aggFunc.isDistinct())) {
+                    if (!checkWhenUseKey(aggFunc, matchingAggType)) {
                         return PreAggStatus.off("agg on key column should be MAX, MIN or COUNT DISTINCT.");
                     }
                 }
@@ -975,6 +980,15 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             }
             return PreAggStatus.off(String.format("cant preagg for [%s].", aggFunc.toSql()));
         }
+    }
+
+    // agg on key column should be MAX, MIN, COUNT DISTINCT, SUM DISTINCT, AVG DISTINCT. return true if valid
+    private static boolean checkWhenUseKey(AggregateFunction aggFunc, AggregateType matchingAggType) {
+        return matchingAggType == AggregateType.MAX
+                || matchingAggType == AggregateType.MIN
+                || (aggFunc instanceof Sum && aggFunc.isDistinct())
+                || (aggFunc instanceof Count && aggFunc.isDistinct())
+                || (aggFunc instanceof Avg && aggFunc.isDistinct());
     }
 
     private static class CheckContext {

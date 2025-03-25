@@ -23,9 +23,6 @@ suite("test_jsonb_cast", "p0") {
     def testTable = "tbl_test_array_text_cast_jsonb"
     def dataFile = "test_jsonb_cast.csv"
 
-    sql """ set experimental_enable_nereids_planner = true """
-    sql """ set enable_fallback_to_original_planner = true """
-
     sql "DROP TABLE IF EXISTS ${testTable}"
 
     sql """

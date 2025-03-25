@@ -26,9 +26,12 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime_filter/runtime_filter_definitions.h"
+#include "runtime_filter/runtime_filter_wrapper.h"
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class RuntimeState;
 class MinMaxFuncBase;
@@ -39,17 +42,6 @@ class BitmapFilterFuncBase;
 namespace pipeline {
 class Dependency;
 }
-
-struct RuntimeFilterContext {
-    std::shared_ptr<MinMaxFuncBase> minmax_func;
-    std::shared_ptr<HybridSetBase> hybrid_set;
-    std::shared_ptr<BloomFilterFuncBase> bloom_filter_func;
-    std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func;
-    bool ignored = false;
-};
-
-using RuntimeFilterContextSPtr = std::shared_ptr<RuntimeFilterContext>;
-
 namespace vectorized {
 
 class Arena;
@@ -63,7 +55,7 @@ struct SharedHashTableContext {
     std::shared_ptr<void> hash_table_variants;
     std::shared_ptr<Block> block;
     std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
-    std::map<int, RuntimeFilterContextSPtr> runtime_filters;
+    std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
     std::atomic<bool> signaled = false;
     bool short_circuit_for_null_in_probe_side = false;
 };
@@ -76,7 +68,6 @@ public:
     void set_builder_and_consumers(TUniqueId builder, int node_id);
     TUniqueId get_builder_fragment_instance_id(int my_node_id);
     SharedHashTableContextPtr get_context(int my_node_id);
-    void signal(int my_node_id);
     void signal_finish(int my_node_id);
     void append_dependency(int node_id, std::shared_ptr<pipeline::Dependency> dep,
                            std::shared_ptr<pipeline::Dependency> finish_dep) {
@@ -101,3 +92,5 @@ private:
 
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

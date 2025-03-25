@@ -85,36 +85,38 @@ std::string glob_err_to_str(int code) {
 }
 
 Status localfs_error(const std::error_code& ec, std::string_view msg) {
+    auto message = fmt::format("{}: {}", msg, ec.message());
     if (ec == std::errc::io_error) {
-        return Status::Error<IO_ERROR, false>(msg);
+        return Status::Error<IO_ERROR, false>(message);
     } else if (ec == std::errc::no_such_file_or_directory) {
-        return Status::Error<NOT_FOUND, false>(msg);
+        return Status::Error<NOT_FOUND, false>(message);
     } else if (ec == std::errc::file_exists) {
-        return Status::Error<ALREADY_EXIST, false>(msg);
+        return Status::Error<ALREADY_EXIST, false>(message);
     } else if (ec == std::errc::no_space_on_device) {
-        return Status::Error<DISK_REACH_CAPACITY_LIMIT, false>(msg);
+        return Status::Error<DISK_REACH_CAPACITY_LIMIT, false>(message);
     } else if (ec == std::errc::permission_denied) {
-        return Status::Error<PERMISSION_DENIED, false>(msg);
+        return Status::Error<PERMISSION_DENIED, false>(message);
     } else {
-        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("{}: {}", msg, ec.message());
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(message);
     }
 }
 
 Status localfs_error(int posix_errno, std::string_view msg) {
+    char buf[1024];
+    auto message = fmt::format("{}: {}", msg, strerror_r(errno, buf, 1024));
     switch (posix_errno) {
     case EIO:
-        return Status::Error<IO_ERROR, false>(msg);
+        return Status::Error<IO_ERROR, false>(message);
     case ENOENT:
-        return Status::Error<NOT_FOUND, false>(msg);
+        return Status::Error<NOT_FOUND, false>(message);
     case EEXIST:
-        return Status::Error<ALREADY_EXIST, false>(msg);
+        return Status::Error<ALREADY_EXIST, false>(message);
     case ENOSPC:
-        return Status::Error<DISK_REACH_CAPACITY_LIMIT, false>(msg);
+        return Status::Error<DISK_REACH_CAPACITY_LIMIT, false>(message);
     case EACCES:
-        return Status::Error<PERMISSION_DENIED, false>(msg);
+        return Status::Error<PERMISSION_DENIED, false>(message);
     default:
-        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("{}: {}", msg,
-                                                               std::strerror(posix_errno));
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(message);
     }
 }
 
@@ -122,13 +124,13 @@ Status s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
     using namespace Aws::Http;
     switch (err.GetResponseCode()) {
     case HttpResponseCode::NOT_FOUND:
-        return Status::Error<NOT_FOUND, false>("{}: {} {} type={}, request_id={}", msg,
-                                               err.GetExceptionName(), err.GetMessage(),
+        return Status::Error<NOT_FOUND, false>("{}: {} {} code=NOT_FOUND, type={}, request_id={}",
+                                               msg, err.GetExceptionName(), err.GetMessage(),
                                                err.GetErrorType(), err.GetRequestId());
     case HttpResponseCode::FORBIDDEN:
-        return Status::Error<PERMISSION_DENIED, false>("{}: {} {} type={}, request_id={}", msg,
-                                                       err.GetExceptionName(), err.GetMessage(),
-                                                       err.GetErrorType(), err.GetRequestId());
+        return Status::Error<PERMISSION_DENIED, false>(
+                "{}: {} {} code=FORBIDDEN, type={}, request_id={}", msg, err.GetExceptionName(),
+                err.GetMessage(), err.GetErrorType(), err.GetRequestId());
     default:
         return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                 "{}: {} {} code={} type={}, request_id={}", msg, err.GetExceptionName(),

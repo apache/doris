@@ -27,6 +27,8 @@
 #include <ostream>
 #include <string>
 #include <utility>
+
+#include "common/exception.h"
 // IWYU pragma: no_include <rapidjson/encodings.h>
 
 using rapidjson::SizeType;
@@ -200,8 +202,7 @@ EasyJson EasyJson::PushBack(EasyJson::ComplexTypeInitializer val) {
     } else if (val == kArray) {
         push_val.SetArray();
     } else {
-        LOG(FATAL) << "Unknown initializer type";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Unknown initializer type"));
     }
     value_->PushBack(push_val, alloc_->allocator());
     return EasyJson(&(*value_)[value_->Size() - 1], alloc_);

@@ -27,6 +27,7 @@ using ORC_MEMORY_ALLOCATOR = ORCMemoryAllocator;
 #endif
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class ORCMemoryPool : public orc::MemoryPool {
 public:
@@ -50,4 +51,5 @@ private:
     Allocator<false, false, false, ORC_MEMORY_ALLOCATOR> _allocator;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

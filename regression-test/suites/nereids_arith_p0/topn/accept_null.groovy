@@ -66,7 +66,7 @@ suite ("accept_null") {
    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
    boolean disableAutoCompaction = true
    for(int i=0;i<backendId_to_backendIP.keySet().size();i++){
-      backend_id = backendId_to_backendIP.keySet()[i]
+      def backend_id = backendId_to_backendIP.keySet()[i]
       def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
       logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
       assertEquals(code, 0)
@@ -86,7 +86,7 @@ suite ("accept_null") {
       def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
       logger.info("tablet"+tablet_info)
       def table_id = tablet_info[0].TableId
-      backend_id = tablet.BackendId
+      def backend_id = tablet.BackendId
       def times = 1
       def code, out, err
       do{

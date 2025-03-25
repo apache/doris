@@ -39,7 +39,10 @@ public class AlterViewCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         executor.checkBlockRules();
         alterViewInfo.init(ctx);
-        alterViewInfo.validate(ctx);
+        // For modify comment command, doesn't need to do validation.
+        if (alterViewInfo.getComment() == null) {
+            alterViewInfo.validate(ctx);
+        }
         AlterViewStmt alterViewStmt = alterViewInfo.translateToLegacyStmt(ctx);
         Env.getCurrentEnv().alterView(alterViewStmt);
     }

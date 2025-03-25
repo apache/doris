@@ -66,14 +66,15 @@ suite("alter_ttl_2") {
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
+
+
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     def load_customer_ttl_once =  { String table ->
         def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
         // def table = "customer"
         // create table if not exists
         sql (new File("""${context.file.parent}/../ddl/${table}.sql""").text + ttlProperties)
+        sql """ alter table ${table} set ("disable_auto_compaction" = "true") """ // no influence from compaction
         def loadLabel = table + "_" + uniqueID
         // load data from cos
         def loadSql = new File("""${context.file.parent}/../ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
@@ -161,8 +162,8 @@ suite("alter_ttl_2") {
             }
             assertTrue(flag1)
     }
-    // wait for ttl timeout
-    sleep(40000)
+    // the first load data ttl is 300，so need wait for 200s until the ttl timeout
+    sleep(200000)
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")

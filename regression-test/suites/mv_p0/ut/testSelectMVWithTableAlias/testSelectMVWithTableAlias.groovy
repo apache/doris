@@ -30,6 +30,8 @@ suite ("testSelectMVWithTableAlias") {
         """
 
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
+    sql """insert into user_tags values("2020-01-01",1,"a",1);"""
+    sql """insert into user_tags values("2020-01-02",2,"b",2);"""
     sql """insert into user_tags values("2020-01-02",2,"b",2);"""
 
     createMV("create materialized view user_tags_mv as select user_id, count(tag_id) from user_tags group by user_id;")
@@ -37,8 +39,9 @@ suite ("testSelectMVWithTableAlias") {
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
 
     sql "analyze table user_tags with sync;"
+    sql """alter table user_tags modify column time_col set stats ('row_count'='5');"""
 
-    mv_rewrite_all_fail("select * from user_tags order by time_col;")
+    mv_rewrite_all_fail("select * from user_tags order by time_col;", ["user_tags_mv"])
         
     qt_select_star "select * from user_tags order by time_col;"
 

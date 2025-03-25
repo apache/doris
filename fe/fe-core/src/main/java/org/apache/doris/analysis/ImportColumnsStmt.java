@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import java.util.List;
 
-public class ImportColumnsStmt extends StatementBase {
+public class ImportColumnsStmt extends StatementBase implements NotFallbackInParser {
     private List<ImportColumnDesc> columns;
 
     public ImportColumnsStmt(List<ImportColumnDesc> columns) {

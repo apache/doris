@@ -18,6 +18,7 @@
 suite("test_split_by_string") {
     // split by char
     qt_sql "select split_by_string('abcde','');"
+    qt_sql "select split_by_string('你a好b世c界','');"
     qt_sql "select split_by_string('12553','');"
     qt_sql "select split_by_string('','');"
     qt_sql "select split_by_string('',',');"
@@ -70,6 +71,7 @@ suite("test_split_by_string") {
     sql """ INSERT INTO ${tableName1} VALUES(9, 'a,b,c,', ',') """
     sql """ INSERT INTO ${tableName1} VALUES(10, null, ',') """
     sql """ INSERT INTO ${tableName1} VALUES(11, 'a,b,c,12345,', ',') """
+    sql """ INSERT INTO ${tableName1} VALUES(12, '你a好b世c界', '') """
 
     qt_sql "SELECT *, split_by_string(v1, v2) FROM ${tableName1} ORDER BY k1"
 

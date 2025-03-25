@@ -30,7 +30,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.collect.ImmutableList;
 
 // SHOW TABLET DIAGNOSIS tablet_id
-public class DiagnoseTabletStmt extends ShowStmt {
+public class DiagnoseTabletStmt extends ShowStmt implements NotFallbackInParser {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Item").add("Info").add("Suggestion")
             .build();

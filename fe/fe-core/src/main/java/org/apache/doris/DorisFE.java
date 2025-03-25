@@ -61,6 +61,7 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.StandardOpenOption;
+import java.time.LocalDate;
 import java.util.concurrent.TimeUnit;
 
 public class DorisFE {
@@ -162,6 +163,8 @@ public class DorisFE {
                 System.exit(-1);
             }
 
+            fuzzyConfigs();
+
             LOG.info("Doris FE starting...");
 
             FrontendOptions.init();
@@ -231,7 +234,9 @@ public class DorisFE {
             // Some exception may thrown before LOG is inited.
             // So need to print to stdout
             e.printStackTrace();
-            LOG.warn("", e);
+            LOG.error("", e);
+            // to avoid nonDaemon Thread block main Thread, we need to force exit
+            System.exit(-1);
         }
     }
 
@@ -524,6 +529,16 @@ public class DorisFE {
         if (Config.isCloudMode() && Config.enable_feature_binlog) {
             Config.enable_feature_binlog = false;
             LOG.warn("Force set enable_feature_binlog=false because it is not supported in the cloud mode yet");
+        }
+    }
+
+    private static void fuzzyConfigs() {
+        if (!Config.use_fuzzy_conf) {
+            return;
+        }
+        if (Config.fuzzy_test_type.equalsIgnoreCase("daily") || Config.fuzzy_test_type.equalsIgnoreCase("rqg")) {
+            Config.random_add_cluster_keys_for_mow = (LocalDate.now().getDayOfMonth() % 2 == 0);
+            LOG.info("fuzzy set random_add_cluster_keys_for_mow={}", Config.random_add_cluster_keys_for_mow);
         }
     }
 

@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
 /**
  * ArrayLiteral
  */
-public class ArrayLiteral extends Literal {
+public class ArrayLiteral extends Literal implements ComparableLiteral {
 
     private final List<Literal> items;
 
@@ -71,6 +71,39 @@ public class ArrayLiteral extends Literal {
     }
 
     @Override
+    public int compareTo(ComparableLiteral other) {
+        if (other instanceof ArrayLiteral) {
+            ArrayLiteral otherArray = (ArrayLiteral) other;
+            int size = Math.min(otherArray.items.size(), this.items.size());
+            for (int i = 0; i < size; i++) {
+                Literal thisItem = items.get(i);
+                Literal otherItem = otherArray.items.get(i);
+                if (!(thisItem instanceof ComparableLiteral)) {
+                    throw new RuntimeException(
+                            "array item '" + thisItem + "' (" + thisItem.dataType + ") is not comparable");
+                }
+                if (!(otherItem instanceof ComparableLiteral)) {
+                    throw new RuntimeException(
+                            "array item '" + otherItem + "' (" + otherItem.dataType + ") is not comparable");
+                }
+                int cmp = ((ComparableLiteral) thisItem).compareTo((ComparableLiteral) otherItem);
+                if (cmp != 0) {
+                    return cmp;
+                }
+            }
+            return Integer.compare(this.items.size(), otherArray.items.size());
+        }
+        if (other instanceof NullLiteral) {
+            return 1;
+        }
+        if (other instanceof MaxLiteral) {
+            return -1;
+        }
+        throw new RuntimeException("Cannot compare two values with different data types: "
+                + this + " (" + dataType + ") vs " + other + " (" + ((Literal) other).dataType + ")");
+    }
+
+    @Override
     protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
         if (this.dataType.equals(targetType)) {
             return this;
@@ -94,7 +127,7 @@ public class ArrayLiteral extends Literal {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         String items = this.items.stream()
                 .map(Literal::toSql)
                 .collect(Collectors.joining(", "));

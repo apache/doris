@@ -26,7 +26,6 @@ import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsClientProperties;
-import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 
 import java.util.HashMap;
@@ -71,7 +70,6 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
 
         Map<String, String> props = catalogProperty.getProperties();
         Map<String, String> restProperties = new HashMap<>(props);
-        restProperties.put(CatalogProperties.FILE_IO_IMPL, S3FileIO.class.getName());
         restProperties.put(CatalogUtil.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_TYPE_REST);
         String restUri = props.getOrDefault(CatalogProperties.URI, "");
         restProperties.put(CatalogProperties.URI, restUri);

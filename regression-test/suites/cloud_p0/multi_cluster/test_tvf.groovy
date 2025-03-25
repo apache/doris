@@ -18,10 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import groovy.json.JsonSlurper
 
-suite('test_tvf_in_cloud', 'multi_cluster') {
-    if (!isCloudMode()) {
-        return;
-    }
+suite('test_tvf', 'multi_cluster,docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -52,7 +49,7 @@ suite('test_tvf_in_cloud', 'multi_cluster') {
 
         def jsonSlurper = new JsonSlurper()
         def jsonObject = jsonSlurper.parseText(tag)
-        def cloudClusterId = jsonObject.cloud_cluster_id
+        def cloudClusterId = jsonObject.compute_group_id
         // multi cluster env
 
         // current cluster

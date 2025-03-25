@@ -26,7 +26,7 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 template <bool is_intersect>
 class SetSourceOperatorX;
 
@@ -46,10 +46,13 @@ private:
     std::vector<vectorized::MutableColumnPtr> _mutable_cols;
     //record build column type
     vectorized::DataTypes _left_table_data_types;
+
+    RuntimeProfile::Counter* _get_data_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
 };
 
 template <bool is_intersect>
-class SetSourceOperatorX final : public OperatorX<SetSourceLocalState<is_intersect>> {
+class SetSourceOperatorX MOCK_REMOVE(final) : public OperatorX<SetSourceLocalState<is_intersect>> {
 public:
     using Base = OperatorX<SetSourceLocalState<is_intersect>>;
     // for non-delay tempalte instantiation
@@ -63,11 +66,19 @@ public:
               _child_quantity(tnode.node_type == TPlanNodeType::type::INTERSECT_NODE
                                       ? tnode.intersect_node.result_expr_lists.size()
                                       : tnode.except_node.result_expr_lists.size()) {};
+
+#ifdef BE_TEST
+    SetSourceOperatorX(size_t child_quantity) : _child_quantity(child_quantity) {}
+#endif
     ~SetSourceOperatorX() override = default;
 
     [[nodiscard]] bool is_source() const override { return true; }
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status set_child(OperatorPtr child) override {
+        Base::_child = child;
+        return Status::OK();
+    }
 
 private:
     friend class SetSourceLocalState<is_intersect>;
@@ -80,10 +91,10 @@ private:
                                   HashTableContext& hash_table_ctx, vectorized::Block* output_block,
                                   const int batch_size, bool* eos);
 
-    void _add_result_columns(SetSourceLocalState<is_intersect>& local_state,
-                             RowRefListWithFlags& value, int& block_size);
-    const int _child_quantity;
+    void _add_result_columns(SetSourceLocalState<is_intersect>& local_state, RowRefWithFlag& value,
+                             int& block_size);
+    const size_t _child_quantity;
 };
-
+#include "common/compile_check_end.h"
 } // namespace pipeline
 } // namespace doris

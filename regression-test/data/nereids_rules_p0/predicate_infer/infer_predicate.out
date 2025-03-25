@@ -30,7 +30,7 @@ PhysicalResultSink
 
 -- !infer_predicate_full_outer_join --
 PhysicalResultSink
---filter(((t1.name = 'Test') OR (t2.name = 'Test')))
+--filter(OR[(t1.name = 'Test'),(t2.name = 'Test')])
 ----hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------PhysicalOlapScan[t]
 ------PhysicalOlapScan[t]
@@ -128,8 +128,8 @@ PhysicalResultSink
 
 -- !infer_predicate_complex_and_or_logic --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=(((t1.score > 80) OR ((t2.name = 'Dave') AND (t1.id < 50))))
-----filter(((t1.score > 80) OR (t1.id < 50)))
+--hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=(OR[(t1.score > 80),AND[(t2.name = 'Dave'),(t1.id < 50)]])
+----filter(OR[(t1.score > 80),(t1.id < 50)])
 ------PhysicalOlapScan[t]
 ----PhysicalOlapScan[t]
 
@@ -354,14 +354,14 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t12.id = t34.id)) otherCondition=()
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------filter((t1.id < 9) and (t1.id > 1))
+------filter(( not (id = 3)) and ( not (id = 4)) and (t1.id < 9) and (t1.id > 1))
 --------PhysicalOlapScan[t1]
-------filter((t2.id < 9) and (t2.id > 1))
+------filter(( not (id = 3)) and ( not (id = 4)) and (t2.id < 9) and (t2.id > 1))
 --------PhysicalOlapScan[t2]
 ----hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
-------filter(( not (id = 3)) and (t34.id < 9) and (t34.id > 1))
+------filter(( not (id = 3)) and ( not (id = 4)) and (t34.id < 9) and (t34.id > 1))
 --------PhysicalOlapScan[t3]
-------filter(( not (id = 4)) and (t4.id < 9) and (t4.id > 1))
+------filter(( not (id = 3)) and ( not (id = 4)) and (t4.id < 9) and (t4.id > 1))
 --------PhysicalOlapScan[t4]
 
 -- !infer8 --
@@ -374,24 +374,23 @@ PhysicalResultSink
 -- !infer9 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----filter((cast(id as BIGINT) = 2147483648))
+----filter((t1.id = 12345))
 ------PhysicalOlapScan[t1]
-----filter((cast(id as BIGINT) = 2147483648))
+----filter((t2.id = 12345))
 ------PhysicalOlapScan[t2]
 
 -- !infer10 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_cast(id as SMALLINT) = expr_cast(id as SMALLINT))) otherCondition=()
-----filter((cast(id as BIGINT) = 2147483648))
+----filter((t1.id = 12345))
 ------PhysicalOlapScan[t1]
-----filter((cast(id as BIGINT) = 2147483648))
-------PhysicalOlapScan[t2]
+----PhysicalOlapScan[t2]
 
 -- !infer11 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_cast(id as LARGEINT) = expr_cast(id as LARGEINT))) otherCondition=()
-----filter((cast(id as BIGINT) = 2147483648))
+----filter((t1.id = 12345))
 ------PhysicalOlapScan[t1]
-----filter((cast(id as BIGINT) = 2147483648))
+----filter((t2.id = 12345))
 ------PhysicalOlapScan[t2]
 

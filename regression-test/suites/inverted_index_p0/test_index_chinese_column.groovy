@@ -38,6 +38,7 @@ suite("test_index_chinese_column", "inverted_index_select"){
     def table_name_v2 = "test_index_chinese_column_v2"
 
     sql "set enable_unicode_name_support=true"
+    sql """ set enable_common_expr_pushdown = true """
 
     createAndInsertData(table_name_v1, "V1")
     createAndInsertData(table_name_v2, "V2")

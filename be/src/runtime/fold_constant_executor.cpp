@@ -65,10 +65,10 @@
 namespace doris {
 
 static std::unordered_set<PrimitiveType> PRIMITIVE_TYPE_SET {
-        TYPE_BOOLEAN,  TYPE_TINYINT,  TYPE_SMALLINT, TYPE_INT,        TYPE_BIGINT,
-        TYPE_LARGEINT, TYPE_FLOAT,    TYPE_TIME,     TYPE_DOUBLE,     TYPE_TIMEV2,
-        TYPE_CHAR,     TYPE_VARCHAR,  TYPE_STRING,   TYPE_HLL,        TYPE_OBJECT,
-        TYPE_DATE,     TYPE_DATETIME, TYPE_DATEV2,   TYPE_DATETIMEV2, TYPE_DECIMALV2};
+        TYPE_BOOLEAN,  TYPE_TINYINT, TYPE_SMALLINT,   TYPE_INT,      TYPE_BIGINT,
+        TYPE_LARGEINT, TYPE_FLOAT,   TYPE_DOUBLE,     TYPE_TIMEV2,   TYPE_CHAR,
+        TYPE_VARCHAR,  TYPE_STRING,  TYPE_HLL,        TYPE_OBJECT,   TYPE_DATE,
+        TYPE_DATETIME, TYPE_DATEV2,  TYPE_DATETIMEV2, TYPE_DECIMALV2};
 
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
                                                  PConstantExprResult* response) {
@@ -81,7 +81,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
     // init
     RETURN_IF_ERROR(_init(query_globals, params.query_options));
     // only after init operation, _mem_tracker is ready
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    SCOPED_ATTACH_TASK(_mem_tracker);
 
     for (const auto& m : expr_map) {
         PExprResultMap pexpr_result_map;
@@ -225,7 +225,6 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
         result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }
-    case TYPE_TIME:
     case TYPE_DOUBLE: {
         double val = *reinterpret_cast<double*>(src);
         result = fmt::format(FMT_COMPILE("{}"), val);

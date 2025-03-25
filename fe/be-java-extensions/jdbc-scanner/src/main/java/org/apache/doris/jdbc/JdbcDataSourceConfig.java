@@ -27,6 +27,7 @@ public class JdbcDataSourceConfig {
     private String jdbcPassword;
     private String jdbcDriverUrl;
     private String jdbcDriverClass;
+    private String jdbcDriverChecksum;
     private int batchSize;
     private TJdbcOperation op;
     private TOdbcTableType tableType;
@@ -93,6 +94,15 @@ public class JdbcDataSourceConfig {
 
     public JdbcDataSourceConfig setJdbcDriverClass(String jdbcDriverClass) {
         this.jdbcDriverClass = jdbcDriverClass;
+        return this;
+    }
+
+    public String getJdbcDriverChecksum() {
+        return jdbcDriverChecksum;
+    }
+
+    public JdbcDataSourceConfig setJdbcDriverChecksum(String jdbcDriverChecksum) {
+        this.jdbcDriverChecksum = jdbcDriverChecksum;
         return this;
     }
 

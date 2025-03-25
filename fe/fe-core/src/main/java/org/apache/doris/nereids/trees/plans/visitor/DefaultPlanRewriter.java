@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 
@@ -56,6 +57,15 @@ public abstract class DefaultPlanRewriter<C> extends PlanVisitor<Plan, C> {
             }
             newChildren.add(newChild);
         }
-        return hasNewChildren ? (P) plan.withChildren(newChildren.build()) : plan;
+
+        if (hasNewChildren) {
+            plan = (P) plan.withChildren(newChildren.build());
+            if (plan instanceof AbstractPhysicalPlan) {
+                AbstractPhysicalPlan physicalPlan = (AbstractPhysicalPlan) plan;
+                plan = (P) ((AbstractPhysicalPlan) physicalPlan.withChildren(newChildren.build()))
+                        .copyStatsAndGroupIdFrom(physicalPlan);
+            }
+        }
+        return plan;
     }
 }

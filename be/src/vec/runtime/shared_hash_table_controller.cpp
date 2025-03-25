@@ -26,6 +26,7 @@
 #include "pipeline/exec/hashjoin_build_sink.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 void SharedHashTableController::set_builder_and_consumers(TUniqueId builder, int node_id) {
     // Only need to set builder and consumers with pipeline engine enabled.
@@ -42,7 +43,7 @@ SharedHashTableContextPtr SharedHashTableController::get_context(int my_node_id)
     return _shared_contexts[my_node_id];
 }
 
-void SharedHashTableController::signal(int my_node_id) {
+void SharedHashTableController::signal_finish(int my_node_id) {
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = _shared_contexts.find(my_node_id);
     if (it != _shared_contexts.cend()) {
@@ -52,10 +53,6 @@ void SharedHashTableController::signal(int my_node_id) {
     for (auto& dep : _dependencies[my_node_id]) {
         dep->set_ready();
     }
-}
-
-void SharedHashTableController::signal_finish(int my_node_id) {
-    std::lock_guard<std::mutex> lock(_mutex);
     for (auto& dep : _finish_dependencies[my_node_id]) {
         dep->set_ready();
     }

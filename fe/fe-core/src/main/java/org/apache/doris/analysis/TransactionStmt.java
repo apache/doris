@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
-public class TransactionStmt extends StatementBase {
+public class TransactionStmt extends StatementBase implements NotFallbackInParser {
 
     @Override
     public RedirectStatus getRedirectStatus() {

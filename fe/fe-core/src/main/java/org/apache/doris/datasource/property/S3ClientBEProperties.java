@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property;
 
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.GCSProperties;
 import org.apache.doris.datasource.property.constants.MinioProperties;
@@ -53,6 +54,13 @@ public class S3ClientBEProperties {
 
     private static Map<String, String> getBeAWSPropertiesFromS3(Map<String, String> properties) {
         Map<String, String> beProperties = new HashMap<>();
+        if (properties.containsKey(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE)
+                && properties.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE).equals(
+                    IcebergExternalCatalog.ICEBERG_S3_TABLES)) {
+            beProperties.put(Env.NEED_OVERRIDE_ENDPOINT, "false");
+        } else {
+            beProperties.put(Env.NEED_OVERRIDE_ENDPOINT, "true");
+        }
         String endpoint = properties.get(S3Properties.ENDPOINT);
         beProperties.put(S3Properties.Env.ENDPOINT, endpoint);
         String region = PropertyConverter.checkRegion(endpoint, properties.get(S3Properties.Env.REGION),
@@ -84,6 +92,9 @@ public class S3ClientBEProperties {
         }
         if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
             beProperties.put(PropertyConverter.USE_PATH_STYLE, properties.get(PropertyConverter.USE_PATH_STYLE));
+        }
+        if (properties.containsKey(S3Properties.PROVIDER)) {
+            beProperties.put(S3Properties.PROVIDER, properties.get(S3Properties.PROVIDER));
         }
         return beProperties;
     }

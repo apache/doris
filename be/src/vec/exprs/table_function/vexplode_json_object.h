@@ -17,21 +17,15 @@
 
 #pragma once
 
-#include <stddef.h>
+#include <cstddef>
 
 #include "common/status.h"
-#include "vec/columns/column_map.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_map.h"
 #include "vec/exprs/table_function/table_function.h"
-#include "vec/functions/array/function_array_utils.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Block;
-} // namespace doris::vectorized
-
-namespace doris::vectorized {
 
 // explode_json_object("{\"a\": 1, \"b\": 2}") ->
 // | key | value |
@@ -56,4 +50,5 @@ private:
     std::pair<MutableColumnPtr, MutableColumnPtr> _object_pairs; // ColumnNullable<ColumnString>
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

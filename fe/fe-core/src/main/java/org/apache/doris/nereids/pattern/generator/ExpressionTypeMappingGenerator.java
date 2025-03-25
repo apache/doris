@@ -36,6 +36,25 @@ import javax.tools.StandardLocation;
 
 /** ExpressionTypeMappingGenerator */
 public class ExpressionTypeMappingGenerator {
+    private static final Set<String> FORBIDDEN_CLASS = Sets.newHashSet(
+            "org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait",
+            "org.apache.doris.nereids.trees.expressions.shape.LeafExpression",
+            "org.apache.doris.nereids.trees.expressions.shape.UnaryExpression",
+            "org.apache.doris.nereids.trees.expressions.shape.BinaryExpression",
+            "org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable",
+            "org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable",
+            "org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral",
+            "org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes",
+            "org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature",
+            "org.apache.doris.nereids.trees.expressions.functions.Function",
+            "org.apache.doris.nereids.trees.expressions.functions.FunctionTrait",
+            "org.apache.doris.nereids.trees.expressions.functions.ComputeSignature",
+            "org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction",
+            "org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes",
+            "org.apache.doris.nereids.trees.expressions.functions.ComputeNullable",
+            "org.apache.doris.nereids.trees.expressions.functions.PropagateNullable"
+    );
+
     private final JavaAstAnalyzer analyzer;
 
     public ExpressionTypeMappingGenerator(JavaAstAnalyzer javaAstAnalyzer) {
@@ -134,6 +153,10 @@ public class ExpressionTypeMappingGenerator {
               + "                = ImmutableMap.builderWithExpectedSize(" + childrenNameMap.size() + ");\n";
 
         for (String superExpression : superExpressions) {
+            if (FORBIDDEN_CLASS.contains(superExpression)) {
+                continue;
+            }
+
             Set<String> childrenClasseSet = childrenNameMap.get(superExpression)
                     .stream()
                     .filter(childClass -> parentNameMap.get(childClass)

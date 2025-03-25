@@ -484,6 +484,16 @@ pchar116varchar119
 pchar126varchar129
 pchar136varchar139
 
+-- !sql_auto_partition_name_list_column --
+pchar116Xvarchar119
+pchar126Xvarchar129
+pchar136Xvarchar139
+
+-- !sql_auto_partition_name_list_column --
+pXstring17XX
+pXstring27XX
+pXstring37XX
+
 -- !sql_auto_partition_name_list_literal_empty --
 p0
 
@@ -495,6 +505,12 @@ p_2dhello6
 
 -- !sql_auto_partition_name_list_literal_mixed --
 p4023ffe5257e7cworld111112e2e2e2e20
+
+-- !sql_auto_partition_name_list_literal_mixed --
+plist4X11X
+
+-- !sql_auto_partition_name_list_literal_null --
+pXXX
 
 -- !sql_auto_partition_name_range_literal_notnull --
 p20221212000000

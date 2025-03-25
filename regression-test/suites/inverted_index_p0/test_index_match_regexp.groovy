@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_match_regexp", "p0"){
+suite("test_index_match_regexp", "nonConcurrent"){
     def indexTbName1 = "test_index_match_regexp"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -79,6 +79,8 @@ suite("test_index_match_regexp", "p0"){
         load_httplogs_data.call(indexTbName1, 'test_index_match_regexp', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true; """
+        GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
         qt_sql """ select count() from test_index_match_regexp where request match_regexp ''; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '^h'; """
@@ -88,7 +90,14 @@ suite("test_index_match_regexp", "p0"){
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '.*tickets.*'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp 'nonexistence'; """
 
+        sql """ set inverted_index_max_expansions = 1; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp 'b'; """
+        
+        sql """ set inverted_index_max_expansions = 50; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp 'b'; """
+
     } finally {
-        //try_sql("DROP TABLE IF EXISTS ${testTable}")
+        sql """ set inverted_index_max_expansions = 50; """
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
     }
 }

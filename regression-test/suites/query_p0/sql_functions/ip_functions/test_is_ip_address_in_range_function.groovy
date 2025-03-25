@@ -78,4 +78,13 @@ suite("test_is_ip_address_in_range_function") {
     qt_sql "SELECT is_ip_address_in_range(NULL, '::ffff:192.168.0.4/128')"
 
     qt_sql "SELECT is_ip_address_in_range(NULL, NULL)"
+
+
+    sql """ DROP TABLE IF EXISTS ip_test """
+    sql """ CREATE TABLE IF NOT EXISTS ip_test(id INT, data string) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1');"""
+    sql """ INSERT INTO ip_test values (54, '2001:db8:4::/128'); """
+    sql """ INSERT INTO ip_test values (55, NULL); """
+    qt_sql1 """ select * from ip_test order by 1; """
+    qt_sql2 "SELECT  data,   IS_IP_ADDRESS_IN_RANGE(CAST('0.0.0.1' AS STRING), data) FROM ip_test order by 1;"
+
 }

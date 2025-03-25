@@ -352,3 +352,163 @@ col_int_undef_signed2 int
 
 create table doris_test.text_push (pk varchar(10));
 
+
+create table doris_test.all_types_nullable (
+  `tinyint_u` tinyint unsigned,
+  `smallint_u` smallint unsigned,
+  `mediumint_u` mediumint unsigned,
+  `int_u` int unsigned,
+  `bigint_u` bigint unsigned,
+  `decimal1_u` decimal unsigned,
+  `decimal2_u` decimal(9, 2) unsigned,
+  `decimal3_u` decimal(18, 5) unsigned,
+  `decimal4_u` decimal(38, 10) unsigned,
+  `decimal5_u` decimal(65, 30) unsigned,
+  `double_u` double unsigned,
+  `float_u` float unsigned,
+  `boolean` boolean,
+  `tinyint` tinyint,
+  `smallint` smallint,
+  `mediumint` mediumint,
+  `int` int,
+  `bigint` bigint,
+  `double` double,
+  `float` float,
+  `decimal1` decimal,
+  `decimal2` decimal(9, 2),
+  `decimal3` decimal(18, 5) ,
+  `decimal4` decimal(38, 10),
+  `decimal5` decimal(65, 30),
+  `year` year,
+  `time1` time,
+  `time2` time(3),
+  `time3` time(6),
+  `date` date,
+  `datetime` datetime,
+  `timestamp1` timestamp null,
+  `timestamp2` timestamp(3) null,
+  `timestamp3` timestamp(6) null,
+  `char` char(5),
+  `varchar` varchar(10),
+  `text` text,
+  `blob` blob,
+  `json` json,
+  `set` set('Option1', 'Option2', 'Option3'),
+  `bit` bit(6),
+  `binary` binary(12),
+  `varbinary` varbinary(12),
+  `enum` enum('Value1', 'Value2', 'Value3')
+) engine=innodb charset=utf8;
+
+
+create table doris_test.all_types_non_nullable (
+  `tinyint_u` tinyint unsigned NOT NULL,
+  `smallint_u` smallint unsigned NOT NULL,
+  `mediumint_u` mediumint unsigned NOT NULL,
+  `int_u` int unsigned NOT NULL,
+  `bigint_u` bigint unsigned NOT NULL,
+  `decimal1_u` decimal unsigned NOT NULL,
+  `decimal2_u` decimal(9, 2) unsigned NOT NULL,
+  `decimal3_u` decimal(18, 5) unsigned NOT NULL,
+  `decimal4_u` decimal(38, 10) unsigned NOT NULL,
+  `decimal5_u` decimal(65, 30) unsigned NOT NULL,
+  `double_u` double unsigned NOT NULL,
+  `float_u` float unsigned NOT NULL,
+  `boolean` boolean NOT NULL,
+  `tinyint` tinyint NOT NULL,
+  `smallint` smallint NOT NULL,
+  `mediumint` mediumint NOT NULL,
+  `int` int NOT NULL,
+  `bigint` bigint NOT NULL,
+  `double` double NOT NULL,
+  `float` float NOT NULL,
+  `decimal1` decimal NOT NULL,
+  `decimal2` decimal(9, 2) NOT NULL,
+  `decimal3` decimal(18, 5) NOT NULL,
+  `decimal4` decimal(38, 10) NOT NULL,
+  `decimal5` decimal(65, 30) NOT NULL,
+  `year` year NOT NULL,
+  `time1` time NOT NULL,
+  `time2` time(3) NOT NULL,
+  `time3` time(6) NOT NULL,
+  `date` date NOT NULL,
+  `datetime` datetime NOT NULL,
+  `timestamp1` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `timestamp2` timestamp(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `timestamp3` timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `char` char(5) NOT NULL,
+  `varchar` varchar(10) NOT NULL,
+  `text` text NOT NULL,
+  `blob` blob NOT NULL,
+  `json` json NOT NULL,
+  `set` set('Option1', 'Option2', 'Option3') NOT NULL,
+  `bit` bit(6) NOT NULL,
+  `binary` binary(12) NOT NULL,
+  `varbinary` varbinary(12) NOT NULL,
+  `enum` enum('Value1', 'Value2', 'Value3') NOT NULL
+) engine=innodb charset=utf8;
+
+
+create table doris_test.all_types_multi_block (
+  `tinyint_u` tinyint unsigned,
+  `smallint_u` smallint unsigned,
+  `mediumint_u` mediumint unsigned,
+  `int_u` int unsigned,
+  `bigint_u` bigint unsigned,
+  `decimal1_u` decimal unsigned,
+  `decimal2_u` decimal(9, 2) unsigned,
+  `decimal3_u` decimal(18, 5) unsigned,
+  `decimal4_u` decimal(38, 10) unsigned,
+  `decimal5_u` decimal(65, 30) unsigned,
+  `double_u` double unsigned,
+  `float_u` float unsigned,
+  `boolean` boolean,
+  `tinyint` tinyint,
+  `smallint` smallint,
+  `mediumint` mediumint,
+  `int` int,
+  `bigint` bigint,
+  `double` double,
+  `float` float,
+  `decimal1` decimal,
+  `decimal2` decimal(9, 2),
+  `decimal3` decimal(18, 5) ,
+  `decimal4` decimal(38, 10),
+  `decimal5` decimal(65, 30),
+  `year` year,
+  `time1` time,
+  `time2` time(3),
+  `time3` time(6),
+  `date` date,
+  `datetime` datetime,
+  `timestamp1` timestamp null,
+  `timestamp2` timestamp(3) null,
+  `timestamp3` timestamp(6) null,
+  `char` char(5),
+  `varchar` varchar(10),
+  `text` text,
+  `blob` blob,
+  `json` json,
+  `set` set('Option1', 'Option2', 'Option3'),
+  `bit` bit(6),
+  `binary` binary(12),
+  `varbinary` varbinary(12),
+  `enum` enum('Value1', 'Value2', 'Value3')
+) engine=innodb charset=utf8;
+
+
+CREATE TABLE doris_test.`t_varchar` (
+  `varchar_col` varchar(21844)
+);
+
+CREATE TABLE doris_test.`t_char` (
+  `char_col` char(255) COLLATE utf8_bin DEFAULT NULL
+);
+
+CREATE TABLE doris_test.`test_cast` (
+  `id` int(11) DEFAULT NULL,
+  `int_c` varchar(100),
+  `date_c` varchar(100),
+  `datetime_c` varchar(100)
+);
+

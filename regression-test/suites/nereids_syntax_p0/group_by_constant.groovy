@@ -19,7 +19,7 @@ suite("group_by_constant") {
     sql """
         SET enable_nereids_planner=true
     """
-    sql "set parallel_fragment_exec_instance_num=8"
+    sql "set parallel_pipeline_task_num=8"
     sql "SET enable_fallback_to_original_planner=false"
 
     qt_select_1 """ 

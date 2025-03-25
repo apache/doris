@@ -21,7 +21,6 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
@@ -78,11 +77,6 @@ public abstract class UnboundBaseExternalTableSink<CHILD_TYPE extends Plan> exte
     @Override
     public UnboundBaseExternalTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         throw new UnboundException("could not call withOutputExprs on " + this.getClass().getSimpleName());
-    }
-
-    @Override
-    public List<? extends Expression> getExpressions() {
-        throw new UnsupportedOperationException(this.getClass().getSimpleName() + " don't support getExpression()");
     }
 
     @Override

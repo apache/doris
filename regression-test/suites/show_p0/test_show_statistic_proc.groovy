@@ -26,10 +26,10 @@ suite("test_show_statistic_proc", "nonConcurrent") {
     sql """drop database if exists test_statistic_proc_db"""
     sql """create database test_statistic_proc_db"""
 
-    def result1 = connect(user = 'test_show_statistic_proc_user1', password = '12345', url = context.config.jdbcUrl) {
+    def result1 = connect('test_show_statistic_proc_user1', '12345', context.config.jdbcUrl) {
         sql """ show proc '/statistic' """
     }
-    def result2 = connect(user = 'test_show_statistic_proc_user1', password = '12345', url = context.config.jdbcUrl) {
+    def result2 = connect('test_show_statistic_proc_user1', '12345', context.config.jdbcUrl) {
         sql """ show databases """
     }
     assertEquals(result1.size(), result2.size())

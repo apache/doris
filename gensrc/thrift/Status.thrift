@@ -104,6 +104,10 @@ enum TStatusCode {
 
     NOT_MASTER = 73,
 
+    OBTAIN_LOCK_FAILED = 74,
+
+    SNAPSHOT_EXPIRED = 75,
+
     // used for cloud
     DELETE_BITMAP_LOCK_ERROR = 100,
     // Not be larger than 200, see status.h

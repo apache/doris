@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
@@ -31,7 +32,7 @@ import java.util.List;
 /**
  * Mod Expression.
  */
-public class Mod extends BinaryArithmetic implements AlwaysNullable {
+public class Mod extends BinaryArithmetic implements AlwaysNullable, PropagateNullLiteral {
 
     public Mod(Expression left, Expression right) {
         super(ImmutableList.of(left, right), Operator.MOD);

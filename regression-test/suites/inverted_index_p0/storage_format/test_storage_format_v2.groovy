@@ -31,7 +31,7 @@ suite("test_storage_format_v2", "p0, nonConcurrent") {
                           INDEX size_idx (`size`) USING INVERTED COMMENT '',
                           INDEX status_idx (`status`) USING INVERTED COMMENT '',
                           INDEX clientip_idx (`clientip`) USING INVERTED COMMENT '',
-                          INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+                          INDEX request_idx (`request`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
                         ) ENGINE=OLAP
                         DUPLICATE KEY(`@timestamp`)
                         COMMENT 'OLAP'
@@ -82,6 +82,7 @@ suite("test_storage_format_v2", "p0, nonConcurrent") {
     }
 
     try {
+        sql """ set enable_common_expr_pushdown = true; """
         sql "DROP TABLE IF EXISTS ${testTable}"
         create_httplogs_dup_table.call(testTable)
 

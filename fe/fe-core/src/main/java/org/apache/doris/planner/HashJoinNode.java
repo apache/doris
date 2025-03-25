@@ -800,16 +800,6 @@ public class HashJoinNode extends JoinNodeBase {
                 msg.hash_join_node.addToHashOutputSlotIds(slotId.asInt());
             }
         }
-        if (useSpecificProjections) {
-            if (vSrcToOutputSMap != null && vSrcToOutputSMap.getLhs() != null && outputTupleDesc != null) {
-                for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
-                    msg.hash_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
-                }
-            }
-            if (outputTupleDesc != null) {
-                msg.hash_join_node.setVoutputTupleId(outputTupleDesc.getId().asInt());
-            }
-        }
 
         if (vIntermediateTupleDescList != null) {
             for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {
@@ -817,7 +807,6 @@ public class HashJoinNode extends JoinNodeBase {
             }
         }
         msg.hash_join_node.setDistType(isColocate ? TJoinDistributionType.COLOCATE : distrMode.toThrift());
-        msg.hash_join_node.setUseSpecificProjections(useSpecificProjections);
     }
 
     @Override

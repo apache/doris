@@ -39,31 +39,6 @@ suite("test_agg_keys_schema_change_decimalv3") {
     def configList = parseJson(out.trim())
     assert configList instanceof List
 
-    def do_compact = { tableName ->
-        String[][] tablets = sql """ show tablets from ${tableName}; """
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            backend_id = tablet[2]
-            logger.info("run compaction:" + tablet_id)
-            (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id )
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        }
-
-        // wait for all compactions done
-        for (String[] tablet in tablets) {
-            Awaitility.await().untilAsserted(() -> {
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                return compactionStatus.run_status;
-            });
-        }
-    }
-
     sql """ DROP TABLE IF EXISTS ${tbName} FORCE"""
     // Create table and disable light weight schema change
     sql """
@@ -93,7 +68,7 @@ suite("test_agg_keys_schema_change_decimalv3") {
 
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `decimalv3k1`;"""
-    do_compact(tbName)
+    trigger_and_wait_compaction(tbName, "cumulative")
     sql """sync"""
     qt_sql """select * from ${tbName} ORDER BY `decimalv3k1`;"""
     sql """ alter table ${tbName} drop column `decimalv3v3` """

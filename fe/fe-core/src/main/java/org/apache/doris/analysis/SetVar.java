@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
@@ -177,6 +178,13 @@ public class SetVar {
         if (getVariable().equalsIgnoreCase(SessionVariable.TIME_ZONE)) {
             this.value = new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(getResult().getStringValue()));
             this.result = (LiteralExpr) this.value;
+        }
+        if (getVariable().equalsIgnoreCase(SessionVariable.GROUP_COMMIT)) {
+            String value = getResult().getStringValue();
+            if (GroupCommitBlockSink.parseGroupCommit(value) == null) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR,
+                        SessionVariable.GROUP_COMMIT, value);
+            }
         }
 
         if (getVariable().equalsIgnoreCase(SessionVariable.EXEC_MEM_LIMIT)

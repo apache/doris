@@ -42,8 +42,12 @@ extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t 
 extern std::tuple<int, std::string_view> convert_ms_code_to_http_code(MetaServiceCode ret);
 
 RecyclerServiceImpl::RecyclerServiceImpl(std::shared_ptr<TxnKv> txn_kv, Recycler* recycler,
-                                         Checker* checker)
-        : txn_kv_(std::move(txn_kv)), recycler_(recycler), checker_(checker) {}
+                                         Checker* checker,
+                                         std::shared_ptr<TxnLazyCommitter> txn_lazy_committer)
+        : txn_kv_(std::move(txn_kv)),
+          recycler_(recycler),
+          checker_(checker),
+          txn_lazy_committer_(std::move(txn_lazy_committer)) {}
 
 RecyclerServiceImpl::~RecyclerServiceImpl() = default;
 
@@ -152,7 +156,8 @@ void RecyclerServiceImpl::check_instance(const std::string& instance_id, MetaSer
 
 void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
                        MetaServiceCode& code, std::string& msg,
-                       RecyclerThreadPoolGroup thread_pool_group) {
+                       RecyclerThreadPoolGroup thread_pool_group,
+                       std::shared_ptr<TxnLazyCommitter> txn_lazy_committer) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -190,7 +195,8 @@ void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& 
         }
     }
 
-    auto recycler = std::make_unique<InstanceRecycler>(txn_kv, instance, thread_pool_group);
+    auto recycler = std::make_unique<InstanceRecycler>(txn_kv, instance, thread_pool_group,
+                                                       txn_lazy_committer);
     if (recycler->init() != 0) {
         LOG(WARNING) << "failed to init InstanceRecycler recycle_copy_jobs on instance "
                      << instance_id;
@@ -333,7 +339,9 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
             status_code = 400;
             return;
         }
-        recycle_copy_jobs(txn_kv_, *instance_id, code, msg, recycler_->_thread_pool_group);
+        recycle_copy_jobs(txn_kv_, *instance_id, code, msg, recycler_->_thread_pool_group,
+                          txn_lazy_committer_);
+
         response_body = msg;
         return;
     }
@@ -440,7 +448,7 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
     }
 
     status_code = 404;
-    msg = "not found";
+    msg = "http path " + uri.path() + " not found, it may be not implemented";
     response_body = msg;
 }
 

@@ -24,10 +24,10 @@
 #include "common/status.h"
 
 namespace doris {
-class TDescribeTableParams;
-class TDescribeTableResult;
 class TDescribeTablesParams;
 class TDescribeTablesResult;
+class TFetchRoutineLoadJobRequest;
+class TFetchRoutineLoadJobResult;
 class TGetDbsParams;
 class TGetDbsResult;
 class TGetTablesParams;
@@ -86,6 +86,10 @@ public:
                                     TShowProcessListResult* result);
     static Status show_user(const std::string& ip, const int32_t port,
                             const TShowUserRequest& request, TShowUserResult* result);
+
+    static Status fetch_routine_load_job(const std::string& ip, const int32_t port,
+                                         const TFetchRoutineLoadJobRequest& request,
+                                         TFetchRoutineLoadJobResult* result);
 };
 
 } // namespace doris

@@ -80,6 +80,39 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
     }
 
     @Test
+    public void testQueryPlanActionEmptyRelation() throws IOException, TException {
+        RequestBody body = RequestBody.create(
+                "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " where false \" }", JSON);
+        Request request = new Request.Builder()
+                .post(body)
+                .addHeader("Authorization", rootAuth)
+                .url(URI + PATH_URI)
+                .build();
+        Response response = networkClient.newCall(request).execute();
+        Assert.assertNotNull(response.body());
+        String respStr = response.body().string();
+        JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
+        Assert.assertEquals(200, (long) ((JSONObject) jsonObject.get("data")).get("status"));
+
+        JSONObject partitionsObject = (JSONObject) ((JSONObject) jsonObject.get("data")).get("partitions");
+        Assert.assertNotNull(partitionsObject);
+        for (Object tabletKey : partitionsObject.keySet()) {
+            JSONObject tabletObject = (JSONObject) partitionsObject.get(tabletKey);
+            Assert.assertNotNull(tabletObject.get("routings"));
+            Assert.assertEquals(3, ((JSONArray) tabletObject.get("routings")).size());
+            Assert.assertEquals(testStartVersion, (long) tabletObject.get("version"));
+        }
+        String queryPlan = (String) ((JSONObject) jsonObject.get("data")).get("opaqued_query_plan");
+        Assert.assertNotNull(queryPlan);
+        byte[] binaryPlanInfo = Base64.getDecoder().decode(queryPlan);
+        TDeserializer deserializer = new TDeserializer();
+        TQueryPlanInfo tQueryPlanInfo = new TQueryPlanInfo();
+        deserializer.deserialize(tQueryPlanInfo, binaryPlanInfo);
+        expectThrowsNoException(() -> deserializer.deserialize(tQueryPlanInfo, binaryPlanInfo));
+        System.out.println(tQueryPlanInfo);
+    }
+
+    @Test
     public void testNoSqlFailure() throws IOException {
         RequestBody body = RequestBody.create(JSON, "{}");
         Request request = new Request.Builder()
@@ -172,5 +205,23 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
         Assert.assertEquals(1, (long) jsonObject.get("code"));
         String exception = (String) jsonObject.get("data");
         Assert.assertTrue(exception.contains("table type is not OLAP"));
+    }
+
+    @Test
+    public void testHasAggFailure() throws IOException {
+        RequestBody body = RequestBody.create(
+                "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " group by k1, k2 \" }", JSON);
+        Request request = new Request.Builder()
+                .post(body)
+                .addHeader("Authorization", rootAuth)
+                .url(URI + PATH_URI)
+                .build();
+        Response response = networkClient.newCall(request).execute();
+        Assert.assertNotNull(response.body());
+        String respStr = response.body().string();
+        Assert.assertNotNull(respStr);
+        JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
+        String exception = jsonObject.get("data").toString();
+        Assert.assertTrue(exception.contains("only support single table filter-prune-scan"));
     }
 }

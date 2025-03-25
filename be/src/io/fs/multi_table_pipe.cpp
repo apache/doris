@@ -96,7 +96,7 @@ std::string MultiTablePipe::parse_dst_table(const char* data, size_t size) {
 
 Status MultiTablePipe::dispatch(const std::string& table, const char* data, size_t size,
                                 AppendFunc cb) {
-    if (size == 0 || strlen(data) == 0) {
+    if (size == 0) {
         LOG(WARNING) << "empty data for table: " << table << ", ctx: " << _ctx->brief();
         return Status::InternalError("empty data");
     }
@@ -197,7 +197,7 @@ Status MultiTablePipe::request_and_exec_plans() {
 
         // plan this load
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        TNetworkAddress master_addr = exec_env->master_info()->network_address;
+        TNetworkAddress master_addr = exec_env->cluster_info()->master_fe_addr;
         int64_t stream_load_put_start_time = MonotonicNanos();
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
@@ -263,15 +263,15 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
 
                     {
                         std::lock_guard<std::mutex> l(_tablet_commit_infos_lock);
+                        auto commit_infos = state->tablet_commit_infos();
                         _tablet_commit_infos.insert(_tablet_commit_infos.end(),
-                                                    state->tablet_commit_infos().begin(),
-                                                    state->tablet_commit_infos().end());
+                                                    commit_infos.begin(), commit_infos.end());
                     }
                     _number_total_rows += state->num_rows_load_total();
                     _number_loaded_rows += state->num_rows_load_success();
                     _number_filtered_rows += state->num_rows_load_filtered();
                     _number_unselected_rows += state->num_rows_load_unselected();
-
+                    _ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
                     // check filtered ratio for this plan fragment
                     int64_t num_selected_rows =
                             state->num_rows_load_total() - state->num_rows_load_unselected();
@@ -279,9 +279,6 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
                         (double)state->num_rows_load_filtered() / num_selected_rows >
                                 _ctx->max_filter_ratio) {
                         *status = Status::DataQualityError("too many filtered rows");
-                    }
-                    if (_number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
-                        _ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
                     }
 
                     // if any of the plan fragment exec failed, set the status to the first failed plan

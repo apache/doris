@@ -31,7 +31,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 
-public class LockTablesStmt extends StatementBase {
+public class LockTablesStmt extends StatementBase implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(LockTablesStmt.class);
 
     private List<LockTable> lockTables;

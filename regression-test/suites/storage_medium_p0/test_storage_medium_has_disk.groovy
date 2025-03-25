@@ -17,7 +17,7 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite('test_storage_medium_has_disk') {
+suite('test_storage_medium_has_disk', 'docker') {
     if (isCloudMode()) {
         return
     }
@@ -122,7 +122,6 @@ suite('test_storage_medium_has_disk') {
             "dynamic_partition.buckets" = "3",
             "dynamic_partition.replication_num" = "1",
             "dynamic_partition.create_history_partition"= "true",
-            "dynamic_partition.hot"= "true",
             "dynamic_partition.start" = "-4"
         )
         """
@@ -147,7 +146,6 @@ suite('test_storage_medium_has_disk') {
                 "dynamic_partition.buckets" = "3",
                 "dynamic_partition.replication_num" = "1",
                 "dynamic_partition.create_history_partition"= "true",
-                "dynamic_partition.hot"= "true",
                 "dynamic_partition.start" = "-4"
             )
             """

@@ -31,7 +31,7 @@ suite("test_storage_format_v1", "p0") {
                           INDEX size_idx (`size`) USING INVERTED COMMENT '',
                           INDEX status_idx (`status`) USING INVERTED COMMENT '',
                           INDEX clientip_idx (`clientip`) USING INVERTED COMMENT '',
-                          INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+                          INDEX request_idx (`request`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
                         ) ENGINE=OLAP
                         DUPLICATE KEY(`@timestamp`)
                         COMMENT 'OLAP'
@@ -98,6 +98,7 @@ suite("test_storage_format_v1", "p0") {
         create_httplogs_dup_table.call(testTable_dup)
         load_httplogs_data.call(testTable_dup, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true """
 
         qt_sql(" select COUNT(*) from ${testTable_dup} where request match 'images' ")
 

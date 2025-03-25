@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
+
 suite("test_dynamic_partition_with_update", "nonConcurrent") {
     sql "drop table if exists test_dynamic_partition_with_update"
     sql """
@@ -40,13 +43,13 @@ suite("test_dynamic_partition_with_update", "nonConcurrent") {
     // check table init
     def result = sql "show partitions from test_dynamic_partition_with_update"
     assertEquals(7, result.size())
-    result = sql "show dynamic partition tables"
-    assertEquals("true",result.get(0).get(1))
+    result = sql_return_maparray "show dynamic partition tables"
+    assertEquals("true",result.get(0).Enable)
 
     // disable dynamic partition to insert partition
     sql """ alter table test_dynamic_partition_with_update set ('dynamic_partition.enable' = 'false') """
-    result = sql "show dynamic partition tables"
-    assertEquals("false",result.get(0).get(1))
+    result = sql_return_maparray "show dynamic partition tables"
+    assertEquals("false",result.get(0).Enable)
 
     // manually insert partition
     sql """ alter table test_dynamic_partition_with_update add partition p1 values [("2020-01-02"), ("2020-01-05")) """
@@ -58,11 +61,19 @@ suite("test_dynamic_partition_with_update", "nonConcurrent") {
     result = sql "show partitions from test_dynamic_partition_with_update"
     assertEquals(11, result.size())
     sql """ alter table test_dynamic_partition_with_update set ('dynamic_partition.enable' = 'true') """
-    result = sql "show dynamic partition tables"
-    assertEquals("true",result.get(0).get(1))
+    result = sql_return_maparray "show dynamic partition tables"
+    assertEquals("true",result.get(0).Enable)
 
     // check and update
-    sleep(3000)
+    // ATTN: due to dynamic_partition_check_interval_seconds default 600s, if DynamicPartitionScheduler in sleep
+    // set config dynamic_partition_check_interval_seconds = 1 not work, so at most wait > 600
+    Awaitility.await().atMost(1200, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until(
+        {
+            result = sql "show partitions from test_dynamic_partition_with_update"
+            logger.info("result: ${result}")
+            result.size() == 8
+        }
+    )
 
     // check size
     result = sql "show partitions from test_dynamic_partition_with_update"

@@ -71,7 +71,6 @@ private:
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;
     RuntimeState* _state = nullptr;
-    RuntimeProfile* _profile = nullptr;
     std::vector<int> _partition_columns_input_index;
     std::set<size_t> _non_write_columns_indices;
     std::unordered_map<std::string, std::shared_ptr<VHivePartitionWriter>> _partitions_to_writers;

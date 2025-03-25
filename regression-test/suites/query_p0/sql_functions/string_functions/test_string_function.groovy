@@ -163,6 +163,8 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select right(\"Hello doris\", 120);"
     qt_sql "select right(\"Hello doris\", -6);"
 
+    qt_convert_1 "select convert('装装装装装' using gbk);"
+
     sql """ drop table if exists left_right_test; """
     sql """ create table left_right_test (
         id INT NULL,
@@ -228,6 +230,16 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select substring('abcdef',3,-1);"
     qt_sql "select substring('abcdef',-3,-1);"
     qt_sql "select substring('abcdef',10,1);"
+    sql """ set debug_skip_fold_constant = true;"""
+    qt_substring_utf8_sql "select substring('中文测试',5);"
+    qt_substring_utf8_sql "select substring('中文测试',4);"
+    qt_substring_utf8_sql "select substring('中文测试',2,2);"
+    qt_substring_utf8_sql "select substring('中文测试',-1,2);"
+    sql """ set debug_skip_fold_constant = false;"""
+    qt_substring_utf8_sql "select substring('中文测试',5);"
+    qt_substring_utf8_sql "select substring('中文测试',4);"
+    qt_substring_utf8_sql "select substring('中文测试',2,2);"
+    qt_substring_utf8_sql "select substring('中文测试',-1,2);"
 
     sql """ drop table if exists test_string_function; """
     sql """ create table test_string_function (
@@ -256,7 +268,7 @@ suite("test_string_function", "arrow_flight_sql") {
         ("aaaaaaaa", 1)
     """
     // bug fix
-    qt_sql_substring1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ substring(k1, cast(null as int), cast(null as int)) from test_string_function; """
+    qt_sql_substring1 """ select /*+SET_VAR(parallel_pipeline_task_num=1)*/ substring(k1, cast(null as int), cast(null as int)) from test_string_function; """
 
     qt_sql "select substr('a',3,1);"
     qt_sql "select substr('a',2,1);"

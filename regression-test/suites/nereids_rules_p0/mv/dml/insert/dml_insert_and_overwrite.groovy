@@ -68,18 +68,6 @@ suite("dml_insert_and_overwrite") {
     )
     """
 
-    def create_async_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-        waitingMTMVTaskFinished(getJobName(db, mv_name))
-    }
-
     def result_test_sql = """select * from insert_target_olap_table;"""
 
 
@@ -101,7 +89,7 @@ suite("dml_insert_and_overwrite") {
         ps_supplycost,
         ps_comment;
     """
-    create_async_mv(insert_into_async_mv_name,
+    create_async_mv(db, insert_into_async_mv_name,
     """select
         ps_partkey,
         ps_suppkey,
@@ -122,14 +110,9 @@ suite("dml_insert_and_overwrite") {
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 
-    explain {
-        sql """insert into insert_target_olap_table
-            ${insert_into_async_query}"""
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(insert_into_async_mv_name) : false
-        }
-    }
+    mv_rewrite_success_without_check_chosen (
+            """insert into insert_target_olap_table
+            ${insert_into_async_query}""", insert_into_async_mv_name)
 
     sql """insert into insert_target_olap_table ${insert_into_async_query}"""
     order_qt_query_insert_into_async_mv_after "${result_test_sql}"
@@ -176,14 +159,9 @@ suite("dml_insert_and_overwrite") {
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 
-    explain {
-        sql """insert into insert_target_olap_table
-            ${insert_into_sync_query}"""
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(insert_into_sync_mv_name) : false
-        }
-    }
+    mv_rewrite_success_without_check_chosen (
+            """insert into insert_target_olap_table
+            ${insert_into_sync_query}""", insert_into_sync_mv_name)
     sql """insert into insert_target_olap_table ${insert_into_sync_query}"""
 
     order_qt_query_insert_into_sync_mv_after "${result_test_sql}"
@@ -208,7 +186,7 @@ suite("dml_insert_and_overwrite") {
         ps_supplycost,
         ps_comment;
     """
-    create_async_mv(insert_overwrite_async_mv_name,
+    create_async_mv(db, insert_overwrite_async_mv_name,
             """select
         ps_partkey,
         ps_suppkey,
@@ -229,14 +207,8 @@ suite("dml_insert_and_overwrite") {
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 
-    explain {
-        sql """INSERT OVERWRITE table insert_target_olap_table
-            ${insert_overwrite_async_query}"""
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(insert_overwrite_async_mv_name) : false
-        }
-    }
+    mv_rewrite_success_without_check_chosen ("""INSERT OVERWRITE table insert_target_olap_table
+            ${insert_overwrite_async_query}""", insert_overwrite_async_mv_name)
 
     sql """INSERT OVERWRITE table insert_target_olap_table ${insert_overwrite_async_query}"""
     order_qt_query_insert_overwrite_async_mv_after "${result_test_sql}"
@@ -260,7 +232,7 @@ suite("dml_insert_and_overwrite") {
         ps_supplycost,
         ps_comment;
     """
-    create_async_mv(insert_overwrite_sync_mv_name,
+    create_async_mv(db, insert_overwrite_sync_mv_name,
             """select
         ps_partkey,
         ps_suppkey,

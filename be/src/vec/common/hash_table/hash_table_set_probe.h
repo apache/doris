@@ -38,7 +38,7 @@ struct HashTableProbe {
         for (int probe_index = 0; probe_index < _probe_rows; probe_index++) {
             auto find_result = hash_table_ctx.find(key_getter, probe_index);
             if (find_result.is_found()) { //if found, marked visited
-                auto it = find_result.get_mapped().begin();
+                auto* it = &find_result.get_mapped();
                 if (!(it->visited)) {
                     it->visited = true;
                     if constexpr (is_intersected) { //intersected

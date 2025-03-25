@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -39,7 +40,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-public class ShowQueryStatsStmt extends ShowStmt {
+public class ShowQueryStatsStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ShowResultSetMetaData SHOW_QUERY_STATS_CATALOG_META_DATA = ShowResultSetMetaData.builder()
             .addColumn(new Column("Database", ScalarType.createVarchar(20)))
@@ -137,7 +138,14 @@ public class ShowQueryStatsStmt extends ShowStmt {
             stats.forEach((tableName, queryHit) -> {
                 if (Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), ctlName, dbName, tableName, PrivPredicate.SHOW)) {
-                    totalRows.add(Arrays.asList(tableName, String.valueOf(queryHit)));
+                    if (Util.isTempTable(tableName)) {
+                        if (Util.isTempTableInCurrentSession(tableName)) {
+                            totalRows.add(Arrays.asList(Util.getTempTableDisplayName(tableName),
+                                    String.valueOf(queryHit)));
+                        }
+                    } else {
+                        totalRows.add(Arrays.asList(tableName, String.valueOf(queryHit)));
+                    }
                 }
             });
         } else {

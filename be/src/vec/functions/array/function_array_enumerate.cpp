@@ -56,7 +56,6 @@ public:
     static constexpr auto name = "array_enumerate";
     static FunctionPtr create() { return std::make_shared<FunctionArrayEnumerate>(); }
     String get_name() const override { return name; }
-    bool use_default_implementation_for_nulls() const override { return true; }
     size_t get_number_of_arguments() const override { return 1; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         const DataTypeArray* array_type =
@@ -80,11 +79,11 @@ public:
         return return_type;
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnArray* array =
-                check_and_get_column<ColumnArray>(remove_nullable(left_column->get_ptr()));
+                check_and_get_column<ColumnArray>(remove_nullable(left_column->get_ptr()).get());
         if (!array) {
             return Status::RuntimeError(
                     fmt::format("Illegal column {}, of first argument of function {}",
@@ -108,7 +107,8 @@ public:
         ColumnPtr res_column =
                 ColumnArray::create(std::move(nested_column), array->get_offsets_ptr());
         if (block.get_by_position(arguments[0]).column->is_nullable()) {
-            const ColumnNullable* nullable = check_and_get_column<ColumnNullable>(left_column);
+            const ColumnNullable* nullable =
+                    check_and_get_column<ColumnNullable>(left_column.get());
             res_column = ColumnNullable::create(
                     res_column, nullable->get_null_map_column().clone_resized(nullable->size()));
         }

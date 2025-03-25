@@ -89,7 +89,6 @@ struct ExtractSubstringImpl {
         for (size_t i = 0; i < size; ++i) {
             Extractor::execute(reinterpret_cast<const char*>(&data[prev_offset]),
                                offsets[i] - prev_offset, start, length);
-
             res_data.resize(res_data.size() + length);
             memcpy_small_allow_read_write_overflow15(&res_data[res_offset], start, length);
             res_offset += length;
@@ -105,11 +104,6 @@ struct ExtractSubstringImpl {
         Extractor::execute(data.data(), data.size(), start, length);
         res_data.assign(start, length);
     }
-
-    // static void vector_fixed(const ColumnString::Chars &, size_t, ColumnString::Chars &)
-    // {
-    //     throw Exception("Column of type FixedString is not supported by URL functions", ErrorCodes::ILLEGAL_COLUMN);
-    // }
 };
 
 /** Delete part of string using the Extractor.
@@ -155,11 +149,6 @@ struct CutSubstringImpl {
         res_data.append(data.data(), start);
         res_data.append(start + length, data.data() + data.size());
     }
-
-    // static void vector_fixed(const ColumnString::Chars &, size_t, ColumnString::Chars &)
-    // {
-    //     throw Exception("Column of type FixedString is not supported by URL functions", ErrorCodes::ILLEGAL_COLUMN);
-    // }
 };
 
 } // namespace doris::vectorized

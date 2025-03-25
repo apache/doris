@@ -38,6 +38,7 @@
 #include "olap/delta_writer.h"
 #include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -89,6 +90,15 @@ TxnManager::TxnManager(StorageEngine& engine, int32_t txn_map_shard_size, int32_
 Status TxnManager::prepare_txn(TPartitionId partition_id, const Tablet& tablet,
                                TTransactionId transaction_id, const PUniqueId& load_id,
                                bool ingest) {
+    // check if the tablet has already been shutdown. If it has, it indicates that
+    // it is an old tablet, and data should not be imported into the old tablet.
+    // Otherwise, it may lead to data loss during migration.
+    if (tablet.tablet_state() == TABLET_SHUTDOWN) {
+        return Status::InternalError<false>(
+                "The tablet's state is shutdown, tablet_id: {}. The tablet may have been dropped "
+                "or migrationed. Please check if the table has been dropped or try again.",
+                tablet.tablet_id());
+    }
     return prepare_txn(partition_id, transaction_id, tablet.tablet_id(), tablet.tablet_uid(),
                        load_id, ingest);
 }
@@ -374,7 +384,7 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
             return save_status;
         }
 
-        if (partial_update_info && partial_update_info->is_partial_update) {
+        if (partial_update_info && partial_update_info->is_partial_update()) {
             PartialUpdateInfoPB partial_update_info_pb;
             partial_update_info->to_pb(&partial_update_info_pb);
             save_status = RowsetMetaManager::save_partial_update_info(
@@ -397,7 +407,7 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
             if (st.ok()) {
                 decoded_partial_update_info = std::make_shared<PartialUpdateInfo>();
                 decoded_partial_update_info->from_pb(&partial_update_info_pb);
-                DCHECK(decoded_partial_update_info->is_partial_update);
+                DCHECK(decoded_partial_update_info->is_partial_update());
             } else if (!st.is<META_KEY_NOT_FOUND>()) {
                 // the load is not a partial update
                 return st;
@@ -522,6 +532,16 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info->unique_key_merge_on_write) {
         int64_t t2 = MonotonicMicros();
+        if (rowset->num_segments() > 1 &&
+            !tablet_txn_info->delete_bitmap->has_calculated_for_multi_segments(
+                    rowset->rowset_id())) {
+            // delete bitmap is empty, should re-calculate delete bitmaps between segments
+            std::vector<segment_v2::SegmentSharedPtr> segments;
+            RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
+            RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(
+                    rowset->rowset_id(), segments, tablet_txn_info->delete_bitmap));
+        }
+
         RETURN_IF_ERROR(
                 Tablet::update_delete_bitmap(tablet, tablet_txn_info.get(), transaction_id));
         int64_t t3 = MonotonicMicros();
@@ -539,8 +559,9 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         if (!status.ok()) {
             return Status::Error<ROWSET_ADD_TO_BINLOG_FAILED>(
                     "add rowset to binlog failed. when publish txn rowset_id: {}, tablet id: {}, "
-                    "txn id: {}",
-                    rowset->rowset_id().to_string(), tablet_id, transaction_id);
+                    "txn id: {}, status: {}",
+                    rowset->rowset_id().to_string(), tablet_id, transaction_id,
+                    status.to_string_no_stack());
         }
     }
 
@@ -555,7 +576,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     }
 
     if (tablet_txn_info->unique_key_merge_on_write && tablet_txn_info->partial_update_info &&
-        tablet_txn_info->partial_update_info->is_partial_update) {
+        tablet_txn_info->partial_update_info->is_partial_update()) {
         status = RowsetMetaManager::remove_partial_update_info(meta, tablet_id, partition_id,
                                                                transaction_id);
         if (!status) {

@@ -18,9 +18,9 @@
 package org.apache.doris.datasource.infoschema;
 
 import org.apache.doris.analysis.SchemaTableType;
-import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.thrift.TSchemaTable;
@@ -31,8 +31,8 @@ import java.util.Optional;
 
 public class ExternalInfoSchemaTable extends ExternalTable {
 
-    public ExternalInfoSchemaTable(long id, String name, ExternalCatalog catalog) {
-        super(id, name, catalog, InfoSchemaDb.DATABASE_NAME, TableType.SCHEMA);
+    public ExternalInfoSchemaTable(long id, String name, ExternalCatalog catalog, ExternalDatabase db) {
+        super(id, name, name, catalog, db, TableType.SCHEMA);
     }
 
     @Override

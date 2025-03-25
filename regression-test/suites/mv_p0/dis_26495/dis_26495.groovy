@@ -28,6 +28,10 @@ suite ("dis_26495") {
 
     sql """insert into doris_test values (1,2,max_by_state(1,2));"""
 
+    sql """alter table doris_test modify column agg_st_1 set stats ('row_count'='1');"""
+
+    sql """set enable_stats=false;"""
+
     streamLoad {
         table "doris_test"
         set 'column_separator', ','

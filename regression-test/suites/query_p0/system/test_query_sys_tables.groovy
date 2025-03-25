@@ -135,9 +135,9 @@ suite("test_query_sys_tables", "query,p0") {
 
 
     // test partitions
-    // have no impl
+    // have  impl now, partition based on time and date so not doing data validation.
+    // data validation taken care in another regression test.
     qt_desc_partitions """ desc `information_schema`.`partitions` """ 
-    order_qt_select_partitions """ select * from  `information_schema`.`partitions`; """ 
 
     // test schemata
     // create test dbs
@@ -253,4 +253,11 @@ suite("test_query_sys_tables", "query,p0") {
     qt_sql "select * from triggers"
     qt_sql "select * from parameters"
     qt_sql "select * from profiling"
+
+    // test systable is queryable
+    String[][] systabs = sql "USE information_schema;show tables"
+    System.out.println(systabs)
+    for (String[] tab : systabs) {
+        sql "select * from ${tab[0]} limit 10"
+    }
 }

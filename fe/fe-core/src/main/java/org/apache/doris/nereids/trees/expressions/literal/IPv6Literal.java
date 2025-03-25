@@ -22,29 +22,36 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IPv6Type;
 
+import com.googlecode.ipv6.IPv6Address;
+
 import java.util.regex.Pattern;
 
 /**
  * Represents IPv6 literal
  */
-public class IPv6Literal extends Literal {
+public class IPv6Literal extends Literal implements ComparableLiteral {
 
     private static final Pattern IPV6_STD_REGEX =
             Pattern.compile("^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$");
     private static final Pattern IPV6_COMPRESS_REGEX =
             Pattern.compile("^(([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4})*)?)::((([0-9A-Fa-f]{1,4}:)*[0-9A-Fa-f]{1,4})?)$");
 
-    private final String value;
+    private final IPv6Address value;
 
     public IPv6Literal(String ipv6) throws AnalysisException {
         super(IPv6Type.INSTANCE);
         checkValueValid(ipv6);
-        this.value = ipv6;
+        this.value = IPv6Address.fromString(ipv6);
     }
 
     @Override
-    public String getValue() {
+    public IPv6Address getValue() {
         return value;
+    }
+
+    @Override
+    public double getDouble() {
+        return value.toBigInteger().doubleValue();
     }
 
     @Override
@@ -55,10 +62,25 @@ public class IPv6Literal extends Literal {
     @Override
     public LiteralExpr toLegacyLiteral() {
         try {
-            return new org.apache.doris.analysis.IPv6Literal(value);
+            return new org.apache.doris.analysis.IPv6Literal(value.toString());
         } catch (Exception e) {
             throw new AnalysisException("Invalid IPv6 format.");
         }
+    }
+
+    @Override
+    public int compareTo(ComparableLiteral other) {
+        if (other instanceof IPv6Literal) {
+            return value.compareTo(((IPv6Literal) other).value);
+        }
+        if (other instanceof NullLiteral) {
+            return 1;
+        }
+        if (other instanceof MaxLiteral) {
+            return -1;
+        }
+        throw new RuntimeException("Cannot compare two values with different data types: "
+                + this + " (" + dataType + ") vs " + other + " (" + ((Literal) other).dataType + ")");
     }
 
     public void checkValueValid(String ipv6) throws AnalysisException {

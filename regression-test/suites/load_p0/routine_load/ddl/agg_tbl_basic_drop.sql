@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS routine_load_agg_tbl_basic;
+DROP TABLE IF EXISTS routine_load_agg_tbl_basic FORCE;

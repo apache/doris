@@ -19,7 +19,6 @@ package org.apache.doris.system;
 
 import org.apache.doris.analysis.ModifyBackendClause;
 import org.apache.doris.analysis.ModifyBackendHostNameClause;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -33,16 +32,16 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.thrift.TNodeInfo;
-import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -71,12 +70,14 @@ public class SystemInfoService {
 
     public static final String DEFAULT_CLUSTER = "default_cluster";
 
-    public static final String NO_BACKEND_LOAD_AVAILABLE_MSG = "No backend load available.";
+    public static final String NO_BACKEND_LOAD_AVAILABLE_MSG =
+            "No backend available for load, please check the status of your backends.";
 
-    public static final String NO_SCAN_NODE_BACKEND_AVAILABLE_MSG = "There is no scanNode Backend available.";
+    public static final String NO_SCAN_NODE_BACKEND_AVAILABLE_MSG =
+            "No backend available as scan node, please check the status of your backends.";
 
-    public static final String NOT_USING_VALID_CLUSTER_MSG = "Not using valid cloud clusters, "
-            + "please use a cluster before issuing any queries";
+    public static final String NOT_USING_VALID_CLUSTER_MSG =
+            "Not using valid cloud clusters, please use a cluster before issuing any queries";
 
     protected volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
     protected volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
@@ -161,16 +162,6 @@ public class SystemInfoService {
             }
         }
     };
-
-    public static TPaloNodesInfo createAliveNodesInfo() {
-        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
-        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getAllBackendIds(true /*need alive*/)) {
-            Backend backend = systemInfoService.getBackend(id);
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
-        }
-        return nodesInfo;
-    }
 
     // for deploy manager
     public void addBackends(List<HostInfo> hostInfos, boolean isFree)
@@ -290,6 +281,15 @@ public class SystemInfoService {
         MetricRepo.generateBackendsTabletMetrics();
     }
 
+    public void decommissionBackend(Backend backend) throws UserException {
+        // set backend's state as 'decommissioned'
+        // for decommission operation, here is no decommission job. the system handler will check
+        // all backend in decommission state
+        backend.setDecommissioned(true);
+        Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
+        LOG.info("set backend {} to decommission", backend.getId());
+    }
+
     // only for test
     public void dropAllBackend() {
         // update idToBackend
@@ -355,9 +355,20 @@ public class SystemInfoService {
     public int getBackendsNumber(boolean needAlive) {
         int beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
         if (beNumber < 0) {
-            beNumber = getAllBackendIds(needAlive).size();
+            beNumber = getAllBackendByCurrentCluster(needAlive).size();
         }
         return beNumber;
+    }
+
+    public List<Long> getAllBackendByCurrentCluster(boolean needAlive) {
+        try {
+            return getBackendsByCurrentCluster()
+                .values().stream().filter(be -> !needAlive || be.isAlive())
+                .map(Backend::getId).collect(Collectors.toList());
+        } catch (AnalysisException e) {
+            LOG.warn("failed to get backends by Current Cluster", e);
+            return Lists.newArrayList();
+        }
     }
 
     public List<Long> getAllBackendIds(boolean needAlive) {
@@ -535,7 +546,7 @@ public class SystemInfoService {
                 String failedMsg = Joiner.on("\n").join(failedEntries);
                 throw new DdlException("Failed to find enough backend, please check the replication num,"
                         + "replication tag and storage medium and avail capacity of backends "
-                        + "or maybe all be on same host.\n"
+                        + "or maybe all be on same host." + getDetailsForCreateReplica(replicaAlloc) + "\n"
                         + "Create failed replications:\n" + failedMsg);
             }
         }
@@ -544,17 +555,36 @@ public class SystemInfoService {
         return Pair.of(chosenBackendIds, storageMedium);
     }
 
+    public String getDetailsForCreateReplica(ReplicaAllocation replicaAlloc) {
+        StringBuilder sb = new StringBuilder(" Backends details: ");
+        for (Tag tag : replicaAlloc.getAllocMap().keySet()) {
+            sb.append("backends with tag ").append(tag).append(" is ");
+            sb.append(idToBackendRef.values().stream().filter(be -> be.getLocationTag().equals(tag))
+                    .map(Backend::getDetailsForCreateReplica)
+                    .collect(Collectors.toList()));
+            sb.append(", ");
+        }
+        return sb.toString();
+    }
+
+    public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number) {
+        return selectBackendIdsByPolicy(policy, number, getAllClusterBackendsNoException().values().asList());
+    }
+
     /**
      * Select a set of backends by the given policy.
      *
      * @param policy if policy is enableRoundRobin, will update its nextRoundRobinIndex
      * @param number number of backends which need to be selected. -1 means return as many as possible.
      * @return return #number of backend ids,
-     * or empty set if no backends match the policy, or the number of matched backends is less than "number";
+     *         or empty set if no backends match the policy, or the number of matched backends is less than "number";
      */
-    public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number) {
+    public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number,
+            List<Backend> backendList) {
         Preconditions.checkArgument(number >= -1);
-        List<Backend> candidates = policy.getCandidateBackends(getAllClusterBackendsNoException().values());
+
+        List<Backend> candidates = policy.getCandidateBackends(backendList);
+
         if (candidates.size() < number || candidates.isEmpty()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
@@ -642,18 +672,31 @@ public class SystemInfoService {
         }
     }
 
-    public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId, long tableId) {
-        AtomicLong atomicLong;
-        if ((atomicLong = idToReportVersionRef.get(backendId)) != null) {
-            Database db = (Database) Env.getCurrentInternalCatalog().getDbNullable(dbId);
-            if (db == null) {
-                LOG.warn("failed to update backend report version, db {} does not exist", dbId);
-                return;
+    public void updateBackendReportVersion(long backendId, long newReportVersion, long dbId, long tableId,
+            boolean checkDbExist) {
+        AtomicLong atomicLong = idToReportVersionRef.get(backendId);
+        if (atomicLong == null) {
+            return;
+        }
+        if (checkDbExist && Env.getCurrentInternalCatalog().getDbNullable(dbId) == null) {
+            LOG.warn("failed to update backend report version, db {} does not exist", dbId);
+            return;
+        }
+        while (true) {
+            long curReportVersion = atomicLong.get();
+            if (curReportVersion >= newReportVersion) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("skip update backend {} report version: {}, current version: {}, db: {}, table: {}",
+                            backendId, newReportVersion, curReportVersion, dbId, tableId);
+                }
+                break;
             }
-            atomicLong.set(newReportVersion);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("update backend {} report version: {}, db: {}, table: {}",
-                        backendId, newReportVersion, dbId, tableId);
+            if (atomicLong.compareAndSet(curReportVersion, newReportVersion)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("update backend {} report version: {}, db: {}, table: {}",
+                            backendId, newReportVersion, dbId, tableId);
+                }
+                break;
             }
         }
     }
@@ -871,6 +914,20 @@ public class SystemInfoService {
         }
     }
 
+    public void modifyBackendHostName(String srcHost, int srcPort, String destHost) throws UserException {
+        Backend be = getBackendWithHeartbeatPort(srcHost, srcPort);
+        if (be == null) {
+            throw new DdlException("backend does not exists[" + NetUtils
+                    .getHostPortInAccessibleFormat(srcHost, srcPort) + "]");
+        }
+        if (be.getHost().equals(destHost)) {
+            // no need to modify
+            return;
+        }
+        be.setHost(destHost);
+        Env.getCurrentEnv().getEditLog().logModifyBackend(be);
+    }
+
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
         Backend be = getBackendWithHeartbeatPort(clause.getHost(), clause.getPort());
         if (be == null) {
@@ -939,6 +996,60 @@ public class SystemInfoService {
         }
     }
 
+    public void modifyBackends(ModifyBackendOp op) throws UserException {
+        List<HostInfo> hostInfos = op.getHostInfos();
+        List<Backend> backends = Lists.newArrayList();
+        if (hostInfos.isEmpty()) {
+            List<String> ids = op.getIds();
+            for (String id : ids) {
+                long backendId = Long.parseLong(id);
+                Backend be = getBackend(backendId);
+                if (be == null) {
+                    throw new DdlException("backend does not exists[" + backendId + "]");
+                }
+                backends.add(be);
+            }
+        } else {
+            for (HostInfo hostInfo : hostInfos) {
+                Backend be = getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort());
+                if (be == null) {
+                    throw new DdlException(
+                          "backend does not exists[" + NetUtils
+                                  .getHostPortInAccessibleFormat(hostInfo.getHost(), hostInfo.getPort()) + "]");
+                }
+                backends.add(be);
+            }
+        }
+
+        for (Backend be : backends) {
+            boolean shouldModify = false;
+            Map<String, String> tagMap = op.getTagMap();
+            if (!tagMap.isEmpty()) {
+                be.setTagMap(tagMap);
+                shouldModify = true;
+            }
+
+            if (op.isQueryDisabled() != null) {
+                if (!op.isQueryDisabled().equals(be.isQueryDisabled())) {
+                    be.setQueryDisabled(op.isQueryDisabled());
+                    shouldModify = true;
+                }
+            }
+
+            if (op.isLoadDisabled() != null) {
+                if (!op.isLoadDisabled().equals(be.isLoadDisabled())) {
+                    be.setLoadDisabled(op.isLoadDisabled());
+                    shouldModify = true;
+                }
+            }
+
+            if (shouldModify) {
+                Env.getCurrentEnv().getEditLog().logModifyBackend(be);
+                LOG.info("finished to modify backend {} ", be);
+            }
+        }
+    }
+
     public void replayModifyBackend(Backend backend) {
         Backend memBe = getBackend(backend.getId());
         memBe.setTagMap(backend.getTagMap());
@@ -982,6 +1093,16 @@ public class SystemInfoService {
         return idToBackendRef;
     }
 
+    public ImmutableList<Backend> getBackendListByComputeGroup(Set<String> cgSet) {
+        List<Backend> result = new ArrayList<>();
+        for (Backend be : idToBackendRef.values()) {
+            if (cgSet.contains(be.getLocationTag().value)) {
+                result.add(be);
+            }
+        }
+        return ImmutableList.copyOf(result);
+    }
+
     // Cloud and NonCloud get all bes
     public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() throws AnalysisException {
         return idToBackendRef;
@@ -1009,4 +1130,10 @@ public class SystemInfoService {
         }
         return minPipelineExecutorSize;
     }
+
+    // CloudSystemInfoService override
+    public int getTabletNumByBackendId(long beId) {
+        return Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId);
+    }
+
 }

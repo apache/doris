@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
@@ -24,20 +25,22 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 class DateTimeLiteralTest {
     @Test
     void reject() {
         // Assertions.assertThrows(IllegalArgumentException.class, () -> {
-        //     new DateTimeV2Literal("2022-08-01T01:01:01-00:00");
+        //     check("", DateTimeV2Literal::new"2022-08-01T01:01:01-00:00");
         // });
     }
 
     @Test
     void mysqlStrangeCase() {
-        new DateTimeV2Literal("0-08-01 13:21:03");
-        new DateTimeV2Literal("0001-01-01: 00:01:01.001");
-        new DateTimeV2Literal("2021?01?01 00.00.00");
+        check("0-08-01 13:21:03", DateTimeV2Literal::new);
+        check("0-08-01 13:21:03", DateTimeV2Literal::new);
+        check("0001-01-01: 00:01:01.001", DateTimeV2Literal::new);
+        check("2021?01?01 00.00.00", DateTimeV2Literal::new);
     }
 
     @Test
@@ -51,43 +54,43 @@ class DateTimeLiteralTest {
             Assertions.assertEquals(2, datetime.second);
         };
 
-        assertFunc.accept(new DateTimeV2Literal("20220801010102"));
-        assertFunc.accept(new DateTimeV2Literal("20220801T010102"));
-        assertFunc.accept(new DateTimeV2Literal("220801010102"));
-        assertFunc.accept(new DateTimeV2Literal("220801T010102"));
-        assertFunc.accept(new DateTimeV2Literal("20220801010101.9999999"));
+        assertFunc.accept(check("20220801010102", DateTimeV2Literal::new));
+        assertFunc.accept(check("20220801T010102", DateTimeV2Literal::new));
+        assertFunc.accept(check("220801010102", DateTimeV2Literal::new));
+        assertFunc.accept(check("220801T010102", DateTimeV2Literal::new));
+        assertFunc.accept(check("20220801010101.9999999", DateTimeV2Literal::new));
     }
 
     @Test
     void testMicrosecond() {
         DateTimeV2Literal literal;
-        literal = new DateTimeV2Literal("2016-07-02 00:00:00.123");
+        literal = check("2016-07-02 00:00:00.123", DateTimeV2Literal::new);
         Assertions.assertEquals(123000, literal.microSecond);
-        literal = new DateTimeV2Literal("2016-07-02 00:00:00.123456");
+        literal = check("2016-07-02 00:00:00.123456", DateTimeV2Literal::new);
         Assertions.assertEquals(123456, literal.microSecond);
-        literal = new DateTimeV2Literal("2016-07-02 00:00:00.1");
+        literal = check("2016-07-02 00:00:00.1", DateTimeV2Literal::new);
         Assertions.assertEquals(100000, literal.microSecond);
-        literal = new DateTimeV2Literal("2016-07-02 00:00:00.000001");
+        literal = check("2016-07-02 00:00:00.000001", DateTimeV2Literal::new);
         Assertions.assertEquals(1, literal.microSecond);
-        literal = new DateTimeV2Literal("2016-07-02 00:00:00.12345");
+        literal = check("2016-07-02 00:00:00.12345", DateTimeV2Literal::new);
         Assertions.assertEquals(123450, literal.microSecond);
     }
 
     @Test
     void testWithoutZoneOrOffset() {
-        new DateTimeV2Literal("2022-08-01");
+        check("2022-08-01", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2022-08-01 01:01:01");
-        new DateTimeV2Literal("2022-08-01 01:01");
-        new DateTimeV2Literal("2022-08-01 01");
+        check("2022-08-01 01:01:01", DateTimeV2Literal::new);
+        check("2022-08-01 01:01", DateTimeV2Literal::new);
+        check("2022-08-01 01", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2022-08-01T01:01:01");
-        new DateTimeV2Literal("2022-08-01T01:01");
-        new DateTimeV2Literal("2022-08-01T01");
+        check("2022-08-01T01:01:01", DateTimeV2Literal::new);
+        check("2022-08-01T01:01", DateTimeV2Literal::new);
+        check("2022-08-01T01", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("22-08-01T01:01:01");
-        new DateTimeV2Literal("22-08-01T01:01");
-        new DateTimeV2Literal("22-08-01T01");
+        check("22-08-01T01:01:01", DateTimeV2Literal::new);
+        check("22-08-01T01:01", DateTimeV2Literal::new);
+        check("22-08-01T01", DateTimeV2Literal::new);
     }
 
     @Test
@@ -112,102 +115,102 @@ class DateTimeLiteralTest {
 
     @Test
     void testTwoDigitYear() {
-        new DateTimeV2Literal("22-08-01T01");
-        new DateTimeV2Literal("22-08-01 01");
-        new DateTimeV2Literal("22-08-01T01:01");
-        new DateTimeV2Literal("22-08-01 01:01");
-        new DateTimeV2Literal("22-08-01T01:01:01");
-        new DateTimeV2Literal("22-08-01 01:01:01");
-        new DateTimeV2Literal("22-08-01T01");
-        new DateTimeV2Literal("22-08-01 01");
-        new DateTimeV2Literal("22-08-01T01:01");
-        new DateTimeV2Literal("22-08-01 01:01");
-        new DateTimeV2Literal("22-08-01T01:01:01");
-        new DateTimeV2Literal("22-08-01 01:01:01");
+        check("22-08-01T01", DateTimeV2Literal::new);
+        check("22-08-01 01", DateTimeV2Literal::new);
+        check("22-08-01T01:01", DateTimeV2Literal::new);
+        check("22-08-01 01:01", DateTimeV2Literal::new);
+        check("22-08-01T01:01:01", DateTimeV2Literal::new);
+        check("22-08-01 01:01:01", DateTimeV2Literal::new);
+        check("22-08-01T01", DateTimeV2Literal::new);
+        check("22-08-01 01", DateTimeV2Literal::new);
+        check("22-08-01T01:01", DateTimeV2Literal::new);
+        check("22-08-01 01:01", DateTimeV2Literal::new);
+        check("22-08-01T01:01:01", DateTimeV2Literal::new);
+        check("22-08-01 01:01:01", DateTimeV2Literal::new);
     }
 
     @Test
     void testZone() {
-        new DateTimeV2Literal("2022-08-01 01:01:01UTC");
-        new DateTimeV2Literal("2022-08-01 01:01:01UT");
-        new DateTimeV2Literal("2022-08-01 01:01:01GMT");
-        new DateTimeV2Literal("2022-08-01 01:01:01Z");
-        new DateTimeV2Literal("2022-08-01 01:01:01Europe/London");
-        new DateTimeV2Literal("2022-08-01 01:01:01America/New_York");
-        new DateTimeV2Literal("2022-08-01 01:01:01Z");
-        new DateTimeV2Literal("2022-08-01 01:01:01Europe/Berlin");
-        new DateTimeV2Literal("2022-08-01 01:01:01Europe/London");
-        new DateTimeV2Literal("2022-08-01 00:00:00Asia/Shanghai");
+        check("2022-08-01 01:01:01UTC", DateTimeV2Literal::new);
+        check("2022-08-01 01:01:01UT", DateTimeV2Literal::new);
+        check("2022-08-01 01:01:01GMT", DateTimeV2Literal::new);
+        check("2022-08-01 01:01:01Z", DateTimeV2Literal::new);
+        check("2022-08-01 01:01:01Europe/London", DateTimeV2Literal::new);
+        check("2022-08-01 01:01:01America/New_York", DateTimeV2Literal::new);
+        check("2022-08-01 01:01:01Z", DateTimeV2Literal::new);
+        check("2022-08-01 01:01:01Europe/Berlin", DateTimeV2Literal::new);
+        check("2022-08-01 01:01:01Europe/London", DateTimeV2Literal::new);
+        check("2022-08-01 00:00:00Asia/Shanghai", DateTimeV2Literal::new);
     }
 
     @Test
     void testTwoDigitalYearZone() {
-        new DateTimeV2Literal("22-08-01 01:01:01UTC");
-        new DateTimeV2Literal("22-08-01 01:01:01UT");
-        new DateTimeV2Literal("22-08-01 01:01:01GMT");
-        new DateTimeV2Literal("22-08-01 01:01:01Z");
-        new DateTimeV2Literal("22-08-01 01:01:01Europe/London");
-        new DateTimeV2Literal("22-08-01 01:01:01UTC");
-        new DateTimeV2Literal("22-08-01 01:01:01America/New_York");
-        new DateTimeV2Literal("22-08-01 01:01:01Z");
-        new DateTimeV2Literal("22-08-01 01:01:01Europe/Berlin");
-        new DateTimeV2Literal("22-08-01 01:01:01Europe/London");
+        check("22-08-01 01:01:01UTC", DateTimeV2Literal::new);
+        check("22-08-01 01:01:01UT", DateTimeV2Literal::new);
+        check("22-08-01 01:01:01GMT", DateTimeV2Literal::new);
+        check("22-08-01 01:01:01Z", DateTimeV2Literal::new);
+        check("22-08-01 01:01:01Europe/London", DateTimeV2Literal::new);
+        check("22-08-01 01:01:01UTC", DateTimeV2Literal::new);
+        check("22-08-01 01:01:01America/New_York", DateTimeV2Literal::new);
+        check("22-08-01 01:01:01Z", DateTimeV2Literal::new);
+        check("22-08-01 01:01:01Europe/Berlin", DateTimeV2Literal::new);
+        check("22-08-01 01:01:01Europe/London", DateTimeV2Literal::new);
     }
 
     @Test
     @Disabled
     void testTwoDigitalYearZoneOffset() {
-        new DateTimeV2Literal("22-08-01 01:01:01UTC+01:01:01");
-        new DateTimeV2Literal("22-08-01 01:01:01UTC+1:1:1");
+        check("22-08-01 01:01:01UTC+01:01:01", DateTimeV2Literal::new);
+        check("22-08-01 01:01:01UTC+1:1:1", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("22-08-01 01:01:01UTC+01:01");
+        check("22-08-01 01:01:01UTC+01:01", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("22-08-01 01:01:01UTC+01");
-        new DateTimeV2Literal("22-08-01 01:01:01UTC+1");
+        check("22-08-01 01:01:01UTC+01", DateTimeV2Literal::new);
+        check("22-08-01 01:01:01UTC+1", DateTimeV2Literal::new);
     }
 
     @Test
     void testOffset() {
-        new DateTimeV2Literal("2022-05-01 01:02:55+02:30");
-        new DateTimeV2Literal("2022-05-01 01:02:55.123-02:30");
-        new DateTimeV2Literal("2022-06-01T01:02:55+04:30");
-        new DateTimeV2Literal("2022-06-01 01:02:55.123-07:30");
-        new DateTimeV2Literal("2022-05-01 01:02:55+02:30");
+        check("2022-05-01 01:02:55+02:30", DateTimeV2Literal::new);
+        check("2022-05-01 01:02:55.123-02:30", DateTimeV2Literal::new);
+        check("2022-06-01T01:02:55+04:30", DateTimeV2Literal::new);
+        check("2022-06-01 01:02:55.123-07:30", DateTimeV2Literal::new);
+        check("2022-05-01 01:02:55+02:30", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2022-05-01 01:02:55.123-02:30");
-        new DateTimeV2Literal("2022-06-01T01:02:55+04:30");
-        new DateTimeV2Literal("2022-06-01 01:02:55.123-07:30");
+        check("2022-05-01 01:02:55.123-02:30", DateTimeV2Literal::new);
+        check("2022-06-01T01:02:55+04:30", DateTimeV2Literal::new);
+        check("2022-06-01 01:02:55.123-07:30", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("20220701010255+07:00");
-        new DateTimeV2Literal("20220701010255-05:00");
+        check("20220701010255+07:00", DateTimeV2Literal::new);
+        check("20220701010255-05:00", DateTimeV2Literal::new);
     }
 
     @Test
     @Disabled
     void testDateTimeZone() {
-        new DateTimeV2Literal("0001-01-01 00:01:01");
-        new DateTimeV2Literal("0001-01-01 00:01:01.001");
-        new DateTimeV2Literal("0001-01-01 00:01:01.00305");
+        check("0001-01-01 00:01:01", DateTimeV2Literal::new);
+        check("0001-01-01 00:01:01.001", DateTimeV2Literal::new);
+        check("0001-01-01 00:01:01.00305", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2022-01-01 01:02:55");
-        new DateTimeV2Literal("2022-01-01 01:02:55.123");
-        new DateTimeV2Literal("2022-02-01 01:02:55Z");
-        new DateTimeV2Literal("2022-02-01 01:02:55.123Z");
-        new DateTimeV2Literal("2022-03-01 01:02:55UTC+8");
-        new DateTimeV2Literal("2022-03-01 01:02:55.123UTC");
-        new DateTimeV2Literal("2022-04-01 01:02:55UTC-6");
-        new DateTimeV2Literal("2022-04-01T01:02:55UTC-6");
-        new DateTimeV2Literal("2022-04-01T01:02:55.123UTC+6");
+        check("2022-01-01 01:02:55", DateTimeV2Literal::new);
+        check("2022-01-01 01:02:55.123", DateTimeV2Literal::new);
+        check("2022-02-01 01:02:55Z", DateTimeV2Literal::new);
+        check("2022-02-01 01:02:55.123Z", DateTimeV2Literal::new);
+        check("2022-03-01 01:02:55UTC+8", DateTimeV2Literal::new);
+        check("2022-03-01 01:02:55.123UTC", DateTimeV2Literal::new);
+        check("2022-04-01 01:02:55UTC-6", DateTimeV2Literal::new);
+        check("2022-04-01T01:02:55UTC-6", DateTimeV2Literal::new);
+        check("2022-04-01T01:02:55.123UTC+6", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2022-01-01 01:02:55");
-        new DateTimeV2Literal("2022-01-01 01:02:55.123");
-        new DateTimeV2Literal("2022-02-01 01:02:55Z");
-        new DateTimeV2Literal("2022-02-01 01:02:55.123Z");
-        new DateTimeV2Literal("2022-03-01 01:02:55UTC+8");
-        new DateTimeV2Literal("2022-03-01 01:02:55.123UTC");
-        new DateTimeV2Literal("2022-04-01T01:02:55UTC-6");
+        check("2022-01-01 01:02:55", DateTimeV2Literal::new);
+        check("2022-01-01 01:02:55.123", DateTimeV2Literal::new);
+        check("2022-02-01 01:02:55Z", DateTimeV2Literal::new);
+        check("2022-02-01 01:02:55.123Z", DateTimeV2Literal::new);
+        check("2022-03-01 01:02:55UTC+8", DateTimeV2Literal::new);
+        check("2022-03-01 01:02:55.123UTC", DateTimeV2Literal::new);
+        check("2022-04-01T01:02:55UTC-6", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("0001-01-01");
+        check("0001-01-01", DateTimeV2Literal::new);
     }
 
     @Test
@@ -221,191 +224,191 @@ class DateTimeLiteralTest {
             Assertions.assertEquals(0, datetime.second);
         };
         DateTimeV2Literal literal;
-        literal = new DateTimeV2Literal("2022-01-02 12:00:00UTC+08:00");
+        literal = check("2022-01-02 12:00:00UTC+08:00", DateTimeV2Literal::new);
         assertFunc.accept(literal);
-        literal = new DateTimeV2Literal("2022-01-02 04:00:00UTC");
+        literal = check("2022-01-02 04:00:00UTC", DateTimeV2Literal::new);
         assertFunc.accept(literal);
-        literal = new DateTimeV2Literal("2022-01-01 20:00:00UTC-08:00");
+        literal = check("2022-01-01 20:00:00UTC-08:00", DateTimeV2Literal::new);
         assertFunc.accept(literal);
-        literal = new DateTimeV2Literal("2022-01-02 04:00:00Z");
+        literal = check("2022-01-02 04:00:00Z", DateTimeV2Literal::new);
         assertFunc.accept(literal);
     }
 
     @Test
     void testIrregularDateTime() {
 
-        new DateTimeV2Literal("2016-7-02 01:01:00");
-        new DateTimeV2Literal("2016-07-2 01:01:00");
-        new DateTimeV2Literal("2016-7-2 01:01:00");
+        check("2016-7-02 01:01:00", DateTimeV2Literal::new);
+        check("2016-07-2 01:01:00", DateTimeV2Literal::new);
+        check("2016-7-2 01:01:00", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-07-02 1:01:00");
-        new DateTimeV2Literal("2016-07-02 01:1:00");
-        new DateTimeV2Literal("2016-07-02 01:01:0");
-        new DateTimeV2Literal("2016-07-02 1:1:00");
-        new DateTimeV2Literal("2016-07-02 1:01:0");
-        new DateTimeV2Literal("2016-07-02 10:1:0");
-        new DateTimeV2Literal("2016-07-02 1:1:0");
+        check("2016-07-02 1:01:00", DateTimeV2Literal::new);
+        check("2016-07-02 01:1:00", DateTimeV2Literal::new);
+        check("2016-07-02 01:01:0", DateTimeV2Literal::new);
+        check("2016-07-02 1:1:00", DateTimeV2Literal::new);
+        check("2016-07-02 1:01:0", DateTimeV2Literal::new);
+        check("2016-07-02 10:1:0", DateTimeV2Literal::new);
+        check("2016-07-02 1:1:0", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-7-2 1:1:0");
-        new DateTimeV2Literal("2016-7-02 1:01:0");
-        new DateTimeV2Literal("2016-07-2 1:1:0");
-        new DateTimeV2Literal("2016-7-02 01:01:0");
-        new DateTimeV2Literal("2016-7-2 01:1:0");
+        check("2016-7-2 1:1:0", DateTimeV2Literal::new);
+        check("2016-7-02 1:01:0", DateTimeV2Literal::new);
+        check("2016-07-2 1:1:0", DateTimeV2Literal::new);
+        check("2016-7-02 01:01:0", DateTimeV2Literal::new);
+        check("2016-7-2 01:1:0", DateTimeV2Literal::new);
     }
 
     @Test
     void testIrregularDateTimeHour() {
-        new DateTimeV2Literal("2016-07-02 01");
-        new DateTimeV2Literal("2016-07-02 1");
+        check("2016-07-02 01", DateTimeV2Literal::new);
+        check("2016-07-02 1", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-7-02 1");
-        new DateTimeV2Literal("2016-7-02 01");
+        check("2016-7-02 1", DateTimeV2Literal::new);
+        check("2016-7-02 01", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-07-2 1");
-        new DateTimeV2Literal("2016-07-2 01");
+        check("2016-07-2 1", DateTimeV2Literal::new);
+        check("2016-07-2 01", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-7-2 1");
-        new DateTimeV2Literal("2016-7-2 01");
+        check("2016-7-2 1", DateTimeV2Literal::new);
+        check("2016-7-2 01", DateTimeV2Literal::new);
     }
 
     @Test
     void testIrregularDateTimeHourMinute() {
-        new DateTimeV2Literal("2016-07-02 01:01");
-        new DateTimeV2Literal("2016-07-02 1:01");
-        new DateTimeV2Literal("2016-07-02 01:1");
-        new DateTimeV2Literal("2016-07-02 1:1");
+        check("2016-07-02 01:01", DateTimeV2Literal::new);
+        check("2016-07-02 1:01", DateTimeV2Literal::new);
+        check("2016-07-02 01:1", DateTimeV2Literal::new);
+        check("2016-07-02 1:1", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-7-02 01:01");
-        new DateTimeV2Literal("2016-7-02 1:01");
-        new DateTimeV2Literal("2016-7-02 01:1");
-        new DateTimeV2Literal("2016-7-02 1:1");
+        check("2016-7-02 01:01", DateTimeV2Literal::new);
+        check("2016-7-02 1:01", DateTimeV2Literal::new);
+        check("2016-7-02 01:1", DateTimeV2Literal::new);
+        check("2016-7-02 1:1", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-07-2 01:01");
-        new DateTimeV2Literal("2016-07-2 1:01");
-        new DateTimeV2Literal("2016-07-2 01:1");
-        new DateTimeV2Literal("2016-07-2 1:1");
+        check("2016-07-2 01:01", DateTimeV2Literal::new);
+        check("2016-07-2 1:01", DateTimeV2Literal::new);
+        check("2016-07-2 01:1", DateTimeV2Literal::new);
+        check("2016-07-2 1:1", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-7-2 01:01");
-        new DateTimeV2Literal("2016-7-2 1:01");
-        new DateTimeV2Literal("2016-7-2 01:1");
-        new DateTimeV2Literal("2016-7-2 1:1");
+        check("2016-7-2 01:01", DateTimeV2Literal::new);
+        check("2016-7-2 1:01", DateTimeV2Literal::new);
+        check("2016-7-2 01:1", DateTimeV2Literal::new);
+        check("2016-7-2 1:1", DateTimeV2Literal::new);
     }
 
     @Test
     void testIrregularDateTimeHourMinuteSecond() {
-        new DateTimeV2Literal("2016-07-02 01:01:01");
-        new DateTimeV2Literal("2016-07-02 1:01:01");
-        new DateTimeV2Literal("2016-07-02 01:1:01");
-        new DateTimeV2Literal("2016-07-02 1:1:01");
-        new DateTimeV2Literal("2016-07-02 01:01:1");
-        new DateTimeV2Literal("2016-07-02 1:01:1");
-        new DateTimeV2Literal("2016-07-02 01:1:1");
-        new DateTimeV2Literal("2016-07-02 1:1:1");
+        check("2016-07-02 01:01:01", DateTimeV2Literal::new);
+        check("2016-07-02 1:01:01", DateTimeV2Literal::new);
+        check("2016-07-02 01:1:01", DateTimeV2Literal::new);
+        check("2016-07-02 1:1:01", DateTimeV2Literal::new);
+        check("2016-07-02 01:01:1", DateTimeV2Literal::new);
+        check("2016-07-02 1:01:1", DateTimeV2Literal::new);
+        check("2016-07-02 01:1:1", DateTimeV2Literal::new);
+        check("2016-07-02 1:1:1", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-7-02 01:01:01");
-        new DateTimeV2Literal("2016-7-02 1:01:01");
-        new DateTimeV2Literal("2016-7-02 01:1:01");
-        new DateTimeV2Literal("2016-7-02 1:1:01");
-        new DateTimeV2Literal("2016-7-02 01:01:1");
-        new DateTimeV2Literal("2016-7-02 1:01:1");
-        new DateTimeV2Literal("2016-7-02 01:1:1");
-        new DateTimeV2Literal("2016-7-02 1:1:1");
+        check("2016-7-02 01:01:01", DateTimeV2Literal::new);
+        check("2016-7-02 1:01:01", DateTimeV2Literal::new);
+        check("2016-7-02 01:1:01", DateTimeV2Literal::new);
+        check("2016-7-02 1:1:01", DateTimeV2Literal::new);
+        check("2016-7-02 01:01:1", DateTimeV2Literal::new);
+        check("2016-7-02 1:01:1", DateTimeV2Literal::new);
+        check("2016-7-02 01:1:1", DateTimeV2Literal::new);
+        check("2016-7-02 1:1:1", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-07-2 01:01:01");
-        new DateTimeV2Literal("2016-07-2 1:01:01");
-        new DateTimeV2Literal("2016-07-2 01:1:01");
-        new DateTimeV2Literal("2016-07-2 1:1:01");
-        new DateTimeV2Literal("2016-07-2 01:01:1");
-        new DateTimeV2Literal("2016-07-2 1:01:1");
-        new DateTimeV2Literal("2016-07-2 01:1:1");
-        new DateTimeV2Literal("2016-07-2 1:1:1");
+        check("2016-07-2 01:01:01", DateTimeV2Literal::new);
+        check("2016-07-2 1:01:01", DateTimeV2Literal::new);
+        check("2016-07-2 01:1:01", DateTimeV2Literal::new);
+        check("2016-07-2 1:1:01", DateTimeV2Literal::new);
+        check("2016-07-2 01:01:1", DateTimeV2Literal::new);
+        check("2016-07-2 1:01:1", DateTimeV2Literal::new);
+        check("2016-07-2 01:1:1", DateTimeV2Literal::new);
+        check("2016-07-2 1:1:1", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-7-2 01:01:01");
-        new DateTimeV2Literal("2016-7-2 1:01:01");
-        new DateTimeV2Literal("2016-7-2 01:1:01");
-        new DateTimeV2Literal("2016-7-2 1:1:01");
-        new DateTimeV2Literal("2016-7-2 01:01:1");
-        new DateTimeV2Literal("2016-7-2 1:01:1");
-        new DateTimeV2Literal("2016-7-2 01:1:1");
-        new DateTimeV2Literal("2016-7-2 1:1:1");
+        check("2016-7-2 01:01:01", DateTimeV2Literal::new);
+        check("2016-7-2 1:01:01", DateTimeV2Literal::new);
+        check("2016-7-2 01:1:01", DateTimeV2Literal::new);
+        check("2016-7-2 1:1:01", DateTimeV2Literal::new);
+        check("2016-7-2 01:01:1", DateTimeV2Literal::new);
+        check("2016-7-2 1:01:1", DateTimeV2Literal::new);
+        check("2016-7-2 01:1:1", DateTimeV2Literal::new);
+        check("2016-7-2 1:1:1", DateTimeV2Literal::new);
     }
 
     @Test
     void testIrregularDateTimeHourMinuteSecondMicrosecond() {
-        new DateTimeV2Literal("2016-07-02 01:01:01.1");
-        new DateTimeV2Literal("2016-07-02 1:01:01.1");
-        new DateTimeV2Literal("2016-07-02 01:1:01.1");
-        new DateTimeV2Literal("2016-07-02 1:1:01.1");
-        new DateTimeV2Literal("2016-07-02 01:01:1.1");
-        new DateTimeV2Literal("2016-07-02 1:01:1.1");
-        new DateTimeV2Literal("2016-07-02 01:1:1.1");
-        new DateTimeV2Literal("2016-07-02 1:1:1.1");
+        check("2016-07-02 01:01:01.1", DateTimeV2Literal::new);
+        check("2016-07-02 1:01:01.1", DateTimeV2Literal::new);
+        check("2016-07-02 01:1:01.1", DateTimeV2Literal::new);
+        check("2016-07-02 1:1:01.1", DateTimeV2Literal::new);
+        check("2016-07-02 01:01:1.1", DateTimeV2Literal::new);
+        check("2016-07-02 1:01:1.1", DateTimeV2Literal::new);
+        check("2016-07-02 01:1:1.1", DateTimeV2Literal::new);
+        check("2016-07-02 1:1:1.1", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-7-02 01:01:01.1");
-        new DateTimeV2Literal("2016-7-02 1:01:01.1");
-        new DateTimeV2Literal("2016-7-02 01:1:01.1");
-        new DateTimeV2Literal("2016-7-02 1:1:01.1");
-        new DateTimeV2Literal("2016-7-02 01:01:1.1");
-        new DateTimeV2Literal("2016-7-02 1:01:1.1");
-        new DateTimeV2Literal("2016-7-02 01:1:1.1");
-        new DateTimeV2Literal("2016-7-02 1:1:1.1");
+        check("2016-7-02 01:01:01.1", DateTimeV2Literal::new);
+        check("2016-7-02 1:01:01.1", DateTimeV2Literal::new);
+        check("2016-7-02 01:1:01.1", DateTimeV2Literal::new);
+        check("2016-7-02 1:1:01.1", DateTimeV2Literal::new);
+        check("2016-7-02 01:01:1.1", DateTimeV2Literal::new);
+        check("2016-7-02 1:01:1.1", DateTimeV2Literal::new);
+        check("2016-7-02 01:1:1.1", DateTimeV2Literal::new);
+        check("2016-7-02 1:1:1.1", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-07-2 01:01:01.1");
-        new DateTimeV2Literal("2016-07-2 1:01:01.1");
-        new DateTimeV2Literal("2016-07-2 01:1:01.1");
-        new DateTimeV2Literal("2016-07-2 1:1:01.1");
-        new DateTimeV2Literal("2016-07-2 01:01:1.1");
-        new DateTimeV2Literal("2016-07-2 1:01:1.1");
-        new DateTimeV2Literal("2016-07-2 01:1:1.1");
-        new DateTimeV2Literal("2016-07-2 1:1:1.1");
+        check("2016-07-2 01:01:01.1", DateTimeV2Literal::new);
+        check("2016-07-2 1:01:01.1", DateTimeV2Literal::new);
+        check("2016-07-2 01:1:01.1", DateTimeV2Literal::new);
+        check("2016-07-2 1:1:01.1", DateTimeV2Literal::new);
+        check("2016-07-2 01:01:1.1", DateTimeV2Literal::new);
+        check("2016-07-2 1:01:1.1", DateTimeV2Literal::new);
+        check("2016-07-2 01:1:1.1", DateTimeV2Literal::new);
+        check("2016-07-2 1:1:1.1", DateTimeV2Literal::new);
 
-        new DateTimeV2Literal("2016-7-2 01:01:01.1");
-        new DateTimeV2Literal("2016-7-2 1:01:01.1");
-        new DateTimeV2Literal("2016-7-2 01:1:01.1");
-        new DateTimeV2Literal("2016-7-2 1:1:01.1");
-        new DateTimeV2Literal("2016-7-2 01:01:1.1");
-        new DateTimeV2Literal("2016-7-2 1:01:1.1");
-        new DateTimeV2Literal("2016-7-2 01:1:1.1");
-        new DateTimeV2Literal("2016-7-2 1:1:1.1");
+        check("2016-7-2 01:01:01.1", DateTimeV2Literal::new);
+        check("2016-7-2 1:01:01.1", DateTimeV2Literal::new);
+        check("2016-7-2 01:1:01.1", DateTimeV2Literal::new);
+        check("2016-7-2 1:1:01.1", DateTimeV2Literal::new);
+        check("2016-7-2 01:01:1.1", DateTimeV2Literal::new);
+        check("2016-7-2 1:01:1.1", DateTimeV2Literal::new);
+        check("2016-7-2 01:1:1.1", DateTimeV2Literal::new);
+        check("2016-7-2 1:1:1.1", DateTimeV2Literal::new);
 
         // Testing with microsecond of length 2
-        new DateTimeV2Literal("2016-07-02 01:01:01.12");
-        new DateTimeV2Literal("2016-7-02 01:01:01.12");
+        check("2016-07-02 01:01:01.12", DateTimeV2Literal::new);
+        check("2016-7-02 01:01:01.12", DateTimeV2Literal::new);
 
         // Testing with microsecond of length 3
-        new DateTimeV2Literal("2016-07-02 01:01:01.123");
-        new DateTimeV2Literal("2016-7-02 01:01:01.123");
+        check("2016-07-02 01:01:01.123", DateTimeV2Literal::new);
+        check("2016-7-02 01:01:01.123", DateTimeV2Literal::new);
 
         // Testing with microsecond of length 4
-        new DateTimeV2Literal("2016-07-02 01:01:01.1234");
-        new DateTimeV2Literal("2016-7-02 01:01:01.1234");
+        check("2016-07-02 01:01:01.1234", DateTimeV2Literal::new);
+        check("2016-7-02 01:01:01.1234", DateTimeV2Literal::new);
 
         // Testing with microsecond of length 5
-        new DateTimeV2Literal("2016-07-02 01:01:01.12345");
-        new DateTimeV2Literal("2016-7-02 01:01:01.12345");
+        check("2016-07-02 01:01:01.12345", DateTimeV2Literal::new);
+        check("2016-7-02 01:01:01.12345", DateTimeV2Literal::new);
 
         // Testing with microsecond of length 6
-        new DateTimeV2Literal("2016-07-02 01:01:01.123456");
-        new DateTimeV2Literal("2016-7-02 01:01:01.123456");
+        check("2016-07-02 01:01:01.123456", DateTimeV2Literal::new);
+        check("2016-7-02 01:01:01.123456", DateTimeV2Literal::new);
 
         // Testing with microsecond of length 7
-        DateTimeV2Literal literal = new DateTimeV2Literal("2016-07-02 01:01:01.12345678");
+        DateTimeV2Literal literal = check("2016-07-02 01:01:01.12345678", DateTimeV2Literal::new);
         Assertions.assertEquals(123457, literal.microSecond);
 
-        literal = new DateTimeV2Literal("2016-07-02 01:01:01.44444444");
+        literal = check("2016-07-02 01:01:01.44444444", DateTimeV2Literal::new);
         Assertions.assertEquals(444444, literal.microSecond);
 
-        literal = new DateTimeV2Literal("2016-07-02 01:01:01.44444445");
+        literal = check("2016-07-02 01:01:01.44444445", DateTimeV2Literal::new);
         Assertions.assertEquals(444444, literal.microSecond);
 
-        literal = new DateTimeV2Literal("2016-07-02 01:01:01.4444445");
+        literal = check("2016-07-02 01:01:01.4444445", DateTimeV2Literal::new);
         Assertions.assertEquals(444445, literal.microSecond);
 
-        literal = new DateTimeV2Literal("2016-07-02 01:01:01.9999995");
+        literal = check("2016-07-02 01:01:01.9999995", DateTimeV2Literal::new);
         Assertions.assertEquals(0, literal.microSecond);
         Assertions.assertEquals(2, literal.second);
 
-        literal = new DateTimeV2Literal("2021-01-01 23:59:59.9999995");
+        literal = check("2021-01-01 23:59:59.9999995", DateTimeV2Literal::new);
         Assertions.assertEquals(0, literal.microSecond);
         Assertions.assertEquals(0, literal.second);
         Assertions.assertEquals(0, literal.minute);
@@ -415,33 +418,33 @@ class DateTimeLiteralTest {
     @Test
     void testDateTimeV2Scale() {
         Assertions.assertEquals(
-                new DateTimeV2Literal(DateTimeV2Type.of(3), "2016-07-02 00:00:00.123"),
-                new DateTimeV2Literal(DateTimeV2Type.of(3), "2016-07-02 00:00:00.123"));
+                check("2016-07-02 00:00:00.123", s -> new DateTimeV2Literal(DateTimeV2Type.of(3), s)),
+                check("2016-07-02 00:00:00.123", s -> new DateTimeV2Literal(DateTimeV2Type.of(3), s)));
 
         Assertions.assertEquals(
-                new DateTimeV2Literal(DateTimeV2Type.of(3), "2016-07-02 00:00:00.123456"),
-                new DateTimeV2Literal(DateTimeV2Type.of(3), "2016-07-02 00:00:00.123"));
+                check("2016-07-02 00:00:00.123456", s -> new DateTimeV2Literal(DateTimeV2Type.of(3), s)),
+                check("2016-07-02 00:00:00.123", s -> new DateTimeV2Literal(DateTimeV2Type.of(3), s)));
 
         Assertions.assertEquals(
-                new DateTimeV2Literal(DateTimeV2Type.of(4), "2016-07-02 00:00:00.12345"),
-                new DateTimeV2Literal(DateTimeV2Type.of(4), "2016-07-02 00:00:00.1235"));
+                check("2016-07-02 00:00:00.12345", s -> new DateTimeV2Literal(DateTimeV2Type.of(4), s)),
+                check("2016-07-02 00:00:00.1235", s -> new DateTimeV2Literal(DateTimeV2Type.of(4), s)));
 
         Assertions.assertEquals(
-                new DateTimeV2Literal(DateTimeV2Type.of(0), "2016-07-02 00:00:00.12345"),
-                new DateTimeV2Literal(DateTimeV2Type.of(0), "2016-07-02 00:00:00"));
+                check("2016-07-02 00:00:00.12345", s -> new DateTimeV2Literal(DateTimeV2Type.of(0), s)),
+                check("2016-07-02 00:00:00", s -> new DateTimeV2Literal(DateTimeV2Type.of(0), s)));
 
         Assertions.assertEquals(
-                new DateTimeV2Literal(DateTimeV2Type.of(0), "2016-07-02 00:00:00.5123"),
-                new DateTimeV2Literal(DateTimeV2Type.of(0), "2016-07-02 00:00:01"));
+                check("2016-07-02 00:00:00.5123", s -> new DateTimeV2Literal(DateTimeV2Type.of(0), s)),
+                check("2016-07-02 00:00:01", s -> new DateTimeV2Literal(DateTimeV2Type.of(0), s)));
 
         Assertions.assertEquals(
-                new DateTimeV2Literal(DateTimeV2Type.of(5), "2016-07-02 00:00:00.999999"),
-                new DateTimeV2Literal(DateTimeV2Type.of(5), "2016-07-02 00:00:01.00000"));
+                check("2016-07-02 00:00:00.999999", s -> new DateTimeV2Literal(DateTimeV2Type.of(5), s)),
+                check("2016-07-02 00:00:01.00000", s -> new DateTimeV2Literal(DateTimeV2Type.of(5), s)));
 
         // test overflow
         Assertions.assertEquals(
-                new DateTimeV2Literal(DateTimeV2Type.of(5), "2016-12-31 23:59:59.999999"),
-                new DateTimeV2Literal(DateTimeV2Type.of(5), "2017-01-01 00:00:00.00000"));
+                check("2016-12-31 23:59:59.999999", s -> new DateTimeV2Literal(DateTimeV2Type.of(5), s)),
+                check("2017-01-01 00:00:00.00000", s -> new DateTimeV2Literal(DateTimeV2Type.of(5), s)));
     }
 
     @Test
@@ -489,5 +492,20 @@ class DateTimeLiteralTest {
         Assertions.assertEquals(1, literal.roundCeiling(0).day);
         Assertions.assertEquals(1, literal.roundCeiling(0).month);
         Assertions.assertEquals(2001, literal.roundCeiling(0).year);
+    }
+
+    @Test
+    void testEquals() {
+        DateTimeV2Literal l1 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1, 1);
+        DateTimeV2Literal l2 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1, 1);
+        DateTimeV2Literal l3 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1, 2);
+
+        Assertions.assertEquals(l1, l2);
+        Assertions.assertNotEquals(l1, l3);
+    }
+
+    private <L extends DateLiteral> L check(String str, Function<String, L> literalBuilder) {
+        Assertions.assertTrue(DateTimeChecker.isValidDateTime(str), "Invalid date: " + str);
+        return literalBuilder.apply(str);
     }
 }

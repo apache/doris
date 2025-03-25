@@ -113,16 +113,17 @@ protected:
                              const std::vector<Path>& remote_files) override;
     Status download_impl(const Path& remote_file, const Path& local_file) override;
 
-    Path absolute_path(const Path& path) const override {
+    Status absolute_path(const Path& path, Path& abs_path) const override {
         if (path.string().find("://") != std::string::npos) {
             // the path is with schema, which means this is a full path like:
             // s3://bucket/path/to/file.txt
             // so no need to concat with prefix
-            return path;
+            abs_path = path;
         } else {
             // path with no schema
-            return _root_path / path;
+            abs_path = _prefix / path;
         }
+        return Status::OK();
     }
 
 private:

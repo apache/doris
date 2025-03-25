@@ -20,6 +20,7 @@ UNIQUE KEY(`l_shipdate`, `l_orderkey`,`l_linenumber`,`l_partkey`,`l_suppkey`)
 COMMENT "OLAP"
 DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
 PROPERTIES (
+    "enable_mow_light_delete" = "true",
     "replication_num" = "3"
 )
 

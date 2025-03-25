@@ -220,7 +220,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                           'file_format'='${file_format}'
                         )
                     """;
-                exception "errCode = 2, detailMessage = errCode = 2, detailMessage = Table 'ex_tbl_${file_format}' already exists"
+                exception "errCode = 2, detailMessage = Table 'ex_tbl_${file_format}' already exists"
             }
 
             test {

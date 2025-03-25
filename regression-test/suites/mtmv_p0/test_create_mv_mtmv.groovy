@@ -50,7 +50,7 @@ suite("test_create_mv_mtmv","mtmv") {
         CREATE MATERIALIZED VIEW mv_mtmv1  as select k2 from ${mvName};
         """
 
-    max_try_secs = 60
+    def max_try_secs = 60
     while (max_try_secs--) {
         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${mvName}' ORDER BY CreateTime DESC LIMIT 1; """
         String res = jobStateResult[0][8]
@@ -77,9 +77,7 @@ suite("test_create_mv_mtmv","mtmv") {
     order_qt_refresh_mv "SELECT * FROM ${mvName}"
     order_qt_sync_mv "SELECT k2 FROM ${mvName}"
 
-    def explainResult = sql """explain SELECT k2 FROM ${mvName}"""
-    logger.info("explainResult: " + explainResult.toString())
-    assertTrue(explainResult.toString().contains('mv_mtmv1'))
+    mv_rewrite_success_without_check_chosen("""SELECT k2 FROM ${mvName}""", "mv_mtmv1")
 
     sql """DROP MATERIALIZED VIEW  mv_mtmv1 ON ${mvName};"""
 

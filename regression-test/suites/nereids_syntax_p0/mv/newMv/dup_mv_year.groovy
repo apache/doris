@@ -38,20 +38,16 @@ suite ("dup_mv_year") {
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table dup_mv_year with sync;"
+    sql """alter table dup_mv_year modify column k1 set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
 
-    explain {
-        sql("select k1,year(k2) from dup_mv_year order by k1;")
-        contains "(k12y)"
-    }
+    mv_rewrite_success("select k1,year(k2) from dup_mv_year order by k1;", "k12y")
     order_qt_select_mv "select k1,year(k2) from dup_mv_year order by k1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,year(k2) from dup_mv_year order by k1;")
-        contains "(k12y)"
-    }
+    mv_rewrite_success("select k1,year(k2) from dup_mv_year order by k1;", "k12y")
 
     createMV "create materialized view k13y as select k1,year(k3) from dup_mv_year;"
 
@@ -60,15 +56,9 @@ suite ("dup_mv_year") {
 
     order_qt_select_star "select * from dup_mv_year order by k1;"
 
-    explain {
-        sql("select year(k3) from dup_mv_year order by k1;")
-        contains "(k13y)"
-    }
+    mv_rewrite_success("select year(k3) from dup_mv_year order by k1;", "k13y")
     order_qt_select_mv_sub "select year(k3) from dup_mv_year order by k1;"
 
     sql """set enable_stats=false;"""
-    explain {
-        sql("select year(k3) from dup_mv_year order by k1;")
-        contains "(k13y)"
-    }
+    mv_rewrite_success("select year(k3) from dup_mv_year order by k1;", "k13y")
 }

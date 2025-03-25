@@ -80,7 +80,7 @@ public:
 
     Status get_segments_size(std::vector<size_t>* segments_size);
 
-    Status get_inverted_index_size(size_t* index_size);
+    Status get_inverted_index_size(int64_t* index_size) override;
 
     [[nodiscard]] virtual Status add_to_binlog() override;
 
@@ -89,14 +89,14 @@ public:
     Status show_nested_index_file(rapidjson::Value* rowset_value,
                                   rapidjson::Document::AllocatorType& allocator);
 
+    Status get_segment_num_rows(std::vector<uint32_t>* segment_rows);
+
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta,
                std::string tablet_path);
 
     // init segment groups
     Status init() override;
-
-    Status do_load(bool use_cache) override;
 
     void do_close() override;
 
@@ -107,6 +107,9 @@ protected:
 private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
+
+    DorisCallOnce<Status> _load_segment_rows_once;
+    std::vector<uint32_t> _segments_rows;
 };
 
 } // namespace doris

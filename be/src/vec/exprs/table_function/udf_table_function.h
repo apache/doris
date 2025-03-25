@@ -26,6 +26,7 @@
 #include "vec/functions/array/function_array_utils.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class UDFTableFunction final : public TableFunction {
     ENABLE_FACTORY_CREATOR(UDFTableFunction);
@@ -90,8 +91,9 @@ private:
     DataTypePtr _return_type = nullptr;
     ColumnPtr _array_result_column = nullptr;
     ColumnArrayExecutionData _array_column_detail;
-    size_t _result_column_idx = 0; // _array_result_column pos in block
-    size_t _array_offset = 0;      // start offset of array[row_idx]
+    uint32_t _result_column_idx = 0; // _array_result_column pos in block
+    size_t _array_offset = 0;        // start offset of array[row_idx]
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

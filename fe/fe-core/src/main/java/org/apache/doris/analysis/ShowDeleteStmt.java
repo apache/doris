@@ -28,7 +28,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 
-public class ShowDeleteStmt extends ShowStmt {
+public class ShowDeleteStmt extends ShowStmt implements NotFallbackInParser {
 
     private String dbName;
 

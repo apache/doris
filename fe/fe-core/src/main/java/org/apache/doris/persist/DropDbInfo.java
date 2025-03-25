@@ -30,6 +30,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class DropDbInfo implements Writable, GsonPostProcessable {
+    @SerializedName(value = "ctl")
+    private String ctlName;
     @SerializedName(value = "dbName")
     private String dbName;
     @SerializedName(value = "forceDrop")
@@ -41,10 +43,21 @@ public class DropDbInfo implements Writable, GsonPostProcessable {
         this("", false, 0);
     }
 
+    // for external table
+    public DropDbInfo(String ctlName, String dbName) {
+        this.ctlName = ctlName;
+        this.dbName = dbName;
+    }
+
+    // for internal table
     public DropDbInfo(String dbName, boolean forceDrop, long recycleTime) {
         this.dbName = dbName;
         this.forceDrop = forceDrop;
         this.recycleTime = recycleTime;
+    }
+
+    public String getCtlName() {
+        return ctlName;
     }
 
     public String getDbName() {

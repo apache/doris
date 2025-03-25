@@ -151,7 +151,19 @@ void CloudBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
 
 void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
                                               const TWarmUpCacheAsyncRequest& request) {
-    std::string brpc_addr = fmt::format("{}:{}", request.host, request.brpc_port);
+    std::string host = request.host;
+    auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+    if (dns_cache == nullptr) {
+        LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+    } else if (!is_valid_ip(request.host)) {
+        Status status = dns_cache->get(request.host, &host);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to get ip from host " << request.host << ": "
+                         << status.to_string();
+            return;
+        }
+    }
+    std::string brpc_addr = get_host_port(host, request.brpc_port);
     Status st = Status::OK();
     TStatus t_status;
     std::shared_ptr<PBackendService_Stub> brpc_stub =
@@ -180,6 +192,11 @@ void CloudBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncRespon
                                                     const TCheckWarmUpCacheAsyncRequest& request) {
     std::map<int64_t, bool> task_done;
     _engine.file_cache_block_downloader().check_download_task(request.tablets, &task_done);
+    DBUG_EXECUTE_IF("CloudBackendService.check_warm_up_cache_async.return_task_false", {
+        for (auto& it : task_done) {
+            it.second = false;
+        }
+    });
     response.__set_task_done(task_done);
 
     Status st = Status::OK();

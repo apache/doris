@@ -17,6 +17,7 @@
 // This file is copied from
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/array/arrayElement.cpp
 // and modified by Doris
+
 #pragma once
 
 #include <glog/logging.h>
@@ -57,6 +58,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class FunctionArrayElement : public IFunction {
 public:
@@ -96,11 +98,14 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
-        auto dst_null_column = ColumnUInt8::create(input_rows_count);
+                        uint32_t result, size_t input_rows_count) const override {
+        auto dst_null_column = ColumnUInt8::create(input_rows_count, 0);
         UInt8* dst_null_map = dst_null_column->get_data().data();
         const UInt8* src_null_map = nullptr;
         ColumnsWithTypeAndName args;
+        block.replace_by_position(
+                arguments[0],
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const());
         auto col_left = block.get_by_position(arguments[0]);
         if (col_left.column->is_nullable()) {
             auto null_col = check_and_get_column<ColumnNullable>(*col_left.column);
@@ -112,7 +117,7 @@ public:
             args = {col_left, block.get_by_position(arguments[1])};
         }
         ColumnPtr res_column = nullptr;
-        if (args[0].column->is_column_map() ||
+        if (is_column<ColumnMap>(args[0].column.get()) ||
             check_column_const<ColumnMap>(args[0].column.get())) {
             res_column = _execute_map(args, input_rows_count, src_null_map, dst_null_map);
         } else {
@@ -146,14 +151,16 @@ private:
             size_t end = offsets[i];
             for (size_t j = begin; j < end; j++) {
                 if (nested_ptr->compare_at(j, i, *right_column, -1) == 0) {
-                    matched_indices->insert_value(j - begin + 1);
+                    matched_indices->insert_value(
+                            cast_set<MapIndiceDataType::FieldType, size_t, false>(j - begin + 1));
                     matched = true;
                     break;
                 }
             }
 
             if (!matched) {
-                matched_indices->insert_value(end - begin + 1); // make indices for null
+                matched_indices->insert_value(cast_set<MapIndiceDataType::FieldType, size_t, false>(
+                        end - begin + 1)); // make indices for null
             }
         }
 
@@ -328,7 +335,7 @@ private:
                                 const UInt8* src_null_map, UInt8* dst_null_map) const {
         // check array nested column type and get data
         auto left_column = arguments[0].column->convert_to_full_column_if_const();
-        const auto& array_column = reinterpret_cast<const ColumnArray&>(*left_column);
+        const auto& array_column = assert_cast<const ColumnArray&>(*left_column);
         const auto& offsets = array_column.get_offsets();
         DCHECK(offsets.size() == input_rows_count);
         const UInt8* nested_null_map = nullptr;
@@ -414,4 +421,5 @@ private:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

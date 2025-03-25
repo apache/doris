@@ -490,10 +490,16 @@ int64_t VCollectIterator::Level0Iterator::version() const {
 }
 
 Status VCollectIterator::Level0Iterator::refresh_current_row() {
+    RuntimeState* runtime_state = nullptr;
+    if (_reader != nullptr) {
+        runtime_state = _reader->_reader_context.runtime_state;
+    }
+
     do {
         if (_block == nullptr && !_get_data_by_ref) {
             _block = std::make_shared<Block>(_schema.create_block(
                     _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+            _ref.block = _block;
         }
 
         if (!_is_empty() && _current_valid()) {
@@ -501,6 +507,10 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
         } else {
             _reset();
             auto res = _refresh();
+
+            if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
+                return runtime_state->cancel_reason();
+            }
             if (!res.ok() && !res.is<END_OF_FILE>()) {
                 return res;
             }
@@ -677,8 +687,17 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
 }
 
 Status VCollectIterator::Level1Iterator::ensure_first_row_ref() {
+    RuntimeState* runtime_state = nullptr;
+    if (_reader != nullptr) {
+        runtime_state = _reader->_reader_context.runtime_state;
+    }
+
     for (auto iter = _children.begin(); iter != _children.end();) {
         auto s = (*iter)->ensure_first_row_ref();
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) {
+            return runtime_state->cancel_reason();
+        }
+
         if (!s.ok()) {
             iter = _children.erase(iter);
             if (!s.is<END_OF_FILE>()) {
@@ -715,12 +734,10 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
             _heap->pop();
         } else {
             _ref.reset();
-            _cur_child.reset();
             return Status::Error<END_OF_FILE>("");
         }
     } else {
         _ref.reset();
-        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
@@ -751,11 +768,9 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
             _children.pop_front();
             return _normal_next(ref);
         } else {
-            _cur_child.reset();
             return Status::Error<END_OF_FILE>("");
         }
     } else {
-        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
@@ -858,10 +873,8 @@ Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
     if (LIKELY(res.ok())) {
         return Status::OK();
     } else if (res.is<END_OF_FILE>()) {
-        _cur_child.reset();
         return Status::Error<END_OF_FILE>("");
     } else {
-        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }

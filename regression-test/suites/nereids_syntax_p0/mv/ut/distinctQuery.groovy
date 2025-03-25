@@ -37,16 +37,18 @@ suite ("distinctQuery") {
     sql """insert into distinctQuery values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into distinctQuery values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view distinctQuery_mv as select deptno, count(salary) from distinctQuery group by deptno;")
-
-    createMV("create materialized view distinctQuery_mv2 as select empid, deptno, count(salary) from distinctQuery group by empid, deptno;")
+    sql """alter table distinctQuery modify column time_col set stats ('row_count'='5');"""
 
     sql """insert into distinctQuery values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into distinctQuery values("2020-01-01",2,"a",1,1,1);"""
 
+    createMV("create materialized view distinctQuery_mv as select deptno, count(salary) from distinctQuery group by deptno;")
+
+    createMV("create materialized view distinctQuery_mv2 as select empid, deptno, count(salary) from distinctQuery group by empid, deptno;")
+
     sql "analyze table distinctQuery with sync;"
     
-    mv_rewrite_success("select distinct deptno from distinctQuery;", "distinctQuery_mv")
+    mv_rewrite_any_success("select distinct deptno from distinctQuery;", ["distinctQuery_mv", "distinctQuery_mv2"])
 
     mv_rewrite_success("select deptno, count(distinct empid) from distinctQuery group by deptno;", "distinctQuery_mv2")
     

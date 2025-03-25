@@ -209,6 +209,10 @@ class UniformTest extends TestWithFeService {
 
     @Test
     void testEqual() {
+        // Because in INFER_PREDICATES, id=1 and id=id2 is rewritten as id=1 and id2=1
+        // The equivalence set in DataTrait does not support the id=1 id2=1->id=id2 temporarily,
+        // so in order to run through this case, Disable INFER_PREDICATES temporarily
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         Plan plan = PlanChecker.from(connectContext)
                 .analyze("select id2 from agg where id = 1 and id = id2")
                 .rewrite()

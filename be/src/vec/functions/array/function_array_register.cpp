@@ -21,7 +21,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
-
+void register_function_array_flatten(SimpleFunctionFactory&);
 void register_function_array_shuffle(SimpleFunctionFactory&);
 void register_function_array_exists(SimpleFunctionFactory&);
 void register_function_array_element(SimpleFunctionFactory&);
@@ -42,8 +42,7 @@ void register_function_array_enumerate(SimpleFunctionFactory&);
 void register_function_array_enumerate_uniq(SimpleFunctionFactory&);
 void register_function_array_range(SimpleFunctionFactory&);
 void register_function_array_compact(SimpleFunctionFactory&);
-void register_function_array_popback(SimpleFunctionFactory&);
-void register_function_array_popfront(SimpleFunctionFactory&);
+void register_function_array_pop(SimpleFunctionFactory&);
 void register_function_array_with_constant(SimpleFunctionFactory&);
 void register_function_array_constructor(SimpleFunctionFactory&);
 void register_function_array_apply(SimpleFunctionFactory&);
@@ -57,8 +56,10 @@ void register_function_array_count(SimpleFunctionFactory&);
 void register_function_array_filter_function(SimpleFunctionFactory&);
 void register_function_array_splits(SimpleFunctionFactory&);
 void register_function_array_contains_all(SimpleFunctionFactory&);
+void register_function_array_match(SimpleFunctionFactory&);
 
 void register_function_array(SimpleFunctionFactory& factory) {
+    register_function_array_flatten(factory);
     register_function_array_shuffle(factory);
     register_function_array_exists(factory);
     register_function_array_element(factory);
@@ -79,8 +80,7 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_enumerate_uniq(factory);
     register_function_array_range(factory);
     register_function_array_compact(factory);
-    register_function_array_popback(factory);
-    register_function_array_popfront(factory);
+    register_function_array_pop(factory);
     register_function_array_with_constant(factory);
     register_function_array_constructor(factory);
     register_function_array_apply(factory);
@@ -94,6 +94,7 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_filter_function(factory);
     register_function_array_splits(factory);
     register_function_array_contains_all(factory);
+    register_function_array_match(factory);
 }
 
 } // namespace doris::vectorized

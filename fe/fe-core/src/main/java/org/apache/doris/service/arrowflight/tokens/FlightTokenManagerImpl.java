@@ -20,6 +20,7 @@
 package org.apache.doris.service.arrowflight.tokens;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.arrowflight.auth2.FlightAuthResult;
@@ -38,6 +39,8 @@ import java.math.BigInteger;
 import java.security.SecureRandom;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -53,6 +56,7 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
     private final LoadingCache<String, FlightTokenDetails> tokenCache;
     // <username, <token, 1>>
     private final ConcurrentHashMap<String, LoadingCache<String, Integer>> usersTokenLRU = new ConcurrentHashMap<>();
+    private ScheduledExecutorService cleanupExecutor;
 
     public FlightTokenManagerImpl(final int cacheSize, final int cacheExpiration) {
         this.cacheSize = cacheSize;
@@ -66,13 +70,15 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                         // TODO: broadcast this message to other FE
                         String token = notification.getKey();
                         FlightTokenDetails tokenDetails = notification.getValue();
-                        LOG.info("evict bearer token: " + token + ", reason: token number exceeded, "
-                                + notification.getCause());
-                        ConnectContext context = ExecuteEnv.getInstance().getScheduler()
-                                .getContext(token);
+                        ConnectContext context = ExecuteEnv.getInstance().getScheduler().getContext(token);
                         if (context != null) {
                             ExecuteEnv.getInstance().getScheduler().unregisterConnection(context);
-                            LOG.info("unregister flight connect context after evict bearer token: " + token);
+                            LOG.info("evict bearer token: " + token + " from tokenCache, reason: "
+                                    + notification.getCause()
+                                    + ", and unregister flight connection context after evict bearer token");
+                        } else {
+                            LOG.info("evict bearer token: " + token + " from tokenCache, reason: "
+                                    + notification.getCause() + ", and flight connection context not exist");
                         }
                         usersTokenLRU.get(tokenDetails.getUsername()).invalidate(token);
                     }
@@ -82,6 +88,8 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                         return new FlightTokenDetails();
                     }
                 });
+        this.cleanupExecutor = Executors.newScheduledThreadPool(1, new CustomThreadFactory("flight-token-cleanup"));
+        this.cleanupExecutor.scheduleAtFixedRate(() -> this.tokenCache.cleanUp(), 1, 1, TimeUnit.MINUTES);
     }
 
     // From https://stackoverflow.com/questions/41107/how-to-generate-a-random-alpha-numeric-string
@@ -114,9 +122,9 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                                 public void onRemoval(@NotNull RemovalNotification<String, Integer> notification) {
                                     // TODO: broadcast this message to other FE
                                     assert notification.getKey() != null;
-                                    tokenCache.invalidate(notification.getKey());
                                     LOG.info("evict bearer token: " + notification.getKey()
-                                            + ", reason: user connection exceeded, " + notification.getCause());
+                                            + " from usersTokenLRU, reason: " + notification.getCause());
+                                    tokenCache.invalidate(notification.getKey());
                                 }
                             }).build(new CacheLoader<String, Integer>() {
                                 @NotNull

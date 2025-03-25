@@ -23,7 +23,7 @@ suite("test_set_ldap_admin_password_auth","p0,auth") {
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "SET LDAP_ADMIN_PASSWORD = PASSWORD('plain password')"
         } catch (Exception e) {

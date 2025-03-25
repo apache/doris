@@ -234,52 +234,61 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
      * @return false if error occurs, the caller will return.
      */
     private boolean calculateEnforce(List<PhysicalProperties> requestChildrenProperties,
-            List<PhysicalProperties> outputChildrenProperties) {
+            List<PhysicalProperties> originOutputChildrenProperties) {
+
         // to ensure distributionSpec has been added sufficiently.
         // it's certain that lowestCostChildren is equals to arity().
         ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(groupExpression,
-                lowestCostChildren, outputChildrenProperties, requestChildrenProperties, context);
-        boolean success = regulator.adjustChildrenProperties();
-        if (!success) {
+                lowestCostChildren, new ArrayList<>(originOutputChildrenProperties),
+                requestChildrenProperties, context);
+        List<List<PhysicalProperties>> childrenOutputSpace = regulator.adjustChildrenProperties();
+        if (childrenOutputSpace.isEmpty()) {
             // invalid enforce, return.
             return false;
         }
 
-        // Not need to do pruning here because it has been done when we get the
-        // best expr from the child group
-        ChildOutputPropertyDeriver childOutputPropertyDeriver
-                = new ChildOutputPropertyDeriver(outputChildrenProperties);
-        // the physical properties the group expression support for its parent.
-        PhysicalProperties outputProperty = childOutputPropertyDeriver.getOutputProperties(getConnectContext(),
-                groupExpression);
+        boolean hasSuccess = false;
+        for (List<PhysicalProperties> outputChildrenProperties : childrenOutputSpace) {
+            // Not need to do pruning here because it has been done when we get the
+            // best expr from the child group
+            ChildOutputPropertyDeriver childOutputPropertyDeriver
+                    = new ChildOutputPropertyDeriver(outputChildrenProperties);
+            // the physical properties the group expression support for its parent.
+            // some cases maybe output some possibilities, for example, shuffle join
+            // maybe select left shuffle to right, or right shuffle to left, so their
+            // are 2 output properties possibilities
+            PhysicalProperties outputProperty
+                    = childOutputPropertyDeriver.getOutputProperties(getConnectContext(), groupExpression);
 
-        // update current group statistics and re-compute costs.
-        if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() == null)
-                && groupExpression.getOwnerGroup().getStatistics() == null) {
-            // if we come here, mean that we have some error in stats calculator and should fix it.
-            LOG.warn("Nereids try to calculate cost without stats for group expression {}", groupExpression);
-            return false;
+            // update current group statistics and re-compute costs.
+            if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() == null)
+                    && groupExpression.getOwnerGroup().getStatistics() == null) {
+                // if we come here, mean that we have some error in stats calculator and should fix it.
+                LOG.warn("Nereids try to calculate cost without stats for group expression {}", groupExpression);
+            }
+
+            // recompute cost after adjusting property
+            curNodeCost = CostCalculator.calculateCost(getConnectContext(), groupExpression, requestChildrenProperties);
+            groupExpression.setCost(curNodeCost);
+            curTotalCost = curNodeCost;
+            for (int i = 0; i < outputChildrenProperties.size(); i++) {
+                PhysicalProperties childProperties = outputChildrenProperties.get(i);
+                curTotalCost = CostCalculator.addChildCost(
+                        getConnectContext(),
+                        groupExpression.getPlan(),
+                        curTotalCost,
+                        groupExpression.child(i).getLowestCostPlan(childProperties).get().first,
+                        i);
+            }
+
+            // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
+            recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY, outputChildrenProperties);
+            recordPropertyAndCost(groupExpression, outputProperty, outputProperty, outputChildrenProperties);
+            enforce(outputProperty, outputChildrenProperties);
+
+            hasSuccess = true;
         }
-
-        // recompute cost after adjusting property
-        curNodeCost = CostCalculator.calculateCost(getConnectContext(), groupExpression, requestChildrenProperties);
-        groupExpression.setCost(curNodeCost);
-        curTotalCost = curNodeCost;
-        for (int i = 0; i < outputChildrenProperties.size(); i++) {
-            PhysicalProperties childProperties = outputChildrenProperties.get(i);
-            curTotalCost = CostCalculator.addChildCost(
-                    getConnectContext(),
-                    groupExpression.getPlan(),
-                    curTotalCost,
-                    groupExpression.child(i).getLowestCostPlan(childProperties).get().first,
-                    i);
-        }
-
-        // record map { outputProperty -> outputProperty }, { ANY -> outputProperty },
-        recordPropertyAndCost(groupExpression, outputProperty, PhysicalProperties.ANY, outputChildrenProperties);
-        recordPropertyAndCost(groupExpression, outputProperty, outputProperty, outputChildrenProperties);
-        enforce(outputProperty, outputChildrenProperties);
-        return true;
+        return hasSuccess;
     }
 
     /**

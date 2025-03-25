@@ -152,9 +152,9 @@ suite("sort") {
     sb.append("""('2023-03-21 08:00:00', 1.1,1)""")
     sql """ ${sb.toString()} """
 
-    qt_order_by_float """ select /*SET_VAR(parallel_pipeline_task_num=1,parallel_fragment_exec_instance_num=1)*/ * from ${tblName} order by dc; """
-    qt_order_by_int """ select /*SET_VAR(parallel_pipeline_task_num=1,parallel_fragment_exec_instance_num=1)*/ * from ${tblName} order by ic; """
-    qt_order_by_uint """ select /*SET_VAR(parallel_pipeline_task_num=1,parallel_fragment_exec_instance_num=1)*/ * from ${tblName} order by time_period; """
+    qt_order_by_float """ select /*SET_VAR(parallel_pipeline_task_num=1)*/ * from ${tblName} order by dc; """
+    qt_order_by_int """ select /*SET_VAR(parallel_pipeline_task_num=1)*/ * from ${tblName} order by ic; """
+    qt_order_by_uint """ select /*SET_VAR(parallel_pipeline_task_num=1)*/ * from ${tblName} order by time_period; """
 
 
     // string order by test

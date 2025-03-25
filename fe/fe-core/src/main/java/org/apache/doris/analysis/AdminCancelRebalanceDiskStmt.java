@@ -34,7 +34,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class AdminCancelRebalanceDiskStmt extends DdlStmt {
+public class AdminCancelRebalanceDiskStmt extends DdlStmt implements NotFallbackInParser {
     private List<Backend> backends = Lists.newArrayList();
 
     public AdminCancelRebalanceDiskStmt(List<String> backends) throws UserException {

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.event.Event;
 import org.apache.doris.event.EventException;
 import org.apache.doris.event.EventListener;
@@ -177,6 +178,9 @@ public class MTMVService implements EventListener {
         if (!(event instanceof TableEvent)) {
             return;
         }
+        if (event instanceof DropPartitionEvent && ((DropPartitionEvent) event).isTempPartition()) {
+            return;
+        }
         TableEvent tableEvent = (TableEvent) event;
         LOG.info("processEvent, Event: {}", event);
         TableIf table;
@@ -194,12 +198,21 @@ public class MTMVService implements EventListener {
             try {
                 // check if mtmv should trigger by event
                 MTMV mtmv = (MTMV) MTMVUtil.getTable(baseTableInfo);
-                if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger().equals(RefreshTrigger.COMMIT)) {
+                if (canRefresh(mtmv, table)) {
                     jobManager.onCommit(mtmv);
                 }
             } catch (Exception e) {
                 throw new EventException(e);
             }
         }
+    }
+
+    private boolean canRefresh(MTMV mtmv, TableIf table)   {
+        if (mtmv.getExcludedTriggerTables().contains(table.getName())) {
+            LOG.info("skip refresh mtmv: {}, because exclude trigger table: {}",
+                    mtmv.getName(), table.getName());
+            return false;
+        }
+        return mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger().equals(RefreshTrigger.COMMIT);
     }
 }
