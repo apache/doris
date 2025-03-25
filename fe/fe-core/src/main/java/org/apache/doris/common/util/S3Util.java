@@ -44,27 +44,33 @@ import java.net.URI;
 import java.time.Duration;
 
 public class S3Util {
-
-    public static S3Client buildS3Client(URI endpoint, String region, CloudCredential credential,
-            boolean isUsePathStyle) {
-        AwsCredentialsProvider scp;
+    private static AwsCredentialsProvider getAwsCredencialsProvider(CloudCredential credential) {
+        //todo zhanglei
         AwsCredentials awsCredential;
+        AwsCredentialsProvider awsCredentialsProvider;
         if (!credential.isTemporary()) {
             awsCredential = AwsBasicCredentials.create(credential.getAccessKey(), credential.getSecretKey());
         } else {
             awsCredential = AwsSessionCredentials.create(credential.getAccessKey(), credential.getSecretKey(),
                         credential.getSessionToken());
         }
+
         if (!credential.isWhole()) {
-            scp = AwsCredentialsProviderChain.of(
+            awsCredentialsProvider = AwsCredentialsProviderChain.of(
                     SystemPropertyCredentialsProvider.create(),
                     EnvironmentVariableCredentialsProvider.create(),
                     WebIdentityTokenFileCredentialsProvider.create(),
                     ProfileCredentialsProvider.create(),
                     InstanceProfileCredentialsProvider.create());
         } else {
-            scp = StaticCredentialsProvider.create(awsCredential);
+            awsCredentialsProvider = StaticCredentialsProvider.create(awsCredential);
         }
+
+        return awsCredentialsProvider;
+    }
+
+    public static S3Client buildS3Client(URI endpoint, String region, CloudCredential credential,
+            boolean isUsePathStyle) {
         EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
                 .builder()
                 .baseDelay(Duration.ofSeconds(1))
@@ -86,7 +92,7 @@ public class S3Util {
         return S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.create())
                 .endpointOverride(endpoint)
-                .credentialsProvider(scp)
+                .credentialsProvider(getAwsCredencialsProvider(credential))
                 .region(Region.of(region))
                 .overrideConfiguration(clientConf)
                 // disable chunkedEncoding because of bos not supported
