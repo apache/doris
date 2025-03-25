@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -29,6 +30,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
@@ -36,17 +38,16 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -98,10 +99,10 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
     /**
      * validate
      */
-    public void validate(ConnectContext ctx) throws AnalysisException {
+    public void validate(ConnectContext ctx) throws UserException {
         // check access first
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLET");
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLETS");
         }
 
         dbTableName.analyze(ctx);
@@ -112,51 +113,55 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
         }
 
         if (whereClause != null) {
-            boolean valid = whereClause.accept(new DefaultExpressionVisitor<Boolean, Void>() {
-                @Override
-                public Boolean visitComparisonPredicate(ComparisonPredicate cp, Void context) {
-                    if (cp.left() instanceof UnboundSlot && cp.right() instanceof Literal) {
-                        String name = ((UnboundSlot) cp.left()).toSlot().getName().toLowerCase(Locale.ROOT);
-                        if (name.equals("version")) {
-                            if (cp.right() instanceof IntegerLikeLiteral) {
-                                version = ((IntegerLikeLiteral) cp.right()).getLongValue();
-                                return true;
+            List<Expression> andExprs = ExpressionUtils.extractConjunction(whereClause);
+            boolean valid = true;
+            for (Expression expr : andExprs) {
+                if (!(expr instanceof EqualTo)) {
+                    valid = false;
+                    break;
+                }
+                EqualTo equalTo = (EqualTo) expr;
+                if (equalTo.left().isConstant() && !equalTo.right().isConstant()) {
+                    equalTo = equalTo.commute();
+                }
+                Expression right = ExpressionUtils.analyzeAndFoldToLiteral(ctx, equalTo.right());
+                if (equalTo.left() instanceof UnboundSlot) {
+                    String name = ((UnboundSlot) equalTo.left()).toSlot().getName().toLowerCase(Locale.ROOT);
+                    switch (name) {
+                        case "version":
+                            if (right instanceof IntegerLikeLiteral) {
+                                version = ((IntegerLikeLiteral) right).getLongValue();
+                                continue;
                             }
-                        } else if (name.equals("backendid")) {
-                            if (cp.right() instanceof IntegerLikeLiteral) {
-                                backendId = ((IntegerLikeLiteral) cp.right()).getLongValue();
-                                return true;
+                            valid = false;
+                            break;
+                        case "backendid":
+                            if (right instanceof IntegerLikeLiteral) {
+                                backendId = ((IntegerLikeLiteral) right).getLongValue();
+                                continue;
                             }
-                        } else if (name.equals("state")) {
-                            if (cp.right() instanceof StringLikeLiteral) {
-                                String state = ((StringLikeLiteral) cp.right()).getValue();
+                            valid = false;
+                            break;
+                        case "state":
+                            if (right instanceof StringLikeLiteral) {
                                 try {
-                                    replicaState = Replica.ReplicaState.valueOf(state);
+                                    replicaState = Replica.ReplicaState.valueOf(((StringLikeLiteral) right).getValue());
+                                    continue;
                                 } catch (Exception e) {
-                                    return false;
                                 }
-                                return true;
                             }
-                        }
+                            valid = false;
+                            break;
+                        default:
+                            valid = false;
                     }
-                    return false;
                 }
-
-                @Override
-                public Boolean visit(Expression expr, Void context) {
-                    for (Expression child : expr.children()) {
-                        if (!child.accept(this, context)) {
-                            return false;
-                        }
-                    }
-                    return true;
-                }
-            }, null);
+            }
 
             if (!valid) {
                 throw new AnalysisException("Where clause should looks like: Version = \"version\","
-                        + " or state = \"NORMAL|ROLLUP|CLONE|DECOMMISSION\", or BackendId = 10000"
-                        + " or compound predicate with operator AND");
+                    + " or state = \"NORMAL|ROLLUP|CLONE|DECOMMISSION\", or BackendId = 10000"
+                    + " or compound predicate with operator AND");
             }
         }
 
@@ -271,7 +276,7 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TabletsProcDir.TITLE_NAMES) {
-            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+            builder.addColumn(new Column(title, ScalarType.createVarchar(128)));
         }
         return builder.build();
     }
@@ -279,5 +284,10 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowTabletsFromTableCommand(this, context);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }
