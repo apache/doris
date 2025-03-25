@@ -121,6 +121,11 @@ public class S3Properties extends BaseProperties {
         public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
         public static final String NEED_OVERRIDE_ENDPOINT = "AWS_NEED_OVERRIDE_ENDPOINT";
 
+        public static final String ROLE_ARN = "AWS_ROLE_ARN";
+        public static final String EXTERNAL_ID = "AWS_EXTERNAL_ID";
+        public static final String STS_REGION = "AWS_STS_REGION";
+        public static final String STS_ENDPOINT = "AWS_STS_ENDPOINT";
+
         public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
         public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, TOKEN,
                 ROOT_PATH, BUCKET, MAX_CONNECTIONS, REQUEST_TIMEOUT_MS, CONNECTION_TIMEOUT_MS);
