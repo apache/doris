@@ -972,15 +972,8 @@ void scan_snapshot_rowset(
         std::string& msg,
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* snapshot_rs_metas) {
     std::stringstream ss;
-
-    TabletIndexPB tablet_idx;
-    get_tablet_idx(code, msg, txn, instance_id, tablet_id, tablet_idx);
-    if (code != MetaServiceCode::OK) {
-        return;
-    }
-
-    SnapshotRowsetKeyInfo rs_key_info0 {instance_id, tablet_idx.tablet_id(), 0};
-    SnapshotRowsetKeyInfo rs_key_info1 {instance_id, tablet_idx.tablet_id() + 1, 0};
+    SnapshotRowsetKeyInfo rs_key_info0 {instance_id, tablet_id, 0};
+    SnapshotRowsetKeyInfo rs_key_info1 {instance_id, tablet_id + 1, 0};
     std::string snapshot_rs_key0;
     std::string snapshot_rs_key1;
     snapshot_rowset_key(rs_key_info0, &snapshot_rs_key0);
@@ -999,7 +992,7 @@ void scan_snapshot_rowset(
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             ss << "failed to get snapshot rs meta while committing,"
-               << " tablet_id=" << tablet_idx.tablet_id() << " err=" << err;
+               << " tablet_id=" << tablet_id << " err=" << err;
             msg = ss.str();
             LOG(WARNING) << msg;
             return;
@@ -1007,11 +1000,11 @@ void scan_snapshot_rowset(
         while (it->has_next()) {
             auto [k, v] = it->next();
             LOG(INFO) << "range_get snapshot_rs_key=" << hex(k)
-                      << " tablet_id=" << tablet_idx.tablet_id();
+                      << " tablet_id=" << tablet_id;
             snapshot_rs_metas->emplace_back();
             if (!snapshot_rs_metas->back().second.ParseFromArray(v.data(), v.size())) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                ss << "malformed snapshot rowset meta, tablet_id=" << tablet_idx.tablet_id()
+                ss << "malformed snapshot rowset meta, tablet_id=" << tablet_id
                    << " key=" << hex(k);
                 msg = ss.str();
                 LOG(WARNING) << msg;
@@ -1466,16 +1459,13 @@ void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* control
         return;
     }
 
-    // 5. update tablet snapshot
-    std::string to_save_val;
-    snapshot_pb.set_state(SnapshotPB::DROPPED);
-    snapshot_pb.SerializeToString(&to_save_val);
-    LOG_INFO("put tablet snapshot")
+    // 5. remove tablet snapshot
+    txn0->remove(key);
+    LOG_INFO("remove tablet snapshot")
             .tag("snapshot_tablet_key", hex(key))
             .tag("tablet_id", tablet_idx.tablet_id())
             .tag("is_restore", is_restore)
             .tag("state", snapshot_pb.state());
-    txn0->put(key, to_save_val);
     err = txn0->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -1549,85 +1539,11 @@ void MetaServiceImpl::release_snapshot(::google::protobuf::RpcController* contro
         return;
     }
 
-    // 2. get rs snapshots
-    std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> snapshot_rs_metas;
-    scan_snapshot_rowset(txn0.get(), instance_id, request->tablet_id(), code, msg,
-                         &snapshot_rs_metas);
-    if (code != MetaServiceCode::OK) {
-        LOG_WARNING("scan snapshot rowset failed")
-                .tag("tablet_id", request->tablet_id())
-                .tag("msg", msg)
-                .tag("code", code);
-        return;
-    }
-
-    bool is_restore = snapshot_pb.is_restore();
-    if (is_restore) {
-        // 3. convert snapshot rs to recycle rs
-        int32_t max_batch_size = config::max_snapshot_rowsets_per_batch;
-        for (size_t i = 0; i < snapshot_rs_metas.size(); i += max_batch_size) {
-            size_t end = (i + max_batch_size) > snapshot_rs_metas.size() ? snapshot_rs_metas.size()
-                                                                         : i + max_batch_size;
-            std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> sub_snapshot_rs_metas(
-                    snapshot_rs_metas.begin() + i, snapshot_rs_metas.begin() + end);
-            std::unique_ptr<Transaction> txn;
-            TxnErrorCode err = txn_kv_->create_txn(&txn);
-            if (err != TxnErrorCode::TXN_OK) {
-                code = cast_as<ErrCategory::CREATE>(err);
-                msg = "failed to init txn";
-                return;
-            }
-
-            // 3.1 put recycle rs metas
-            for (auto& [_, rowset_meta] : sub_snapshot_rs_metas) {
-                std::string recycle_rs_key;
-                std::string recycle_rs_val;
-                RecycleRowsetKeyInfo recycle_rs_key_info {instance_id, tablet_idx.tablet_id(),
-                                                          rowset_meta.rowset_id_v2()};
-                recycle_rowset_key(recycle_rs_key_info, &recycle_rs_key);
-                RecycleRowsetPB recycle_rowset;
-                recycle_rowset.set_creation_time(::time(nullptr));
-                recycle_rowset.mutable_rowset_meta()->CopyFrom(rowset_meta);
-                recycle_rowset.set_type(RecycleRowsetPB::DROP);
-                if (!recycle_rowset.SerializeToString(&recycle_rs_val)) {
-                    code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-                    msg = "failed to serialize recycle rowset meta";
-                    return;
-                }
-                txn->put(recycle_rs_key, recycle_rs_val);
-                LOG_INFO("put recycle rowset key")
-                        .tag("rowset_key", hex(recycle_rs_key))
-                        .tag("tablet_id", tablet_idx.tablet_id())
-                        .tag("rowset_id", rowset_meta.rowset_id_v2())
-                        .tag("rowset_size", recycle_rs_key.size() + recycle_rs_val.size())
-                        .tag("rowset_meta", recycle_rowset.DebugString());
-            }
-
-            // 3.2 remove snapshot rs keys
-            for (auto& [k, _] : sub_snapshot_rs_metas) {
-                txn0->remove(k);
-            }
-
-            err = txn->commit();
-            if (err != TxnErrorCode::TXN_OK) {
-                code = cast_as<ErrCategory::COMMIT>(err);
-                ss << "failed to commit rowset snapshot,"
-                   << " tablet_id=" << tablet_idx.tablet_id() << " err=" << err;
-                msg = ss.str();
-                return;
-            }
-        }
-    } else {
-        // backup not implemented
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "not implemented";
-        return;
-    }
-
-    // 4. update tablet snapshot
+    // 2. update tablet snapshot
     std::string to_save_val;
     snapshot_pb.set_state(SnapshotPB::DROPPED);
     snapshot_pb.SerializeToString(&to_save_val);
+    bool is_restore = snapshot_pb.is_restore();
     LOG_INFO("put tablet snapshot")
             .tag("snapshot_tablet_key", hex(key))
             .tag("tablet_id", tablet_idx.tablet_id())

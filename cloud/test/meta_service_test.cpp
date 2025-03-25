@@ -9216,11 +9216,8 @@ TEST(MetaServiceTest, SnapshotRequest) {
         ASSERT_EQ(txn->get(bitmap_key, &val), TxnErrorCode::TXN_OK);
         ASSERT_EQ(val, "test_bitmap");
 
-        // ths snapshot key should be dropped, snapshot rowset key should not be found
-        ASSERT_EQ(txn->get(snapshot_key, &val), TxnErrorCode::TXN_OK);
-        SnapshotPB snapshot_pb;
-        ASSERT_TRUE(snapshot_pb.ParseFromString(val));
-        ASSERT_EQ(snapshot_pb.state(), SnapshotPB::DROPPED);
+        // ths snapshot key should be removed, snapshot rowset key should not be found
+        ASSERT_EQ(txn->get(snapshot_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> snapshot_rs_metas;
         MetaServiceCode code;
         std::string msg;
@@ -9289,14 +9286,11 @@ TEST(MetaServiceTest, SnapshotRequest) {
             ASSERT_EQ(saved_rs_meta.end_version(), ver);
         }
 
-        // ths snapshot key should be dropped, snapshot rowset key should not be found
+        // ths snapshot key should be removed, snapshot rowset key should not be found
         std::string snapshot_key = snapshot_tablet_key({instance_id, tablet_id});
         std::string val;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-        ASSERT_EQ(txn->get(snapshot_key, &val), TxnErrorCode::TXN_OK);
-        SnapshotPB snapshot_pb;
-        ASSERT_TRUE(snapshot_pb.ParseFromString(val));
-        ASSERT_EQ(snapshot_pb.state(), SnapshotPB::DROPPED);
+        ASSERT_EQ(txn->get(snapshot_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> snapshot_rs_metas;
         MetaServiceCode code;
         std::string msg;
@@ -9367,16 +9361,9 @@ TEST(MetaServiceTest, SnapshotRequest) {
         req.set_tablet_id(tablet_id);
         meta_service->release_snapshot(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
-        std::string recycle_rs_key =
-                recycle_rowset_key({instance_id, tablet_id, rs_meta->rowset_id_v2()});
-        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-        ASSERT_EQ(txn->get(recycle_rs_key, &val), TxnErrorCode::TXN_OK);
-        RecycleRowsetPB recycle_rowset;
-        ASSERT_TRUE(recycle_rowset.ParseFromString(val));
-        ASSERT_EQ(recycle_rowset.type(), RecycleRowsetPB::DROP);
-        ASSERT_EQ(recycle_rowset.rowset_meta().rowset_id_v2(), rs_meta->rowset_id_v2());
 
-        // ths snapshot key should be dropped, snapshot rowset key should not be found
+        // ths snapshot key should be in dropped state
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         ASSERT_EQ(txn->get(snapshot_key, &val), TxnErrorCode::TXN_OK);
         SnapshotPB snapshot_pb;
         ASSERT_TRUE(snapshot_pb.ParseFromString(val));
@@ -9386,7 +9373,7 @@ TEST(MetaServiceTest, SnapshotRequest) {
         std::string msg;
         scan_snapshot_rowset(txn.get(), instance_id, tablet_id, code, msg, &snapshot_rs_metas);
         ASSERT_EQ(code, MetaServiceCode::OK) << msg;
-        ASSERT_EQ(snapshot_rs_metas.size(), 0);
+        ASSERT_EQ(snapshot_rs_metas.size(), 1);
         req.Clear();
         res.Clear();
     }

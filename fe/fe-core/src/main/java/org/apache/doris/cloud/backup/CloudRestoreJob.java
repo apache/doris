@@ -217,6 +217,12 @@ public class CloudRestoreJob extends RestoreJob {
 
     @Override
     public void waitingAllReplicasCreated() {
+        try {
+            handleMetaObject(MetaSeriviceOperation.COMMIT);
+        } catch (Exception e) {
+            status = new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+            return;
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("finished to create all restored replicas. {}", this);
         }
@@ -284,21 +290,6 @@ public class CloudRestoreJob extends RestoreJob {
 
     public void downloadLocalSnapshots() {
         status = new Status(Status.ErrCode.COMMON_ERROR, "currently not support cloud mode");
-    }
-
-    protected void waitingAllTabletsCommitted() {
-        if (unfinishedSignatureToId.isEmpty()) {
-            LOG.info("finished to commit all tablet. {}", this);
-            try {
-                handleMetaObject(MetaSeriviceOperation.COMMIT);
-            } catch (Exception e) {
-                status = new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
-                return;
-            }
-            status = allTabletCommitted(false /* not replay */);
-            return;
-        }
-        LOG.info("waiting {} tablets to commit. {}", unfinishedSignatureToId.size(), this);
     }
 
     @Override
