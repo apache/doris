@@ -455,7 +455,7 @@ Status PipelineTask::execute(bool* done) {
 
             if (workload_group && _state->get_query_ctx()->enable_reserve_memory() &&
                 reserve_size > 0) {
-                auto st = thread_context()->try_reserve_memory(reserve_size);
+                auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(reserve_size);
 
                 COUNTER_UPDATE(_memory_reserve_times, 1);
                 if (!st.ok() && !_state->enable_force_spill()) {
@@ -509,7 +509,8 @@ Status PipelineTask::execute(bool* done) {
                 !(wake_up_early() || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
                 status = sink_reserve_size != 0
-                                 ? thread_context()->try_reserve_memory(sink_reserve_size)
+                                 ? thread_context()->thread_mem_tracker_mgr->try_reserve(
+                                           sink_reserve_size)
                                  : Status::OK();
 
                 auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);

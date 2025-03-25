@@ -700,6 +700,9 @@ DECLARE_Int32(load_process_soft_mem_limit_percent);
 // memtable memory limiter will do nothing.
 DECLARE_Int32(load_process_safe_mem_permit_percent);
 
+// If there are a lot of memtable memory, then wait them flush finished.
+DECLARE_mDouble(load_max_wg_active_memtable_percent);
+
 // result buffer cancelled time (unit: second)
 DECLARE_mInt32(result_buffer_cancelled_interval_time);
 

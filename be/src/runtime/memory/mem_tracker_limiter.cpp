@@ -397,6 +397,8 @@ std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
 int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem,
                                                  const std::string& cancel_reason,
                                                  RuntimeProfile* profile, Type type) {
+    // should skip Type::LOAD `Memtable#`.
+    // TODO, changed to iterate over all query's `ResourceContext` instead of iterating over `MemTracker`.
     return free_top_memory_query(
             min_free_mem, type, ExecEnv::GetInstance()->mem_tracker_limiter_pool,
             [&cancel_reason, &type](int64_t mem_consumption, const std::string& label) {
@@ -479,6 +481,7 @@ int64_t MemTrackerLimiter::free_top_memory_query(
     COUNTER_UPDATE(seek_tasks_counter, seek_num);
     COUNTER_UPDATE(previously_canceling_tasks_counter, canceling_task.size());
 
+    // TODO, print resource_context->task_controller.debug_string()
     LOG(INFO) << log_prefix << "seek finished, seek " << seek_num << " tasks. among them, "
               << min_pq.size() << " tasks will be canceled, "
               << PrettyPrinter::print_bytes(prepare_free_mem) << " memory size prepare free; "
@@ -494,6 +497,7 @@ int64_t MemTrackerLimiter::free_top_memory_query(
                 min_pq.pop();
                 continue;
             }
+            // TODO, use resource_context->task_controller.cancel()
             ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
                     cancelled_queryid, Status::MemoryLimitExceeded(cancel_msg(
                                                min_pq.top().first, min_pq.top().second)));

@@ -148,7 +148,7 @@ Status FlushToken::_try_reserve_memory(const std::shared_ptr<ResourceContext>& r
     Status st;
     do {
         // only try to reserve process memory
-        st = thread_context->try_reserve_process_memory(size);
+        st = thread_context->thread_mem_tracker_mgr->try_reserve(size, true);
         if (st.ok()) {
             memtable_flush_executor->inc_flushing_task();
             break;
