@@ -532,6 +532,11 @@ JINDOFS_NAME=jindofs-6.3.4-libs.tar.gz
 JINDOFS_SOURCE=jindofs-6.3.4-libs
 JINDOFS_MD5SUM="75e4869a3f179cb1d8c4c440ae92a356"
 
+# pugixml
+PUGIXML_DOWNLOAD="https://github.com/zeux/pugixml/releases/download/v1.15/pugixml-1.15.tar.gz"
+PUGIXML_NAME=pugixml-1.15.tar.gz
+PUGIXML_SOURCE=pugixml-1.15
+PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -612,6 +617,7 @@ export TP_ARCHIVES=(
     'DRAGONBOX'
     'ICU'
     'JINDOFS'
+    'PUGIXML'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
