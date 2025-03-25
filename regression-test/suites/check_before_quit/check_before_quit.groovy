@@ -243,6 +243,7 @@ suite("check_before_quit", "nonConcurrent,p0") {
     logger.info("show all databases: ${allDataBases}")
 
     def num = allDataBases.size()
+    def failureList = []
 
     for (int i = 0; i < num; i++) {
         def db = allDataBases[i][0]
@@ -255,11 +256,20 @@ suite("check_before_quit", "nonConcurrent,p0") {
             def tbl = allTables[j][0]
             def createTableSql = ""
             try {
-                createTableSql = sql "show create table ${db}.${tbl}"
+                createTableSql = sql "show create table ${tbl}"
                 if (createTableSql[0][1].contains("CREATE TABLE")) {
-                    sql " ALTER TABLE ${db}.${tbl} SET (\"light_schema_change\" = \"true\") "
+                    try {
+                        sql " ALTER TABLE ${tbl} SET (\"light_schema_change\" = \"true\") "
+                    } catch (Exception alterEx) {
+                        logger.warn("Failed to alter table ${tbl} to set light_schema_change: ${alterEx.getMessage()}")
+                        failureList << [
+                            operation: "ALTER TABLE",
+                            target: "${tbl}", 
+                            error: alterEx.getMessage()
+                        ]
+                    }
                 }
-                createTableSql = sql "show create table ${db}.${tbl}"
+                createTableSql = sql "show create table ${tbl}"
                 logger.info("create table sql: ${createTableSql}")
             } catch (Exception e) {
                 if (e.getMessage().contains("not support async materialized view")) {
@@ -270,28 +280,84 @@ suite("check_before_quit", "nonConcurrent,p0") {
                             continue
                         } else {
                             logger.info(e2.getMessage())
-                            throw e2
+                            failureList << [
+                                operation: "SHOW CREATE MATERIALIZED VIEW", 
+                                target: "${tbl}", 
+                                error: e2.getMessage()
+                            ]
+                            continue
                         }
                     }
                     logger.info("create materialized view sql: ${createTableSql}")
+                } else {
+                    logger.warn("Failed to show create table ${tbl}: ${e.getMessage()}")
+                    failureList << [
+                        operation: "SHOW CREATE TABLE",
+                        target: "${tbl}", 
+                        error: e.getMessage()
+                    ]
+                    continue
                 }
             }
 
-            if (createTableSql[0][1].contains("CREATE VIEW")) {
-                sql "drop view if exists ${tbl}"
-            } else if (createTableSql[0][1].contains("CREATE MATERIALIZED VIEW")) {
-                sql "drop materialized view if exists ${tbl}"
-            } else {
-                sql "drop table if exists ${tbl}"
-                // only re create table, because the table which view depends may be dropped,
-                // so recreate view may fail
-                sql(createTableSql[0][1])
-                def createTableSqlResult = sql "show create table ${tbl}"
-                logger.info("target: ${createTableSqlResult[0][1]}, origin: ${createTableSql[0][1]}")
+            try {
+                if (createTableSql[0][1].contains("CREATE VIEW")) {
+                    sql "drop view if exists ${tbl}"
+                } else if (createTableSql[0][1].contains("CREATE MATERIALIZED VIEW")) {
+                    sql "drop materialized view if exists ${tbl}"
+                } else {
+                    sql "drop table if exists ${tbl}"
+                    // only re create table, because the table which view depends may be dropped,
+                    // so recreate view may fail
+                    try {
+                        sql(createTableSql[0][1])
+                        def createTableSqlResult = sql "show create table ${tbl}"
+                        logger.info("target: ${createTableSqlResult[0][1]}, origin: ${createTableSql[0][1]}")
 
-                assertEquals(createTableSqlResult[0][1].trim(), createTableSql[0][1].trim())
+                        if (createTableSqlResult[0][1].trim() != createTableSql[0][1].trim()) {
+                            failureList << [
+                                operation: "CREATE TABLE", 
+                                target: "${tbl}", 
+                                expected: createTableSql[0][1].trim(),
+                                actual: createTableSqlResult[0][1].trim()
+                            ]
+                        }
+                    } catch (Exception recreateEx) {
+                        logger.warn("Failed to recreate table ${tbl}: ${recreateEx.getMessage()}")
+                        failureList << [
+                            operation: "RECREATE TABLE", 
+                            target: "${tbl}", 
+                            sql: createTableSql[0][1],
+                            error: recreateEx.getMessage()
+                        ]
+                    }
+                }
+            } catch (Exception dropEx) {
+                logger.warn("Failed during drop operation for ${tbl}: ${dropEx.getMessage()}")
+                failureList << [
+                    operation: "DROP", 
+                    target: "${tbl}", 
+                    error: dropEx.getMessage()
+                ]
             }
         }
+    }
+
+    if (failureList.size() > 0) {
+        logger.error("Total failures: ${failureList.size()}")
+        failureList.eachWithIndex { failure, idx ->
+            logger.error("Failure #${idx + 1}:")
+            failure.each { key, value ->
+                if (key == "expected" || key == "actual" || key == "sql") {
+                    logger.error("  ${key}:\n${value}")
+                } else {
+                    logger.error("  ${key}: ${value}")
+                }
+            }
+        }
+        fail("Found ${failureList.size()} failures during database recreation checks")
+    } else {
+        clear = true
     }
 
     assertTrue(clear)
