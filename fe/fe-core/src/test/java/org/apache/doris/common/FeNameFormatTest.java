@@ -23,6 +23,7 @@ import com.google.common.collect.Lists;
 import org.apache.ivy.util.StringUtils;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.List;
 
 public class FeNameFormatTest {
@@ -43,6 +44,7 @@ public class FeNameFormatTest {
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkTableName(largeTblName));
         // check table name use correct regex, not begin with '-'
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkTableName("-" + tblName));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkTableName("a:b"));
     }
 
     @Test
@@ -92,22 +94,32 @@ public class FeNameFormatTest {
                 "げんご"
         );
 
+        test(FeNameFormat::checkColumnName, alwaysValid, alwaysInvalid, unicodeValid);
+    }
+
+    @FunctionalInterface
+    public interface NameValidator {
+        void accept(String name) throws AnalysisException;
+    }
+
+    private void test(NameValidator validator, List<String> alwaysValid, List<String> alwaysInvalid,
+            List<String> unicodeValid) {
         boolean defaultUnicode = VariableMgr.getDefaultSessionVariable().enableUnicodeNameSupport;
         List<Boolean> enableUnicode = Lists.newArrayList(false, true);
         try {
             for (Boolean unicode : enableUnicode) {
                 VariableMgr.getDefaultSessionVariable().setEnableUnicodeNameSupport(unicode);
                 for (String s : alwaysValid) {
-                    ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName(s));
+                    ExceptionChecker.expectThrowsNoException(() -> validator.accept(s));
                 }
                 for (String s : alwaysInvalid) {
-                    ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName(s));
+                    ExceptionChecker.expectThrows(AnalysisException.class, () -> validator.accept(s));
                 }
                 for (String s : unicodeValid) {
                     if (unicode) {
-                        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkColumnName(s));
+                        ExceptionChecker.expectThrowsNoException(() -> validator.accept(s));
                     } else {
-                        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName(s));
+                        ExceptionChecker.expectThrows(AnalysisException.class, () -> validator.accept(s));
                     }
                 }
             }
@@ -118,9 +130,49 @@ public class FeNameFormatTest {
 
     @Test
     void testUserName() {
-        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkUserName("a.b"));
-        // check user name use correct regex, not begin with '.'
-        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkUserName(".a.b"));
+        List<String> alwaysValid = Arrays.asList(
+                "a",
+                "abc123",
+                "A-1_b.c",
+                "x.y-z_123",
+                "test",
+                "a.b-c_d",
+                "Z",
+                "a-",
+                "a_",
+                "a."
+        );
+        List<String> alwaysInvalid = Arrays.asList(
+                "1abc",      // starts with digit
+                "@test",     // contains invalid character @
+                "a b",       // contains space
+                "",          // empty string
+                "-abc",      // starts with hyphen
+                ".abc",      // starts with dot
+                "_abc",      // starts with underscore
+                "abc!",      // contains invalid character !
+                "abc\n",     // contains newline
+                "9",         // digit only
+                " ",         // whitespace only
+                "a\tb",      // contains tab
+                "a\nb",      // contains newline
+                "a*",        // contains asterisk
+                "a(",         // contains parenthesis
+                "a:b",        // contains colon
+                " ab"         // contains space
+        );
+        List<String> unicodeValid = Lists.newArrayList(
+                "éclair",       // starts with accented letter
+                "über",         // starts with umlaut
+                "北京abc",       // starts with Chinese characters
+                "東京123",       // starts with Japanese kanji
+                "русский",      // starts with Cyrillic letters
+                "αβγ.123",      // starts with Greek letters
+                "München",      // contains umlaut
+                "Beyoncé",      // contains accented letter
+                "naïve"       // contains diacritic
+        );
+        test(FeNameFormat::checkUserName, alwaysValid, alwaysInvalid, unicodeValid);
     }
 
     @Test
@@ -128,8 +180,11 @@ public class FeNameFormatTest {
         String commonName = "test_sys_partition_list_basic_test_list_partition_bigint_tb-uniq";
 
         // check common name use correct regex, length 65
-        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkCommonName("fakeType", commonName + "t"));
-        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkCommonName("fakeType", "_commonName"));
+        ExceptionChecker.expectThrows(AnalysisException.class,
+                () -> FeNameFormat.checkCommonName("fakeType", commonName + "t"));
+        ExceptionChecker.expectThrows(AnalysisException.class,
+                () -> FeNameFormat.checkCommonName("fakeType", "_commonName"));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkCommonName("fakeType", "a:b"));
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkCommonName("fakeType", "common-Name"));
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkCommonName("fakeType", "commonName-"));
     }
