@@ -1183,8 +1183,7 @@ public class RestoreJob extends AbstractJob {
                                         localOlapTbl.getName());
                             }
                         }
-                        tabletBases.put(remoteTablet.getId(),
-                                new TabletRef(localTablet.getId(), schemaHash, storageMedium));
+                        tabletBases.put(remoteTablet.getId(), new TabletRef(localTablet.getId(), schemaHash));
                     }
                 }
             }
@@ -1332,8 +1331,11 @@ public class RestoreJob extends AbstractJob {
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
                 TabletRef baseTabletRef = tabletBases == null ? null : tabletBases.get(restoreTablet.getId());
                 // All restored replicas will be saved to HDD by default.
-                TStorageMedium storageMedium = baseTabletRef == null
-                        ? TStorageMedium.HDD : baseTabletRef.storageMedium;
+                TStorageMedium storageMedium = TStorageMedium.HDD;
+                if (tabletBases != null) {
+                    // ensure this tablet is bound to the same backend disk as the origin table's tablet.
+                    storageMedium = localTbl.getPartitionInfo().getDataProperty(restorePart.getId()).getStorageMedium();
+                }
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                         restoredIdx.getId(), indexMeta.getSchemaHash(), storageMedium);
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
@@ -2775,12 +2777,10 @@ public class RestoreJob extends AbstractJob {
     private static class TabletRef {
         public long tabletId;
         public int schemaHash;
-        public TStorageMedium storageMedium;
 
-        TabletRef(long tabletId, int schemaHash, TStorageMedium storageMedium) {
+        TabletRef(long tabletId, int schemaHash) {
             this.tabletId = tabletId;
             this.schemaHash = schemaHash;
-            this.storageMedium = storageMedium;
         }
     }
 }
