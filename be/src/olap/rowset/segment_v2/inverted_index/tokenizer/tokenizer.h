@@ -17,31 +17,37 @@
 
 #pragma once
 
-#include <unicode/utext.h>
-
 #include "CLucene.h" // IWYU pragma: keep
 #include "CLucene/analysis/AnalysisHeader.h"
+#include "common/exception.h"
 
 using namespace lucene::analysis;
 
-namespace doris::segment_v2 {
+using TokenStreamPtr = std::shared_ptr<TokenStream>;
+using TokenPtr = std::shared_ptr<Token>;
 
-class BasicTokenizer : public Tokenizer {
+namespace doris::segment_v2::inverted_index {
+
+class DorisTokenizer : public Tokenizer {
 public:
-    BasicTokenizer();
-    BasicTokenizer(bool lowercase, bool ownReader);
-    ~BasicTokenizer() override = default;
+    DorisTokenizer() = default;
+    ~DorisTokenizer() override = default;
 
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
+    void set_reader(CL_NS(util)::Reader* in) {
+        if (in == nullptr) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "reader must not be null");
+        }
+        _in_pending = in;
+    }
 
-    void cut();
+    using Tokenizer::reset;
+    // Only use the parameterless reset method
+    void reset() override { _in = _in_pending; };
 
-private:
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
+protected:
+    CL_NS(util)::Reader* _in = nullptr;
+    CL_NS(util)::Reader* _in_pending = nullptr;
 };
+using TokenizerPtr = std::shared_ptr<DorisTokenizer>;
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

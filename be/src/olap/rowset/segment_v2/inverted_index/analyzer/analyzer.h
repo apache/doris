@@ -51,4 +51,5 @@ public:
             InvertedIndexQueryType query_type,
             const std::map<std::string, std::string>& properties);
 };
+
 } // namespace doris::segment_v2::inverted_index

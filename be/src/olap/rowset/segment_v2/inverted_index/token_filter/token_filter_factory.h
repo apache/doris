@@ -17,31 +17,19 @@
 
 #pragma once
 
-#include <unicode/utext.h>
+#include "olap/rowset/segment_v2/inverted_index/setting.h"
+#include "olap/rowset/segment_v2/inverted_index/token_filter/token_filter.h"
 
-#include "CLucene.h" // IWYU pragma: keep
-#include "CLucene/analysis/AnalysisHeader.h"
+namespace doris::segment_v2::inverted_index {
 
-using namespace lucene::analysis;
-
-namespace doris::segment_v2 {
-
-class BasicTokenizer : public Tokenizer {
+class TokenFilterFactory {
 public:
-    BasicTokenizer();
-    BasicTokenizer(bool lowercase, bool ownReader);
-    ~BasicTokenizer() override = default;
+    TokenFilterFactory() = default;
+    virtual ~TokenFilterFactory() = default;
 
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
-
-    void cut();
-
-private:
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
+    virtual void initialize(const Settings& args) = 0;
+    virtual TokenFilterPtr create(const TokenStreamPtr& in) = 0;
 };
+using TokenFilterFactoryPtr = std::shared_ptr<TokenFilterFactory>;
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

@@ -17,31 +17,31 @@
 
 #pragma once
 
-#include <unicode/utext.h>
+#include "token_filter.h"
 
-#include "CLucene.h" // IWYU pragma: keep
-#include "CLucene/analysis/AnalysisHeader.h"
+namespace doris::segment_v2::inverted_index {
 
-using namespace lucene::analysis;
-
-namespace doris::segment_v2 {
-
-class BasicTokenizer : public Tokenizer {
+class LowerCaseFilter : public DorisTokenFilter {
 public:
-    BasicTokenizer();
-    BasicTokenizer(bool lowercase, bool ownReader);
-    ~BasicTokenizer() override = default;
+    LowerCaseFilter(const TokenStreamPtr& in) : DorisTokenFilter(in) {}
+    ~LowerCaseFilter() override = default;
 
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
+    Token* next(Token* t) override {
+        if (_in->next(t) == nullptr) {
+            return nullptr;
+        }
 
-    void cut();
+        std::string_view term(t->termBuffer<char>(), t->termLength<char>());
+        std::transform(term.begin(), term.end(), const_cast<char*>(term.data()), [](char c) {
+            if (static_cast<uint8_t>(c) < 0x80) {
+                return to_lower(c);
+            }
+            return c;
+        });
 
-private:
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
+        return t;
+    }
 };
+using LowerCaseFilterPtr = std::shared_ptr<LowerCaseFilter>;
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index
