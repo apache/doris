@@ -108,18 +108,12 @@ public:
         }
         std::string segment_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 _context.segment_path(segment_id))};
-        if (_context.compaction_type == ReaderType::READER_BASE_COMPACTION &&
-            !config::inverted_index_ram_dir_enable_when_compaction) {
-            *index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                    _context.fs(), segment_prefix, _context.rowset_id.to_string(), segment_id,
-                    _context.tablet_schema->get_inverted_index_storage_format(),
-                    std::move(idx_file_v2_ptr), false);
-            return Status::OK();
-        }
+        bool can_use_ram_dir = _context.compaction_type == ReaderType::READER_BASE_COMPACTION &&
+                               !config::inverted_index_ram_dir_enable_when_compaction;
         *index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                 _context.fs(), segment_prefix, _context.rowset_id.to_string(), segment_id,
                 _context.tablet_schema->get_inverted_index_storage_format(),
-                std::move(idx_file_v2_ptr));
+                std::move(idx_file_v2_ptr), can_use_ram_dir);
         return Status::OK();
     }
 
