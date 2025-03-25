@@ -21,13 +21,11 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
 #include <memory>
-#include <ostream>
 
 #include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -421,14 +419,9 @@ public:
     static constexpr bool result_nullable = result_is_nullable;
     void reset() {
         _data_value.reset();
-        _default_value.reset();
         _is_inited = false;
+        _offset_value = 0;
     }
-
-    bool default_is_null() { return _default_value.is_null(); }
-
-    // here _ptr pointer default column from third
-    void set_value_from_default() { this->_data_value = _default_value; }
 
     void insert_result_into(IColumn& to) const {
         if constexpr (result_is_nullable) {
@@ -446,8 +439,6 @@ public:
         }
     }
 
-    void set_is_null() { this->_data_value.reset(); }
-
     void set_value(const IColumn** columns, size_t pos) {
         if constexpr (arg_is_nullable) {
             if (assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(columns[0])
@@ -461,40 +452,47 @@ public:
         _data_value.set_value(columns[0], pos);
     }
 
-    void check_default(const IColumn* column) {
-        if (!_is_inited) {
-            if (is_column_nullable(*column)) {
-                const auto* nullable_column =
-                        assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(column);
-                if (nullable_column->is_null_at(0)) {
-                    _default_value.reset();
-                } else {
-                    _default_value.set_value(nullable_column->get_nested_column_ptr().get(), 0);
-                }
+    void set_value_from_default(const IColumn* column, size_t pos) {
+        DCHECK_GE(pos, 0);
+        if (is_column_nullable(*column)) {
+            const auto* nullable_column =
+                    assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(column);
+            if (nullable_column->is_null_at(pos)) {
+                this->_data_value.reset();
             } else {
-                _default_value.set_value(column, 0);
+                this->_data_value.set_value(nullable_column->get_nested_column_ptr().get(), pos);
             }
+        } else {
+            this->_data_value.set_value(column, pos);
+        }
+    }
+
+    void set_offset_value(const IColumn* column) {
+        if (!_is_inited) {
+            const auto* column_number = assert_cast<const ColumnInt64*>(column);
+            _offset_value = column_number->get_data()[0];
             _is_inited = true;
         }
     }
 
+    int64_t get_offset_value() const { return _offset_value; }
+
 private:
     BaseValue<ColVecType, arg_is_nullable> _data_value;
-    BaseValue<ColVecType, arg_is_nullable> _default_value;
     bool _is_inited = false;
+    int64_t _offset_value = 0;
 };
 
 template <typename Data, bool = false>
 struct WindowFunctionLeadImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
-        this->check_default(columns[2]);
         if (frame_end > partition_end) { //output default value, win end is under partition
-            if (this->default_is_null()) {
-                this->set_is_null();
-            } else {
-                this->set_value_from_default();
-            }
+            this->set_offset_value(columns[1]);
+            // eg: lead(column, 10, default_value), column size maybe 3 rows
+            // offset value 10 is from second argument, pos: 11 is calculated as frame_end
+            auto pos = frame_end - 1 - this->get_offset_value();
+            this->set_value_from_default(columns[2], pos);
             return;
         }
         this->set_value(columns, frame_end - 1);
@@ -507,13 +505,11 @@ template <typename Data, bool = false>
 struct WindowFunctionLagImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
-        this->check_default(columns[2]);
+        // window start is beyond partition
         if (partition_start >= frame_end) { //[unbound preceding(0), offset preceding(-123)]
-            if (this->default_is_null()) {  // win start is beyond partition
-                this->set_is_null();
-            } else {
-                this->set_value_from_default();
-            }
+            this->set_offset_value(columns[1]);
+            auto pos = frame_end - 1 + this->get_offset_value();
+            this->set_value_from_default(columns[2], pos);
             return;
         }
         this->set_value(columns, frame_end - 1);

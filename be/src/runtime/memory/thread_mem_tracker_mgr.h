@@ -82,7 +82,8 @@ public:
     void consume(int64_t size);
     void flush_untracked_mem();
 
-    doris::Status try_reserve(int64_t size, bool only_check_process_memory);
+    // if only_check_process_memory == true, still reserve query, wg, process memory, only check process memory.
+    doris::Status try_reserve(int64_t size, bool only_check_process_memory = false);
 
     void shrink_reserved();
 
