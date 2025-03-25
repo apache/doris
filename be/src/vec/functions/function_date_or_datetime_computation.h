@@ -1018,17 +1018,18 @@ public:
                 unpack_if_const(block.get_by_position(arguments[1]).column);
         const auto& date_col = *assert_cast<const ColumnDateV2*>(left_col.get());
         const auto& week_col = *assert_cast<const ColumnString*>(right_col.get());
+        Status status;
         if (left_const && right_const) {
-            RETURN_IF_ERROR(execute_vector<true, true>(input_rows_count, date_col, week_col, *res));
+            status = execute_vector<true, true>(input_rows_count, date_col, week_col, *res);
         } else if (left_const) {
-            RETURN_IF_ERROR(
-                    execute_vector<true, false>(input_rows_count, date_col, week_col, *res));
+            status = execute_vector<true, false>(input_rows_count, date_col, week_col, *res);
         } else if (right_const) {
-            RETURN_IF_ERROR(
-                    execute_vector<false, true>(input_rows_count, date_col, week_col, *res));
+            status = execute_vector<false, true>(input_rows_count, date_col, week_col, *res);
         } else {
-            RETURN_IF_ERROR(
-                    execute_vector<false, false>(input_rows_count, date_col, week_col, *res));
+            status = execute_vector<false, false>(input_rows_count, date_col, week_col, *res);
+        }
+        if (!status.ok()) {
+            return status;
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
