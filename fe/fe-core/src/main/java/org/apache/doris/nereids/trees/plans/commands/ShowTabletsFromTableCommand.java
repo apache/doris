@@ -148,6 +148,7 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
                                     replicaState = Replica.ReplicaState.valueOf(((StringLikeLiteral) right).getValue());
                                     continue;
                                 } catch (Exception e) {
+                                    replicaState = null;
                                 }
                             }
                             valid = false;
