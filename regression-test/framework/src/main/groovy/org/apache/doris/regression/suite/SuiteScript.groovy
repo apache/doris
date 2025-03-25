@@ -59,7 +59,7 @@ abstract class SuiteScript extends Script {
             String path = suiteRoot.relativePath(scriptFile.parentFile)
             if (path.contains("nonConcurrent")) {
                 def a = group.split(",")
-                a.add(nonConcurrent)
+                a.add("nonConcurrent")
                 return a.join(",")
             }
         }
