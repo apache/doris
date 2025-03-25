@@ -71,7 +71,6 @@ std::atomic<int64_t> MemInfo::_s_soft_mem_limit = std::numeric_limits<int64_t>::
 std::atomic<int64_t> MemInfo::_s_allocator_cache_mem = 0;
 std::atomic<int64_t> MemInfo::_s_allocator_metadata_mem = 0;
 std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem = std::numeric_limits<int64_t>::min();
-std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem_limit = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_virtual_memory_used = 0;
 
 std::atomic<int64_t> MemInfo::_s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
@@ -86,8 +85,11 @@ int64_t MemInfo::_s_sys_mem_available_warning_water_mark = std::numeric_limits<i
 std::atomic<int64_t> MemInfo::_s_process_minor_gc_size = -1;
 std::atomic<int64_t> MemInfo::_s_process_full_gc_size = -1;
 std::mutex MemInfo::je_purge_dirty_pages_lock;
-std::condition_variable MemInfo::je_purge_dirty_pages_cv;
 std::atomic<bool> MemInfo::je_purge_dirty_pages_notify {false};
+std::mutex MemInfo::je_reset_dirty_decay_lock;
+std::atomic<bool> MemInfo::je_enable_dirty_page {true};
+std::condition_variable MemInfo::je_reset_dirty_decay_cv;
+std::atomic<bool> MemInfo::je_reset_dirty_decay_notify {false};
 
 void MemInfo::refresh_allocator_mem() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
@@ -106,7 +108,7 @@ void MemInfo::refresh_allocator_mem() {
     // Number of extents of the given type in this arena in the bucket corresponding to page size index.
     // Large size class starts at 16384, the extents have three sizes before 16384: 4096, 8192, and 12288, so + 3
     int64_t dirty_pages_bytes = 0;
-    for (unsigned i = 0; i < get_je_unsigned_metrics("arenas.nlextents") + 3; i++) {
+    for (unsigned i = 0; i < get_jemallctl_value<unsigned>("arenas.nlextents") + 3; i++) {
         dirty_pages_bytes += get_je_all_arena_extents_metrics(i, "dirty_bytes");
     }
     _s_je_dirty_pages_mem.store(dirty_pages_bytes, std::memory_order_relaxed);
@@ -118,8 +120,10 @@ void MemInfo::refresh_allocator_mem() {
                                  std::memory_order_relaxed);
     // Total number of bytes dedicated to metadata, which comprise base allocations used
     // for bootstrap-sensitive allocator metadata structures.
-    _s_allocator_metadata_mem.store(get_je_metrics("stats.metadata"), std::memory_order_relaxed);
-    _s_virtual_memory_used.store(get_je_metrics("stats.mapped"), std::memory_order_relaxed);
+    _s_allocator_metadata_mem.store(get_jemallctl_value<int64_t>("stats.metadata"),
+                                    std::memory_order_relaxed);
+    _s_virtual_memory_used.store(get_jemallctl_value<int64_t>("stats.mapped"),
+                                 std::memory_order_relaxed);
 #else
     _s_allocator_cache_mem.store(get_tc_metrics("tcmalloc.pageheap_free_bytes") +
                                          get_tc_metrics("tcmalloc.central_cache_free_bytes") +
@@ -275,8 +279,6 @@ void MemInfo::refresh_proc_meminfo() {
                                                                  _s_mem_limit, &is_percent));
         _s_process_full_gc_size.store(ParseUtil::parse_mem_spec(config::process_full_gc_size, -1,
                                                                 _s_mem_limit, &is_percent));
-        _s_je_dirty_pages_mem_limit.store(ParseUtil::parse_mem_spec(
-                config::je_dirty_pages_mem_limit_percent, -1, _s_mem_limit, &is_percent));
     }
 
     // 3. refresh process available memory
