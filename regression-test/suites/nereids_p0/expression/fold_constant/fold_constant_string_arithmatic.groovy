@@ -1726,6 +1726,9 @@ suite("fold_constant_string_arithmatic") {
 
     // bug_fix
     testFoldConst("select concat(substr('2025-03-20',1,4)-1,'-01-01')")
+    testFoldConst("select concat(substr('2025-03-20',1,4)-1.0,'-01-01')")
+    testFoldConst("select concat(substr('2025-03-20',1,4)+1.0,'-01-01')")
+    testFoldConst("select concat(substr('2025-03-20',1,4)-0.5,'-01-01')")
     testFoldConst("select cast(cast(2025.00 as double) as string)")
     testFoldConst("select cast(cast(2025.00 as float) as string)")
 }
