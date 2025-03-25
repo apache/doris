@@ -1002,6 +1002,11 @@ public class VariableMgr {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.SQL_MODE,
                     String.valueOf(sqlMode));
+
+            // update from older version, use legacy behavior.
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    GlobalVariable.ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR,
+                    String.valueOf(false));
         }
         if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
