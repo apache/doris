@@ -44,7 +44,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public abstract class Resource implements Writable, GsonPostProcessable {
-    private static final Logger LOG = LogManager.getLogger(OdbcCatalogResource.class);
+    private static final Logger LOG = LogManager.getLogger(Resource.class);
     public static final String REFERENCE_SPLIT = "@";
     public static final String INCLUDE_DATABASE_LIST = "include_database_list";
     public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
