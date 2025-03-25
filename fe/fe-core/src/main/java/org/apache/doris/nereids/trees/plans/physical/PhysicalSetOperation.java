@@ -147,4 +147,14 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
     public boolean isDistinct() {
         return qualifier == Qualifier.DISTINCT;
     }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(this.getClass().getSimpleName());
+        if (!runtimeFiltersV2.isEmpty()) {
+            sb.append("RFV2: ").append(runtimeFiltersV2);
+        }
+        return sb.toString();
+    }
 }

@@ -1336,10 +1336,6 @@ public class OlapScanNode extends ScanNode {
             if (cardinalityAfterFilter != -1) {
                 output.append("\n").append(prefix).append(String.format("afterFilter=%,d", cardinalityAfterFilter));
             }
-            if (!runtimeFilters.isEmpty()) {
-                output.append("\n").append(prefix).append("Apply RFs: ");
-                output.append(getRuntimeFilterExplainString(false, true));
-            }
             if (!conjuncts.isEmpty()) {
                 output.append("\n").append(prefix).append("PREDICATES: ").append(conjuncts.size()).append("\n");
             }
@@ -1374,10 +1370,6 @@ public class OlapScanNode extends ScanNode {
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
             output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
-        }
-        if (!runtimeFilters.isEmpty()) {
-            output.append(prefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(false));
         }
 
         String selectedPartitions = getSelectedPartitionIds().stream().sorted()
