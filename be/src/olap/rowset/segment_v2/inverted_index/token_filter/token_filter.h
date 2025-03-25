@@ -19,29 +19,30 @@
 
 #include <unicode/utext.h>
 
+#include <memory>
+#include <string_view>
+#include <unordered_set>
+
 #include "CLucene.h" // IWYU pragma: keep
 #include "CLucene/analysis/AnalysisHeader.h"
 
 using namespace lucene::analysis;
 
-namespace doris::segment_v2 {
+using TokenStreamPtr = std::shared_ptr<TokenStream>;
+using TokenPtr = std::shared_ptr<Token>;
 
-class BasicTokenizer : public Tokenizer {
+namespace doris::segment_v2::inverted_index {
+
+class DorisTokenFilter : public TokenFilter {
 public:
-    BasicTokenizer();
-    BasicTokenizer(bool lowercase, bool ownReader);
-    ~BasicTokenizer() override = default;
+    DorisTokenFilter(TokenStreamPtr in) : TokenFilter(nullptr), _in(std::move(in)) {}
+    ~DorisTokenFilter() override = default;
 
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
+    void reset() override { _in->reset(); }
 
-    void cut();
-
-private:
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
+protected:
+    TokenStreamPtr _in;
 };
+using TokenFilterPtr = std::shared_ptr<DorisTokenFilter>;
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

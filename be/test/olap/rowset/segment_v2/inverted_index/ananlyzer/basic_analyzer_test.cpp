@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/rowset/segment_v2/inverted_index/analyzer/basic/basic_analyzer.h"
+
 #include <gtest/gtest.h>
 
 #include <vector>
-
-#include "olap/rowset/segment_v2/inverted_index/analyzer/basic/basic_analyzer.h"
 
 using namespace lucene::analysis;
 
