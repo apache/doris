@@ -1212,6 +1212,19 @@ int InstanceRecycler::recycle_versions() {
         auto tbl_version_key = table_version_key({instance_id_, db_id, table_id});
         txn->remove(tbl_version_key);
         LOG(WARNING) << "remove table version kv " << hex(tbl_version_key);
+        // 3. Remove mow delete bitmap update lock and tablet compaction lock
+        std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id_, table_id, -1});
+        txn->remove(lock_key);
+        LOG(WARNING) << "remove delete bitmap update lock kv " << hex(lock_key);
+        std::string tablet_compaction_key_begin =
+                mow_tablet_compaction_key({instance_id_, table_id, 0});
+        std::string tablet_compaction_key_end =
+                mow_tablet_compaction_key({instance_id_, table_id, INT64_MAX});
+        txn->remove(tablet_compaction_key_begin, tablet_compaction_key_end);
+        LOG(WARNING) << "remove mow tablet compaction kv, begin="
+                     << hex(tablet_compaction_key_begin)
+                     << " end=" << hex(tablet_compaction_key_end) << " db_id=" << db_id
+                     << " table_id=" << table_id;
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
             return -1;

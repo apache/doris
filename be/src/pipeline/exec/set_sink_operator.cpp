@@ -20,11 +20,34 @@
 #include <memory>
 
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_task.h"
 #include "vec/common/hash_table/hash_table_set_build.h"
 #include "vec/core/materialize_block.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
+
+template <bool is_intersect>
+Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
+
+    if (!_runtime_filter_producer_helper || state->is_cancelled() || !_eos) {
+        return Base::close(state, exec_status);
+    }
+
+    try {
+        RETURN_IF_ERROR(
+                _runtime_filter_producer_helper->process(state, &_shared_state->build_block));
+    } catch (Exception& e) {
+        return Status::InternalError(
+                "rf process meet error: {}, wake_up_early: {}, _finish_dependency: {}",
+                e.to_string(), state->get_task()->wake_up_early(),
+                _finish_dependency->debug_string());
+    }
+    return Base::close(state, exec_status);
+}
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
@@ -57,23 +80,21 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
         local_state._mutable_block.clear();
 
         if (eos) {
-            if constexpr (is_intersect) {
-                valid_element_in_hash_tbl = 0;
-            } else {
-                std::visit(
-                        [&](auto&& arg) {
-                            using HashTableCtxType = std::decay_t<decltype(arg)>;
-                            if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                valid_element_in_hash_tbl = arg.hash_table->size();
-                            }
-                        },
-                        local_state._shared_state->hash_table_variants->method_variant);
-            }
+            uint64_t hash_table_size = 0;
+            std::visit(
+                    [&](auto&& arg) {
+                        using HashTableCtxType = std::decay_t<decltype(arg)>;
+                        if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                            hash_table_size = arg.hash_table->size();
+                        }
+                    },
+                    local_state._shared_state->hash_table_variants->method_variant);
+            valid_element_in_hash_tbl = is_intersect ? 0 : hash_table_size;
+
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
-            if (_child_quantity == 1) {
-                local_state._dependency->set_ready_to_read();
-            }
+            RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->send_filter_size(
+                    state, hash_table_size, local_state._finish_dependency));
         }
     }
     return Status::OK();
@@ -175,6 +196,9 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
 
     RETURN_IF_ERROR(_shared_state->update_build_not_ignore_null(_child_exprs));
 
+    _runtime_filter_producer_helper = std::make_unique<RuntimeFilterProducerHelperSet>(profile());
+    RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, _child_exprs,
+                                                          parent._runtime_filter_descs));
     return Status::OK();
 }
 

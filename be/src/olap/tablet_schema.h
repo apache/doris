@@ -122,7 +122,6 @@ public:
     void set_is_key(bool is_key) { _is_key = is_key; }
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
     void set_is_auto_increment(bool is_auto_increment) { _is_auto_increment = is_auto_increment; }
-    void set_has_default_value(bool has) { _has_default_value = has; }
     void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function_union(
@@ -371,10 +370,10 @@ public:
         _disable_auto_compaction = disable_auto_compaction;
     }
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
-    void set_variant_enable_flatten_nested(bool flatten_nested) {
-        _variant_enable_flatten_nested = flatten_nested;
+    void set_enable_variant_flatten_nested(bool flatten_nested) {
+        _enable_variant_flatten_nested = flatten_nested;
     }
-    bool variant_flatten_nested() const { return _variant_enable_flatten_nested; }
+    bool variant_flatten_nested() const { return _enable_variant_flatten_nested; }
     void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
         _enable_single_replica_compaction = enable_single_replica_compaction;
     }
@@ -594,7 +593,7 @@ private:
     // Contains column ids of which columns should be encoded into row store.
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
-    bool _variant_enable_flatten_nested = false;
+    bool _enable_variant_flatten_nested = false;
     int64_t _vl_field_mem_size {0}; // variable length field
 };
 
