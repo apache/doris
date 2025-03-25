@@ -318,7 +318,7 @@ public class CreateRoutineLoadInfo {
                         throw new AnalysisException("Multi-table load does not support setting columns info");
                     }
                     Expr expr = PlanUtils
-                            .translateToLegacyExpr(((LoadPrecedingFilterClause) loadProperty).getExpression(), table,
+                            .translateToLegacyExpr(((LoadPrecedingFilterClause) loadProperty).getExpression(), null,
                                     ctx);
                     precedingImportWhereStmt = new ImportWhereStmt(expr, true);
                 } else if (loadProperty instanceof LoadPartitionNames) {
