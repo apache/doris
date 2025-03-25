@@ -165,7 +165,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DigitalMasking;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Domain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DomainWithoutWww;
@@ -225,6 +224,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToN
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4ToIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6CIDRToRange;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6FromUInt128StringOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
@@ -1110,10 +1110,6 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(dfloor, context);
     }
 
-    default R visitDlog1(Dlog1 dlog1, C context) {
-        return visitScalarFunction(dlog1, context);
-    }
-
     default R visitDlog10(Dlog10 dlog10, C context) {
         return visitScalarFunction(dlog10, context);
     }
@@ -1332,6 +1328,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIpv6StringToNumOrNull(Ipv6StringToNumOrNull ipv6StringToNumOrNull, C context) {
         return visitScalarFunction(ipv6StringToNumOrNull, context);
+    }
+
+    default R visitIpv6FromUInt128StringOrNull(Ipv6FromUInt128StringOrNull ipv6FromUInt128StringOrNull, C context) {
+        return visitScalarFunction(ipv6FromUInt128StringOrNull, context);
     }
 
     default R visitIsIpv4Compat(IsIpv4Compat isIpv4Compat, C context) {

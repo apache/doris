@@ -514,6 +514,7 @@ message TabletCompactionJobPB {
         CUMULATIVE = 2;
         EMPTY_CUMULATIVE = 3; // just update cumulative point
         FULL = 4;
+        STOP_TOKEN = 5; // fail existing compactions and deny newly incomming compactions
     }
     // IP and port of the node which initiates this job
     optional string initiator = 1; // prepare
@@ -995,6 +996,16 @@ message GetRowsetResponse {
     optional SchemaCloudDictionary schema_dict = 4; 
 }
 
+message GetSchemaDictRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 index_id = 2;
+}
+
+message GetSchemaDictResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional SchemaCloudDictionary schema_dict = 2;
+}
+
 message IndexRequest {
     optional string cloud_unique_id = 1; // For auth
     repeated int64 index_ids = 2;
@@ -1095,6 +1106,8 @@ message AlterClusterRequest {
     optional string cloud_unique_id = 2; // For auth
     optional ClusterPB cluster = 3;
     optional Operation op = 4;
+    // for SQL mode rename cluster, rename to cluster name eq instance empty cluster name, need drop empty cluster
+    optional bool replace_if_existing_empty_target_cluster = 5;
 }
 
 message AlterClusterResponse {
@@ -1388,6 +1401,8 @@ enum MetaServiceCode {
     // The meta service retries KV_TXN_CONFLICT error but is exceeded the max times.
     KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES = 10001;
 
+    SCHEMA_DICT_NOT_FOUND = 11001;
+
     UNDEFINED_ERR = 1000000;
 }
 
@@ -1470,6 +1485,7 @@ message GetDeleteBitmapUpdateLockResponse {
     repeated int64 base_compaction_cnts = 2;
     repeated int64 cumulative_compaction_cnts = 3;
     repeated int64 cumulative_points = 4;
+    repeated int64 tablet_states = 5;
 }
 
 message RemoveDeleteBitmapUpdateLockRequest {
@@ -1552,6 +1568,7 @@ service MetaService {
     rpc commit_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
     rpc update_tmp_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
     rpc get_rowset(GetRowsetRequest) returns (GetRowsetResponse);
+    rpc get_schema_dict(GetSchemaDictRequest) returns (GetSchemaDictResponse);
     rpc prepare_index(IndexRequest) returns (IndexResponse);
     rpc commit_index(IndexRequest) returns (IndexResponse);
     rpc drop_index(IndexRequest) returns (IndexResponse);

@@ -124,9 +124,13 @@ Status MemTableWriter::write(const vectorized::Block* block,
     // 2. However, memory pressure might trigger a flush operation on this failed memtable
     // 3. By resetting here, we ensure the failed memtable won't be included in any subsequent flush,
     //    thus preventing potential crashes
+    DBUG_EXECUTE_IF("MemTableWriter.write.random_insert_error", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.3))) {
+            st = Status::InternalError<false>("write memtable random failed for debug");
+        }
+    });
     if (!st.ok()) [[unlikely]] {
-        std::lock_guard<SpinLock> l(_mem_table_ptr_lock);
-        _mem_table.reset();
+        _reset_mem_table();
         return st;
     }
 
@@ -178,11 +182,6 @@ Status MemTableWriter::flush_async() {
 
     if (_is_cancelled) {
         return _cancel_status;
-    }
-
-    // _mem_table may be null after write failure triggers reset
-    if (_mem_table == nullptr) {
-        return Status::OK();
     }
 
     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "

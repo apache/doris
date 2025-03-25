@@ -182,7 +182,7 @@ public class MaterializedViewUtils {
             Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
             StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
             // Refresh struct info in current level plan from top to bottom
-            structInfoMap.refresh(ownerGroup, cascadesContext);
+            structInfoMap.refresh(ownerGroup, cascadesContext, new HashSet<>());
             structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
 
             Set<BitSet> queryTableSets = structInfoMap.getTableMaps();

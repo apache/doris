@@ -502,6 +502,18 @@ public abstract class RoutineLoadJob
         return dbId;
     }
 
+    public String getCreateTimestampString() {
+        return TimeUtils.longToTimeString(createTimestamp);
+    }
+
+    public String getPauseTimestampString() {
+        return TimeUtils.longToTimeString(pauseTimestamp);
+    }
+
+    public String getEndTimestampString() {
+        return TimeUtils.longToTimeString(endTimestamp);
+    }
+
     public void setOtherMsg(String otherMsg) {
         writeLock();
         try {
@@ -509,6 +521,14 @@ public abstract class RoutineLoadJob
         } finally {
             writeUnlock();
         }
+    }
+
+    public ErrorReason getPauseReason() {
+        return pauseReason;
+    }
+
+    public RoutineLoadStatistic getRoutineLoadStatistic() {
+        return jobStatistic;
     }
 
     public String getDbFullName() throws MetaNotFoundException {
@@ -545,6 +565,10 @@ public abstract class RoutineLoadJob
 
     public long getEndTimestamp() {
         return endTimestamp;
+    }
+
+    public RoutineLoadStatistic getJobStatistic() {
+        return jobStatistic;
     }
 
     public PartitionNames getPartitions() {
@@ -782,6 +806,10 @@ public abstract class RoutineLoadJob
         }
     }
 
+    public Queue<String> getErrorLogUrls() {
+        return errorLogUrls;
+    }
+
     // RoutineLoadScheduler will run this method at fixed interval, and renew the timeout tasks
     public void processTimeoutTasks() {
         writeLock();
@@ -837,6 +865,11 @@ public abstract class RoutineLoadJob
         }
     }
 
+    public boolean isAbnormalPause() {
+        return this.state == JobState.PAUSED && this.pauseReason != null
+                    && this.pauseReason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR;
+    }
+
     // All of private method could not be call without lock
     private void checkStateTransform(RoutineLoadJob.JobState desireState) throws UserException {
         switch (state) {
@@ -861,7 +894,7 @@ public abstract class RoutineLoadJob
     // if rate of error data is more than max_filter_ratio, pause job
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
-                attachment.getReceivedBytes(), false /* not replay */);
+                attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), false /* not replay */);
     }
 
     protected void updateCloudProgress(RLTaskTxnCommitAttachment attachment) {
@@ -877,7 +910,7 @@ public abstract class RoutineLoadJob
     }
 
     private void updateNumOfData(long numOfTotalRows, long numOfErrorRows, long unselectedRows, long receivedBytes,
-                                 boolean isReplay) throws UserException {
+                                 long taskExecutionTime, boolean isReplay) throws UserException {
         this.jobStatistic.totalRows += numOfTotalRows;
         this.jobStatistic.errorRows += numOfErrorRows;
         this.jobStatistic.unselectedRows += unselectedRows;
@@ -888,6 +921,8 @@ public abstract class RoutineLoadJob
             MetricRepo.COUNTER_ROUTINE_LOAD_ROWS.increase(numOfTotalRows);
             MetricRepo.COUNTER_ROUTINE_LOAD_ERROR_ROWS.increase(numOfErrorRows);
             MetricRepo.COUNTER_ROUTINE_LOAD_RECEIVED_BYTES.increase(receivedBytes);
+            MetricRepo.COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME.increase(taskExecutionTime);
+            MetricRepo.COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME.increase(1L);
         }
 
         // check error rate
@@ -929,6 +964,7 @@ public abstract class RoutineLoadJob
             this.jobStatistic.currentErrorRows = 0;
             this.jobStatistic.currentTotalRows = 0;
             this.otherMsg = "";
+            this.jobStatistic.currentAbortedTaskNum = 0;
         } else if (this.jobStatistic.currentErrorRows > maxErrorNum
                 || (this.jobStatistic.currentTotalRows > 0
                     && ((double) this.jobStatistic.currentErrorRows
@@ -957,10 +993,18 @@ public abstract class RoutineLoadJob
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
         try {
             updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
-                    attachment.getReceivedBytes(), true /* is replay */);
+                    attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), true /* is replay */);
         } catch (UserException e) {
             LOG.error("should not happen", e);
         }
+    }
+
+    public Long totalProgress() {
+        return 0L;
+    }
+
+    public Long totalLag() {
+        return 0L;
     }
 
     abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo);
@@ -1228,6 +1272,7 @@ public abstract class RoutineLoadJob
                             .build());
                 }
                 ++this.jobStatistic.abortedTaskNum;
+                ++this.jobStatistic.currentAbortedTaskNum;
                 TransactionState.TxnStatusChangeReason txnStatusChangeReason = null;
                 if (txnStatusChangeReasonString != null) {
                     txnStatusChangeReason =
@@ -1593,9 +1638,20 @@ public abstract class RoutineLoadJob
                                                TransactionState txnState,
                                                TransactionState.TxnStatusChangeReason txnStatusChangeReason);
 
-    protected abstract String getStatistic();
+    public abstract String getStatistic();
 
-    protected abstract String getLag();
+    public abstract String getLag();
+
+    public String getStateReason() {
+        switch (state) {
+            case PAUSED:
+                return pauseReason == null ? "" : pauseReason.toString();
+            case CANCELLED:
+                return cancelReason == null ? "" : cancelReason.toString();
+            default:
+                return "";
+        }
+    }
 
     public List<String> getShowInfo() {
         Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
@@ -1625,16 +1681,7 @@ public abstract class RoutineLoadJob
             row.add(getStatistic());
             row.add(getProgress().toJsonString());
             row.add(getLag());
-            switch (state) {
-                case PAUSED:
-                    row.add(pauseReason == null ? "" : pauseReason.toString());
-                    break;
-                case CANCELLED:
-                    row.add(cancelReason == null ? "" : cancelReason.toString());
-                    break;
-                default:
-                    row.add("");
-            }
+            row.add(getStateReason());
             row.add(Joiner.on(", ").join(errorLogUrls));
             row.add(otherMsg);
             row.add(userIdentity.getQualifiedUser());
@@ -1797,7 +1844,7 @@ public abstract class RoutineLoadJob
         }
     }
 
-    private String jobPropertiesToJsonString() {
+    public String jobPropertiesToJsonString() {
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put("partitions", partitions == null
                 ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
@@ -1831,13 +1878,13 @@ public abstract class RoutineLoadJob
         return gson.toJson(jobProperties);
     }
 
-    abstract String dataSourcePropertiesJsonToString();
+    public abstract String dataSourcePropertiesJsonToString();
 
-    abstract String customPropertiesJsonToString();
+    public abstract String customPropertiesJsonToString();
 
-    abstract Map<String, String> getDataSourceProperties();
+    public abstract Map<String, String> getDataSourceProperties();
 
-    abstract Map<String, String> getCustomProperties();
+    public abstract Map<String, String> getCustomProperties();
 
     public boolean isExpired() {
         if (!isFinal()) {

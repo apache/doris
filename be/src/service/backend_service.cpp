@@ -88,8 +88,9 @@ class TTransportException;
 } // namespace apache
 
 namespace doris {
-
 namespace {
+
+bvar::LatencyRecorder g_ingest_binlog_latency("doris_backend_service", "ingest_binlog");
 
 struct IngestBinlogArg {
     int64_t txn_id;
@@ -100,7 +101,22 @@ struct IngestBinlogArg {
     TStatus* tstatus;
 };
 
+Status _exec_http_req(std::optional<HttpClient>& client, int retry_times, int sleep_time,
+                      const std::function<Status(HttpClient*)>& callback) {
+    if (client.has_value()) {
+        return client->execute(retry_times, sleep_time, callback);
+    } else {
+        return HttpClient::execute_with_retry(retry_times, sleep_time, callback);
+    }
+}
+
 void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
+    std::optional<HttpClient> client;
+    if (config::enable_ingest_binlog_with_persistent_connection) {
+        // Save the http client instance for persistent connection
+        client = std::make_optional<HttpClient>();
+    }
+
     auto txn_id = arg->txn_id;
     auto partition_id = arg->partition_id;
     auto local_tablet_id = arg->local_tablet_id;
@@ -113,15 +129,15 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
 
     auto& request = arg->request;
 
-    MonotonicStopWatch watch;
-    watch.start();
+    MonotonicStopWatch watch(true);
     int64_t total_download_bytes = 0;
     int64_t total_download_files = 0;
     TStatus tstatus;
     std::vector<std::string> download_success_files;
     Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus, &watch,
                   &total_download_bytes, &total_download_files]() {
-        auto elapsed_time_ms = static_cast<int64_t>(watch.elapsed_time() / 1000000);
+        g_ingest_binlog_latency << watch.elapsed_time_microseconds();
+        auto elapsed_time_ms = static_cast<int64_t>(watch.elapsed_time_milliseconds());
         double copy_rate = 0.0;
         if (elapsed_time_ms > 0) {
             copy_rate = total_download_bytes / ((double)elapsed_time_ms) / 1000;
@@ -178,7 +194,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
         return client->execute(&binlog_info);
     };
-    auto status = HttpClient::execute_with_retry(max_retry, 1, get_binlog_info_cb);
+    auto status = _exec_http_req(client, max_retry, 1, get_binlog_info_cb);
     if (!status.ok()) {
         LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
                      << ", status=" << status.to_string();
@@ -217,7 +233,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
         return client->execute(&rowset_meta_str);
     };
-    status = HttpClient::execute_with_retry(max_retry, 1, get_rowset_meta_cb);
+    status = _exec_http_req(client, max_retry, 1, get_rowset_meta_cb);
     if (!status.ok()) {
         LOG(WARNING) << "failed to get rowset meta from " << get_rowset_meta_url
                      << ", status=" << status.to_string();
@@ -231,6 +247,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         status.to_thrift(&tstatus);
         return;
     }
+    // save source rowset id and tablet id
+    rowset_meta_pb.set_source_rowset_id(remote_rowset_id);
+    rowset_meta_pb.set_source_tablet_id(request.remote_tablet_id);
     // rewrite rowset meta
     rowset_meta_pb.set_tablet_id(local_tablet_id);
     rowset_meta_pb.set_partition_id(partition_id);
@@ -268,7 +287,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             return client->get_content_length(&segment_file_size);
         };
 
-        status = HttpClient::execute_with_retry(max_retry, 1, get_segment_file_size_cb);
+        status = _exec_http_req(client, max_retry, 1, get_segment_file_size_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment file size from " << get_segment_file_size_url
                          << ", status=" << status.to_string();
@@ -296,8 +315,10 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     // Step 5.3: get all segment files
     for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
         auto segment_file_size = segment_file_sizes[segment_index];
-        auto get_segment_file_url =
-                fmt::format("{}&acquire_md5=true", segment_file_urls[segment_index]);
+        auto get_segment_file_url = segment_file_urls[segment_index];
+        if (config::enable_download_md5sum_check) {
+            get_segment_file_url = fmt::format("{}&acquire_md5=true", get_segment_file_url);
+        }
 
         auto segment_path = local_segment_path(local_tablet->tablet_path(),
                                                rowset_meta->rowset_id().to_string(), segment_index);
@@ -312,9 +333,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             download_success_files.push_back(segment_path);
 
             std::string remote_file_md5;
-            if (config::enable_download_md5sum_check) {
-                RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
-            }
+            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
             LOG(INFO) << "download segment file to " << segment_path
                       << ", remote md5: " << remote_file_md5
                       << ", remote size: " << segment_file_size;
@@ -357,7 +376,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };
 
-        auto status = HttpClient::execute_with_retry(max_retry, 1, get_segment_file_cb);
+        auto status = _exec_http_req(client, max_retry, 1, get_segment_file_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment file from " << get_segment_file_url
                          << ", status=" << status.to_string();
@@ -398,8 +417,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                         InvertedIndexDescriptor::get_index_file_path_prefix(segment_path), index_id,
                         index->get_index_suffix()));
 
-                status = HttpClient::execute_with_retry(max_retry, 1,
-                                                        get_segment_index_file_size_cb);
+                status = _exec_http_req(client, max_retry, 1, get_segment_index_file_size_cb);
                 if (!status.ok()) {
                     LOG(WARNING) << "failed to get segment file size from "
                                  << get_segment_index_file_size_url
@@ -435,8 +453,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                 segment_index_file_names.push_back(InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)));
 
-                status = HttpClient::execute_with_retry(max_retry, 1,
-                                                        get_segment_index_file_size_cb);
+                status = _exec_http_req(client, max_retry, 1, get_segment_index_file_size_cb);
                 if (!status.ok()) {
                     LOG(WARNING) << "failed to get segment file size from "
                                  << get_segment_index_file_size_url
@@ -470,8 +487,11 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     DCHECK(segment_index_file_names.size() == segment_index_file_urls.size());
     for (int64_t i = 0; i < segment_index_file_urls.size(); ++i) {
         auto segment_index_file_size = segment_index_file_sizes[i];
-        auto get_segment_index_file_url =
-                fmt::format("{}&acquire_md5=true", segment_index_file_urls[i]);
+        auto get_segment_index_file_url = segment_index_file_urls[i];
+        if (config::enable_download_md5sum_check) {
+            get_segment_index_file_url =
+                    fmt::format("{}&acquire_md5=true", get_segment_index_file_url);
+        }
 
         uint64_t estimate_timeout = estimate_download_timeout(segment_index_file_size);
         auto local_segment_index_path = segment_index_file_names[i];
@@ -486,9 +506,11 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             download_success_files.push_back(local_segment_index_path);
 
             std::string remote_file_md5;
-            if (config::enable_download_md5sum_check) {
-                RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
-            }
+            RETURN_IF_ERROR(client->get_content_md5(&remote_file_md5));
+
+            LOG(INFO) << "download segment index file to " << local_segment_index_path
+                      << ", remote md5: " << remote_file_md5
+                      << ", remote size: " << segment_index_file_size;
 
             std::error_code ec;
             // Check file length
@@ -528,7 +550,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                                                              io::LocalFileSystem::PERMS_OWNER_RW);
         };
 
-        status = HttpClient::execute_with_retry(max_retry, 1, get_segment_index_file_cb);
+        status = _exec_http_req(client, max_retry, 1, get_segment_index_file_cb);
         if (!status.ok()) {
             LOG(WARNING) << "failed to get segment index file from " << get_segment_index_file_url
                          << ", status=" << status.to_string();
@@ -542,7 +564,6 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     RowsetSharedPtr rowset;
     status = RowsetFactory::create_rowset(local_tablet->tablet_schema(),
                                           local_tablet->tablet_path(), rowset_meta, &rowset);
-
     if (!status) {
         LOG(WARNING) << "failed to create rowset from rowset meta for remote tablet"
                      << ". rowset_id: " << rowset_meta_pb.rowset_id()

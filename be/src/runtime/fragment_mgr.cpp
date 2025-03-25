@@ -392,57 +392,18 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.__set_status(exec_status.to_thrift());
     params.__set_done(req.done);
     params.__set_query_type(req.runtime_state->query_type());
+    params.__isset.profile = false;
 
     DCHECK(req.runtime_state != nullptr);
 
     if (req.runtime_state->query_type() == TQueryType::LOAD) {
         params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
         params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
-    }
-    params.__isset.detailed_report = true;
-    DCHECK(!req.runtime_states.empty());
-    const bool enable_profile = (*req.runtime_states.begin())->enable_profile();
-    if (enable_profile) {
-        params.__isset.profile = true;
-        params.__isset.loadChannelProfile = false;
-        for (auto* rs : req.runtime_states) {
-            DCHECK(req.load_channel_profile);
-            TDetailedReportParams detailed_param;
-            rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
-            // merge all runtime_states.loadChannelProfile to req.load_channel_profile
-            req.load_channel_profile->update(detailed_param.loadChannelProfile);
-        }
-        req.load_channel_profile->to_thrift(&params.loadChannelProfile);
     } else {
-        params.__isset.profile = false;
-    }
-
-    if (enable_profile) {
-        DCHECK(req.profile != nullptr);
-        TDetailedReportParams detailed_param;
-        detailed_param.__isset.fragment_instance_id = false;
-        detailed_param.__isset.profile = true;
-        detailed_param.__isset.loadChannelProfile = false;
-        detailed_param.__set_is_fragment_level(true);
-        req.profile->to_thrift(&detailed_param.profile);
-        params.detailed_report.push_back(detailed_param);
-        for (auto pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
-            TDetailedReportParams detailed_param;
-            detailed_param.__isset.fragment_instance_id = false;
-            detailed_param.__isset.profile = true;
-            detailed_param.__isset.loadChannelProfile = false;
-            pipeline_profile->to_thrift(&detailed_param.profile);
-            params.detailed_report.push_back(std::move(detailed_param));
-        }
-    }
-    if (!req.runtime_state->output_files().empty()) {
-        params.__isset.delta_urls = true;
-        for (auto& it : req.runtime_state->output_files()) {
-            params.delta_urls.push_back(to_http_path(it));
-        }
-    } else if (!req.runtime_states.empty()) {
-        for (auto* rs : req.runtime_states) {
-            for (auto& it : rs->output_files()) {
+        DCHECK(!req.runtime_states.empty());
+        if (!req.runtime_state->output_files().empty()) {
+            params.__isset.delta_urls = true;
+            for (auto& it : req.runtime_state->output_files()) {
                 params.delta_urls.push_back(to_http_path(it));
             }
         }
@@ -530,35 +491,26 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
         }
     }
-    if (!req.runtime_state->tablet_commit_infos().empty()) {
+    if (auto tci = req.runtime_state->tablet_commit_infos(); !tci.empty()) {
         params.__isset.commitInfos = true;
-        params.commitInfos.reserve(req.runtime_state->tablet_commit_infos().size());
-        for (auto& info : req.runtime_state->tablet_commit_infos()) {
-            params.commitInfos.push_back(info);
-        }
+        params.commitInfos.insert(params.commitInfos.end(), tci.begin(), tci.end());
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
-            if (!rs->tablet_commit_infos().empty()) {
+            if (auto rs_tci = rs->tablet_commit_infos(); !rs_tci.empty()) {
                 params.__isset.commitInfos = true;
-                params.commitInfos.insert(params.commitInfos.end(),
-                                          rs->tablet_commit_infos().begin(),
-                                          rs->tablet_commit_infos().end());
+                params.commitInfos.insert(params.commitInfos.end(), rs_tci.begin(), rs_tci.end());
             }
         }
     }
-    if (!req.runtime_state->error_tablet_infos().empty()) {
+    if (auto eti = req.runtime_state->error_tablet_infos(); !eti.empty()) {
         params.__isset.errorTabletInfos = true;
-        params.errorTabletInfos.reserve(req.runtime_state->error_tablet_infos().size());
-        for (auto& info : req.runtime_state->error_tablet_infos()) {
-            params.errorTabletInfos.push_back(info);
-        }
+        params.errorTabletInfos.insert(params.errorTabletInfos.end(), eti.begin(), eti.end());
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
-            if (!rs->error_tablet_infos().empty()) {
+            if (auto rs_eti = rs->error_tablet_infos(); !rs_eti.empty()) {
                 params.__isset.errorTabletInfos = true;
-                params.errorTabletInfos.insert(params.errorTabletInfos.end(),
-                                               rs->error_tablet_infos().begin(),
-                                               rs->error_tablet_infos().end());
+                params.errorTabletInfos.insert(params.errorTabletInfos.end(), rs_eti.begin(),
+                                               rs_eti.end());
             }
         }
     }
@@ -618,10 +570,12 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     try {
         try {
             coord->reportExecStatus(res, params);
-        } catch (TTransportException& e) {
+        } catch ([[maybe_unused]] TTransportException& e) {
+#ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
                          << ", instance id: " << print_id(req.fragment_instance_id) << " to "
                          << req.coord_addr << ", err: " << e.what();
+#endif
             rpc_status = coord.reopen();
 
             if (!rpc_status.ok()) {
@@ -908,11 +862,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     }
 
     {
-        for (const auto& local_param : params.local_params) {
-            const TUniqueId& fragment_instance_id = local_param.fragment_instance_id;
-            query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
-        }
-
         int64 now = duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
                             .count();
@@ -953,13 +902,9 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
 
 void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
     std::shared_ptr<QueryContext> query_ctx = nullptr;
-    std::vector<TUniqueId> all_instance_ids;
     {
         if (auto q_ctx = get_query_ctx(query_id)) {
             query_ctx = q_ctx;
-            // Copy instanceids to avoid concurrent modification.
-            // And to reduce the scope of lock.
-            all_instance_ids = query_ctx->fragment_instance_ids;
         } else {
             LOG(WARNING) << "Query " << print_id(query_id)
                          << " does not exists, failed to cancel it";

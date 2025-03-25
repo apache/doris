@@ -1285,7 +1285,7 @@ void StorageEngine::do_remove_unused_remote_files() {
             }
             cooldown_meta_id = t->tablet_meta()->cooldown_meta_id();
         }
-        auto [cooldown_replica_id, cooldown_term] = t->cooldown_conf();
+        auto [cooldown_term, cooldown_replica_id] = t->cooldown_conf();
         if (cooldown_replica_id != t->replica_id()) {
             return;
         }

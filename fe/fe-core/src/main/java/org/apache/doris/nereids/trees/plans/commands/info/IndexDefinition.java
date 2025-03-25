@@ -209,6 +209,6 @@ public class IndexDefinition {
 
     public Index translateToCatalogStyle() {
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
-                comment, null);
+                comment);
     }
 }
