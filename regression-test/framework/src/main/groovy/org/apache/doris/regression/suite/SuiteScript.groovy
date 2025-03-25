@@ -33,7 +33,16 @@ abstract class SuiteScript extends Script {
     }
 
     void suite(String suiteName, String group = getDefaultGroups(new File(context.config.suitePath), context.file), Closure suiteBody) {
-        group = preProcessGroup(new File(context.config.suitePath), context.file)
+        if (!group.contains("nonConcurrent")) {
+            def sr = new File(context.config.suitePath)
+            String path = sr.relativePath(context.file.parentFile)
+            if (path.contains("nonConcurrent")) {
+                def a = group.split(",").toList()
+                a.add("nonConcurrent")
+                group = a.join(",")
+            }
+        }
+
         if (!group.split(',').any {
             def match = it =~ /^p\d+$/
             if (match.find())
@@ -52,18 +61,6 @@ abstract class SuiteScript extends Script {
         } catch (Throwable t) {
             log.warn("Unexcept exception when run ${suiteName} in ${context.file.absolutePath} failed", t)
         }
-    }
-
-    static String preProcessGroup(String group, File suiteRoot, File scriptFile) {
-        if (!group.contains("nonConcurrent")) {
-            String path = suiteRoot.relativePath(scriptFile.parentFile)
-            if (path.contains("nonConcurrent")) {
-                def a = group.split(",")
-                a.add("nonConcurrent")
-                return a.join(",")
-            }
-        }
-        return group
     }
 
     static String getDefaultGroups(File suiteRoot, File scriptFile) {
