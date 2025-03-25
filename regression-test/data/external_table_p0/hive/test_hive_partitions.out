@@ -120,6 +120,11 @@ nation=us/city=washington
 
 -- !q21 --
 
+-- !string_partition_table_with_comma --
+1	a	1.1	,
+2	b	2.2	a, b
+3	c	3.3	a, b, c
+
 -- !q01 --
 33	1.11xyz
 34	1.11XYZ
@@ -240,4 +245,9 @@ nation=us/city=chicago
 nation=us/city=washington
 
 -- !q21 --
+
+-- !string_partition_table_with_comma --
+1	a	1.1	,
+2	b	2.2	a, b
+3	c	3.3	a, b, c
 
