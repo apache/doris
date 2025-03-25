@@ -568,9 +568,11 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     // 8. check statistics
     auto statistics = variant_column_reader->get_stats();
     for (const auto& [path, size] : statistics->subcolumns_non_null_size) {
+        std::cout << "path: " << path << ", size: " << size << std::endl;
         EXPECT_EQ(path_with_size[path], size);
     }
     for (const auto& [path, size] : statistics->sparse_column_non_null_size) {
+        std::cout << "sparse path: " << path << ", size: " << size << std::endl;
         EXPECT_EQ(path_with_size[path], size);
     }
 
@@ -605,23 +607,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
         EXPECT_EQ(value, inserted_jsonstr[i]);
     }
 
-    std::string key = ".key0";
-    TabletColumn subcolumn_in_nested;
-    subcolumn_in_nested.set_name(parent_column.name_lower_case() + key);
-    subcolumn_in_nested.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-    subcolumn_in_nested.set_parent_unique_id(parent_column.unique_id());
-    subcolumn_in_nested.set_path_info(PathInData(parent_column.name_lower_case() + key));
-    subcolumn_in_nested.set_variant_max_subcolumns_count(
-            parent_column.variant_max_subcolumns_count());
-    subcolumn_in_nested.set_is_nullable(true);
-
-    st = variant_column_reader->new_iterator(&it, subcolumn_in_nested, &storage_read_opts);
-    EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_TRUE(assert_cast<HierarchicalDataReader*>(it) != nullptr);
-    st = it->init(column_iter_opts);
-    EXPECT_TRUE(st.ok()) << st.msg();
-
-    auto read_to_column_object = [&]() {
+     auto read_to_column_object = [&]() {
         new_column_object = ColumnObject::create(10);
         nrows = 1000;
         st = it->seek_to_ordinal(0);
@@ -632,150 +618,47 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
         EXPECT_EQ(nrows, 1000);
     };
 
-    read_to_column_object();
+    auto check_key_stats = [&](const std::string& key_num) {
+        std::string key = ".key" + key_num;
+        TabletColumn subcolumn_in_nested;
+        subcolumn_in_nested.set_name(parent_column.name_lower_case() + key);
+        subcolumn_in_nested.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+        subcolumn_in_nested.set_parent_unique_id(parent_column.unique_id());
+        subcolumn_in_nested.set_path_info(PathInData(parent_column.name_lower_case() + key));
+        subcolumn_in_nested.set_variant_max_subcolumns_count(
+                parent_column.variant_max_subcolumns_count());
+        subcolumn_in_nested.set_is_nullable(true);
 
-    for (int row = 0; row < 1000; ++row) {
-        std::string value;
-        st = assert_cast<ColumnObject*>(new_column_object.get())
-                     ->serialize_one_row_to_string(row, &value);
+        st = variant_column_reader->new_iterator(&it, subcolumn_in_nested, &storage_read_opts);
         EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_EQ(value, "{\"key1\":{\"key2\":88,\"key3\":\"88\"},\"key4\":88}");
-    }
-
-    std::cout << "read key0 endl" << std::endl;
-
-    // key = ".key9";
-    // subcolumn_in_nested.set_name(parent_column.name_lower_case() + key);
-    // subcolumn_in_nested.set_path_info(PathInData(parent_column.name_lower_case() + key));
-    // st = variant_column_reader->new_iterator(&it, subcolumn_in_nested, &storage_read_opts);
-    // EXPECT_TRUE(st.ok()) << st.msg();
-    // EXPECT_TRUE(assert_cast<HierarchicalDataReader*>(it) != nullptr);
-    // st = it->init(column_iter_opts);
-    // EXPECT_TRUE(st.ok()) << st.msg();
-    // read_to_column_object();
-
-    // size_t key_9_count = 0;
-    // size_t key_9_nested_count= 0;
-    // for (int row = 0; row < 1000; ++row) {
-    //     std::string value;
-    //     st = assert_cast<ColumnObject*>(new_column_object.get())
-    //                 ->serialize_one_row_to_string(row, &value);
-    //     EXPECT_TRUE(st.ok()) << st.msg();
-    //     if (value.find("nested9") != std::string::npos) {
-    //         key_9_nested_count++;
-    //     } else if (value.find("88") != std::string::npos) {
-    //         key_9_count++;
-    //     }
-    // }
-    // EXPECT_EQ(key_9_count, path_with_size["key9"]);
-    // EXPECT_EQ(key_9_nested_count, path_with_size["key9.nested9"]);
-
-    key = ".key6";
-    subcolumn_in_nested.set_name(parent_column.name_lower_case() + key);
-    subcolumn_in_nested.set_path_info(PathInData(parent_column.name_lower_case() + key));
-    st = variant_column_reader->new_iterator(&it, subcolumn_in_nested, &storage_read_opts);
-    EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_TRUE(assert_cast<HierarchicalDataReader*>(it) != nullptr);
-    st = it->init(column_iter_opts);
-    EXPECT_TRUE(st.ok()) << st.msg();
-    read_to_column_object();
-
-    size_t key_6_count = 0;
-    size_t key_6_nested_count = 0;
-    for (int row = 0; row < 1000; ++row) {
-        std::string value;
-        st = assert_cast<ColumnObject*>(new_column_object.get())
-                     ->serialize_one_row_to_string(row, &value);
+        EXPECT_TRUE(assert_cast<HierarchicalDataReader*>(it) != nullptr);
+        st = it->init(column_iter_opts);
         EXPECT_TRUE(st.ok()) << st.msg();
-        if (value.find("nested6") != std::string::npos) {
-            key_6_nested_count++;
-        } else if (value.find("88") != std::string::npos) {
-            key_6_count++;
+        read_to_column_object();
+
+        size_t key_count = 0;
+        size_t key_nested_count = 0;
+        for (int row = 0; row < 1000; ++row) {
+            std::string value;
+            st = assert_cast<ColumnObject*>(new_column_object.get())
+                        ->serialize_one_row_to_string(row, &value);
+            EXPECT_TRUE(st.ok()) << st.msg();
+            if (value.find("nested" + key_num) != std::string::npos) {
+                key_nested_count++;
+            } else if (value.find("88") != std::string::npos) {
+                key_count++;
+            }
         }
-    }
-    EXPECT_EQ(key_6_count, path_with_size["key6"]);
-    EXPECT_EQ(key_6_nested_count, path_with_size["key6.nested6"]);
+        EXPECT_EQ(key_count, path_with_size["key" + key_num]);
+        EXPECT_EQ(key_nested_count, path_with_size["key" + key_num + ".nested" + key_num]);
+    };
 
-    // // 11. check leaf reader
-    // for (int i = 0; i < 3; ++i) {
-    //     std::string key = ".key" + std::to_string(i);
-    //     TabletColumn subcolumn;
-    //     subcolumn.set_name(parent_column.name_lower_case() + key);
-    //     subcolumn.set_type((FieldType)(int)footer.columns(i + 1).type());
-    //     subcolumn.set_parent_unique_id(parent_column.unique_id());
-    //     subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + key));
-    //     subcolumn.set_variant_max_subcolumns_count(parent_column.variant_max_subcolumns_count());
-    //     subcolumn.set_is_nullable(true);
-
-    //     std::cout << "key: " << key << std::endl;
-    //     st = variant_column_reader->new_iterator(&it, subcolumn, &storage_read_opts);
-    //     EXPECT_TRUE(st.ok()) << st.msg();
-    //     EXPECT_TRUE(assert_cast<FileColumnIterator*>(it) != nullptr);
-    //     st = it->init(column_iter_opts);
-    //     EXPECT_TRUE(st.ok()) << st.msg();
-
-    //     auto column_type = DataTypeFactory::instance().create_data_type(subcolumn, false);
-    //     auto read_column = column_type->create_column();
-    //     nrows = 1000;
-    //     st = it->seek_to_ordinal(0);
-    //     EXPECT_TRUE(st.ok()) << st.msg();
-    //     st = it->next_batch(&nrows, read_column);
-    //     EXPECT_TRUE(st.ok()) << st.msg();
-    //     EXPECT_TRUE(stats.bytes_read > 0);
-
-    //     for (int row = 0; row < 1000; ++row) {
-    //         const std::string& value = column_type->to_string(*read_column, row);
-    //         if (inserted_jsonstr[row].find(key) != std::string::npos) {
-    //             if (i % 2 == 0) {
-    //                 EXPECT_EQ(value, "88");
-    //             } else {
-    //                 EXPECT_EQ(value, "str99");
-    //             }
-    //         }
-    //     }
-    // }
-
-    // // 12. check empty
-    // TabletColumn subcolumn;
-    // subcolumn.set_name(parent_column.name_lower_case() + ".key10");
-    // subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-    // subcolumn.set_parent_unique_id(parent_column.unique_id());
-    // subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + ".key10"));
-    // subcolumn.set_is_nullable(true);
-    // st = variant_column_reader->new_iterator(&it, subcolumn, &storage_read_opts);
-    // EXPECT_TRUE(st.ok()) << st.msg();
-    // EXPECT_TRUE(assert_cast<DefaultValueColumnIterator*>(it) != nullptr);
-
-    // // 13. check statistics size == limit
-    // auto& variant_stats = variant_column_reader->_statistics;
-    // EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() < VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
-    // auto limit = VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE - variant_stats->sparse_column_non_null_size.size();
-    // for (int i = 0; i < limit; ++i) {
-    //     std::string key = parent_column.name_lower_case() + ".key10" + std::to_string(i);
-    //     variant_stats->sparse_column_non_null_size[key] = 10000;
-    // }
-    // EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() == VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
-
-    // st = variant_column_reader->new_iterator(&it, subcolumn, &storage_read_opts);
-    // EXPECT_TRUE(st.ok()) << st.msg();
-    // EXPECT_TRUE(assert_cast<HierarchicalDataReader*>(it) != nullptr);
-    // st = it->init(column_iter_opts);
-    // EXPECT_TRUE(st.ok()) << st.msg();
-
-    // new_column_object = ColumnObject::create(3);
-    // nrows = 1000;
-    // st = it->seek_to_ordinal(0);
-    // EXPECT_TRUE(st.ok()) << st.msg();
-    // st = it->next_batch(&nrows, new_column_object);
-    // EXPECT_TRUE(st.ok()) << st.msg();
-    // for (int row = 0; row < 1000; ++row) {
-    //     std::string value;
-    //     st = assert_cast<ColumnObject*>(new_column_object.get())
-    //                  ->serialize_one_row_to_string(row, &value);
-
-    //     EXPECT_TRUE(st.ok()) << st.msg();
-    //     EXPECT_EQ(value, "{}");
-    // }
+    check_key_stats("9");
+    check_key_stats("3");
+    check_key_stats("6");
+    check_key_stats("4");
+    check_key_stats("5");
+    check_key_stats("7");
 
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 }
