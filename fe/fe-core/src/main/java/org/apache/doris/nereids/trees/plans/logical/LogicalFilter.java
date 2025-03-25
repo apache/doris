@@ -101,6 +101,13 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
+    public String getFingerprint() {
+        return Utils.toSqlString("Filter[" + getGroupIdWithPrefix() + "]",
+                "predicates", getPredicate().getFingerprint()
+        );
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
