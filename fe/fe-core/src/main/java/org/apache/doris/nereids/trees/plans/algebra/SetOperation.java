@@ -43,4 +43,8 @@ public interface SetOperation {
     List<List<SlotReference>> getRegularChildrenOutputs();
 
     int getArity();
+
+    default boolean isDistinct() {
+        return getQualifier() == Qualifier.DISTINCT;
+    }
 }
