@@ -490,6 +490,9 @@ struct AggregateFunctionMaxData : public Data {
     using Data::IsFixedLength;
     constexpr static bool IS_ANY = false;
 
+    AggregateFunctionMaxData() { reset(); }
+    AggregateFunctionMaxData(const DataTypes& argument_types) { reset(); }
+
     void change_if_better(const IColumn& column, size_t row_num, Arena*) {
         if constexpr (Data::IsFixedLength) {
             this->change_if(column, row_num, false);
@@ -515,6 +518,9 @@ struct AggregateFunctionMinData : Data {
     using Self = AggregateFunctionMinData;
     using Data::IsFixedLength;
     constexpr static bool IS_ANY = false;
+
+    AggregateFunctionMinData() { reset(); }
+    AggregateFunctionMinData(const DataTypes& argument_types) { reset(); }
 
     void change_if_better(const IColumn& column, size_t row_num, Arena*) {
         if constexpr (Data::IsFixedLength) {
