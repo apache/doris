@@ -1548,16 +1548,34 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
     }
     case HOUR: {
         int64_t second = ts_value2.second_diff(ts_value1);
+        int32_t ms_diff = ts_value2.microsecond() - ts_value1.microsecond();
+        if (second > 0 && ms_diff < 0) {
+            second--;
+        } else if (second < 0 && ms_diff > 0) {
+            second++;
+        }
         int64_t hour = second / 60 / 60;
         return hour;
     }
     case MINUTE: {
         int64_t second = ts_value2.second_diff(ts_value1);
+        int32_t ms_diff = ts_value2.microsecond() - ts_value1.microsecond();
+        if (second > 0 && ms_diff < 0) {
+            second--;
+        } else if (second < 0 && ms_diff > 0) {
+            second++;
+        }
         int64_t minute = second / 60;
         return minute;
     }
     case SECOND: {
         int64_t second = ts_value2.second_diff(ts_value1);
+        int32_t ms_diff = ts_value2.microsecond() - ts_value1.microsecond();
+        if (second > 0 && ms_diff < 0) {
+            second--;
+        } else if (second < 0 && ms_diff > 0) {
+            second++;
+        }
         return second;
     }
     case MILLISECOND: {
