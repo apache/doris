@@ -1763,7 +1763,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             }
             if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
-                return Status::InternalError("prepare cumulative compaction with err: {}", res);
+                return Status::InternalError("prepare cumulative compaction with err: {}",
+                                             res.to_string());
             }
             // return OK if OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
@@ -1798,7 +1799,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             permits = 0;
             if (!res.is<BE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
-                return Status::InternalError("prepare base compaction with err: {}", res);
+                return Status::InternalError("prepare base compaction with err: {}",
+                                             res.to_string());
             }
             // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
@@ -1814,7 +1816,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             tablet->set_last_full_compaction_failure_time(UnixMillis());
             permits = 0;
             if (!res.is<FULL_NO_SUITABLE_VERSION>()) {
-                return Status::InternalError("prepare full compaction with err: {}", res);
+                return Status::InternalError("prepare full compaction with err: {}",
+                                             res.to_string());
             }
             // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
