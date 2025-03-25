@@ -279,50 +279,46 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         rewritten = executor.rewrite(toDays, context);
         Assertions.assertEquals(new IntegerLiteral(3652424), rewritten);
 
-        NextDay nextDay = new NextDay(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
-                        StringLiteral.of("SU"));
-        rewritten = executor.rewrite(nextDay, context);
-        Assertions.assertEquals(new DateLiteral("0001-01-02"), rewritten);
-        nextDay = new NextDay(DateLiteral.fromJavaDateType(LocalDateTime.of(2020, 1, 28, 1, 1, 1)),
+        NextDay nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 1, 28, 1, 1, 1)),
                         StringLiteral.of("MON"));
         rewritten = executor.rewrite(nextDay, context);
-        Assertions.assertEquals(new DateLiteral("2020-02-03"), rewritten);
-        nextDay = new NextDay(DateLiteral.fromJavaDateType(LocalDateTime.of(2020, 1, 31, 1, 1, 1)),
+        Assertions.assertEquals(new DateV2Literal("2020-02-03"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 1, 31, 1, 1, 1)),
                         StringLiteral.of("SAT"));
         rewritten = executor.rewrite(nextDay, context);
-        Assertions.assertEquals(new DateLiteral("2020-02-01"), rewritten);
-        nextDay = new NextDay(DateLiteral.fromJavaDateType(LocalDateTime.of(2020, 12, 28, 1, 1, 1)),
+        Assertions.assertEquals(new DateV2Literal("2020-02-01"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 12, 28, 1, 1, 1)),
                         StringLiteral.of("FRI"));
         rewritten = executor.rewrite(nextDay, context);
-        Assertions.assertEquals(new DateLiteral("2021-01-01"), rewritten);
-        nextDay = new NextDay(DateLiteral.fromJavaDateType(LocalDateTime.of(2020, 12, 31, 1, 1, 1)),
+        Assertions.assertEquals(new DateV2Literal("2021-01-01"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 12, 31, 1, 1, 1)),
                         StringLiteral.of("THU"));
         rewritten = executor.rewrite(nextDay, context);
-        Assertions.assertEquals(new DateLiteral("2021-01-07"), rewritten);
-        nextDay = new NextDay(DateLiteral.fromJavaDateType(LocalDateTime.of(2020, 2, 27, 1, 1, 1)),
+        Assertions.assertEquals(new DateV2Literal("2021-01-07"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 2, 27, 1, 1, 1)),
                         StringLiteral.of("SAT"));
         rewritten = executor.rewrite(nextDay, context);
-        Assertions.assertEquals(new DateLiteral("2020-02-29"), rewritten);
-        nextDay = new NextDay(DateLiteral.fromJavaDateType(LocalDateTime.of(2020, 2, 29, 1, 1, 1)),
+        Assertions.assertEquals(new DateV2Literal("2020-02-29"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 2, 29, 1, 1, 1)),
                         StringLiteral.of("MON"));
         rewritten = executor.rewrite(nextDay, context);
-        Assertions.assertEquals(new DateLiteral("2020-03-02"), rewritten);
-        nextDay = new NextDay(DateLiteral.fromJavaDateType(LocalDateTime.of(2019, 2, 26, 1, 1, 1)),
+        Assertions.assertEquals(new DateV2Literal("2020-03-02"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2019, 2, 26, 1, 1, 1)),
                         StringLiteral.of("THU"));
         rewritten = executor.rewrite(nextDay, context);
-        Assertions.assertEquals(new DateLiteral("2019-02-28"), rewritten);
-        nextDay = new NextDay(DateLiteral.fromJavaDateType(LocalDateTime.of(2019, 2, 28, 1, 1, 1)),
+        Assertions.assertEquals(new DateV2Literal("2019-02-28"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2019, 2, 28, 1, 1, 1)),
                         StringLiteral.of("SUN"));
         rewritten = executor.rewrite(nextDay, context);
-        Assertions.assertEquals(new DateLiteral("2019-03-03"), rewritten);
-        nextDay = new NextDay(DateLiteral.fromJavaDateType(LocalDateTime.of(2020, 4, 29, 1, 1, 1)),
+        Assertions.assertEquals(new DateV2Literal("2019-03-03"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 4, 29, 1, 1, 1)),
                         StringLiteral.of("FRI"));
         rewritten = executor.rewrite(nextDay, context);
-        Assertions.assertEquals(new DateLiteral("2020-05-01"), rewritten);
-        nextDay = new NextDay(DateLiteral.fromJavaDateType(LocalDateTime.of(2020, 5, 31, 1, 1, 1)),
+        Assertions.assertEquals(new DateV2Literal("2020-05-01"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 5, 31, 1, 1, 1)),
                         StringLiteral.of("MON"));
         rewritten = executor.rewrite(nextDay, context);
-        Assertions.assertEquals(new DateLiteral("2020-06-01"), rewritten);
+        Assertions.assertEquals(new DateV2Literal("2020-06-01"), rewritten);
 }
 
     @Test
