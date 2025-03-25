@@ -14,6 +14,10 @@ This file contains version of the third-party dependency libraries in the build-
 
 - Added: icu 75-1, develop ICU tokenizer based on ICU library.
 
+## 20250324
+
+- Added: pugixml 1.15, a C++ XML processing library.
+
 ## 20250225
 
 - Modified: hadoop-libs 3.3.6.4 -> 3.3.6.5
