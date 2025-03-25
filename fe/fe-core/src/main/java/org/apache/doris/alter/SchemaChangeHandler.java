@@ -86,6 +86,8 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
@@ -2579,12 +2581,56 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     @Override
+    public void cancel(CancelCommand command) throws DdlException {
+        CancelAlterTableCommand cancelAlterTableCommand = (CancelAlterTableCommand) command;
+        cancelColumnJob(cancelAlterTableCommand);
+    }
+
+    @Override
     public void cancel(CancelStmt stmt) throws DdlException {
         CancelAlterTableStmt cancelAlterTableStmt = (CancelAlterTableStmt) stmt;
         if (cancelAlterTableStmt.getAlterType() == AlterType.INDEX) {
             cancelIndexJob(cancelAlterTableStmt);
         } else {
             cancelColumnJob(cancelAlterTableStmt);
+        }
+    }
+
+    private void cancelColumnJob(CancelAlterTableCommand command) throws DdlException {
+        String dbName = command.getDbName();
+        String tableName = command.getTableName();
+        Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
+        Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        AlterJobV2 schemaChangeJobV2 = null;
+
+        OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+        olapTable.writeLockOrDdlException();
+        try {
+            if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE
+                    && olapTable.getState() != OlapTableState.WAITING_STABLE) {
+                throw new DdlException("Table[" + tableName + "] is not under SCHEMA_CHANGE.");
+            }
+
+            // find from new alter jobs first
+            List<AlterJobV2> schemaChangeJobV2List = getUnfinishedAlterJobV2ByTableId(olapTable.getId());
+            // current schemaChangeJob job doesn't support batch operation,so just need to get one job
+            schemaChangeJobV2 = schemaChangeJobV2List.size() == 0 ? null
+                : Iterables.getOnlyElement(schemaChangeJobV2List);
+            if (schemaChangeJobV2 == null) {
+                throw new DdlException(
+                    "Table[" + tableName + "] is under schema change state" + " but could not find related job");
+            }
+        } finally {
+            olapTable.writeUnlock();
+        }
+
+        // alter job v2's cancel must be called outside the database lock
+        if (schemaChangeJobV2 != null) {
+            if (!schemaChangeJobV2.cancel("user cancelled")) {
+                throw new DdlException("Job can not be cancelled. State: " + schemaChangeJobV2.getJobState());
+            }
         }
     }
 
