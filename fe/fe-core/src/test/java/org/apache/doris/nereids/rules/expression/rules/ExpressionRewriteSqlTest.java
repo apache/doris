@@ -22,10 +22,9 @@ import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Test;
 
-class InPredicateExtractNonConstantTest extends SqlTestBase {
+class ExpressionRewriteSqlTest extends SqlTestBase {
     @Test
     public void testExtractNonConstant() {
-        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         String sql = "select * from T1 where id in (score, score, score + 100)";
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -43,5 +42,44 @@ class InPredicateExtractNonConstantTest extends SqlTestBase {
                         logicalFilter().when(f -> f.getPredicate().toString().equals(
                                 "OR[id#0 IN (10, 20, 30, 300),(id#0 = score#1),(id#0 = (score#1 + 10)),(id#0 = (score#1 + score#1))]"
                 )));
+    }
+
+    @Test
+    public void testSimplifyRangeAndExtractCommonFactor() {
+        String sql = "select * from T1 where id > 1 and score > 1 or id > 1 and score > 10";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalFilter().when(f -> f.getPredicate().toString().equals(
+                                "AND[(id#0 > 1),(score#1 > 1)]"
+                        )));
+
+        sql = "select * from T1 where id > 1 and score > 1 or id > 1 and id < 0";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalFilter().when(f -> f.getPredicate().toString().equals(
+                                "AND[(score#1 > 1),(id#0 > 1)]"
+                        )));
+
+        sql = "select * from T1 where id > 1 and id < 0 or score > 1 and score < 0";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalEmptyRelation());
+
+        sql = "select * from T1 where id > 1 and id < 0 and score > 1 and score < 0";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalEmptyRelation());
+
+        sql = "select * from T1 where not(id > 1 and id < 0 or score > 1 and score < 0)";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalFilter().when(f -> f.getPredicate().toString().equals("AND[( not id#0 IS NULL),( not score#1 IS NULL)]")));
     }
 }
