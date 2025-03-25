@@ -51,7 +51,7 @@ public class EsNodeDiscovery extends MasterDaemon {
         LOG.info("register a new catalog [{}] to sync list", esCatalog);
     }
 
-    public void deRegisterCatalog(long catalogId) {
+    public void deregisterCatalog(long catalogId) {
         esCatalogs.remove(catalogId);
     }
 
