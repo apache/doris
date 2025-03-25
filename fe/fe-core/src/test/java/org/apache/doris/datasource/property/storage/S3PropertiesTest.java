@@ -17,18 +17,10 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -51,12 +43,6 @@ public class S3PropertiesTest {
         origProps.put("s3.secret_key", "myS3SecretKey");
         origProps.put("s3.region", "us-west-1");
         origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
-        S3Properties s3Properties = (S3Properties) StorageProperties.create(origProps).get(1);
-        Configuration config = s3Properties.getHadoopConfiguration();
-        // Validate the configuration
-        Assertions.assertEquals("myS3AccessKey", config.get("fs.s3a.access.key"));
-        Assertions.assertEquals("myS3SecretKey", config.get("fs.s3a.secret.key"));
-        Assertions.assertEquals("us-west-1", config.get("fs.s3a.region"));
         origProps = new HashMap<>();
         origProps.put("s3.endpoint", "https://s3.example.com");
         origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
@@ -110,49 +96,5 @@ public class S3PropertiesTest {
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
         Assertions.assertEquals("50", s3Props.get("AWS_MAX_CONNECTIONS"));
         Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
-    }
-
-    /**
-     * This test method verifies the integration between S3 (Amazon Simple Storage Service)
-     * and HDFS by setting S3-specific properties and testing the ability to list files
-     * from an HDFS path. It demonstrates how S3 properties can be converted into
-     * Hadoop configuration settings and used to interact with HDFS.
-     * <p>
-     * The method:
-     * 1. Sets S3 properties such as access key, secret key, endpoint, and region.
-     * 2. Converts S3 properties to HDFS configuration using the `toHadoopConfiguration()` method.
-     * 3. Uses the HDFS configuration to connect to the file system.
-     * 4. Lists the files in the specified HDFS path and prints the file paths to the console.
-     * <p>
-     * Note:
-     * This test is currently disabled (@Disabled) and will not be executed unless enabled.
-     * The test requires valid S3 credentials (access key and secret key) and a valid
-     * HDFS path to function correctly.
-     *
-     * @throws URISyntaxException if the URI for the HDFS path is malformed.
-     * @throws IOException        if there are issues with file system access or S3 properties.
-     */
-    @Disabled
-    @Test
-    public void testS3HdfsPropertiesTest() throws URISyntaxException, IOException {
-        origProps.put("s3.endpoint", "s3.ap-northeast-1.amazonaws.com");
-        origProps.put("s3.access_key", accessKey);
-        origProps.put("s3.secret_key", secretKey);
-        origProps.put("s3.region", "ap-northeast-1");
-        origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
-        origProps.put("use_path_style", "true");
-        origProps.put("s3.connection.maximum", "88");
-        origProps.put("s3.connection.timeout", "6000");
-        origProps.put("test_non_storage_param", "6000");
-        S3Properties s3Properties = (S3Properties) StorageProperties.create(origProps).get(1);
-        Configuration configuration = s3Properties.getHadoopConfiguration();
-        Assertions.assertEquals("88", configuration.get("fs.s3a.connection.maximum"));
-        Assertions.assertEquals("6000", configuration.get("fs.s3a.connection.timeout"));
-        Assertions.assertEquals("6000", configuration.get("fs.s3a.request.timeout"));
-        FileSystem fs = FileSystem.get(new URI(hdfsPath), configuration);
-        FileStatus[] fileStatuses = fs.listStatus(new Path(hdfsPath));
-        for (FileStatus status : fileStatuses) {
-            System.out.println("File Path: " + status.getPath());
-        }
     }
 }

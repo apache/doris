@@ -85,7 +85,7 @@ public abstract class ConnectionProperties {
 
     // Subclass can override this method to return the property name of resource config.
     protected String getResourceConfigPropName() {
-        return "";
+        return null;
     }
 
     // This method will check if all required properties are set.

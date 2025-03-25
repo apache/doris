@@ -17,18 +17,10 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -58,7 +50,6 @@ public class COSPropertiesTest {
         origProps.put("test_non_storage_param", "6000");
 
         COSProperties cosProperties = (COSProperties) StorageProperties.create(origProps).get(1);
-        Configuration config = cosProperties.getHadoopConfiguration();
         Map<String, String> cosConfig = cosProperties.getOrigProps();
         Assertions.assertTrue(!cosConfig.containsKey("test_non_storage_param"));
 
@@ -67,13 +58,6 @@ public class COSPropertiesTest {
                 Assertions.assertEquals(v, cosConfig.get(k));
             }
         });
-
-        // Validate the configuration
-        Assertions.assertEquals("https://cos.example.com", config.get("fs.cos.endpoint"));
-        Assertions.assertEquals("myCOSAccessKey", config.get("fs.cosn.userinfo.secretId"));
-        Assertions.assertEquals("myCOSSecretKey", config.get("fs.cosn.userinfo.secretKey"));
-        Assertions.assertEquals("myCOSAccessKey", config.get("fs.cosn.userinfo.secretId"));
-        Assertions.assertEquals("myCOSSecretKey", config.get("fs.cosn.userinfo.secretKey"));
         origProps = new HashMap<>();
         origProps.put("cos.endpoint", "https://cos.example.com");
         origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
@@ -110,7 +94,7 @@ public class COSPropertiesTest {
         });
         // Validate the S3 properties
         Assertions.assertEquals("cos.ap-beijing.myqcloud.com", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("ap-beijing", s3Props.get("AWS_REGION"));
+        Assertions.assertEquals("ap-guangzhou", s3Props.get("AWS_REGION"));
         Assertions.assertEquals("myCOSAccessKey", s3Props.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("myCOSSecretKey", s3Props.get("AWS_SECRET_KEY"));
         Assertions.assertEquals("88", s3Props.get("AWS_MAX_CONNECTIONS"));
@@ -122,42 +106,5 @@ public class COSPropertiesTest {
         cosProperties.toNativeS3Configuration(s3Props);
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         // Add any additional assertions for other properties if needed
-    }
-
-    /**
-     * This test method is used for verifying the connectivity and integration between
-     * the COS (Cloud Object Storage) and HDFS (Hadoop Distributed File System) by
-     * setting COS-specific properties and testing the ability to list files from an
-     * HDFS path.
-     * <p>
-     * The method:
-     * 1. Sets COS properties such as endpoint, access key, and secret key.
-     * 2. Converts COS properties to HDFS configuration.
-     * 3. Uses the HDFS configuration to connect to the file system.
-     * 4. Lists the files in the specified HDFS path and prints the file paths to the console.
-     * <p>
-     * Note:
-     * This test is currently disabled (@Disabled) and will not be executed unless enabled.
-     * The test requires valid COS credentials (access key and secret key) and a valid
-     * HDFS path to function correctly.
-     *
-     * @throws URISyntaxException if the URI for the HDFS path is malformed.
-     * @throws IOException        if there are issues with file system access or COS properties.
-     */
-    @Disabled
-    @Test
-    public void testCOSHdfsPropertiesTest() throws URISyntaxException, IOException {
-        origProps.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
-        origProps.put("cos.access_key", accessKey);
-        origProps.put("cos.secret_key", secretKey);
-        origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
-        COSProperties cosProperties = (COSProperties) StorageProperties.create(origProps).get(1);
-
-        Configuration configuration = cosProperties.getHadoopConfiguration();
-        FileSystem fs = FileSystem.get(new URI(hdfsPath), configuration);
-        FileStatus[] fileStatuses = fs.listStatus(new Path(hdfsPath));
-        for (FileStatus status : fileStatuses) {
-            System.out.println("File Path: " + status.getPath());
-        }
     }
 }

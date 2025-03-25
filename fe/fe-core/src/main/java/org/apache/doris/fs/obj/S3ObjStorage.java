@@ -24,6 +24,7 @@ import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.AbstractObjectStorageProperties;
+import org.apache.doris.fs.remote.RemoteFile;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
@@ -59,6 +60,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class S3ObjStorage implements ObjStorage<S3Client> {
@@ -106,6 +108,50 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             client = S3Util.buildS3Client(endpoint, s3Properties.getRegion(), credential, isUsePathStyle);
         }
         return client;
+    }
+
+
+
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+        try {
+            URI uri = new URI(remotePath);
+            String bucketName = uri.getHost();
+            String prefix = uri.getPath().substring(1);
+            int wildcardIndex = prefix.indexOf('*');
+            String searchPrefix = wildcardIndex > 0 ? prefix.substring(0, wildcardIndex) : prefix;
+            try (S3Client s3 = getClient()) {
+                ListObjectsV2Request listRequest = ListObjectsV2Request.builder()
+                        .bucket(bucketName)
+                        .prefix(searchPrefix)
+                        .build();
+
+                ListObjectsV2Response listResponse = s3.listObjectsV2(listRequest);
+                String regex = prefix.replace(".", "\\.")
+                        .replace("*", ".*")
+                        .replace("?", ".");
+                Pattern pattern = Pattern.compile(regex);
+                List<RemoteFile> matchedFiles = listResponse.contents().stream()
+                        .filter(obj -> pattern.matcher(obj.key()).matches())
+                        .map(obj -> {
+                            String fullKey = obj.key();
+                            String fullPath = "s3://" + bucketName + "/" + fullKey;
+                            return new RemoteFile(
+                                    fileNameOnly ? fullPath.substring(fullPath.lastIndexOf('/') + 1) : fullPath,
+                                    true,
+                                    obj.size(),
+                                    -1,
+                                    obj.lastModified().toEpochMilli()
+                            );
+                        })
+                        .collect(Collectors.toList());
+
+                result.addAll(matchedFiles);
+            }
+            return Status.OK;
+        } catch (Exception e) {
+            LOG.warn("Errors while getting file status", e);
+            return new Status(Status.ErrCode.COMMON_ERROR, "Errors while getting file status " + e.getMessage());
+        }
     }
 
     @Override

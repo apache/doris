@@ -27,7 +27,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class OSSProperties extends AbstractObjectStorageProperties {
-    @ConnectorProperty(names = {"oss.endpoint"}, required = false, description = "The endpoint of OSS.")
+    @ConnectorProperty(names = {"oss.endpoint", "s3.endpoint"}, required = false, description = "The endpoint of OSS.")
     protected String endpoint = "oss-cn-hangzhou.aliyuncs.com";
 
     @ConnectorProperty(names = {"oss.access_key"}, description = "The access key of OSS.")
@@ -36,6 +36,7 @@ public class OSSProperties extends AbstractObjectStorageProperties {
     @ConnectorProperty(names = {"oss.secret_key"}, description = "The secret key of OSS.")
     protected String secretKey = "";
 
+    @ConnectorProperty(names = {"oss.region", "s3.region"}, required = false, description = "The region of OSS.")
     protected String region;
 
 

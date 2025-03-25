@@ -32,7 +32,9 @@ import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
+import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -73,7 +75,22 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
         S3URI s3uri = getS3Uri(uriStr, Boolean.parseBoolean(usePathStyle.toLowerCase()),
                 Boolean.parseBoolean(forceParsingByStandardUri.toLowerCase()));
-
+        String endpoint = constructEndpoint(otherProps, s3uri);
+        if (StringUtils.isNotBlank(endpoint)) {
+            otherProps.putIfAbsent(S3Properties.ENDPOINT, endpoint);
+        }
+        if (!otherProps.containsKey(S3Properties.REGION)) {
+            String region;
+            if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
+                // Azure could run without region
+                region = s3uri.getRegion().orElse("DUMMY-REGION");
+            } else {
+                region = s3uri.getRegion().orElse(null);
+            }
+            if (StringUtils.isNotBlank(region)) {
+                otherProps.put(S3Properties.REGION, region);
+            }
+        }
         // get endpoint first from properties, if not present, get it from s3 uri.
         // If endpoint is missing, exception will be thrown.
         locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
@@ -82,7 +99,9 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             // For Azure's compatibility, we need bucket to connect to the blob storage's container
             locationProperties.put(S3Properties.BUCKET, s3uri.getBucket());
         }
-        this.storageProperties = StorageProperties.createStorageProperties(properties);
+        Map<String, String> p = new HashMap<>(properties);
+        p.putAll(otherProps);
+        this.storageProperties = StorageProperties.createStorageProperties(p);
         locationProperties.putAll(storageProperties.getBackendConfigProperties());
         locationProperties.putAll(otherProps);
 
@@ -94,6 +113,26 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         } else {
             parseFile();
         }
+    }
+
+    private String constructEndpoint(Map<String, String> properties, S3URI s3uri) throws AnalysisException {
+        String endpoint;
+        if (!AzureProperties.checkAzureProviderPropertyExist(properties)) {
+            // get endpoint first from properties, if not present, get it from s3 uri.
+            // If endpoint is missing, exception will be thrown.
+            endpoint = getOrDefaultAndRemove(properties, S3Properties.ENDPOINT, s3uri.getEndpoint().orElse(""));
+            /*if (Strings.isNullOrEmpty(endpoint)) {
+                throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT));
+            }*/
+        } else {
+            String bucket = s3uri.getBucket();
+            String accountName = properties.getOrDefault(S3Properties.ACCESS_KEY, "");
+            if (accountName.isEmpty()) {
+                throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ACCESS_KEY));
+            }
+            endpoint = String.format(AzureProperties.AZURE_ENDPOINT_TEMPLATE, accountName, bucket);
+        }
+        return endpoint;
     }
 
     private void forwardCompatibleDeprecatedKeys(Map<String, String> props) {

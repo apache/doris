@@ -17,17 +17,9 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -41,15 +33,6 @@ public class OBSPropertyTest {
         origProps.put("obs.access_key", "myOBSAccessKey");
         origProps.put("obs.secret_key", "myOBSSecretKey");
         origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
-
-        ObjectStorageProperties properties = (ObjectStorageProperties) StorageProperties.create(origProps).get(1);
-        Configuration conf = properties.getHadoopConfiguration();
-
-        Assertions.assertEquals("https://obs.example.com", conf.get("fs.obs.endpoint"));
-        Assertions.assertEquals("myOBSAccessKey", conf.get("fs.obs.access.key"));
-        Assertions.assertEquals("myOBSSecretKey", conf.get("fs.obs.secret.key"));
-        Assertions.assertEquals("org.apache.hadoop.fs.obs.OBSFileSystem", conf.get("fs.obs.impl"));
-
         // Test creation without additional properties
         origProps = new HashMap<>();
         origProps.put("obs.endpoint", "https://obs.example.com");
@@ -101,41 +84,5 @@ public class OBSPropertyTest {
 
     private static String obsAccessKey = "";
     private static String obsSecretKey = "";
-    private static String hdfsPath = "";
 
-    /**
-     * This test method verifies the integration of OBS (Object Storage Service) with HDFS
-     * by setting OBS-specific properties and testing the ability to list files from an
-     * HDFS path. It demonstrates how OBS properties can be converted into HDFS configuration
-     * settings and used to interact with HDFS.
-     * <p>
-     * The method:
-     * 1. Sets OBS properties such as access key, secret key, and endpoint.
-     * 2. Converts OBS properties to HDFS configuration using the `toHadoopConfiguration()` method.
-     * 3. Uses the HDFS configuration to connect to the file system.
-     * 4. Lists the files in the specified HDFS path and prints the file paths to the console.
-     * <p>
-     * Note:
-     * This test is currently disabled (@Disabled) and will not be executed unless enabled.
-     * The test requires valid OBS credentials (access key and secret key) and a valid
-     * HDFS path to function correctly.
-     *
-     * @throws URISyntaxException if the URI for the HDFS path is malformed.
-     * @throws IOException        if there are issues with file system access or OBS properties.
-     */
-    @Disabled
-    @Test
-    public void testToHadoopConfiguration() throws URISyntaxException, IOException {
-        origProps.put("obs.access_key", obsAccessKey);
-        origProps.put("obs.secret_key", obsSecretKey);
-        origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
-        origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
-        OBSProperties obsProperties = (OBSProperties) StorageProperties.create(origProps).get(1);
-        Configuration configuration = obsProperties.getHadoopConfiguration();
-        FileSystem fs = FileSystem.get(new URI(hdfsPath), configuration);
-        FileStatus[] fileStatuses = fs.listStatus(new Path(hdfsPath));
-        for (FileStatus status : fileStatuses) {
-            System.out.println("File Path: " + status.getPath());
-        }
-    }
 }

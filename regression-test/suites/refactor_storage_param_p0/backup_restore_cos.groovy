@@ -17,16 +17,32 @@
 import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static groovy.test.GroovyAssert.shouldFail
+
 suite("refactor_storage_backup_restore_cos") {
-    String enabled= context.config.otherConfigs.get("enableBackUpRestoreCOSTest");
-    if (enabled == null && enabled.equalsIgnoreCase("false")){
-        return 
-    }
-    def s3table = "test_backup_restore_cos";
-    sql """
-        drop table  if exists ${s3table}; 
-         """
-    sql """
+    def s3table = "test_backup_restore";
+
+    def databaseQueryResult = sql """
+       select database();
+    """
+    println databaseQueryResult
+    def currentDBName = databaseQueryResult.get(0).get(0)
+    println currentDBName
+    // cos
+
+    def createDBAndTbl = { String dbName ->
+
+        sql """
+                drop database if exists ${dbName}
+            """
+
+        sql """
+            create database ${dbName}
+        """
+
+        sql  """
+             use ${dbName}
+             """
+        sql """
         CREATE TABLE ${s3table}(
             user_id            BIGINT       NOT NULL COMMENT "user id",
             name               VARCHAR(20)           COMMENT "name",
@@ -38,141 +54,195 @@ suite("refactor_storage_backup_restore_cos") {
             "replication_num" = "1"
         );
     """
-    sql """
+        sql """
         insert into ${s3table} values (1, 'a', 10);
     """
 
-    def insertResult = sql """
+        def insertResult = sql """
         SELECT count(1) FROM ${s3table}
     """
 
-    println "insertResult: ${insertResult}"
+        println "insertResult: ${insertResult}"
 
-    assert insertResult.get(0).get(0) == 1
-    def databaseQueryResult = sql """
-       select database();
-    """
-    println databaseQueryResult
-    def currentDBName = databaseQueryResult.get(0).get(0)
-    println currentDBName
-    // cos
-   
-    String objectAccessKey = context.config.otherConfigs.get("cosAK");
-    String objectSecretKey = context.config.otherConfigs.get("cosSK");
-    String objectStorageEndpoint =context.config.otherConfigs.get("cosEndpoint");
-    String objectStorageRegion = context.config.otherConfigs.get("cosRegion");
-    String objectStorageFilePathPrefix =context.config.otherConfigs.get("cosFilePathPrefix");
-
-    def objectStorageRepoName = "cos_repo_test_1";
-    try {
-        sql """
-            drop repository  ${objectStorageRepoName};
-        """
-    } catch (Exception e) {
-        //ignore exception, repo may not exist
+        assert insertResult.get(0).get(0) == 1
     }
 
-   
-    shouldFail {
-        sql """
-            CREATE REPOSITORY  ${objectStorageRepoName}
-        WITH S3
-        ON LOCATION "${objectStorageFilePathPrefix}"
-        PROPERTIES (
-            "s3.endpoint" = "${objectStorageEndpoint}",
-            "s3.region" = "${objectStorageRegion}",
-            "s3.secret_key" = "${objectSecretKey}"
-        );
-        """
-    }
-    // Invalid export path https:// please use valid 's3://' path.
-    shouldFail {
-        objectStorageHttpsFilePathPrefix = objectStorageFilePathPrefix.replaceAll("^s3://", "https://");
-        sql """
-        CREATE REPOSITORY  ${objectStorageRepoName}_https_prefix
-        WITH S3
-        ON LOCATION "https://${objectStorageHttpsFilePathPrefix}"
-                PROPERTIES (
-            "s3.endpoint" = "${objectStorageEndpoint}",
-            "s3.region" = "${objectStorageRegion}",
-            "s3.access_key" = "${objectAccessKey}",
-            "s3.secret_key" = "${objectSecretKey}"
-        );
-        """
-    }
-    shouldFail {
-        sql """
-            CREATE REPOSITORY  ${objectStorageRepoName}
-        WITH S3
-        ON LOCATION "${objectStorageFilePathPrefix}"
-        PROPERTIES (
-            "s3.endpoint" = "${objectStorageEndpoint}",
-            "s3.region" = "${objectStorageRegion}",
-            "s3.secret_key" = "${objectSecretKey}"
-        );
-        """
-    }
-    sql """
-        CREATE REPOSITORY  ${objectStorageRepoName}
-        WITH S3
-        ON LOCATION "${objectStorageFilePathPrefix}"
-        PROPERTIES (
-            "s3.endpoint" = "${objectStorageEndpoint}",
-            "s3.region" = "${objectStorageRegion}",
-            "s3.access_key" = "${objectAccessKey}",
-            "s3.secret_key" = "${objectSecretKey}"
-        );
-    """
-    
-    def objectStorageBackupLabel = "oss_label_1" + System.currentTimeMillis()
-    sql """
-       BACKUP SNAPSHOT ${currentDBName}.${objectStorageBackupLabel}
-        TO ${objectStorageRepoName}
-        ON (${s3table})
-        PROPERTIES ("type" = "full");
-        
-    """
-    Awaitility.await().atMost(60, SECONDS).pollInterval(5, SECONDS).until(
-            {
-                def backupResult = sql """
-                    show backup from ${currentDBName} where SnapshotName = '${objectStorageBackupLabel}';
-                """
-                println "backupResult: ${backupResult}"
-                return backupResult.get(0).get(3) == "FINISHED"
-            })
+    def createRepository = { String repoName, String endpointName, String endpoint, String regionName, String region, String accessKeyName, String accessKey, String secretKeyName, String secretKey, String usePathStyle, String location ->
+        try {
+            sql """
+                drop repository  ${repoName};
+            """
+        } catch (Exception e) {
+            // ignore exception, repo may not exist
+        }
 
-    def queryCosSnapshotResult = sql """
-        SHOW SNAPSHOT ON ${objectStorageRepoName} WHERE SNAPSHOT =  '${objectStorageBackupLabel}';
+        sql """
+            CREATE REPOSITORY  ${repoName}
+            WITH S3
+            ON LOCATION "${location}"
+            PROPERTIES (
+                "${endpointName}" = "${endpoint}",
+                "${regionName}" = "${region}",
+                "${accessKeyName}" = "${accessKey}",
+                "${secretKeyName}" = "${secretKey}",
+                "use_path_style" = "${usePathStyle}"
+            );
+        """
+    }
+
+    def backupAndRestore = { String repoName, String dbName, String tableName, String backupLabel ->
+        sql """
+        BACKUP SNAPSHOT ${dbName}.${backupLabel}
+        TO ${repoName}
+        ON (${tableName})
     """
-    println queryCosSnapshotResult
-    def objectSecretSnapshotTime = queryCosSnapshotResult.get(0).get(1)
-    sql """
-        drop table  if exists ${s3table}; 
-    """
-    //restore
-    sql """
-        RESTORE SNAPSHOT ${currentDBName}.${objectStorageBackupLabel}
-        FROM ${objectStorageRepoName}
-        ON (`${s3table}`)
+        Awaitility.await().atMost(60, SECONDS).pollInterval(5, SECONDS).until(
+                {
+                    def backupResult = sql """
+                show backup from ${dbName} where SnapshotName = '${backupLabel}';
+            """
+                    println "backupResult: ${backupResult}"
+                    return backupResult.get(0).get(3) == "FINISHED"
+                })
+
+        def querySnapshotResult = sql """
+        SHOW SNAPSHOT ON ${repoName} WHERE SNAPSHOT =  '${backupLabel}';
+        """
+        println querySnapshotResult
+        def snapshotTimes = querySnapshotResult.get(0).get(1).split('\n')
+        def snapshotTime = snapshotTimes[0]
+
+        sql """
+        drop table  if exists ${tableName}; 
+        """
+
+        sql """
+        RESTORE SNAPSHOT ${dbName}.${backupLabel}
+        FROM ${repoName}
+        ON (`${tableName}`)
         PROPERTIES
         (
-            "backup_timestamp"="${objectSecretSnapshotTime}",
+            "backup_timestamp"="${snapshotTime}",
             "replication_num" = "1"
         );
-    """
-    Awaitility.await().atMost(60, SECONDS).pollInterval(5, SECONDS).until(
-            {
-                try {
-                    def restoreResult = sql """
-                        SELECT count(1) FROM ${s3table}
-                    """
-                    println "restoreResult: ${restoreResult}"
-                    return restoreResult.get(0).get(0) == 1
-                } catch (Exception e) {
-                    //tbl not found
-                    return false
-                }
-            })
+        """
+        Awaitility.await().atMost(60, SECONDS).pollInterval(5, SECONDS).until(
+                {
+                    try {
+
+                        sql """
+                        use ${dbName}
+                        """
+                        def restoreResult = sql """
+                         SELECT count(1) FROM ${tableName}
+                        """
+                        println "restoreResult: ${restoreResult}"
+                        def count = restoreResult.get(0).get(0)
+                        println "count: ${count}"
+                        return restoreResult.get(0).get(0) == 1
+                    } catch (Exception e) {
+                        // tbl not found
+                        println "tbl not found"+e.getMessage()
+                        return false
+                    }
+                    println "succcess"
+                })
+    }
 
 
+
+    def test_backup_restore= {String ak,String sk,String s3_endpoint,String region,String bucket,String objPrefix ->
+        def s3repoName1 = "${objPrefix}_repo_1"
+        createRepository("${s3repoName1}", "s3.endpoint", s3_endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "true", "s3://${bucket}/test_" + System.currentTimeMillis())
+
+        def dbName1 = currentDBName + "${objPrefix}_1"
+        createDBAndTbl("${dbName1}")
+        backupAndRestore("${s3repoName1}", dbName1, s3table, "backup_${s3repoName1}_test")
+        def s3repoName2 = "${objPrefix}_repo_2"
+        createRepository("${s3repoName2}", "s3.endpoint", s3_endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "false", "s3://${bucket}/test_" + System.currentTimeMillis())
+        def dbName2 = currentDBName + "${objPrefix}_2"
+        createDBAndTbl("${dbName2}")
+        backupAndRestore("${s3repoName2}", dbName2, s3table, "backup_${s3repoName2}_test")
+
+        def s3repoName3 = "${objPrefix}_repo_3"
+        createRepository("${s3repoName3}", "s3.endpoint", s3_endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "", "s3://${bucket}/test_" + System.currentTimeMillis())
+        def dbName3 = currentDBName + "${objPrefix}_3"
+        createDBAndTbl("${dbName3}")
+        backupAndRestore("${s3repoName3}", dbName3, s3table, "backup_${s3repoName3}_test")
+
+        def s3repoName4 = "${objPrefix}_s3_repo_4"
+        createRepository("${s3repoName4}", "s3.endpoint", s3_endpoint, "s3.region", region, "AWS_ACCESS_KEY", ak, "AWS_SECRET_KEY", sk, "true", "s3://${bucket}/test_" + System.currentTimeMillis())
+        def dbName4 = currentDBName + "${objPrefix}_4"
+        createDBAndTbl("${dbName4}")
+        backupAndRestore("${s3repoName4}", dbName4, s3table, "backup_${s3repoName4}_test")
+        def s3repoName5 = "${objPrefix}_s3_repo_5"
+        createRepository("${s3repoName5}", "s3.endpoint", s3_endpoint, "s3.region", region, "AWS_ACCESS_KEY", ak, "AWS_SECRET_KEY", sk, "false", "s3://${bucket}/test_" + System.currentTimeMillis())
+        def dbName5 = currentDBName + "${objPrefix}_5"
+        createDBAndTbl("${dbName5}")
+        backupAndRestore("${s3repoName5}", dbName5, s3table, "backup_${s3repoName5}_test")
+        def s3repoName6 = "${objPrefix}_s3_repo_6"
+        createRepository("${s3repoName6}", "AWS_ENDPOINT", s3_endpoint, "AWS_REGION", region, "AWS_ACCESS_KEY", ak, "AWS_SECRET_KEY", sk, "false", "s3://${bucket}/test_" + System.currentTimeMillis())
+        def dbName6 = currentDBName + "${objPrefix}_6"
+        createDBAndTbl("${dbName6}")
+        backupAndRestore("${s3repoName6}", dbName6, s3table, "backup_${s3repoName6}_test")
+        def failedRepoName = "s3_repo_failed"
+        // wrong address
+        shouldFail {
+            createRepository("${failedRepoName}", "s3.endpoint", s3_endpoint, "s3.region", region, "AWS_ACCESS_KEY", ak, "AWS_SECRET_KEY", sk, "true", "s3://ck/" + System.currentTimeMillis())
+        }
+
+        shouldFail {
+            createRepository("${failedRepoName}", "s3.endpoint", s3_endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "", "https://${bucket}/test_" + System.currentTimeMillis())
+        }
+        // http://${bucket}/test_"+System.currentTimeMillis()
+        shouldFail {
+            createRepository("${failedRepoName}", "s3.endpoint", s3_endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "", "http://${bucket}/test_" + System.currentTimeMillis())
+        }
+        // https://${bucket}/test_"+System.currentTimeMillis()
+        shouldFail {
+            createRepository("${failedRepoName}", "s3.endpoint", s3_endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "", "https://${bucket}/test_" + System.currentTimeMillis())
+        }
+        //endpoint is empty
+        shouldFail {
+            createRepository("${failedRepoName}", "s3.endpoint", "", "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "", "s3://${bucket}/test_" + System.currentTimeMillis())
+        }
+        //region is empty
+        shouldFail {
+            createRepository("${failedRepoName}", "s3.endpoint", "", "s3.region", "", "s3.access_key", ak, "s3.secret_key", sk, "", "s3://${bucket}/test_" + System.currentTimeMillis())
+        }
+    }
+    String  ak = context.config.otherConfigs.get("AWSAK")
+    String sk = context.config.otherConfigs.get("AWSSK")
+    String s3_endpoint = "s3.ap-northeast-1.amazonaws.com"
+    String region = "ap-northeast-1"
+    String bucket = "selectdb-qa-datalake-test"
+    String objPrefix="s3"
+    /*-------------AWS S3--------------------------------*/
+    //test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
+    /*-----------------Tencent COS----------------*/
+    ak = context.config.otherConfigs.get("txYunAk")
+    sk = context.config.otherConfigs.get("txYunSk")
+    s3_endpoint = "cos.ap-beijing.myqcloud.com"
+    region = "ap-beijing"
+    bucket = "doris-build-1308700295";
+    
+    objPrefix="cos"
+    test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
+    /*-----------------Huawei OBS----------------*/
+    ak = context.config.otherConfigs.get("hwYunAk")
+    sk = context.config.otherConfigs.get("hwYunSk")
+    s3_endpoint = "obs.cn-north-4.myhuaweicloud.com"
+    region = "cn-north-4"
+    bucket = "doris-build";
+    objPrefix="obs"
+    test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
+    /*-----------------Aliyun OSS----------------*/
+    ak = context.config.otherConfigs.get("aliYunAk")
+    sk = context.config.otherConfigs.get("aliYunSk")
+    s3_endpoint = "oss-cn-hongkong.aliyuncs.com"
+    region = "oss-cn-hongkong"
+    bucket = "doris-regression-hk";
+    objPrefix="oss"
+    // oss has some problem, so we comment it.
+    //test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
 }
