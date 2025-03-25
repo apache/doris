@@ -662,6 +662,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
             if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
+                // TODO(zhengyu): update type&expiration if need
                 return;
             }
             // if the file is tmp, it means it is the old file and it should be removed
