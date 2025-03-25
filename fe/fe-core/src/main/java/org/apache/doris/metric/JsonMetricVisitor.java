@@ -90,12 +90,6 @@ public class JsonMetricVisitor extends MetricVisitor {
         Threads threads = jvmStats.getThreads();
         setJvmJsonMetric(sb, JVM_THREAD, null, "count", "nounit", threads.getCount());
         setJvmJsonMetric(sb, JVM_THREAD, null, "peak_count", "nounit", threads.getPeakCount());
-        setJvmJsonMetric(sb, JVM_THREAD, null, "new_count", "nounit", threads.getThreadsNewCount());
-        setJvmJsonMetric(sb, JVM_THREAD, null,  "runnable_count", "nounit", threads.getThreadsRunnableCount());
-        setJvmJsonMetric(sb, JVM_THREAD, null,  "blocked_count", "nounit", threads.getThreadsBlockedCount());
-        setJvmJsonMetric(sb, JVM_THREAD, null,  "waiting_count", "nounit", threads.getThreadsWaitingCount());
-        setJvmJsonMetric(sb, JVM_THREAD, null, "timed_waiting_count", "nounit", threads.getThreadsTimedWaitingCount());
-        setJvmJsonMetric(sb, JVM_THREAD, null, "terminated_count", "nounit", threads.getThreadsTerminatedCount());
     }
 
     private void setJvmJsonMetric(StringBuilder sb, String metric, String name, String type, String unit, long value) {

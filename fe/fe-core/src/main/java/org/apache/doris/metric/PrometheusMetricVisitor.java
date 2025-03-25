@@ -133,19 +133,6 @@ public class PrometheusMetricVisitor extends MetricVisitor {
                 .append(threads.getCount()).append("\n");
         sb.append(JVM_THREAD).append("{type=\"peak_count\"} ")
                 .append(threads.getPeakCount()).append("\n");
-        sb.append(JVM_THREAD).append("{type=\"new_count\"} ")
-                .append(threads.getThreadsNewCount()).append("\n");
-        sb.append(JVM_THREAD).append("{type=\"runnable_count\"} ")
-                .append(threads.getThreadsRunnableCount()).append("\n");
-        sb.append(JVM_THREAD).append("{type=\"blocked_count\"} ")
-                .append(threads.getThreadsBlockedCount()).append("\n");
-        sb.append(JVM_THREAD).append("{type=\"waiting_count\"} ")
-                .append(threads.getThreadsWaitingCount()).append("\n");
-        sb.append(JVM_THREAD).append("{type=\"timed_waiting_count\"} ")
-                .append(threads.getThreadsTimedWaitingCount()).append("\n");
-        sb.append(JVM_THREAD).append("{type=\"terminated_count\"} ")
-                .append(threads.getThreadsTerminatedCount()).append("\n");
-        return;
     }
 
     @Override
