@@ -582,6 +582,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LOW_MEMORY_MODE_BUFFER_LIMIT = "low_memory_mode_buffer_limit";
     public static final String DUMP_HEAP_PROFILE_WHEN_MEM_LIMIT_EXCEEDED = "dump_heap_profile_when_mem_limit_exceeded";
 
+    public static final String FUZZY_DISABLE_RUNTIME_FILTER_IN_BE = "fuzzy_disable_runtime_filter_in_be";
+
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
 
     public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
@@ -2334,6 +2336,13 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SPILL_SORT_BATCH_BYTES)
     public long spillSortBatchBytes = 8388608; // 8M
 
+    @VariableMgr.VarAttr(
+            name = FUZZY_DISABLE_RUNTIME_FILTER_IN_BE,
+            description = {"在 BE 上开启禁用 runtime filter 的随机开关，用于测试",
+                    "Disable the runtime filter on the BE for testing purposes."},
+            needForward = true, fuzzy = true)
+    public boolean fuzzyDisableRuntimeFilterInBE = false;
+
     @VariableMgr.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, fuzzy = true)
     public int spillAggregationPartitionCount = 32;
 
@@ -2586,6 +2595,7 @@ public class SessionVariable implements Serializable, Writable {
             }
 
         }
+        this.fuzzyDisableRuntimeFilterInBE = random.nextBoolean();
         this.runtimeFilterWaitInfinitely = random.nextBoolean();
 
         // set random 1, 10, 100, 1000, 10000
@@ -4028,6 +4038,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setDumpHeapProfileWhenMemLimitExceeded(dumpHeapProfileWhenMemLimitExceeded);
 
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
+        tResult.setFuzzyDisableRuntimeFilterInBe(fuzzyDisableRuntimeFilterInBE);
         tResult.setLowMemoryModeBufferLimit(lowMemoryModeBufferLimit);
 
         tResult.setEnableSharedExchangeSinkBuffer(enableSharedExchangeSinkBuffer);

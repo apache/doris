@@ -62,6 +62,7 @@
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
+#include "exprs/runtime_filter.h"
 #include "gutil/ref_counted.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"

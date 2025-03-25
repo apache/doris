@@ -22,12 +22,11 @@
 
 #include "common/status.h"
 #include "exprs/function_filter.h"
-#include "olap/filter_olap_param.h"
 #include "operator.h"
+#include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
-#include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "vec/exec/scan/scan_node.h"
 #include "vec/exec/scan/scanner_context.h"
 #include "vec/exprs/vectorized_fn_call.h"
@@ -55,19 +54,19 @@ enum class PushDownType {
 struct FilterPredicates {
     // Save all runtime filter predicates which may be pushed down to data source.
     // column name -> bloom filter function
-    std::vector<FilterOlapParam<std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+    std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
 
-    std::vector<FilterOlapParam<std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
+    std::vector<std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
 
-    std::vector<FilterOlapParam<std::shared_ptr<HybridSetBase>>> in_filters;
+    std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
 };
 
-class ScanLocalStateBase : public PipelineXLocalState<> {
+class ScanLocalStateBase : public PipelineXLocalState<>, public RuntimeFilterConsumer {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<>(state, parent),
-              _helper(parent->node_id(), parent->runtime_filter_descs(), parent->row_descriptor()) {
-    }
+              RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
+                                    parent->row_descriptor(), _conjuncts) {}
     ~ScanLocalStateBase() override = default;
 
     [[nodiscard]] virtual bool should_run_serial() const = 0;
@@ -78,6 +77,8 @@ public:
     [[nodiscard]] virtual const TupleDescriptor* output_tuple_desc() const = 0;
 
     virtual int64_t limit_per_scanner() = 0;
+
+    [[nodiscard]] virtual int runtime_filter_num() const = 0;
 
     virtual Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
     virtual void set_scan_ranges(RuntimeState* state,
@@ -122,9 +123,6 @@ protected:
 
     RuntimeProfile::Counter* _scan_rows = nullptr;
     RuntimeProfile::Counter* _scan_bytes = nullptr;
-
-    RuntimeFilterConsumerHelper _helper;
-    std::mutex _conjunct_lock;
 };
 
 template <typename LocalStateType>
@@ -149,6 +147,10 @@ class ScanLocalState : public ScanLocalStateBase {
     [[nodiscard]] const TupleDescriptor* output_tuple_desc() const override;
 
     int64_t limit_per_scanner() override;
+
+    [[nodiscard]] int runtime_filter_num() const override {
+        return (int)_runtime_filter_ctxs.size();
+    }
 
     Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) override;
     void set_scan_ranges(RuntimeState* state,

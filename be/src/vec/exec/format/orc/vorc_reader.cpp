@@ -54,7 +54,6 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/primitive_type.h"
-#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
@@ -2549,7 +2548,7 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             node.__set_is_nullable(false);
 
             std::shared_ptr<HybridSetBase> hybrid_set(
-                    create_set(PrimitiveType::TYPE_INT, dict_codes.size(), false));
+                    create_set(PrimitiveType::TYPE_INT, dict_codes.size()));
             for (int& dict_code : dict_codes) {
                 hybrid_set->insert(&dict_code);
             }

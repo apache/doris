@@ -53,7 +53,7 @@ public:
                 std::make_unique<MemTableFlushExecutor>();
         ExecEnv::GetInstance()->_storage_engine->_memtable_flush_executor->init(1);
     }
-    void TearDown() override { delete ExecEnv::GetInstance()->_without_group_task_scheduler; }
+    void TearDown() override {}
 
     DummyWorkloadGroupTest() = default;
     ~DummyWorkloadGroupTest() override = default;

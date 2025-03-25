@@ -53,7 +53,7 @@
 #include "vec/columns/columns_number.h"
 
 namespace doris {
-class RuntimeFilter;
+class IRuntimeFilter;
 
 inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
     return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
@@ -73,8 +73,6 @@ class ExecEnv;
 class RuntimeFilterMgr;
 class MemTrackerLimiter;
 class QueryContext;
-class RuntimeFilterConsumer;
-class RuntimeFilterProducer;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -353,6 +351,11 @@ public:
         return _query_options.runtime_filter_wait_time_ms;
     }
 
+    bool runtime_filter_wait_infinitely() const {
+        return _query_options.__isset.runtime_filter_wait_infinitely &&
+               _query_options.runtime_filter_wait_infinitely;
+    }
+
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
 
     int be_exec_version() const {
@@ -547,14 +550,11 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            std::shared_ptr<RuntimeFilterProducer>* producer_filter,
-                                            RuntimeProfile* parent_profile);
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
 
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,
-                                            std::shared_ptr<RuntimeFilterConsumer>* consumer_filter,
-                                            RuntimeProfile* parent_profile);
-
+                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
     bool is_nereids() const;
 
     bool enable_spill() const {
@@ -618,6 +618,11 @@ public:
     MOCK_FUNCTION bool enable_shared_exchange_sink_buffer() const {
         return _query_options.__isset.enable_shared_exchange_sink_buffer &&
                _query_options.enable_shared_exchange_sink_buffer;
+    }
+
+    bool fuzzy_disable_runtime_filter_in_be() const {
+        return _query_options.__isset.fuzzy_disable_runtime_filter_in_be &&
+               _query_options.fuzzy_disable_runtime_filter_in_be;
     }
 
     size_t minimum_operator_memory_required_bytes() const {

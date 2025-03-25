@@ -20,7 +20,6 @@
 #include "exec/tablet_info.h"
 #include "operator.h"
 #include "runtime/group_commit_mgr.h"
-#include "util/bitmap.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
