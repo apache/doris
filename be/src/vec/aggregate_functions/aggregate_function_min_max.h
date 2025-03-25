@@ -35,7 +35,6 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
