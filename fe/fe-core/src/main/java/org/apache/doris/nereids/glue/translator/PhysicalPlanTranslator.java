@@ -73,6 +73,7 @@ import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecExecutionAny;
@@ -822,6 +823,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                 expr, olapScanNode, context)
                 )
         );
+
+        // translate rf v2 target
+        List<RuntimeFilterV2> rfV2s = context.getRuntimeFilterV2Context()
+                .getRuntimeFilterV2ByTargetPlan(olapScan);
+        for (RuntimeFilterV2 rfV2 : rfV2s) {
+            Expr targetExpr = rfV2.getTargetExpression().accept(ExpressionTranslator.INSTANCE, context);
+            rfV2.setLegacyTargetNode(olapScanNode);
+            rfV2.setLegacyTargetExpr(targetExpr);
+        }
+
         context.getTopnFilterContext().translateTarget(olapScan, olapScanNode, context);
         olapScanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(olapScan.getRelationId()));
         // Create PlanFragment
@@ -2172,6 +2183,28 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         return setOperationFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalIntersect(PhysicalIntersect intersect, PlanTranslatorContext context) {
+        PlanFragment fragment = visitPhysicalSetOperation(intersect, context);
+        RunTimeFilterTranslatorV2.INSTANCE.createLegacyRuntimeFilters(
+                fragment.getPlanRoot(),
+                intersect.getRuntimeFiltersV2(),
+                context);
+
+        return fragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalExcept(PhysicalExcept except, PlanTranslatorContext context) {
+        PlanFragment fragment = visitPhysicalSetOperation(except, context);
+        RunTimeFilterTranslatorV2.INSTANCE.createLegacyRuntimeFilters(
+                fragment.getPlanRoot(),
+                except.getRuntimeFiltersV2(),
+                context);
+
+        return fragment;
     }
 
     /*-

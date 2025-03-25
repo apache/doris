@@ -30,6 +30,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
+import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterContextV2;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -72,6 +73,7 @@ public class PlanTranslatorContext {
     private final DescriptorTable descTable = new DescriptorTable();
 
     private final RuntimeFilterTranslator translator;
+
     private final TopnFilterContext topnFilterContext;
     /**
      * index from Nereids' slot to legacy slot.
@@ -113,11 +115,13 @@ public class PlanTranslatorContext {
     private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
+    private final RuntimeFilterContextV2 runtimeFilterV2Context;
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
+        this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
     }
 
     @VisibleForTesting
@@ -125,6 +129,7 @@ public class PlanTranslatorContext {
         this.connectContext = null;
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
+        this.runtimeFilterV2Context = null;
     }
 
     /**
@@ -336,5 +341,9 @@ public class PlanTranslatorContext {
 
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
+    }
+
+    public RuntimeFilterContextV2 getRuntimeFilterV2Context() {
+        return runtimeFilterV2Context;
     }
 }
