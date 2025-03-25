@@ -1302,6 +1302,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
 
     // Elements in `tablet_keys` has the same lifetime as `it` in `scan_and_recycle`
     std::vector<std::string> tablet_idx_keys;
+    std::vector<std::string> tablet_snapshot_keys;
     std::vector<std::string> init_rs_keys;
     auto recycle_func = [&, is_empty_tablet, this](std::string_view k, std::string_view v) -> int {
         bool use_range_remove = true;
@@ -1320,6 +1321,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
         }
 
         tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id_, tablet_id}));
+        tablet_snapshot_keys.push_back(snapshot_tablet_key({instance_id_, tablet_id}));
         if (!is_empty_tablet) {
             sync_executor.add([this, &num_recycled, tid = tablet_id, range_move = use_range_remove,
                                k]() mutable -> TabletKeyPair {
@@ -1387,6 +1389,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
         }
         std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
             tablet_idx_keys.clear();
+            tablet_snapshot_keys.clear();
             init_rs_keys.clear();
         });
         std::unique_ptr<Transaction> txn;
@@ -1406,6 +1409,9 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
             }
         }
         for (auto& k : tablet_idx_keys) {
+            txn->remove(k);
+        }
+        for (auto& k : tablet_snapshot_keys) {
             txn->remove(k);
         }
         for (auto& k : init_rs_keys) {
@@ -1694,6 +1700,8 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
     std::string rs_key1 = meta_rowset_key({instance_id_, tablet_id + 1, 0});
     std::string recyc_rs_key0 = recycle_rowset_key({instance_id_, tablet_id, ""});
     std::string recyc_rs_key1 = recycle_rowset_key({instance_id_, tablet_id + 1, ""});
+    std::string snapshot_rs_key0 = snapshot_rowset_key({instance_id_, tablet_id, 0});
+    std::string snapshot_rs_key1 = snapshot_rowset_key({instance_id_, tablet_id + 1, 0});
 
     std::set<std::string> resource_ids;
     int64_t recycle_rowsets_number = 0;
@@ -1812,43 +1820,6 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
         resource_ids.emplace(rs_meta.resource_id());
     }
 
-    // get recycle rowsets in tablet
-    std::unique_ptr<RangeGetIterator> iter;
-    do {
-        TxnErrorCode err = txn->get(recyc_rs_key0, recyc_rs_key1, &iter, true);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("scan recycle rowsets failed when recycle tablet")
-                    .tag("tablet id", tablet_id)
-                    .tag("instance id", instance_id_);
-            return -1;
-        }
-        while (iter->has_next()) {
-            auto [k, v] = iter->next();
-            RecycleRowsetPB recycle_rowset;
-            recycle_rowset.ParseFromArray(v.data(), v.size());
-            const auto& rs_meta = recycle_rowset.rowset_meta();
-            auto it = accessor_map_.find(rs_meta.resource_id());
-            // possible if the accessor is not initilized correctly
-            if (it == accessor_map_.end()) [[unlikely]] {
-                LOG_WARNING(
-                        "failed to find resource id when recycle tablet, skip this vault accessor "
-                        "recycle process")
-                        .tag("tablet id", tablet_id)
-                        .tag("instance_id", instance_id_)
-                        .tag("resource_id", rs_meta.resource_id())
-                        .tag("rowset meta pb", rs_meta.ShortDebugString());
-                return -1;
-            }
-            recycle_rowsets_number += 1;
-            recycle_segments_number += rs_meta.num_segments();
-            recycle_rowsets_data_size += rs_meta.data_disk_size();
-            recycle_rowsets_index_size += rs_meta.index_disk_size();
-            resource_ids.emplace(rs_meta.resource_id());
-            if (!iter->has_next()) recyc_rs_key0 = k;
-        }
-        recyc_rs_key0.push_back('\x00'); // Update to next smallest key for iteration
-    } while (iter->more());
-
     // get snapshot rowset in tablet
     std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> snapshot_rs_metas;
     scan_snapshot_rowset(txn.get(), instance_id_, tablet_id, code, msg, &snapshot_rs_metas);
@@ -1948,6 +1919,7 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
     // delete all rowset kv in this tablet
     txn->remove(rs_key0, rs_key1);
     txn->remove(recyc_rs_key0, recyc_rs_key1);
+    txn->remove(snapshot_rs_key0, snapshot_rs_key1);
 
     // remove delete bitmap for MoW table
     std::string pending_key = meta_pending_delete_bitmap_key({instance_id_, tablet_id});
@@ -2292,7 +2264,7 @@ int InstanceRecycler::recycle_snapshots() {
     int64_t earlest_ts = std::numeric_limits<int64_t>::max();
 
     auto calc_expiration = [&earlest_ts, this](const SnapshotPB& snapshot) {
-        if (config::force_immediate_recycle) {
+        if (config::force_immediate_recycle || snapshot.state() == SnapshotPB::DROPPED) {
             return 0L;
         }
         int64_t expiration = snapshot.expiration() > 0
@@ -2321,8 +2293,10 @@ int InstanceRecycler::recycle_snapshots() {
         ++num_expired;
 
         int64_t tablet_id = snapshot_pb.tablet_id();
+        bool is_restore = snapshot_pb.is_restore();
         LOG(INFO) << "begin to recycle expired snapshot, instance_id=" << instance_id_
-                  << " tablet_id=" << snapshot_pb.tablet_id();
+                  << " tablet_id=" << snapshot_pb.tablet_id()
+                  << " is_restore=" << is_restore;
 
         std::string snapshot_rs_key0 = snapshot_rowset_key({instance_id_, tablet_id, 0});
         std::string snapshot_rs_key1 = snapshot_rowset_key({instance_id_, tablet_id + 1, 0});
@@ -2351,28 +2325,34 @@ int InstanceRecycler::recycle_snapshots() {
             return -1;
         }
 
-        txn.reset();
-        err = txn_kv_->create_txn(&txn);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("failed to recycle snapshot")
-                    .tag("err", err)
-                    .tag("tablet id", tablet_id)
+        if (is_restore && recycle_tablet(tablet_id) != 0) {
+            LOG_WARNING("failed to recycle tablet snapshot")
+                    .tag("tablet_id", tablet_id)
                     .tag("instance_id", instance_id_)
-                    .tag("reason", "failed to create txn");
+                    .tag("is_restore", is_restore);
             return -1;
-        }
+        } else {
+            txn.reset();
+            err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to recycle snapshot").tag("err", err)
+                        .tag("tablet id", tablet_id)
+                        .tag("instance_id", instance_id_)
+                        .tag("reason", "failed to create txn");
+                return -1;
+            }
 
-        // delete all snapshot rowset kv
-        txn->remove(snapshot_rs_key0, snapshot_rs_key1);
+            // delete all snapshot rowset kv
+            txn->remove(snapshot_rs_key0, snapshot_rs_key1);
 
-        err = txn->commit();
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("failed to recycle snapshot rowset kv")
-                    .tag("err", err)
-                    .tag("tablet id", tablet_id)
-                    .tag("instance_id", instance_id_)
-                    .tag("reason", "failed to commit txn");
-            return -1;
+            err = txn->commit();
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to recycle snapshot rowset kv").tag("err", err)
+                        .tag("tablet id", tablet_id)
+                        .tag("instance_id", instance_id_)
+                        .tag("reason", "failed to commit txn");
+                return -1;
+            }
         }
 
         total_recycle_snapshot_rs_number += snapshot_rs_metas.size();

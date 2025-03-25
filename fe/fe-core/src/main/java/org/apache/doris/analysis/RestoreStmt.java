@@ -28,10 +28,13 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 import java.util.Set;
@@ -224,33 +227,18 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
         // storage vault name
         if (Config.isCloudMode()) {
-            if (copiedProperties.containsKey(PROP_STORAGE_VAULT_NAME)) {
-                storageVaultName = copiedProperties.get(PROP_STORAGE_VAULT_NAME);
-                copiedProperties.remove(PROP_STORAGE_VAULT_NAME);
-            } else {
-                if (isLocal) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                            "Missing " + PROP_STORAGE_VAULT_NAME + " property");
-                }
+            Pair<String, String> info = PropertyAnalyzer.analyzeStorageVault(copiedProperties,
+                    Env.getCurrentInternalCatalog().getDbOrAnalysisException(labelName.getDbName()));
+            Preconditions.checkArgument(StringUtils.isNumeric(info.second),
+                    "Invalid storage vault id :%s", info.second);
+            // Check if user has storage vault usage privilege
+            ConnectContext context = ConnectContext.get();
+            if (context != null && !Env.getCurrentEnv().getAccessManager()
+                    .checkStorageVaultPriv(context.getCurrentUserIdentity(), info.first, PrivPredicate.USAGE)) {
+                throw new AnalysisException(String.format("USAGE denied to user '%s'@'%s' for storage vault '%s'",
+                        context.getQualifiedUser(), context.getRemoteIP(), info.first));
             }
-
-            if (Strings.isNullOrEmpty(storageVaultName)) {
-                // If storage vault is not specified then use the default vault
-                Pair<String, String> info = Env.getCurrentEnv().getStorageVaultMgr().getDefaultStorageVault();
-                if (info == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "No default storage vault."
-                            + " You can use `SHOW STORAGE VAULT(S)` to get all available vaults,"
-                            + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
-                }
-                storageVaultName = info.first;
-            } else {
-                String storageVaultId = Env.getCurrentEnv().getStorageVaultMgr().getVaultIdByName(storageVaultName);
-                if (Strings.isNullOrEmpty(storageVaultId)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "Storage vault '"
-                            + storageVaultName + "' does not exist. You can use `SHOW STORAGE VAULT` to get"
-                            + " all available vaults, or create a new one with `CREATE STORAGE VAULT`.");
-                }
-            }
+            storageVaultName = info.first;
         }
 
         // is being synced
