@@ -60,9 +60,8 @@ struct AggregateFunctionDSHllCountDistinctData {
     void update(const void* data, size_t length_bytes) {
         if (length_bytes > 0) {
             hll_data->update(data, length_bytes);
-         }
-     }
-
+        }
+    }
 
     void merge(const AggregateFunctionDSHllCountDistinctData& rhs) {
         if (!(rhs.hll_data)) {
