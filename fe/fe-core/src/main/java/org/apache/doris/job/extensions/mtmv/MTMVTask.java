@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -263,11 +264,19 @@ public class MTMVTask extends AbstractTask {
             throw new JobException("column length not equals, please check columns of base table if changed");
         }
         for (int i = 0; i < currentColumns.size(); i++) {
-            if (!currentColumns.get(i).getType().equals(derivedColumns.get(i).getType())) {
+            if (!isTypeLike(currentColumns.get(i).getType(), derivedColumns.get(i).getType())) {
                 throw new JobException(
-                        "column type not equals, please check columns of base table if changed, columnName: "
+                        "column type not like, please check columns of base table if changed, columnName: "
                                 + currentColumns.get(i).getName());
             }
+        }
+    }
+
+    private boolean isTypeLike(Type type, Type typeOther) {
+        if (type.isStringType()) {
+            return typeOther.isStringType();
+        } else {
+            return type.equals(typeOther);
         }
     }
 
