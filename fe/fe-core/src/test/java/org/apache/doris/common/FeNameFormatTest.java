@@ -329,7 +329,7 @@ public class FeNameFormatTest {
                 " ",              // Space character
                 "1stInvalid",     // Starts with number
                 "@username",      // Invalid starting character
-                "name with space",// Contains space
+                "name with space", // Contains space
                 "a.b",            // Contains dot
                 "a*b",            // Contains asterisk
                 "a\nb",           // Contains newline
