@@ -342,6 +342,8 @@ public:
 
 class AttachTask {
 public:
+    explicit AttachTask();
+
     explicit AttachTask(const std::shared_ptr<ResourceContext>& rc);
 
     // Shortcut attach task, initialize an empty resource context, and set the memory tracker.

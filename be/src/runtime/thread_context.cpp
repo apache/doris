@@ -30,6 +30,11 @@ void AttachTask::init(const std::shared_ptr<ResourceContext>& rc) {
     thread_context()->attach_task(rc);
 }
 
+AttachTask::AttachTask() {
+    std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
+    init(rc);
+}
+
 AttachTask::AttachTask(const std::shared_ptr<ResourceContext>& rc) {
     init(rc);
 }
