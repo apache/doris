@@ -339,6 +339,7 @@ import org.apache.doris.nereids.DorisParser.ShowRepositoriesContext;
 import org.apache.doris.nereids.DorisParser.ShowRestoreContext;
 import org.apache.doris.nereids.DorisParser.ShowRolesContext;
 import org.apache.doris.nereids.DorisParser.ShowSmallFilesContext;
+import org.apache.doris.nereids.DorisParser.ShowSnapshotContext;
 import org.apache.doris.nereids.DorisParser.ShowSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.ShowStagesContext;
 import org.apache.doris.nereids.DorisParser.ShowStatusContext;
@@ -654,6 +655,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
@@ -5007,6 +5009,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             dbName = nameParts.get(0); // only one entry possible
         }
         return new ShowSmallFilesCommand(dbName);
+    }
+
+    @Override
+    public LogicalPlan visitShowSnapshot(ShowSnapshotContext ctx) {
+        String repoName = null;
+        Expression wildWhere = null;
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        if (ctx.repo != null) {
+            repoName = ctx.repo.getText();
+        }
+        return new ShowSnapshotCommand(repoName, wildWhere);
     }
 
     @Override

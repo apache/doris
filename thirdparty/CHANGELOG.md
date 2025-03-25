@@ -2,6 +2,10 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20250324
+
+- Added: pugixml 1.15, a C++ XML processing library.
+
 ## 20250319
 
 - Added: jindofs 6.3.4

@@ -250,7 +250,7 @@ function create_account()
         log_stderr "the 'root' account have set password! not need auto create management account."
         return 0
     fi
-    if echo $users | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
+    if echo $users | awk '{print $1}' | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
        log_stderr "the $DB_ADMIN_USER have exist in doris."
        return 0
     fi

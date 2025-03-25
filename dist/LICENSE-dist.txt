@@ -1537,3 +1537,4 @@ Other dependencies:
     * concurrentqueue: 1.0.3  -- licenses/LICENSE-concurrentqueue.txt
     * FlameGraph -- licenses/LICENSE-CDDL-1.0.txt
     * icu 75.1 -- licenses/LICENSE-icu.txt
+    * pugixml 1.15 -- licenses/LICENSE-pugixml.txt
