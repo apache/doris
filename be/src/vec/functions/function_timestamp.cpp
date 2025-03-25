@@ -271,8 +271,8 @@ struct MakeDateImpl {
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
         ColumnPtr res = nullptr;
-        switch (block.get_by_position(result).type->get_primitive_type()) {
-        case PrimitiveType::TYPE_DATEV2: {
+        if (block.get_by_position(result).type->get_primitive_type() ==
+            PrimitiveType::TYPE_DATEV2) {
             res = ColumnDateV2::create();
             if (col_const[1]) {
                 execute_impl_right_const<DataTypeDateV2>(
@@ -287,26 +287,13 @@ struct MakeDateImpl {
                         static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
-            break;
-        }
-        case PrimitiveType::TYPE_DATETIMEV2: {
-            res = ColumnDateTimeV2::create();
-            if (col_const[1]) {
-                execute_impl_right_const<DataTypeDateTimeV2>(
-                        static_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
-                        static_cast<const ColumnInt32*>(argument_columns[1].get())->get_element(0),
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
-                        null_map->get_data());
-            } else {
-                execute_impl<DataTypeDateTimeV2>(
-                        static_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
-                        static_cast<const ColumnInt32*>(argument_columns[1].get())->get_data(),
-                        static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
-                        null_map->get_data());
+        } else {
+            if (block.get_by_position(result).type->get_primitive_type() !=
+                PrimitiveType::TYPE_DATE) {
+                return Status::FatalError(
+                        "MakeDate function only support date or datev2 type, but got {}",
+                        block.get_by_position(result).type->get_name());
             }
-            break;
-        }
-        default: {
             res = ColumnDate::create();
             if (col_const[1]) {
                 execute_impl_right_const<DataTypeDate>(
@@ -321,7 +308,6 @@ struct MakeDateImpl {
                         assert_cast<ColumnDate*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
-        }
         }
         block.get_by_position(result).column = ColumnNullable::create(res, std::move(null_map));
         return Status::OK();
@@ -367,7 +353,7 @@ private:
                                     NullMap& null_map, size_t index) {
         auto& res_val = *reinterpret_cast<DateValueType*>(&res[index]);
         // l checked outside
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) { // V1, Date
             VecDateTimeValue ts_value = VecDateTimeValue();
             ts_value.unchecked_set_time(l, 1, 1, 0, 0, 0);
 
@@ -378,7 +364,7 @@ private:
                 return;
             }
             res_val.cast_to_date();
-        } else {
+        } else { // V2, DateV2
             res_val.unchecked_set_time(l, 1, 1, 0, 0, 0, 0);
             TimeInterval interval(DAY, r - 1, false);
             if (!res_val.template date_add_interval<DAY>(interval)) {

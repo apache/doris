@@ -1726,6 +1726,10 @@ inline uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day) {
     if (month <= 2) {
         // No leap year
         y--;
+        // 0000 is a leap year.
+        if (y == 0) [[unlikely]] {
+            return delsum + 1;
+        }
     } else {
         // This is great!!!
         // 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12

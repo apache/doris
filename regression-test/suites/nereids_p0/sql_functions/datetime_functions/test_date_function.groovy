@@ -304,6 +304,9 @@ suite("test_date_function") {
 
     // MAKEDATE
     qt_sql """ select makedate(2021,1), makedate(2021,100), makedate(2021,400) """
+    // result tested in UTs
+    testFoldConst("""select cast(makedate(0,0) as string), cast(makedate(0,1) as string),
+        cast(makedate(0,100) as string), cast(makedate(0,400) as string), cast(makedate(0,500) as string)""")
 
     // MINUTE
     qt_sql """ select minute('2018-12-31 23:59:59') """

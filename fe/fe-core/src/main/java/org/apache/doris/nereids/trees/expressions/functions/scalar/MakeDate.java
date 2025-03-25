@@ -25,7 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
@@ -40,7 +40,7 @@ public class MakeDate extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable, DateDiffMonotonic {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateType.INSTANCE).args(IntegerType.INSTANCE, IntegerType.INSTANCE)
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(IntegerType.INSTANCE, IntegerType.INSTANCE)
     );
 
     /**
