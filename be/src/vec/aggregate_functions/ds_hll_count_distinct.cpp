@@ -39,18 +39,21 @@ AggregateFunctionPtr create_aggregate_function_ds_hll_count_distinct(
     WhichDataType which(remove_nullable(argument_types[0]));
     auto param_size = argument_types.size();
 
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                          \
-    if (which.idx == TypeIndex::TYPE) {                                                      \
-        if (param_size == 1) {                                                               \
-            return creator_without_type::create<AggregateFunctionDSHllCountDistinct<         \
-                    COLUMN_TYPE, 1>>(argument_types, result_is_nullable);                    \
-        } else if (param_size == 2) {                                                        \
-            return creator_without_type::create<AggregateFunctionDSHllCountDistinct<         \
-                    COLUMN_TYPE, 2>>(argument_types, result_is_nullable);                    \
-        } else if (param_size == 3) {                                                        \
-            return creator_without_type::create<AggregateFunctionDSHllCountDistinct<         \
-                    COLUMN_TYPE, 3>>(argument_types, result_is_nullable);                    \
-        }                                                                                    \
+#define DISPATCH(TYPE, COLUMN_TYPE)                                                           \
+    if (which.idx == TypeIndex::TYPE) {                                                       \
+        if (param_size == 1) {                                                                \
+            return creator_without_type::create<                                              \
+                    AggregateFunctionDSHllCountDistinct<COLUMN_TYPE, 1>>(argument_types,      \
+                                                                         result_is_nullable); \
+        } else if (param_size == 2) {                                                         \
+            return creator_without_type::create<                                              \
+                    AggregateFunctionDSHllCountDistinct<COLUMN_TYPE, 2>>(argument_types,      \
+                                                                         result_is_nullable); \
+        } else if (param_size == 3) {                                                         \
+            return creator_without_type::create<                                              \
+                    AggregateFunctionDSHllCountDistinct<COLUMN_TYPE, 3>>(argument_types,      \
+                                                                         result_is_nullable); \
+        }                                                                                     \
     }
 
     TYPE_TO_COLUMN_TYPE(DISPATCH)
@@ -63,4 +66,4 @@ void register_aggregate_function_ds_hll_count_distinct(AggregateFunctionSimpleFa
     factory.register_function_both("ds_hll_count_distinct",
                                    create_aggregate_function_ds_hll_count_distinct);
 }
-} // namespace doris::vectorized end
+} // namespace doris::vectorized

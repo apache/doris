@@ -33,8 +33,8 @@ class DSHyperLogLog {
     static const std::string DEFAULT_HLL_TYPE;
     static const std::unordered_map<std::string, ds_hll_type> ds_hll_map;
 public:
-    explicit DSHyperLogLog(
-            uint8_t lg_k = DEFAULT_LG_K, std::string hll_type_str = DEFAULT_HLL_TYPE);
+    explicit DSHyperLogLog(uint8_t lg_k = DEFAULT_LG_K,
+                           std::string hll_type_str = DEFAULT_HLL_TYPE);
     explicit DSHyperLogLog(uint8_t lg_k, ds_hll_type hll_type);
 
     explicit DSHyperLogLog(const Slice& slice);
@@ -43,8 +43,7 @@ public:
             : _sketch_union(std::move(other._sketch_union)),
               _lg_config_k(other._lg_config_k),
               _hll_type(other._hll_type),
-              _sketch(std::move(other._sketch)) {
-    }
+              _sketch(std::move(other._sketch)) {}
 
     DSHyperLogLog& operator=(DSHyperLogLog&& other) noexcept {
         if (this != &other) {
@@ -80,7 +79,7 @@ public:
     }
 
     uint8_t get_lg_config_k() const { return _lg_config_k; }
-    ds_hll_type get_hll_type() const {return _hll_type; }
+    ds_hll_type get_hll_type() const { return _hll_type; }
 
     bool is_empty() const {
         if (_sketch) {
@@ -104,12 +103,12 @@ public:
     ds_hll_sketch* get_sketch() const;
     size_t serialized_size() const;
     void serialize(ds_vector_bytes& dst) const;
-private:
 
+private:
     bool deserialize(const Slice& slice);
     void _check_lg_k() const {
-        if ((_lg_config_k < datasketches::hll_constants::MIN_LOG_K)
-            || (_lg_config_k > datasketches::hll_constants::MAX_LOG_K)) {
+        if ((_lg_config_k < datasketches::hll_constants::MIN_LOG_K) ||
+            (_lg_config_k > datasketches::hll_constants::MAX_LOG_K)) {
             throw std::invalid_argument("Invalid value of k: " + std::to_string(_lg_config_k));
         }
     }
@@ -120,4 +119,4 @@ private:
     mutable std::unique_ptr<ds_hll_sketch> _sketch;
 };
 
-} // namespace hll end
+} // namespace doris

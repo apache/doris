@@ -18,10 +18,8 @@
 #pragma once
 
 #include "olap/ds_hll.h"
-
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
@@ -113,13 +111,16 @@ struct AggregateFunctionDSHllCountDistinctData {
 
 template <typename ColumnDataType, int param_size>
 class AggregateFunctionDSHllCountDistinct final
-        : public IAggregateFunctionDataHelper<AggregateFunctionDSHllCountDistinctData,
-        AggregateFunctionDSHllCountDistinct<ColumnDataType, param_size>> {
+        : public IAggregateFunctionDataHelper<
+                  AggregateFunctionDSHllCountDistinctData,
+                  AggregateFunctionDSHllCountDistinct<ColumnDataType, param_size>> {
 public:
     String get_name() const override { return "ds_hll_count_distinct"; }
     AggregateFunctionDSHllCountDistinct(const DataTypes& argument_types_)
-    : IAggregateFunctionDataHelper<AggregateFunctionDSHllCountDistinctData,
-            AggregateFunctionDSHllCountDistinct<ColumnDataType, param_size>>(argument_types_) {}
+            : IAggregateFunctionDataHelper<
+                      AggregateFunctionDSHllCountDistinctData,
+                      AggregateFunctionDSHllCountDistinct<ColumnDataType, param_size>>(
+                      argument_types_) {}
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
@@ -130,16 +131,16 @@ public:
         }
         if constexpr (param_size == 2) {
             const auto& lg_k_column =
-                    assert_cast<const ColumnInt8 &, TypeCheckOnRelease::DISABLE>(*columns[1]);
+                    assert_cast<const ColumnInt8&, TypeCheckOnRelease::DISABLE>(*columns[1]);
             auto lg_k = lg_k_column.get_element(0);
             this->data(place).init(lg_k);
         }
         if constexpr (param_size == 3) {
             const auto& lg_k_column =
-                    assert_cast<const ColumnInt8 &, TypeCheckOnRelease::DISABLE>(*columns[1]);
+                    assert_cast<const ColumnInt8&, TypeCheckOnRelease::DISABLE>(*columns[1]);
             auto lg_k = lg_k_column.get_element(0);
             const auto& lg_hll_type_column =
-                    assert_cast<const ColumnString &, TypeCheckOnRelease::DISABLE>(*columns[2]);
+                    assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[2]);
             const auto& lg_hll_type_str_ref = lg_hll_type_column.get_data_at(0);
             auto lg_hll_type_str = lg_hll_type_str_ref.to_string();
             this->data(place).init(lg_k, lg_hll_type_str);
@@ -149,14 +150,11 @@ public:
             auto column =
                     assert_cast<const ColumnDataType*, TypeCheckOnRelease::DISABLE>(columns[0]);
             auto value = column->get_element(row_num);
-            this->data(place).add(
-                    HashUtil::murmur_hash64A((char*)&value, sizeof(value), HashUtil::MURMUR_SEED));
+            this->data(place).update((void*)&value, sizeof(value));
         } else {
             auto value = assert_cast<const ColumnDataType*, TypeCheckOnRelease::DISABLE>(columns[0])
-                    ->get_data_at(row_num);
-            uint64_t hash_value =
-                    HashUtil::murmur_hash64A(value.data, value.size, HashUtil::MURMUR_SEED);
-            this->data(place).add(hash_value);
+                                 ->get_data_at(row_num);
+            this->data(place).update(value.data, value.size);
         }
     }
 
@@ -164,7 +162,6 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        this->data(place).init();
         this->data(place).merge(this->data(rhs));
     }
 
@@ -174,7 +171,6 @@ public:
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        this->data(place).init();
         this->data(place).read(buf);
     }
 
@@ -183,6 +179,6 @@ public:
         column.get_data().push_back(this->data(place).get());
     }
 };
-} // namespace doris::vectorized end
+} // namespace doris::vectorized
 
 #include "common/compile_check_end.h"

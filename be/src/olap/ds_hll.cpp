@@ -13,7 +13,6 @@
 // under the License.
 
 #include "olap/ds_hll.h"
-#include "vec/common/string_ref.h"
 
 #include "DataSketches/HllUtil.hpp"
 
@@ -21,8 +20,7 @@ namespace doris {
 const std::unordered_map<std::string, ds_hll_type> DSHyperLogLog::ds_hll_map = {
         {"HLL_4", ds_hll_type::HLL_4},
         {"HLL_6", ds_hll_type::HLL_6},
-        {"HLL_8", ds_hll_type::HLL_8}
-};
+        {"HLL_8", ds_hll_type::HLL_8}};
 const std::string DSHyperLogLog::DEFAULT_HLL_TYPE = "HLL_8";
 
 DSHyperLogLog::DSHyperLogLog(uint8_t lg_k, std::string hll_type_str) : _lg_config_k(lg_k) {
@@ -35,7 +33,7 @@ DSHyperLogLog::DSHyperLogLog(uint8_t lg_k, std::string hll_type_str) : _lg_confi
 }
 
 DSHyperLogLog::DSHyperLogLog(uint8_t lg_k, ds_hll_type hll_type)
-        : _lg_config_k(lg_k), _hll_type(hll_type){
+        : _lg_config_k(lg_k), _hll_type(hll_type) {
     _check_lg_k();
 }
 
@@ -44,7 +42,7 @@ DSHyperLogLog::DSHyperLogLog(const Slice& slice) {
 }
 
 void DSHyperLogLog::update(const void* data, size_t length_bytes) {
-        get_sketch<true>()->update(data, length_bytes);
+    get_sketch<true>()->update(data, length_bytes);
 }
 
 template <bool create_if_not_exists>
@@ -53,13 +51,12 @@ ds_hll_sketch* DSHyperLogLog::get_sketch() const {
         return _sketch.get();
     }
     if (this->_sketch_union) {
-        this->_sketch = std::make_unique<ds_hll_sketch>(
-                this->_sketch_union->get_result(_hll_type));
+        this->_sketch = std::make_unique<ds_hll_sketch>(this->_sketch_union->get_result(_hll_type));
         this->_sketch_union.reset();
         return _sketch.get();
     }
     if constexpr (create_if_not_exists) {
-        _sketch = std::make_unique<ds_hll_sketch >(_lg_config_k, _hll_type);
+        _sketch = std::make_unique<ds_hll_sketch>(_lg_config_k, _hll_type);
         return _sketch.get();
     } else {
         return nullptr;
@@ -113,4 +110,4 @@ bool DSHyperLogLog::deserialize(const Slice& slice) {
     return true;
 }
 
-} // namespace doris end
+} // namespace doris
