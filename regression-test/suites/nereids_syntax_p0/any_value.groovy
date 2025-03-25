@@ -57,4 +57,35 @@ suite("any_value") {
     sql """ insert into any_test values(2, array(4,5,6), array(7,8,9), array('d','e','f'), array('g','h','i'), named_struct('s_id', 3, 's_name', 'e', 's_address', 'f'), named_struct('s_id', 4, 's_name', 'g', 's_address', 'h'), map('e', 5, 'f', 6), map('g', 7, 'h', 8)); """
     qt_sql_any4 """ select any(c_array1),any(c_array2),any(c_array3),any(c_array4),any(s_info1),any(s_info2),any(m1),any(m2) from any_test group by id order by id; """       
 
+    sql """DROP TABLE IF EXISTS baseall"""
+    sql """
+        CREATE TABLE `baseall` (
+        `k1` tinyint NULL,
+        `k2` smallint NULL,
+        `k3` int NULL,
+        `k4` bigint NULL,
+        `k5` decimal(9,3) NULL,
+        `k6` char(5) NULL,
+        `k10` date NULL,
+        `k11` datetime NULL,
+        `k7` varchar(20) NULL,
+        `k8` double MAX NULL,
+        `k9` float SUM NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    qt_sql_any5 """ select any(k1),any(k2),any(k3),any(k4),any(k5),any(k6),any(k10),any(k11),any(k7),any(k8),any(k9) from baseall; """
+    qt_sql_any6 """ select any(k1),any(k2),any(k3),any(k4),any(k5),any(k6),any(k10),any(k11),any(k7),any(k8),any(k9) from baseall group by k1; """       
+    sql """
+        insert into baseall values(1, 1, 1, 1, 1.1, 'a', '2021-01-01', '2021-01-01 00:00:00', 'a', 1.1, 1.1);
+    """
+    qt_sql_any7 """ select any(k1),any(k2),any(k3),any(k4),any(k5),any(k6),any(k10),any(k11),any(k7),any(k8),any(k9) from baseall; """
+    sql """
+        insert into baseall values(2, 2, 2, 2, 2.2, 'b', '2021-02-02', '2021-02-02 00:00:00', 'b', 2.2, 2.2);
+    """
+    qt_sql_any8 """ select any(k1),any(k2),any(k3),any(k4),any(k5),any(k6),any(k10),any(k11),any(k7),any(k8),any(k9) from baseall group by k1 order by k1; """
 }
