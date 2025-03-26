@@ -168,8 +168,6 @@ protected:
 
     StorageEngine& _engine;
 
-    mutable std::mutex _cumu_compaction_delay_mtx;
-
 private:
     Status execute_compact_impl(int64_t permits);
 

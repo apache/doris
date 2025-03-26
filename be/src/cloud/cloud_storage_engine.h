@@ -165,9 +165,7 @@ private:
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
     void _lease_compaction_thread_callback();
     void _check_tablet_delete_bitmap_score_callback();
-    bool _check_cumu_should_delay_submission(
-            const std::shared_ptr<CloudCumulativeCompaction>& compaction,
-            const CloudTabletSPtr& tablet, bool& is_small_task);
+    bool _cloud_should_delay_big_task();
 
     std::atomic_bool _stopped {false};
 

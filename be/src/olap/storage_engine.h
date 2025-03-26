@@ -436,11 +436,7 @@ private:
 
     void _check_tablet_delete_bitmap_score_callback();
 
-    bool _should_delay_submission(bool& is_small_task, int input_rowsets_total_size,
-                                  int input_row_num);
-
-    bool _check_cumu_should_delay_submission(const std::shared_ptr<CompactionMixin>& compaction,
-                                             const TabletSharedPtr& tablet, bool& is_small_task);
+    bool _should_delay_big_task();
 
 private:
     EngineOptions _options;
