@@ -644,8 +644,7 @@ struct StRelationFunction {
 
         const auto size = std::max(left_column->size(), right_column->size());
 
-        auto res = ColumnUInt8::create();
-        res->reserve(size);
+        auto res = ColumnUInt8::create(size, 0);
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
@@ -662,26 +661,25 @@ struct StRelationFunction {
     }
 
     static void loop_do(StringRef& lhs_value, StringRef& rhs_value,
-                        std::vector<std::shared_ptr<GeoShape>>& shapes,
+                        std::vector<std::unique_ptr<GeoShape>>& shapes,
                         ColumnUInt8::MutablePtr& res, NullMap& null_map, int row) {
         StringRef* strs[2] = {&lhs_value, &rhs_value};
         for (int i = 0; i < 2; ++i) {
-            shapes[i] =
-                    std::shared_ptr<GeoShape>(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
+            std::unique_ptr<GeoShape> shape(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
+            shapes[i] = std::move(shape);
             if (shapes[i] == nullptr) {
                 null_map[row] = 1;
-                res->insert_default();
                 break;
             }
         }
         auto relation_value = Func::evaluate(shapes[0].get(), shapes[1].get());
-        res->insert_data(const_cast<const char*>((char*)&relation_value), 0);
+        res->get_data()[row] = relation_value;
     }
 
     static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
                              ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
         auto lhs_value = left_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        std::vector<std::unique_ptr<GeoShape>> shapes(2);
         for (int row = 0; row < size; ++row) {
             auto rhs_value = right_column->get_data_at(row);
             loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
@@ -691,7 +689,7 @@ struct StRelationFunction {
     static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
                              ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
         auto rhs_value = right_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        std::vector<std::unique_ptr<GeoShape>> shapes(2);
         for (int row = 0; row < size; ++row) {
             auto lhs_value = left_column->get_data_at(row);
             loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
@@ -700,7 +698,7 @@ struct StRelationFunction {
 
     static void vector_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
                               ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        std::vector<std::unique_ptr<GeoShape>> shapes(2);
         for (int row = 0; row < size; ++row) {
             auto lhs_value = left_column->get_data_at(row);
             auto rhs_value = right_column->get_data_at(row);

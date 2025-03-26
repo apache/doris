@@ -167,6 +167,10 @@ public:
     bool disjoint(const GeoShape* rhs) const override;
     bool touches(const GeoShape* rhs) const override;
     bool contains(const GeoShape* rhs) const override;
+
+    bool polygon_touch_point(const S2Polygon* polygon, const S2Point* point) const;
+    bool polygon_touch_polygon(const S2Polygon* polygon1, const S2Polygon* polygon2) const;
+
     std::string as_wkt() const override;
 
     int numLoops() const;

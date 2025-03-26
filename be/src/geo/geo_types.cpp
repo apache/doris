@@ -46,6 +46,8 @@
 
 namespace doris {
 
+constexpr double TOLERANCE = 1e-6;
+
 GeoPoint::GeoPoint() : _point(new S2Point()) {}
 GeoPoint::~GeoPoint() = default;
 
@@ -78,17 +80,169 @@ static inline GeoParseStatus to_s2point(double lng, double lat, S2Point* point) 
     return GEO_PARSE_OK;
 }
 
-static double compute_intersection_area(const S2Polygon* polygon1, const S2Polygon* polygon2) {
-    S2Polygon result;
-    S2BooleanOperation::Options options;
-    std::unique_ptr<s2builderutil::S2PolygonLayer> layer(
-            new s2builderutil::S2PolygonLayer(&result));
-    S2BooleanOperation op(S2BooleanOperation::OpType::INTERSECTION, std::move(layer));
-    S2Error error;
-    if (!op.Build(polygon1->index(), polygon2->index(), &error)) {
-        return 0.0;
+double ProjectDistance(const S2Point& point, const S2Point& lineStart, const S2Point& lineEnd) {
+    S2Point lineVector = lineEnd - lineStart;
+    S2Point pointVector = point - lineStart;
+    double lineVectorMagnitudeSquared = lineVector.DotProd(lineVector);
+    double t = pointVector.DotProd(lineVector) / lineVectorMagnitudeSquared;
+    t = t > 0 ? t : 0;
+    t = t < 1 ? t : 1;
+    S2Point nearestPoint = lineStart + t * lineVector;
+    S2Point distanceVector = point - nearestPoint;
+    return sqrt(distanceVector.DotProd(distanceVector));
+}
+
+double ComputeDistanceToLine(const S2Point& point, const S2Polyline* line) {
+    const S2Point& line_point1 = line->vertex(0);
+    const S2Point& line_point2 = line->vertex(1);
+    S2LatLng lp1 = S2LatLng(line_point1);
+    S2LatLng lp2 = S2LatLng(line_point2);
+
+    S2LatLng lquery = S2LatLng(point);
+    double lat1 = lp1.lat().degrees();
+    double long1 = lp1.lng().degrees();
+
+    double lat2 = lp2.lat().degrees();
+    double long2 = lp2.lng().degrees();
+
+    double latq = lquery.lat().degrees();
+    double longq = lquery.lng().degrees();
+    return ProjectDistance({latq, longq, 0}, {lat1, long1, 0}, {lat2, long2, 0});
+}
+
+double ComputeDistanceToLine(const S2Point& point, const S2Point& line_point1,
+                             const S2Point& line_point2) {
+    S2LatLng lp1 = S2LatLng(line_point1);
+    S2LatLng lp2 = S2LatLng(line_point2);
+
+    S2LatLng lquery = S2LatLng(point);
+    double lat1 = lp1.lat().degrees();
+    double long1 = lp1.lng().degrees();
+
+    double lat2 = lp2.lat().degrees();
+    double long2 = lp2.lng().degrees();
+
+    double latq = lquery.lat().degrees();
+    double longq = lquery.lng().degrees();
+    return ProjectDistance({latq, longq, 0}, {lat1, long1, 0}, {lat2, long2, 0});
+}
+
+double CrossProduct(const S2Point& a, const S2Point& b, const S2Point& c) {
+    return (b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x());
+}
+
+bool IsPointOnSegment(const S2Point& p, const S2Point& a, const S2Point& b) {
+    return (p.x() >= std::min(a.x(), b.x()) && p.x() <= std::max(a.x(), b.x()) &&
+            p.y() >= std::min(a.y(), b.y()) && p.y() <= std::max(a.y(), b.y()) &&
+            p.z() >= std::min(a.z(), b.z()) && p.z() <= std::max(a.z(), b.z()));
+}
+
+bool DoSegmentsIntersect(const S2Point& a1, const S2Point& a2, const S2Point& b1,
+                         const S2Point& b2) {
+    if (std::max(a1.x(), a2.x()) < std::min(b1.x(), b2.x()) ||
+        std::max(a1.y(), a2.y()) < std::min(b1.y(), b2.y()) ||
+        std::max(a1.z(), a2.z()) < std::min(b1.z(), b2.z()) ||
+        std::min(a1.x(), a2.x()) > std::max(b1.x(), b2.x()) ||
+        std::min(a1.y(), a2.y()) > std::max(b1.y(), b2.y()) ||
+        std::min(a1.z(), a2.z()) > std::max(b1.z(), b2.z())) {
+        return false;
     }
-    return result.GetArea();
+
+    double d1 = CrossProduct(b1, b2, a1);
+    double d2 = CrossProduct(b1, b2, a2);
+    double d3 = CrossProduct(a1, a2, b1);
+    double d4 = CrossProduct(a1, a2, b2);
+
+    if ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) {
+        if ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0)) {
+            return true;
+        }
+    }
+
+    if (d1 == 0 && IsPointOnSegment(a1, b1, b2)) {
+        return true;
+    }
+    if (d2 == 0 && IsPointOnSegment(a2, b1, b2)) {
+        return true;
+    }
+    if (d3 == 0 && IsPointOnSegment(b1, a1, a2)) {
+        return true;
+    }
+    if (d4 == 0 && IsPointOnSegment(b2, a1, a2)) {
+        return true;
+    }
+
+    return false;
+}
+
+bool IsSegmentsIntersect(const S2Point& point1, const S2Point& point2, const S2Point& line_point1,
+                         const S2Point& line_point2) {
+    S2LatLng lp1 = S2LatLng(line_point1);
+    S2LatLng lp2 = S2LatLng(line_point2);
+
+    S2LatLng lquery1 = S2LatLng(point1);
+    S2LatLng lquery2 = S2LatLng(point2);
+    double lat1 = lp1.lat().degrees();
+    double long1 = lp1.lng().degrees();
+
+    double lat2 = lp2.lat().degrees();
+    double long2 = lp2.lng().degrees();
+
+    double latq1 = lquery1.lat().degrees();
+    double longq1 = lquery1.lng().degrees();
+    double latq2 = lquery2.lat().degrees();
+    double longq2 = lquery2.lng().degrees();
+    return DoSegmentsIntersect({latq1, longq1, 0}, {latq2, longq2, 0}, {lat1, long1, 0},
+                               {lat2, long2, 0});
+}
+
+static bool rayCrossesSegment(double px, double py, double ax, double ay, double bx, double by) {
+    if (ay > by) {
+        std::swap(ax, bx);
+        std::swap(ay, by);
+    }
+
+    if (py <= ay || py > by) return false;
+    double intersectX;
+    if (std::abs(ax - bx) < std::numeric_limits<double>::epsilon()) {
+        intersectX = ax;
+    } else {
+        double slope = (bx - ax) / (by - ay);
+        intersectX = ax + slope * (py - ay);
+    }
+    return px < intersectX;
+}
+
+bool isPointInPolygon(const S2Point& point, const S2Polygon* polygon) {
+    int crossings = 0;
+
+    for (int j = 0; j < polygon->num_loops(); ++j) {
+        const S2Loop* loop = polygon->loop(j);
+        for (int k = 0; k < loop->num_vertices(); ++k) {
+            const S2Point& p1 = loop->vertex(k);
+            const S2Point& p2 = loop->vertex((k + 1) % loop->num_vertices());
+
+            S2LatLng lp1 = S2LatLng(p1);
+            S2LatLng lp2 = S2LatLng(p2);
+
+            S2LatLng lquery = S2LatLng(point);
+            double lat1 = lp1.lat().degrees();
+            double long1 = lp1.lng().degrees();
+
+            double lat2 = lp2.lat().degrees();
+            double long2 = lp2.lng().degrees();
+
+            double latq = lquery.lat().degrees();
+            double longq = lquery.lng().degrees();
+
+            bool crossesRay = rayCrossesSegment(latq, longq, lat1, long1, lat2, long2);
+
+            if (crossesRay) {
+                crossings++;
+            }
+        }
+    }
+    return (crossings % 2 == 1);
 }
 
 static inline GeoParseStatus to_s2point(const GeoCoordinate& coord, S2Point* point) {
@@ -474,31 +628,24 @@ bool GeoLine::intersects(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
         const GeoPoint* point = (const GeoPoint*)rhs;
-        int next_vertex = 0;
-        // calculate the distance after finding the closest point to the line
-        S2Point closest_point = _polyline->Project(*point->point(), &next_vertex);
-        S1Angle distance = S1Angle(closest_point, *point->point());
-        return distance.radians() < 1e-2;
+        return ComputeDistanceToLine(*point->point(), _polyline.get()) < TOLERANCE;
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
         if (!_polyline->Intersects(*line->polyline())) {
-            int next_vertex = 0;
             // s2geometry may return an incorrect result when the two lines overlap at only one point
             for (int i = 0; i < _polyline->num_vertices(); i++) {
                 const S2Point& p = _polyline->vertex(i);
-                S2Point closest_point = line->polyline()->Project(p, &next_vertex);
-                S1Angle distance = S1Angle(closest_point, p);
-                if (distance.radians() < 1e-2) {
+                double distance = ComputeDistanceToLine(p, line->polyline());
+                if (distance < TOLERANCE) {
                     return true;
                 }
             }
 
             for (int i = 0; i < line->polyline()->num_vertices(); i++) {
                 const S2Point& p = line->polyline()->vertex(i);
-                S2Point closest_point = _polyline->Project(p, &next_vertex);
-                S1Angle distance = S1Angle(closest_point, p);
-                if (distance.radians() < 1e-2) {
+                double distance = ComputeDistanceToLine(p, _polyline.get());
+                if (distance < TOLERANCE) {
                     return true;
                 }
             }
@@ -660,53 +807,41 @@ bool GeoPolygon::intersects(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
         const GeoPoint* point = (const GeoPoint*)rhs;
-        // 1. when polygon contain the point return true
-        if (_polygon->Contains(*point->point())) {
+        if (isPointInPolygon(*point->point(), _polygon.get())) {
             return true;
         }
-        // 2. calculate the distance between the point and the closest point on the boundary
-        S2Point closest_point = _polygon->ProjectToBoundary(*point->point());
-        S1Angle distance(closest_point, *point->point());
-        return distance.radians() < 1e-2;
+        return polygon_touch_point(_polygon.get(), point->point());
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
         std::vector<std::unique_ptr<S2Polyline>> intersect_lines =
                 _polygon->IntersectWithPolyline(*line->polyline());
-        if (intersect_lines.empty()) {
-            int next;
-            // s2geometry may not return the correct result when the line is on the boundary.
-            for (int i = 0; i < _polygon->num_loops(); ++i) {
-                const S2Loop* loop = _polygon->loop(i);
-                for (int j = 0; j < loop->num_vertices(); ++j) {
-                    const S2Point& p = loop->vertex(j);
-                    S2Point closest_point = line->polyline()->Project(p, &next);
-                    S1Angle distance(closest_point, p);
-                    if (distance.radians() < 1e-2) {
+        if (!intersect_lines.empty()) {
+            return true;
+        }
+
+        for (int i = 0; i < line->polyline()->num_vertices(); i++) {
+            const S2Point& outer_p1 = line->polyline()->vertex(i);
+            const S2Point& outer_p2 =
+                    line->polyline()->vertex((i + 1) % line->polyline()->num_vertices());
+            for (int j = 0; j < _polygon->num_loops(); ++j) {
+                const S2Loop* loop = _polygon->loop(j);
+                for (int k = 0; k < loop->num_vertices(); ++k) {
+                    const S2Point& p1 = loop->vertex(k);
+                    const S2Point& p2 = loop->vertex((k + 1) % loop->num_vertices());
+                    if (IsSegmentsIntersect(outer_p1, outer_p2, p1, p2)) {
                         return true;
                     }
                 }
             }
-            return false;
         }
-        return true;
+        return false;
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = (const GeoPolygon*)rhs;
         // When two polygons intersect only at the boundary, s2geometry may not return the correct result.
         if (!_polygon->Intersects(*other->polygon())) {
-            for (int i = 0; i < _polygon->num_loops(); ++i) {
-                const S2Loop* loop = _polygon->loop(i);
-                for (int j = 0; j < loop->num_vertices(); ++j) {
-                    const S2Point& p = loop->vertex(j);
-                    S2Point closest_point = other->polygon()->ProjectToBoundary(p);
-                    S1Angle distance(closest_point, p);
-                    if (distance.radians() < 1e-2) {
-                        return true;
-                    }
-                }
-            }
-            return false;
+            return polygon_touch_polygon(_polygon.get(), other->polygon());
         }
         return true;
     }
@@ -723,13 +858,47 @@ bool GeoPolygon::disjoint(const GeoShape* rhs) const {
     return !intersects(rhs);
 }
 
+bool GeoPolygon::polygon_touch_point(const S2Polygon* polygon, const S2Point* point) const {
+    for (int k = 0; k < polygon->num_loops(); ++k) {
+        const S2Loop* innee_loop = polygon->loop(k);
+        for (int l = 0; l < innee_loop->num_vertices(); ++l) {
+            const S2Point& p1 = innee_loop->vertex(l);
+            const S2Point& p2 = innee_loop->vertex((l + 1) % innee_loop->num_vertices());
+            double distance = ComputeDistanceToLine(*point, p1, p2);
+            if (distance < TOLERANCE) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool GeoPolygon::polygon_touch_polygon(const S2Polygon* polygon1, const S2Polygon* polygon2) const {
+    for (int i = 0; i < polygon1->num_loops(); ++i) {
+        const S2Loop* loop = polygon1->loop(i);
+        for (int j = 0; j < loop->num_vertices(); ++j) {
+            const S2Point& p = loop->vertex(j);
+            for (int k = 0; k < polygon2->num_loops(); ++k) {
+                const S2Loop* innee_loop = polygon2->loop(k);
+                for (int l = 0; l < innee_loop->num_vertices(); ++l) {
+                    const S2Point& p1 = innee_loop->vertex(l);
+                    const S2Point& p2 = innee_loop->vertex((l + 1) % loop->num_vertices());
+                    double distance = ComputeDistanceToLine(p, p1, p2);
+                    if (distance < TOLERANCE) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
 bool GeoPolygon::touches(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
         const GeoPoint* point = (const GeoPoint*)rhs;
-        S2Point closest_point = _polygon->ProjectToBoundary(*point->point());
-        S1Angle distance(closest_point, *point->point());
-        return distance.radians() < 1e-2;
+        return polygon_touch_point(_polygon.get(), point->point());
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
@@ -756,20 +925,24 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
         }
         // 3. check if the line is on the boundary of the polygon
         if (intersect_lines.empty()) {
-            int next;
             for (const S2Point& p : polygon_points) {
-                S2Point closest_point = line->polyline()->Project(p, &next);
-                S1Angle distance(closest_point, p);
-                if (distance.radians() < 1e-2) {
+                double distance = ComputeDistanceToLine(p, line->polyline());
+                if (distance < TOLERANCE) {
                     return true;
                 }
             }
             for (int i = 0; i < line->polyline()->num_vertices(); i++) {
                 const S2Point& p = line->polyline()->vertex(i);
-                S2Point closest_point = _polygon->ProjectToBoundary(p);
-                S1Angle distance(closest_point, p);
-                if (distance.radians() < 1e-2) {
-                    return true;
+                for (int j = 0; j < _polygon->num_loops(); ++j) {
+                    const S2Loop* loop = _polygon->loop(j);
+                    for (int k = 0; k < loop->num_vertices(); ++k) {
+                        const S2Point& p1 = loop->vertex(k);
+                        const S2Point& p2 = loop->vertex((k + 1) % loop->num_vertices());
+                        double distance = ComputeDistanceToLine(p, p1, p2);
+                        if (distance < TOLERANCE) {
+                            return true;
+                        }
+                    }
                 }
             }
             return false;
@@ -781,18 +954,8 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
         const S2Polygon* polygon1 = _polygon.get();
         const S2Polygon* polygon2 = other->polygon();
         // when the two polygons do not have overlapping areas, then determine if the touch regulation is met.
-        if (compute_intersection_area(polygon1, polygon2) < 1e-4) {
-            for (int i = 0; i < polygon1->num_loops(); ++i) {
-                const S2Loop* loop = polygon1->loop(i);
-                for (int j = 0; j < loop->num_vertices(); ++j) {
-                    const S2Point& p = loop->vertex(j);
-                    S2Point closest_point = polygon2->ProjectToBoundary(p);
-                    S1Angle distance(closest_point, p);
-                    if (distance.radians() < 1e-2) {
-                        return true;
-                    }
-                }
-            }
+        if (!polygon1->Intersects(polygon2)) {
+            return polygon_touch_polygon(polygon1, polygon2);
         }
         return false;
     }
@@ -860,7 +1023,7 @@ bool GeoCircle::intersects(const GeoShape* rhs) const {
         // The radius unit of circle is initially in meters,
         // which needs to be converted back to meters when comparing
         double radius = S2Earth::RadiansToMeters(radius_angle.radians());
-        return radius + 1e-4 >= distance_angle.degrees();
+        return radius + TOLERANCE >= distance_angle.degrees();
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
@@ -870,7 +1033,7 @@ bool GeoCircle::intersects(const GeoShape* rhs) const {
         const S2Point& closest_point = line->polyline()->Project(center, &next);
         S1Angle distance_angle(closest_point, center);
         double radius = S2Earth::RadiansToMeters(radius_angle.radians());
-        return radius + 1e-4 >= distance_angle.degrees();
+        return radius + TOLERANCE >= distance_angle.degrees();
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = (const GeoPolygon*)rhs;
@@ -879,7 +1042,7 @@ bool GeoCircle::intersects(const GeoShape* rhs) const {
 
         const S1Angle distance_angle = polygon->polygon()->GetDistance(center);
         double radius = S2Earth::RadiansToMeters(radius_angle.radians());
-        return radius + 1e-4 >= distance_angle.degrees();
+        return radius + TOLERANCE >= distance_angle.degrees();
     }
     case GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = (const GeoCircle*)rhs;
@@ -889,7 +1052,7 @@ bool GeoCircle::intersects(const GeoShape* rhs) const {
 
         double radius1 = S2Earth::RadiansToMeters(radius_angle.radians());
         double radius2 = S2Earth::RadiansToMeters(other_radius_angle.radians());
-        return radius1 + radius2 + 1e-4 >= distance_angle.degrees();
+        return radius1 + radius2 + TOLERANCE >= distance_angle.degrees();
     }
     default:
         return false;
