@@ -111,8 +111,8 @@ public:
             env->ReleaseByteArrayElements(ctor_params_bytes, pBytes, JNI_ABORT);
             env->DeleteLocalRef(ctor_params_bytes);
         }
-        RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, executor_obj, &executor_obj));
         RETURN_ERROR_IF_EXC(env);
+        RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, executor_obj, &executor_obj));
         return Status::OK();
     }
 

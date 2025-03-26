@@ -83,8 +83,8 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
             env->ReleaseByteArrayElements(ctor_params_bytes, pBytes, JNI_ABORT);
             env->DeleteLocalRef(ctor_params_bytes);
         }
-        RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_ctx->executor, &jni_ctx->executor));
         RETURN_ERROR_IF_EXC(env);
+        RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_ctx->executor, &jni_ctx->executor));
         jni_ctx->open_successes = true;
     }
     return Status::OK();
