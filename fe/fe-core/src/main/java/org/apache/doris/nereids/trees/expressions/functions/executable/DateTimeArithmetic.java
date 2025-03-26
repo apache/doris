@@ -39,27 +39,27 @@ public class DateTimeArithmetic {
     private static final HashMap<String, Integer> DAY_OF_WEEK = new HashMap<>();
 
     static {
-        DAY_OF_WEEK.put("SU", 1);
-        DAY_OF_WEEK.put("SUN", 1);
-        DAY_OF_WEEK.put("SUNDAY", 1);
-        DAY_OF_WEEK.put("MO", 2);
-        DAY_OF_WEEK.put("MON", 2);
-        DAY_OF_WEEK.put("MONDAY", 2);
-        DAY_OF_WEEK.put("TU", 3);
-        DAY_OF_WEEK.put("TUE", 3);
-        DAY_OF_WEEK.put("TUESDAY", 3);
-        DAY_OF_WEEK.put("WE", 4);
-        DAY_OF_WEEK.put("WED", 4);
-        DAY_OF_WEEK.put("WEDNESDAY", 4);
-        DAY_OF_WEEK.put("TH", 5);
-        DAY_OF_WEEK.put("THU", 5);
-        DAY_OF_WEEK.put("THURSDAY", 5);
-        DAY_OF_WEEK.put("FR", 6);
-        DAY_OF_WEEK.put("FRI", 6);
-        DAY_OF_WEEK.put("FRIDAY", 6);
-        DAY_OF_WEEK.put("SA", 7);
-        DAY_OF_WEEK.put("SAT", 7);
-        DAY_OF_WEEK.put("SATURDAY", 7);
+        DAY_OF_WEEK.put("MO", 1);
+        DAY_OF_WEEK.put("MON", 1);
+        DAY_OF_WEEK.put("MONDAY", 1);
+        DAY_OF_WEEK.put("TU", 2);
+        DAY_OF_WEEK.put("TUE", 2);
+        DAY_OF_WEEK.put("TUESDAY", 2);
+        DAY_OF_WEEK.put("WE", 3);
+        DAY_OF_WEEK.put("WED", 3);
+        DAY_OF_WEEK.put("WEDNESDAY", 3);
+        DAY_OF_WEEK.put("TH", 4);
+        DAY_OF_WEEK.put("THU", 4);
+        DAY_OF_WEEK.put("THURSDAY", 4);
+        DAY_OF_WEEK.put("FR", 5);
+        DAY_OF_WEEK.put("FRI", 5);
+        DAY_OF_WEEK.put("FRIDAY", 5);
+        DAY_OF_WEEK.put("SA", 6);
+        DAY_OF_WEEK.put("SAT", 6);
+        DAY_OF_WEEK.put("SATURDAY", 6);
+        DAY_OF_WEEK.put("SU", 7);
+        DAY_OF_WEEK.put("SUN", 7);
+        DAY_OF_WEEK.put("SUNDAY", 7);
     }
 
     /**
