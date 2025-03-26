@@ -52,7 +52,7 @@ suite("test_base_replace_multi_level_mtmv","mtmv") {
             k1 INT,
             k2 varchar(33)
         )
-        DISTRIBUTED BY HASH(k3) BUCKETS 2
+        DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1"
         );
