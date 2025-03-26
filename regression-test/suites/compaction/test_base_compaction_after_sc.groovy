@@ -52,7 +52,7 @@ suite("test_base_compaction_after_sc") {
           L_RECEIPTDATE DATE NOT NULL,
           L_SHIPINSTRUCT CHAR(25) NOT NULL,
           L_SHIPMODE     CHAR(10) NOT NULL,
-          L_COMMENT      VARCHAR(44) NOT NULL
+          L_COMMENT      CHAR(44) NOT NULL
         )
         UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
         DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
@@ -62,7 +62,7 @@ suite("test_base_compaction_after_sc") {
         )
 
     """
-    sql """ ALTER TABLE ${tableName} MODIFY COLUMN L_COMMENT CHAR(44) NOT NULL """
+    sql """ ALTER TABLE ${tableName} MODIFY COLUMN L_COMMENT VARCHAR(44) NOT NULL """
 
     def wait_for_schema_change = {
                 def try_times=100
