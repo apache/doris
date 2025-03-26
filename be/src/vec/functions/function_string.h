@@ -4612,12 +4612,14 @@ public:
         const auto& xpath_col = *assert_cast<const ColumnString*>(right_col.get());
 
         Status status;
-        if constexpr (left_const && right_const) {
+        if (left_const && right_const) {
             status = execute_vector<true, true>(input_rows_count, xml_col, xpath_col, *col_res);
-        } else if constexpr (left_const) {
+        } else if (left_const) {
             status = execute_vector<true, false>(input_rows_count, xml_col, xpath_col, *col_res);
-        } else if constexpr (right_const) {
+        } else if (right_const) {
             status = execute_vector<false, true>(input_rows_count, xml_col, xpath_col, *col_res);
+        } else {
+            status = execute_vector<false, false>(input_rows_count, xml_col, xpath_col, *col_res);
         }
         if (!status.ok()) {
             return status;
@@ -4699,7 +4701,7 @@ private:
             pugi::xpath_node node = xml_doc.select_node(xpath_str.to_string_view().data());
             if (!node) {
                 // should return empty string if not found
-                auto empty_str = StringRef("");
+                auto empty_str = std::string("");
                 res_col.insert_data(empty_str.data(), empty_str.size());
                 continue;
             }
