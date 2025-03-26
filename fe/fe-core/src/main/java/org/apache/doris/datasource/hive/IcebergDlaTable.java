@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.PartitionColumnsCache;
+import org.apache.doris.datasource.iceberg.IcebergSchemaCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -73,7 +73,7 @@ public class IcebergDlaTable extends HMSDlaTable {
         IcebergSnapshotCacheValue snapshotValue =
                 IcebergUtils.getOrFetchSnapshotCacheValue(
                         snapshot, hmsTable.getCatalog(), hmsTable.getDbName(), hmsTable.getName());
-        PartitionColumnsCache schemaValue = IcebergUtils.getIcebergPartitionColumnsCache(
+        IcebergSchemaCacheValue schemaValue = IcebergUtils.getIcebergPartitionColumnsCache(
                 hmsTable.getCatalog(), hmsTable.getDbName(), hmsTable.getName(),
                 snapshotValue.getSnapshot().getSchemaId());
         return schemaValue.getPartitionColumns();

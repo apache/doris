@@ -55,7 +55,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
-import org.apache.doris.datasource.PartitionColumnsCache;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -763,7 +762,7 @@ public class IcebergUtils {
         return snapshotId;
     }
 
-    public static SchemaCacheValue getSchemaCacheValueFromCache(
+    public static IcebergSchemaCacheValue getSchemaCacheValueFromCache(
             ExternalCatalog catalog, String dbName, String name, long schemaId) {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
@@ -772,12 +771,12 @@ public class IcebergUtils {
             throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
                 null, catalog.getName(), dbName, name, schemaId);
         }
-        return schemaCacheValue.get();
+        return (IcebergSchemaCacheValue) schemaCacheValue.get();
     }
 
-    public static PartitionColumnsCache getIcebergPartitionColumnsCache(
+    public static IcebergSchemaCacheValue getIcebergPartitionColumnsCache(
             ExternalCatalog catalog, String dbName, String name, long schemaId) {
-        return (PartitionColumnsCache) IcebergUtils.getSchemaCacheValueFromCache(catalog, dbName, name, schemaId);
+        return IcebergUtils.getSchemaCacheValueFromCache(catalog, dbName, name, schemaId);
     }
 
     public static IcebergSnapshot getLastedIcebergSnapshot(ExternalCatalog catalog, String dbName, String tbName) {

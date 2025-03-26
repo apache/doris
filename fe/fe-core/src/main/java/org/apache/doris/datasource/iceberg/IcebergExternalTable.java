@@ -26,7 +26,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.PartitionColumnsCache;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -156,7 +155,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
         IcebergSnapshotCacheValue snapshotValue =
                 IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, getCatalog(), getDbName(), getName());
-        PartitionColumnsCache schemaValue = IcebergUtils.getIcebergPartitionColumnsCache(
+        IcebergSchemaCacheValue schemaValue = IcebergUtils.getIcebergPartitionColumnsCache(
                 catalog, getDbName(), getName(), snapshotValue.getSnapshot().getSchemaId());
         return schemaValue.getPartitionColumns();
     }

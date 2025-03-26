@@ -19,13 +19,12 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.datasource.PartitionColumnsCache;
 import org.apache.doris.datasource.SchemaCacheValue;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
-public class HMSSchemaCacheValue extends SchemaCacheValue implements PartitionColumnsCache {
+public class HMSSchemaCacheValue extends SchemaCacheValue {
 
     private List<Column> partitionColumns;
 
@@ -34,7 +33,6 @@ public class HMSSchemaCacheValue extends SchemaCacheValue implements PartitionCo
         this.partitionColumns = partitionColumns;
     }
 
-    @Override
     public List<Column> getPartitionColumns() {
         return partitionColumns;
     }
