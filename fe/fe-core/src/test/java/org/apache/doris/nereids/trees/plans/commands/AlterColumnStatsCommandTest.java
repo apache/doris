@@ -107,7 +107,7 @@ public class AlterColumnStatsCommandTest {
         PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false,
                 ImmutableList.of(CatalogMocker.TEST_PARTITION1_NAME));
         String indexName = null;
-        String columnName = "k1";
+        String columnName = "v1";
         Map<String, String> properties = new HashMap<>();
         properties.put("row_count", "5");
         properties.put("avg_size", "100000");
