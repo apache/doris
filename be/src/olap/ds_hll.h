@@ -18,7 +18,6 @@
 #pragma once
 
 #include "DataSketches/hll.hpp"
-
 #include "util/slice.h"
 
 namespace doris {
@@ -32,6 +31,7 @@ class DSHyperLogLog {
     static const uint8_t DEFAULT_LG_K = 17;
     static const std::string DEFAULT_HLL_TYPE;
     static const std::unordered_map<std::string, ds_hll_type> ds_hll_map;
+
 public:
     explicit DSHyperLogLog(uint8_t lg_k = DEFAULT_LG_K,
                            std::string hll_type_str = DEFAULT_HLL_TYPE);
