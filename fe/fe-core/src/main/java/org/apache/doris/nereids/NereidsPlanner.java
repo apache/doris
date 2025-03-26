@@ -268,9 +268,6 @@ public class NereidsPlanner extends Planner {
             }
         }
 
-        // collect partitions table used, this is for query rewrite by materialized view
-        collectTableUsedPartitions(showPlanProcess);
-
         optimize();
         // print memo before choose plan.
         // if chooseNthPlan failed, we could get memo to debug
@@ -405,7 +402,10 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start rewrite plan");
         }
         keepOrShowPlanProcess(showPlanProcess, () -> Rewriter.getWholeTreeRewriter(cascadesContext).execute());
-        this.statementContext.getPlannerHooks().forEach(hook -> hook.afterRewrite(this));
+        // collect partitions table used, this is for query rewrite by materialized view
+        // this is needed before init hook
+        collectTableUsedPartitions(showPlanProcess);
+        cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(this));
         NereidsTracer.logImportantTime("EndRewritePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End rewrite plan");
