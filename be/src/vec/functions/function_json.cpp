@@ -845,8 +845,17 @@ struct FunctionJsonQuoteImpl {
     }
 };
 
-struct FunctionJsonExtractImpl {
+struct JsonExtractName {
     static constexpr auto name = "json_extract";
+};
+
+struct JsonExtractNoQuotesName {
+    static constexpr auto name = "json_extract_no_quotes";
+};
+
+template <typename Name, bool remove_quotes>
+struct FunctionJsonExtractImpl {
+    static constexpr auto name = Name::name;
 
     static rapidjson::Value parse_json(const ColumnString* json_col, const ColumnString* path_col,
                                        rapidjson::Document::AllocatorType& allocator,
@@ -910,11 +919,12 @@ struct FunctionJsonExtractImpl {
                 result_column.insert_default();
             } else {
                 // Check if the value is a string
-                if (value.IsString()) {
+                if (value.IsString() && remove_quotes) {
                     // Get the string value without quotes
                     const char* str_ptr = value.GetString();
                     size_t len = value.GetStringLength();
-                    result_column.insert_data(str_ptr, len); // Insert without quotes
+                    // Insert without quotes
+                    result_column.insert_data(str_ptr, len);
                 } else {
                     // Write value as string for other types
                     buf.Clear();
@@ -1662,7 +1672,10 @@ void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonArrayImpl>>();
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonObjectImpl>>();
     factory.register_function<FunctionJson<FunctionJsonQuoteImpl>>();
-    factory.register_function<FunctionJsonNullable<FunctionJsonExtractImpl>>();
+    factory.register_function<
+            FunctionJsonNullable<FunctionJsonExtractImpl<JsonExtractName, false>>>();
+    factory.register_function<
+            FunctionJsonNullable<FunctionJsonExtractImpl<JsonExtractNoQuotesName, true>>>();
 
     factory.register_function<FunctionJsonValid>();
     factory.register_function<FunctionJsonContains>();
