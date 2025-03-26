@@ -242,6 +242,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNoQuotes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
@@ -726,6 +727,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonQuote.class, "json_quote"),
             scalar(JsonUnQuote.class, "json_unquote"),
             scalar(JsonExtract.class, "json_extract"),
+            scalar(JsonExtractNoQuotes.class, "json_extract_no_quotes"),
             scalar(JsonInsert.class, "json_insert"),
             scalar(JsonReplace.class, "json_replace"),
             scalar(JsonSet.class, "json_set"),
