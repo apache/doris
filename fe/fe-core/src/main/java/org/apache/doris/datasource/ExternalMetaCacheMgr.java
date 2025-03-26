@@ -99,25 +99,25 @@ public class ExternalMetaCacheMgr {
     private final MaxComputeMetadataCacheMgr maxComputeMetadataCacheMgr;
     private final PaimonMetadataCacheMgr paimonMetadataCacheMgr;
 
-    public ExternalMetaCacheMgr() {
-        rowCountRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+    public ExternalMetaCacheMgr(boolean isCheckpointCatalog) {
+        rowCountRefreshExecutor = newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "RowCountRefreshExecutor", 0, true);
 
-        commonRefreshExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+        commonRefreshExecutor = newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 10000,
                 "CommonRefreshExecutor", 10, true);
 
         // The queue size should be large enough,
         // because there may be thousands of partitions being queried at the same time.
-        fileListingExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+        fileListingExecutor = newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "FileListingExecutor", 10, true);
 
-        scheduleExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+        scheduleExecutor = newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "scheduleExecutor", 10, true);
@@ -129,6 +129,21 @@ public class ExternalMetaCacheMgr {
         icebergMetadataCacheMgr = new IcebergMetadataCacheMgr(commonRefreshExecutor);
         maxComputeMetadataCacheMgr = new MaxComputeMetadataCacheMgr();
         paimonMetadataCacheMgr = new PaimonMetadataCacheMgr(commonRefreshExecutor);
+    }
+
+    private ExecutorService newThreadPool(boolean isCheckpointCatalog, int numThread, int queueSize,
+            String poolName, int timeoutSeconds,
+            boolean needRegisterMetric) {
+        String executorNamePrefix = isCheckpointCatalog ? "Checkpoint" : "NotCheckpoint";
+        String realPoolName = executorNamePrefix + poolName;
+        // Business threads require a fixed size thread pool and use queues to store unprocessed tasks.
+        // Checkpoint threads have almost no business and need to be released in a timely manner to avoid thread leakage
+        if (isCheckpointCatalog) {
+            return ThreadPoolManager.newDaemonCacheThreadPool(numThread, realPoolName, needRegisterMetric);
+        } else {
+            return ThreadPoolManager.newDaemonFixedThreadPool(numThread, queueSize, realPoolName, timeoutSeconds,
+                    needRegisterMetric);
+        }
     }
 
     public ExecutorService getFileListingExecutor() {
