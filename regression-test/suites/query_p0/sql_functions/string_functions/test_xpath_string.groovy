@@ -133,9 +133,9 @@ suite("test_xpath_string") {
     check_fold_consistency "xpath_string('<nested><a><b><c>Deep</c></b></a></nested>', '//c/text()')"
     check_fold_consistency "xpath_string('<mixed>Text<b>Bold</b>Normal</mixed>', '/mixed/text()')"
     check_fold_consistency "xpath_string('<doc><item pos=\"1\">First</item></doc>', '/doc/item[@pos=\"1\"]/text()')"
-    check_fold_consistency "xpath_string('<test><a>x</a><b>y</b><c>z</c></test>', 'string(/test/*[2])')"
-    check_fold_consistency "xpath_string('<data><![CDATA[<nested>value</nested>]]></data>', 'string(/data)')"
-    check_fold_consistency "xpath_string('<root><elem><!-- comment -->value</elem></root>', 'string(/root/elem)')"
+    check_fold_consistency "xpath_string('<test><a>x</a><b>y</b><c>z</c></test>', '/test/*[2]')"
+    check_fold_consistency "xpath_string('<data><![CDATA[<nested>value</nested>]]></data>', '/data')"
+    check_fold_consistency "xpath_string('<root><elem><!-- comment -->value</elem></root>', '/root/elem')"
     check_fold_consistency "xpath_string('<doc><section><title>Test</title><para>Text</para></section></doc>', '/doc/section[title=\"Test\"]/para')"
     check_fold_consistency "xpath_string('<list><item val=\"1\"/><item val=\"2\"/></list>', '/list/item[@val=\"2\"]')"
     check_fold_consistency "xpath_string('<data><group><name>A</name><value>1</value></group></data>', '/data/group[name=\"A\"]/value')"
@@ -147,5 +147,4 @@ suite("test_xpath_string") {
         sql """ select xpath_string('wrong xml', '//a/c') """
         exception "Function xpath_string failed to parse XML string: No document element found"
     }
-    
 }

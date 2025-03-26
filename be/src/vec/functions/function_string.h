@@ -4647,7 +4647,7 @@ private:
     }
 
     static Status parse_xml(const StringRef& xml_str, pugi::xml_document& xml_doc) {
-        pugi::xml_parse_result result = xml_doc.load_string(xml_str.to_string_view().data());
+        pugi::xml_parse_result result = xml_doc.load_buffer(xml_str.data, xml_str.size);
         if (!result) {
             return Status::InvalidArgument("Function {} failed to parse XML string: {}", name,
                                            result.description());
@@ -4697,7 +4697,8 @@ private:
                 }
                 RETURN_IF_ERROR(parse_xml(xml_str, xml_doc));
             }
-            pugi::xpath_node node = xml_doc.select_node(xpath_str.to_string_view().data());
+            // NOTE!!!: don't use to_string_view(), because xpath_str maybe not null-terminated
+            pugi::xpath_node node = xml_doc.select_node(xpath_str.to_string().c_str());
             if (!node) {
                 // should return empty string if not found
                 auto empty_str = std::string("");
