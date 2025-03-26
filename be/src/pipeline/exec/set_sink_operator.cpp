@@ -95,6 +95,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
                     ->set_ready();
             RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->send_filter_size(
                     state, hash_table_size, local_state._finish_dependency));
+            local_state._eos = true;
         }
     }
     return Status::OK();
@@ -134,16 +135,16 @@ template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::_extract_build_column(
         SetSinkLocalState<is_intersect>& local_state, vectorized::Block& block,
         vectorized::ColumnRawPtrs& raw_ptrs, size_t& rows) {
-    std::vector<int> result_locs(_child_exprs.size(), -1);
+    std::vector<int> result_locs(local_state._child_exprs.size(), -1);
     bool is_all_const = true;
 
-    for (size_t i = 0; i < _child_exprs.size(); ++i) {
-        RETURN_IF_ERROR(_child_exprs[i]->execute(&block, &result_locs[i]));
+    for (size_t i = 0; i < local_state._child_exprs.size(); ++i) {
+        RETURN_IF_ERROR(local_state._child_exprs[i]->execute(&block, &result_locs[i]));
         is_all_const &= is_column_const(*block.get_by_position(result_locs[i]).column);
     }
     rows = is_all_const ? 1 : rows;
 
-    for (size_t i = 0; i < _child_exprs.size(); ++i) {
+    for (size_t i = 0; i < local_state._child_exprs.size(); ++i) {
         size_t result_col_id = result_locs[i];
 
         if (is_all_const) {
