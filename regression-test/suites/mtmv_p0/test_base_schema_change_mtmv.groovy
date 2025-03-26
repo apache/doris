@@ -17,9 +17,9 @@
 
 import org.junit.Assert;
 
-suite("test_base_schema_change_mtmv","mtmv") {
+suite("test_base_drop_multi_level_mtmv","mtmv") {
     String dbName = context.config.getDbNameByFile(context.file)
-    String suiteName = "test_base_schema_change_mtmv"
+    String suiteName = "test_base_drop_multi_level_mtmv"
     String tableName1 = "${suiteName}_table1"
     String tableName2 = "${suiteName}_table2"
     String mvName1 = "${suiteName}_mv1"
