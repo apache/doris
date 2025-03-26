@@ -665,7 +665,7 @@ public class ExpressionUtils {
              * markSlotSize = 3 -> loopCount = 8  ---- 000, 001, 010, 011, 100, 101, 110, 111
              * markSlotSize = 4 -> loopCount = 16 ---- 0000, 0001, ... 1111
              */
-            int loopCount = 2 << markSlotSize;
+            int loopCount = 1 << markSlotSize;
             for (int i = 0; i < loopCount; ++i) {
                 replaceMap.clear();
                 /*
@@ -693,10 +693,13 @@ public class ExpressionUtils {
                     } else {
                         meetNullOrFalse = true;
                     }
+                } else {
+                    return false;
                 }
             }
+            return true;
         }
-        return true;
+        return false;
     }
 
     private static boolean isNullOrFalse(Expression expression) {
