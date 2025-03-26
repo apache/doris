@@ -50,7 +50,12 @@ public class DateTrunc extends ScalarFunction
             FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(DateV2Type.INSTANCE)
                     .args(DateV2Type.INSTANCE, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE, VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, DateTimeType.INSTANCE),
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, DateV2Type.INSTANCE),
+            FunctionSignature.ret(DateType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, DateType.INSTANCE)
     );
 
     /**
@@ -62,11 +67,13 @@ public class DateTrunc extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (getArgument(1).isConstant() == false || !(getArgument(1) instanceof VarcharLiteral)) {
-            throw new AnalysisException("the second parameter of "
+        boolean dateArgIsFirst = getArgument(0).getDataType().isDateLikeType();
+        if (!getArgument(dateArgIsFirst ? 1 : 0).isConstant()
+                || !(getArgument(dateArgIsFirst ? 1 : 0) instanceof VarcharLiteral)) {
+            throw new AnalysisException("the time unit parameter of "
                     + getName() + " function must be a string constant: " + toSql());
         }
-        final String constParam = ((VarcharLiteral) getArgument(1)).getStringValue().toLowerCase();
+        final String constParam = ((VarcharLiteral) getArgument(dateArgIsFirst ? 1 : 0)).getStringValue().toLowerCase();
         if (!Lists.newArrayList("year", "quarter", "month", "week", "day", "hour", "minute", "second")
                 .contains(constParam)) {
             throw new AnalysisException("date_trunc function second param only support argument is "
@@ -105,6 +112,7 @@ public class DateTrunc extends ScalarFunction
 
     @Override
     public Expression withConstantArgs(Expression literal) {
-        return new DateTrunc(literal, child(1));
+        boolean dateArgIsFirst = getArgument(0).getDataType().isDateLikeType();
+        return dateArgIsFirst ? new DateTrunc(literal, child(1)) : new DateTrunc(child(0), literal);
     }
 }
