@@ -398,10 +398,6 @@ public class StatementContext implements Closeable {
         materializedViewRewriteDuration = materializedViewRewriteDuration + millisecond;
     }
 
-    public void materializedViewRewriteDurationExceeded() {
-        materializedViewRewriteDuration = -1;
-    }
-
     public void setMaxNAryInnerJoin(int maxNAryInnerJoin) {
         if (maxNAryInnerJoin > this.maxNAryInnerJoin) {
             this.maxNAryInnerJoin = maxNAryInnerJoin;

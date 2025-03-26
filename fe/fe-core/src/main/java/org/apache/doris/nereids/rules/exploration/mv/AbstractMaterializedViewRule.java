@@ -106,9 +106,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      */
     public List<Plan> rewrite(Plan queryPlan, CascadesContext cascadesContext) {
         List<Plan> rewrittenPlans = new ArrayList<>();
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
         // if available materialization list is empty, bail out
         if (cascadesContext.getMaterializationContexts().isEmpty()
-                || cascadesContext.getStatementContext().getMaterializedViewRewriteDuration() == -1) {
+                || cascadesContext.getStatementContext().getMaterializedViewRewriteDuration()
+                > sessionVariable.materializedViewRewriteDurationThreshold) {
             return rewrittenPlans;
         }
         for (MaterializationContext context : cascadesContext.getMaterializationContexts()) {
@@ -130,10 +132,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     .getStatementContext().getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS));
             for (StructInfo queryStructInfo : queryStructInfos) {
                 cascadesContext.getStatementContext().getMaterializedViewStopwatch().reset().start();
-                SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
                 if (cascadesContext.getStatementContext().getMaterializedViewRewriteDuration()
                         > sessionVariable.materializedViewRewriteDurationThreshold) {
-                    cascadesContext.getStatementContext().materializedViewRewriteDurationExceeded();
                     cascadesContext.getStatementContext().getMaterializedViewStopwatch().stop();
                     LOG.warn("materialized view rewrite duration is exceeded, the query sql hash is {}",
                             cascadesContext.getConnectContext().getSqlHash());
