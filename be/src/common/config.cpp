@@ -1256,6 +1256,9 @@ DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 // Ingest binlog with persistent connection
 DEFINE_Bool(enable_ingest_binlog_with_persistent_connection, "false");
 
+// Log ingest binlog elapsed threshold, -1 is disabled
+DEFINE_mInt64(ingest_binlog_elapsed_threshold_ms, "-1");
+
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
