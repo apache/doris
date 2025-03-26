@@ -291,6 +291,8 @@ public final class RuntimeFilter {
             } else {
                 tFilter.setNullAware(false);
             }
+        } else if (builderNode instanceof SetOperationNode) {
+            tFilter.setNullAware(true);
         }
         return tFilter;
     }
