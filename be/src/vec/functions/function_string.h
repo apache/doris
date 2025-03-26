@@ -5077,13 +5077,13 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
+        return make_nullable(std::make_shared<DataTypeString>());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         CHECK_EQ(arguments.size(), 2);
-        auto col_res = ColumnString::create();
+        auto col_res = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
         bool col_const[2];
         ColumnPtr argument_columns[2];
         for (int i = 0; i < 2; ++i) {
@@ -5101,6 +5101,11 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             const auto& xml_str = col_xml->get_data_at(i);
             const auto& xpath_str = col_xpath->get_data_at(i);
+            if (xml_str.empty() || xpath_str.empty()) {
+                // if xml_str or xpath_str is empty, return null
+                col_res->insert_default();
+                continue;
+            }
             pugi::xml_document doc;
             pugi::xml_parse_result result = doc.load_string(xml_str.to_string_view().data());
             if (!result) {
@@ -5110,7 +5115,8 @@ public:
 
             pugi::xpath_node node = doc.select_node(xpath_str.to_string_view().data());
             if (!node) {
-                col_res->insert_default();
+                // if not found, return empty
+                col_res->insert("");
                 continue;
             }
             auto text = get_text(node.node());
@@ -5129,8 +5135,8 @@ private:
     }
 
     static void build_text(const pugi::xml_node& node, std::string& builder) {
-        if (node.first_child().type() == pugi::node_pcdata) {
-            builder += node.text().as_string();
+        if (node.type() == pugi::node_pcdata || node.type() == pugi::node_cdata) {
+            builder += node.value();
         }
         for (pugi::xml_node child : node.children()) {
             build_text(child, builder);
