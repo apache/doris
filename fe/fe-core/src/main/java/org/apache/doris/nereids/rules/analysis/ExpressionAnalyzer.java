@@ -676,6 +676,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Expression right = cp.right().accept(this, context);
         // Used to replace expression in ShortCircuit plan
         registerPlaceholderIdToSlot(cp, context, left, right);
+        cp = (ComparisonPredicate) cp.withChildren(left, right);
         if (cp.containsType(PlaceholderLiteral.class)) {
             return cp;
         }
