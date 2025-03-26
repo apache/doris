@@ -917,6 +917,7 @@ EOF
     # copy jindofs jars, only support for Linux x64 or arm
     if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'x86_64' ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
         cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-sdk-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
     elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'aarch64' ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-linux-el7-aarch64-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
