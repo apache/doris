@@ -653,12 +653,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
         EXPECT_EQ(key_nested_count, path_with_size["key" + key_num + ".nested" + key_num]);
     };
 
-    check_key_stats("9");
-    check_key_stats("3");
-    check_key_stats("6");
-    check_key_stats("4");
-    check_key_stats("5");
-    check_key_stats("7");
+    for (int i = 3; i < 10; ++i) {
+        check_key_stats(std::to_string(i));
+    }
 
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 }
