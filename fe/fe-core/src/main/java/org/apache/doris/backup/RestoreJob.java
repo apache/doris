@@ -690,9 +690,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         // the new tablets -> { local tablet, schema hash, storage medium }, used in atomic restore.
         Map<Long, TabletRef> tabletBases = new HashMap<>();
 
-        // Check and prepare meta objects.
-        Map<Long, AgentBatchTask> batchTaskPerTable = new HashMap<>();
-
         // The tables that are restored but not committed, because the table name may be changed.
         List<Table> stagingRestoreTables = Lists.newArrayList();
         db.readLock();
