@@ -67,13 +67,13 @@ public class DateTrunc extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        boolean dateArgIsFirst = getArgument(0).getDataType().isDateLikeType();
-        if (!getArgument(dateArgIsFirst ? 1 : 0).isConstant()
-                || !(getArgument(dateArgIsFirst ? 1 : 0) instanceof VarcharLiteral)) {
+        boolean timeUnitIsFirst = getArgument(0).isConstant() && getArgument(0) instanceof VarcharLiteral;
+        boolean timeUnitIsSecond = getArgument(1).isConstant() && getArgument(1) instanceof VarcharLiteral;
+        if (!timeUnitIsFirst && !timeUnitIsSecond) {
             throw new AnalysisException("the time unit parameter of "
                     + getName() + " function must be a string constant: " + toSql());
         }
-        final String constParam = ((VarcharLiteral) getArgument(dateArgIsFirst ? 1 : 0)).getStringValue().toLowerCase();
+        final String constParam = ((VarcharLiteral) getArgument(timeUnitIsFirst ? 0 : 1)).getStringValue().toLowerCase();
         if (!Lists.newArrayList("year", "quarter", "month", "week", "day", "hour", "minute", "second")
                 .contains(constParam)) {
             throw new AnalysisException("date_trunc function second param only support argument is "
@@ -112,7 +112,7 @@ public class DateTrunc extends ScalarFunction
 
     @Override
     public Expression withConstantArgs(Expression literal) {
-        boolean dateArgIsFirst = getArgument(0).getDataType().isDateLikeType();
-        return dateArgIsFirst ? new DateTrunc(literal, child(1)) : new DateTrunc(child(0), literal);
+        boolean timeUnitIsFirst = getArgument(0).isConstant() && getArgument(0) instanceof VarcharLiteral;
+        return timeUnitIsFirst ? new DateTrunc(child(0), literal) : new DateTrunc(literal, child(1));
     }
 }
