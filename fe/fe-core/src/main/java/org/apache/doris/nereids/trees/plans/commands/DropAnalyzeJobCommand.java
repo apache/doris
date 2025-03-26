@@ -45,15 +45,7 @@ public class DropAnalyzeJobCommand extends DropCommand {
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        validate();
         ctx.getEnv().getAnalysisManager().dropAnalyzeJob(this);
-    }
-
-    public void validate() throws AnalysisException {
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.DROP)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "Permission denied",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP());
-        }
     }
 
     @Override
