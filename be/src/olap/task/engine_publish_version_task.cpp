@@ -348,12 +348,14 @@ Status EnginePublishVersionTask::execute() {
                   << ", cost(us): " << watch.get_elapse_time_us()
                   << ", error_tablet_size=" << _error_tablet_ids->size()
                   << ", res=" << res.to_string();
-        std::vector<TPartitionId> req_partition_ids;
-        for (const auto& par_ver_info : _publish_version_req.partition_version_infos) {
-            req_partition_ids.emplace_back(par_ver_info.partition_id);
+        if (res.ok()) {
+            std::vector<TPartitionId> req_partition_ids;
+            for (const auto& par_ver_info : _publish_version_req.partition_version_infos) {
+                req_partition_ids.emplace_back(par_ver_info.partition_id);
+            }
+            StorageEngine::instance()->txn_manager()->check_txn_finish(
+                    transaction_id, std::move(req_partition_ids));
         }
-        StorageEngine::instance()->txn_manager()->check_txn_finish(transaction_id,
-                                                                   std::move(req_partition_ids));
     }
     return res;
 }

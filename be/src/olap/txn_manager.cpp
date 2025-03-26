@@ -28,6 +28,7 @@
 #include <new>
 #include <ostream>
 #include <queue>
+#include <ranges>
 #include <set>
 #include <string>
 
@@ -882,6 +883,8 @@ void TxnManager::check_txn_finish(TTransactionId transaction_id,
     std::vector<TTransactionId> partition_ids;
     get_partition_ids(transaction_id, &partition_ids);
     if (!partition_ids.empty()) {
+        std::ranges::sort(partition_ids);
+        std::ranges::sort(req_partition_ids);
         LOG_WARNING(
                 "[xxx check fail] txn={}, partition_ids not empty,\n"
                 "req_partition_ids={},\npartition_ids={}",
@@ -893,8 +896,8 @@ void TxnManager::check_txn_finish(TTransactionId transaction_id,
         get_txn_related_tablets(transaction_id, partition_id, &tablet_infos);
         if (!tablet_infos.empty()) {
             std::vector<int64_t> tablet_ids;
-            for (const auto& [_, rs] : tablet_infos) {
-                tablet_ids.emplace_back(rs->rowset_meta()->tablet_id());
+            for (const auto& [tablet_info, rs] : tablet_infos) {
+                tablet_ids.emplace_back(tablet_info.tablet_id);
             }
             LOG_WARNING(
                     "[xxx check fail] txn={}, partition_id={}, txn_tablet_map not empty, "
