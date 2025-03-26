@@ -608,6 +608,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                     << ", tablet_id: " << tablet_info.tablet_id
                     << ", rowsetid: " << rowset->rowset_id() << ", version: " << version.first
                     << "," << version.second;
+        LOG_INFO("publish txn, partition_id={}, tablet={}, txn={}, ver={}, txn's map size={}",
+                 partition_id, tablet_id, transaction_id, version.to_string(), it->second.size());
         if (it->second.empty()) {
             txn_tablet_map.erase(it);
             _clear_txn_partition_map_unlocked(transaction_id, partition_id);
