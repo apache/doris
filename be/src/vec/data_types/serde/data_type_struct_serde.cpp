@@ -158,7 +158,8 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             }
             Slice next(slice.data + start_pos, idx - start_pos);
             next.trim_prefix();
-            if (field_pos > elem_size) {
+            // field_pos should always less than elem_size, if not, we should return error
+            if (field_pos >= elem_size) {
                 // we should do column revert if error
                 for (size_t j = 0; j < field_pos; j++) {
                     struct_column.get_column(j).pop_back(1);
@@ -188,7 +189,8 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
         (key_added || !is_explicit_names)) {
         Slice next(slice.data + start_pos, idx - start_pos);
         next.trim_prefix();
-        if (field_pos > elem_size) {
+        /// field_pos should always less than elem_size, if not, we should return error
+        if (field_pos >= elem_size) {
             // we should do column revert if error
             for (size_t j = 0; j < field_pos; j++) {
                 struct_column.get_column(j).pop_back(1);
