@@ -125,6 +125,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _init_resource_context();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
     _query_watcher.start();
+    _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _execution_dependency =
             pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", false);
     _memory_sufficient_dependency =
@@ -263,6 +264,7 @@ QueryContext::~QueryContext() {
 #endif
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
+    _shared_hash_table_controller.reset();
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
     obj_pool.clear();
