@@ -224,7 +224,7 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
             std::unique_lock<std::mutex> lck {_latch};
             _pending_tablets.erase(t->tablet_id());
         }
-        SCOPED_ATTACH_TASK();
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
         auto s = t->write_cooldown_meta();
         if (s.ok()) {
             return;

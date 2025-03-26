@@ -342,7 +342,8 @@ public:
 
 class AttachTask {
 public:
-    explicit AttachTask();
+    // you must use ResourceCtx or MemTracker initialization.
+    explicit AttachTask() = delete;
 
     explicit AttachTask(const std::shared_ptr<ResourceContext>& rc);
 
