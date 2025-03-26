@@ -516,29 +516,53 @@ struct ConvertImplToTimeType {
             col_null_map_to = ColumnUInt8::create(size);
             auto& vec_null_map_to = col_null_map_to->get_data();
 
-            UInt32 from_precision = 0;
-            UInt32 from_scale = 0;
-            UInt32 to_precision = NumberTraits::max_ascii_len<Int64>();
-            if constexpr (IsDecimalNumber<FromFieldType>) {
-                const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
-                from_precision = from_decimal_type.get_precision();
-                from_scale = from_decimal_type.get_scale();
+            if constexpr (std::is_same_v<FromDataType, DataTypeTimeV2>) {
+                DateValueType current_date_value;
+                current_date_value.from_unixtime(context->state()->timestamp_ms() / 1000,
+                                                 context->state()->timezone_obj());
+                uint32_t scale = 0;
+                // Only DateTimeV2 has scale
+                if (std::is_same_v<ToDataType, DataTypeDateTimeV2>) {
+                    scale = remove_nullable(block.get_by_position(result).type)->get_scale();
+                }
+                // According to MySQL rules, when casting time type to date/datetime,
+                // the current date is added to the time
+                // So here we need to clear the time part
+                current_date_value.reset_time_part();
+                for (size_t i = 0; i < size; ++i) {
+                    auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
+                    date_value = current_date_value;
+                    int64_t microsecond = TimeValue::round_time(vec_from[i], scale);
+                    // Only TimeV2 type needs microseconds
+                    if constexpr (IsTimeV2Type<ToDataType>) {
+                        vec_null_map_to[i] = !date_value.template date_add_interval<MICROSECOND>(
+                                TimeInterval {MICROSECOND, microsecond, false});
+                    } else {
+                        vec_null_map_to[i] =
+                                !date_value.template date_add_interval<SECOND>(TimeInterval {
+                                        SECOND, microsecond / TimeValue::ONE_SECOND_MICROSECONDS,
+                                        false});
+                    }
+
+                    // DateType of VecDateTimeValue should cast to date
+                    if constexpr (IsDateType<ToDataType>) {
+                        date_value.cast_to_date();
+                    } else if constexpr (IsDateTimeType<ToDataType>) {
+                        date_value.to_datetime();
+                    }
+                }
+            } else {
+                for (size_t i = 0; i < size; ++i) {
+                    auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
+                    vec_null_map_to[i] = !date_value.from_date_int64(int64_t(vec_from[i]));
+                    // DateType of VecDateTimeValue should cast to date
+                    if constexpr (IsDateType<ToDataType>) {
+                        date_value.cast_to_date();
+                    } else if constexpr (IsDateTimeType<ToDataType>) {
+                        date_value.to_datetime();
+                    }
+                }
             }
-            bool narrow_integral = to_precision < (from_precision - from_scale);
-            std::visit(
-                    [&](auto narrow_integral) {
-                        for (size_t i = 0; i < size; ++i) {
-                            auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
-                            vec_null_map_to[i] = !date_value.from_date_int64(int64_t(vec_from[i]));
-                            // DateType of VecDateTimeValue should cast to date
-                            if constexpr (IsDateType<ToDataType>) {
-                                date_value.cast_to_date();
-                            } else if constexpr (IsDateTimeType<ToDataType>) {
-                                date_value.to_datetime();
-                            }
-                        }
-                    },
-                    make_bool_variant(narrow_integral));
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
@@ -1677,7 +1701,7 @@ public:
             using RightDataType = typename Types::RightType;
 
             ret_status = ConvertImplToTimeType<LeftDataType, RightDataType, Name>::execute(
-                    block, arguments, result, input_rows_count);
+                    context, block, arguments, result, input_rows_count);
             return true;
         };
 
