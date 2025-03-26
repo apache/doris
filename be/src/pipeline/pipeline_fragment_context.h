@@ -87,7 +87,8 @@ public:
     QueryContext* get_query_ctx() { return _query_ctx.get(); }
     [[nodiscard]] bool is_canceled() const { return _query_ctx->is_cancelled(); }
 
-    Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool);
+    Status prepare(const doris::TPipelineFragmentParams& request,
+                   FifoThreadPool* thread_pool_for_prepare);
 
     Status submit();
 
@@ -171,7 +172,7 @@ private:
                                     const std::map<int, int>& shuffle_idx_to_instance_idx);
 
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
-                                 ThreadPool* thread_pool);
+                                 FifoThreadPool* thread_pool_for_prepare);
     void _close_fragment_instance();
     void _init_next_report_time();
 
