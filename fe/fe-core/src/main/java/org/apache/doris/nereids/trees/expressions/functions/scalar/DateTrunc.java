@@ -73,7 +73,8 @@ public class DateTrunc extends ScalarFunction
             throw new AnalysisException("the time unit parameter of "
                     + getName() + " function must be a string constant: " + toSql());
         }
-        final String constParam = ((VarcharLiteral) getArgument(timeUnitIsFirst ? 0 : 1)).getStringValue().toLowerCase();
+        final String constParam = ((VarcharLiteral) getArgument(timeUnitIsFirst ? 0 : 1))
+                .getStringValue().toLowerCase();
         if (!Lists.newArrayList("year", "quarter", "month", "week", "day", "hour", "minute", "second")
                 .contains(constParam)) {
             throw new AnalysisException("date_trunc function second param only support argument is "
