@@ -138,10 +138,6 @@ under the License.
             <version>${aliyun-sdk-oss.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-aliyun</artifactId>
-        </dependency>
-        <dependency>
             <groupId>com.esotericsoftware</groupId>
             <artifactId>kryo-shaded</artifactId>
         </dependency>
