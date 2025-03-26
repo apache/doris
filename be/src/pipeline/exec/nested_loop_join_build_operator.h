@@ -47,7 +47,7 @@ private:
     friend class NestedLoopJoinBuildSinkOperatorX;
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
-    std::unique_ptr<RuntimeFilterProducerHelperCross> _runtime_filter_producer_helper;
+    std::shared_ptr<RuntimeFilterProducerHelperCross> _runtime_filter_producer_helper;
 };
 
 class NestedLoopJoinBuildSinkOperatorX final
