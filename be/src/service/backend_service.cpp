@@ -37,6 +37,7 @@
 #include <map>
 #include <memory>
 #include <ostream>
+#include <ranges>
 #include <string>
 #include <thread>
 #include <utility>
@@ -134,8 +135,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     int64_t total_download_files = 0;
     TStatus tstatus;
     std::vector<std::string> download_success_files;
+    std::unordered_map<std::string_view, uint64_t> elapsed_time_map;
     Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus, &watch,
-                  &total_download_bytes, &total_download_files]() {
+                  &total_download_bytes, &total_download_files, &elapsed_time_map]() {
         g_ingest_binlog_latency << watch.elapsed_time_microseconds();
         auto elapsed_time_ms = static_cast<int64_t>(watch.elapsed_time_milliseconds());
         double copy_rate = 0.0;
@@ -146,6 +148,16 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                   << total_download_files << " files, total " << total_download_bytes
                   << " bytes, avg rate " << copy_rate
                   << " MB/s. result: " << apache::thrift::ThriftDebugString(tstatus);
+        if (config::ingest_binlog_elapsed_threshold_ms >= 0 &&
+            elapsed_time_ms > config::ingest_binlog_elapsed_threshold_ms) {
+            auto elapsed_details_view =
+                    elapsed_time_map | std::views::transform([](const auto& pair) {
+                        return fmt::format("{}:{}", pair.first, pair.second);
+                    });
+            std::string elapsed_details = fmt::format("{}", fmt::join(elapsed_details_view, ", "));
+            LOG(WARNING) << "ingest binlog elapsed " << elapsed_time_ms << " ms, "
+                         << elapsed_details;
+        }
         if (tstatus.status_code != TStatusCode::OK) {
             // abort txn
             engine.txn_manager()->abort_txn(partition_id, txn_id, local_tablet_id,
@@ -201,6 +213,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         status.to_thrift(&tstatus);
         return;
     }
+    elapsed_time_map.emplace("get_binlog_info", watch.elapsed_time_microseconds());
 
     std::vector<std::string> binlog_info_parts = strings::Split(binlog_info, ":");
     if (binlog_info_parts.size() != 2) {
@@ -240,6 +253,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         status.to_thrift(&tstatus);
         return;
     }
+    elapsed_time_map.emplace("get_rowset_meta", watch.elapsed_time_microseconds());
+
     RowsetMetaPB rowset_meta_pb;
     if (!rowset_meta_pb.ParseFromString(rowset_meta_str)) {
         LOG(WARNING) << "failed to parse rowset meta from " << get_rowset_meta_url;
@@ -298,6 +313,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         segment_file_sizes.push_back(segment_file_size);
         segment_file_urls.push_back(std::move(get_segment_file_size_url));
     }
+    elapsed_time_map.emplace("get_segment_file_size", watch.elapsed_time_microseconds());
 
     // Step 5.2: check data capacity
     uint64_t total_size = std::accumulate(segment_file_sizes.begin(), segment_file_sizes.end(),
@@ -384,6 +400,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             return;
         }
     }
+    elapsed_time_map.emplace("get_segment_files", watch.elapsed_time_microseconds());
 
     // Step 6: get all segment index files
     // Step 6.1: get all segment index files size
@@ -467,6 +484,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             }
         }
     }
+    elapsed_time_map.emplace("get_segment_index_file_size", watch.elapsed_time_microseconds());
 
     // Step 6.2: check data capacity
     uint64_t total_index_size =
@@ -558,6 +576,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             return;
         }
     }
+    elapsed_time_map.emplace("get_segment_index_files", watch.elapsed_time_microseconds());
 
     // Step 7: create rowset && calculate delete bitmap && commit
     // Step 7.1: create rowset
@@ -589,6 +608,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             status.to_thrift(&tstatus);
             return;
         }
+        elapsed_time_map.emplace("load_segments", watch.elapsed_time_microseconds());
         if (segments.size() > 1) {
             // calculate delete bitmap between segments
             status = local_tablet->calc_delete_bitmap_between_segments(rowset->rowset_id(),
@@ -601,12 +621,16 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                 status.to_thrift(&tstatus);
                 return;
             }
+            elapsed_time_map.emplace("calc_delete_bitmap", watch.elapsed_time_microseconds());
         }
 
         static_cast<void>(BaseTablet::commit_phase_update_delete_bitmap(
                 local_tablet, rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
                 calc_delete_bitmap_token.get(), nullptr));
+        elapsed_time_map.emplace("commit_phase_update_delete_bitmap",
+                                 watch.elapsed_time_microseconds());
         static_cast<void>(calc_delete_bitmap_token->wait());
+        elapsed_time_map.emplace("wait_delete_bitmap", watch.elapsed_time_microseconds());
     }
 
     // Step 7.3: commit txn
@@ -624,11 +648,14 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         set_tstatus(TStatusCode::RUNTIME_ERROR, std::move(err_msg));
         return;
     }
+    elapsed_time_map.emplace("commit_txn", watch.elapsed_time_microseconds());
 
     if (local_tablet->enable_unique_key_merge_on_write()) {
         engine.txn_manager()->set_txn_related_delete_bitmap(partition_id, txn_id, local_tablet_id,
                                                             local_tablet->tablet_uid(), true,
                                                             delete_bitmap, pre_rowset_ids, nullptr);
+        elapsed_time_map.emplace("set_txn_related_delete_bitmap",
+                                 watch.elapsed_time_microseconds());
     }
 
     tstatus.__set_status_code(TStatusCode::OK);
