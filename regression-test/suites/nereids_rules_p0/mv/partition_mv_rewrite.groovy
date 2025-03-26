@@ -374,7 +374,7 @@ suite("partition_mv_rewrite") {
     order_qt_query_16_0_before "${ttl_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
     // should rewrite fail when union rewrite enalbe and query the partition which is not in mv
-    mv_rewrite_fail(ttl_partition_sql, ttl_mv_name)
+    mv_not_part_in(ttl_partition_sql, ttl_mv_name)
     order_qt_query_16_0_after "${ttl_partition_sql}"
 
     sql """ DROP MATERIALIZED VIEW IF EXISTS ${ttl_mv_name}"""

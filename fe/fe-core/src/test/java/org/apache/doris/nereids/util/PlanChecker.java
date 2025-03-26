@@ -244,9 +244,9 @@ public class PlanChecker {
 
     public PlanChecker rewrite() {
         Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+        cascadesContext.newTablePartitionCollector().execute();
         InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
         cascadesContext.toMemo();
-        cascadesContext.newTablePartitionCollector().execute();
         return this;
     }
 
