@@ -84,7 +84,7 @@ protected:
     size_t _build_side_rows = 0;
 
     vectorized::MutableBlock _build_side_mutable_block;
-    std::unique_ptr<RuntimeFilterProducerHelper> _runtime_filter_producer_helper;
+    std::shared_ptr<RuntimeFilterProducerHelper> _runtime_filter_producer_helper;
 
     /*
      * The comparison result of a null value with any other value is null,

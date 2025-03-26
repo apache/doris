@@ -50,7 +50,9 @@ public:
             // Hash table is completed and runtime filter has a global size now.
             uint64_t hash_table_size = block ? block->rows() : 0;
             RETURN_IF_ERROR(_init_filters(state, hash_table_size));
-            RETURN_IF_ERROR(_insert(block, 0));
+            if (hash_table_size != 0) {
+                RETURN_IF_ERROR(_insert(block, 0));
+            }
         }
 
         for (const auto& filter : _producers) {
