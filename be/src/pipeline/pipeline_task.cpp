@@ -356,7 +356,8 @@ Status PipelineTask::execute(bool* done) {
         _task_cpu_timer->update(delta_cpu_time);
         query_context()->resource_ctx()->cpu_context()->update_cpu_cost_ms(delta_cpu_time);
 
-        if (_eos && !_spilling && (_fragment_context->is_canceled() || !_is_pending_finish())) {
+        if (_eos && !_spilling && !_is_blocked() &&
+            (_fragment_context->is_canceled() || !_is_pending_finish())) {
             *done = true;
         }
         // If this run is pended by a spilling request, the block will be output in next run.

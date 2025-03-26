@@ -912,6 +912,19 @@ void FragmentMgr::cancel_worker() {
             running_queries_on_all_fes.clear();
         }
 
+        _query_ctx_map.apply([&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>&
+                                         map) -> Status {
+            for (auto it = map.begin(); it != map.end();) {
+                if (auto q_ctx = it->second.lock()) {
+                    q_ctx->clear_finished_tasks();
+                    ++it;
+                } else {
+                    it = map.erase(it);
+                }
+            }
+            return Status::OK();
+        });
+
         std::unordered_map<std::shared_ptr<PBackendService_Stub>, BrpcItem> brpc_stub_with_queries;
         {
             _query_ctx_map.apply([&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>&

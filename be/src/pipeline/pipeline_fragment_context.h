@@ -117,6 +117,16 @@ public:
 
     [[nodiscard]] std::vector<std::shared_ptr<PipelineTask>> get_revocable_tasks() const;
 
+    void clear_finished_tasks() {
+        for (size_t j = 0; j < _tasks.size(); j++) {
+            for (size_t i = 0; i < _tasks[j].size(); i++) {
+                if (auto task = _tasks[j][i].lock()) {
+                    task->stop_if_finished();
+                }
+            }
+        }
+    }
+
 private:
     Status _submit(std::vector<std::vector<PipelineTaskSPtr>>& tasks);
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,

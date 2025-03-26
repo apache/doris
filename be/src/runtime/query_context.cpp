@@ -366,6 +366,15 @@ void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragmen
     }
 }
 
+void QueryContext::clear_finished_tasks() {
+    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+    for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
+        if (auto pipeline_ctx = f_context.lock()) {
+            pipeline_ctx->clear_finished_tasks();
+        }
+    }
+}
+
 std::string QueryContext::print_all_pipeline_context() {
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_print;
     fmt::memory_buffer debug_string_buffer;

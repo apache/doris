@@ -180,7 +180,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
     if (auto* tmp_sink_state = _shared_state->inner_runtime_state->get_sink_local_state()) {
         inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(tmp_sink_state);
     }
-    //    _shared_state->inner_shared_state->hash_table_variants.reset();
+    _shared_state->inner_shared_state->hash_table_variants.reset();
     if (inner_sink_state) {
         COUNTER_UPDATE(_memory_used_counter,
                        -(inner_sink_state->_hash_table_memory_usage->value() +

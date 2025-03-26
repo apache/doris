@@ -174,6 +174,7 @@ public:
 
     void cancel_all_pipeline_context(const Status& reason, int fragment_id = -1);
     std::string print_all_pipeline_context();
+    void clear_finished_tasks();
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
     void cancel(Status new_status, int fragment_id = -1);

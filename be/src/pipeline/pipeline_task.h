@@ -196,6 +196,14 @@ public:
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
+    // TODO: Maybe we do not need this safe code anymore
+    void stop_if_finished() {
+        if (_sink->is_finished(_state)) {
+            set_wake_up_early();
+            terminate();
+        }
+    }
+
     PipelineId pipeline_id() const { return _pipeline->id(); }
     [[nodiscard]] size_t get_revocable_size() const;
     [[nodiscard]] Status revoke_memory(const std::shared_ptr<SpillContext>& spill_context);
