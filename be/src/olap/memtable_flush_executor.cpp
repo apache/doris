@@ -189,7 +189,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
         DEFER_RELEASE_RESERVED();
 
 /// FIXME: support UT
-#ifndef BE_TEST
+#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
         auto reserve_size = memtable->get_flush_reserve_memory_size();
         RETURN_IF_ERROR(_try_reserve_memory(memtable->resource_ctx(), reserve_size));
 #endif
