@@ -180,19 +180,16 @@ std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
 void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerContext> ctx,
                                    const Status& st, size_t reserve_size) {
     ctx->clear_free_blocks();
-    auto* pipeline_task = state->get_task();
     auto* local_state = ctx->local_state();
 
-    pipeline_task->inc_memory_reserve_failed_times();
     auto debug_msg = fmt::format(
             "Query: {} , scanner try to reserve: {}, operator name {}, "
             "operator "
             "id: {}, "
             "task id: "
-            "{}, revocable mem size: {}, failed: {}",
+            "{}, failed: {}",
             print_id(state->query_id()), PrettyPrinter::print_bytes(reserve_size),
             local_state->get_name(), local_state->parent()->node_id(), state->task_id(),
-            PrettyPrinter::print_bytes(pipeline_task->sink()->revocable_mem_size(state)),
             st.to_string());
     // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
     if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
