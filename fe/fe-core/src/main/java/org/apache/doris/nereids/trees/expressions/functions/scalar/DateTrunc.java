@@ -58,6 +58,9 @@ public class DateTrunc extends ScalarFunction
             FunctionSignature.ret(DateType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, DateType.INSTANCE)
     );
 
+    private static List<String> legalTimeUint =
+            Lists.newArrayList("year", "quarter", "month", "week", "day", "hour", "minute", "second");
+
     /**
      * constructor with 2 arguments.
      */
@@ -67,18 +70,26 @@ public class DateTrunc extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        boolean timeUnitIsFirst = getArgument(0).isConstant() && getArgument(0) instanceof VarcharLiteral;
-        boolean timeUnitIsSecond = getArgument(1).isConstant() && getArgument(1) instanceof VarcharLiteral;
-        if (!timeUnitIsFirst && !timeUnitIsSecond) {
+        boolean firstArgIsStringLiteral =
+                getArgument(0).isConstant() && getArgument(0) instanceof VarcharLiteral;
+        boolean secondArgIsStringLiteral =
+                getArgument(1).isConstant() && getArgument(1) instanceof VarcharLiteral;
+        if (!firstArgIsStringLiteral && !secondArgIsStringLiteral) {
             throw new AnalysisException("the time unit parameter of "
                     + getName() + " function must be a string constant: " + toSql());
-        }
-        final String constParam = ((VarcharLiteral) getArgument(timeUnitIsFirst ? 0 : 1))
-                .getStringValue().toLowerCase();
-        if (!Lists.newArrayList("year", "quarter", "month", "week", "day", "hour", "minute", "second")
-                .contains(constParam)) {
-            throw new AnalysisException("date_trunc function second param only support argument is "
-                    + "year|quarter|month|week|day|hour|minute|second");
+        } else if (firstArgIsStringLiteral && secondArgIsStringLiteral) {
+            if (!legalTimeUint.contains(((VarcharLiteral) getArgument(0)).getStringValue().toLowerCase())
+            && !legalTimeUint.contains(((VarcharLiteral) getArgument(1)).getStringValue().toLowerCase())) {
+                throw new AnalysisException("date_trunc function time unit param only support argument is "
+                        + "year|quarter|month|week|day|hour|minute|second");
+            }
+        } else {
+            final String constParam = ((VarcharLiteral) getArgument(firstArgIsStringLiteral ? 0 : 1))
+                    .getStringValue().toLowerCase();
+            if (!legalTimeUint.contains(constParam)) {
+                throw new AnalysisException("date_trunc function time unit param only support argument is "
+                        + "year|quarter|month|week|day|hour|minute|second");
+            }
         }
     }
 
@@ -113,7 +124,18 @@ public class DateTrunc extends ScalarFunction
 
     @Override
     public Expression withConstantArgs(Expression literal) {
-        boolean timeUnitIsFirst = getArgument(0).isConstant() && getArgument(0) instanceof VarcharLiteral;
-        return timeUnitIsFirst ? new DateTrunc(child(0), literal) : new DateTrunc(literal, child(1));
+        boolean firstArgIsStringLiteral =
+                getArgument(0).isConstant() && getArgument(0) instanceof VarcharLiteral;
+        boolean secondArgIsStringLiteral =
+                getArgument(1).isConstant() && getArgument(1) instanceof VarcharLiteral;
+        if (firstArgIsStringLiteral && secondArgIsStringLiteral) {
+            if (legalTimeUint.contains(((VarcharLiteral) getArgument(0)).getStringValue().toLowerCase())) {
+                return new DateTrunc(child(0), literal);
+            } else {
+                return new DateTrunc(literal, child(1));
+            }
+        }
+        return firstArgIsStringLiteral
+                ? new DateTrunc(child(0), literal) : new DateTrunc(literal, child(1));
     }
 }
