@@ -132,7 +132,6 @@ Status CloudSnapshotMgr::convert_rowsets(
         TabletMetaPB* out, const TabletMetaPB& in, int64_t tablet_id,
         CloudTabletSPtr& target_tablet, StorageResource& storage_resource,
         std::unordered_map<std::string, std::string>& file_mapping) {
-    SCOPED_ATTACH_TASK(_mem_tracker);
     // deep copy
     *out = in;
 
