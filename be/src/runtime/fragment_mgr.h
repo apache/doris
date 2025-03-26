@@ -69,12 +69,13 @@ class WorkloadQueryInfo;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
-template <typename Key, typename Value, typename ValueType>
+template <typename Key, typename ValueType>
 class ConcurrentContextMap {
 public:
-    using ApplyFunction = std::function<Status(phmap::flat_hash_map<Key, Value>&)>;
+    using ApplyFunction =
+            std::function<Status(phmap::flat_hash_map<Key, std::weak_ptr<ValueType>>&)>;
     ConcurrentContextMap();
-    Value find(const Key& query_id);
+    std::weak_ptr<ValueType> find(const Key& query_id);
     void insert(const Key& query_id, std::shared_ptr<ValueType>);
     void clear();
     void erase(const Key& query_id);
@@ -105,7 +106,8 @@ private:
     // in prepare stage, the call path is  prepare --> expr prepare --> may call allocator
     // when allocate failed, allocator may call query_is_cancelled, query is callced will also
     // call _lock, so that there is dead lock.
-    std::vector<std::pair<std::unique_ptr<std::shared_mutex>, phmap::flat_hash_map<Key, Value>>>
+    std::vector<std::pair<std::unique_ptr<std::shared_mutex>,
+                          phmap::flat_hash_map<Key, std::weak_ptr<ValueType>>>>
             _internal_map;
 };
 
@@ -123,8 +125,6 @@ public:
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type);
-
-    void remove_pipeline_context(std::pair<TUniqueId, int> key);
 
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type,
@@ -201,14 +201,8 @@ private:
     // This is input params
     ExecEnv* _exec_env = nullptr;
 
-    // (QueryID, FragmentID) -> PipelineFragmentContext
-    ConcurrentContextMap<std::pair<TUniqueId, int>,
-                         std::shared_ptr<pipeline::PipelineFragmentContext>,
-                         pipeline::PipelineFragmentContext>
-            _pipeline_map;
-
     // query id -> QueryContext
-    ConcurrentContextMap<TUniqueId, std::weak_ptr<QueryContext>, QueryContext> _query_ctx_map;
+    ConcurrentContextMap<TUniqueId, QueryContext> _query_ctx_map;
     std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;

@@ -78,8 +78,7 @@ public:
     MockHashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : HashJoinBuildSinkLocalState(parent, state) {
         _runtime_filter_producer_helper = std::make_shared<MockRuntimeFilterProducerHelper>();
-        _runtime_profile = std::make_unique<RuntimeProfile>("test");
-        _profile = _runtime_profile.get();
+        _profile = state->obj_pool()->add(new RuntimeProfile("test"));
         _memory_used_counter =
                 _profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
 
@@ -99,9 +98,6 @@ public:
     Status open(RuntimeState* state) override { return Status::OK(); }
     Status close(RuntimeState* state, Status status) override { return Status::OK(); }
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override { return 0; }
-
-private:
-    std::unique_ptr<RuntimeProfile> _runtime_profile;
 };
 
 class MockHashJoinBuildOperator : public HashJoinBuildSinkOperatorX {
@@ -132,7 +128,7 @@ class MockHashJoinProbeLocalState : public HashJoinProbeLocalState {
 public:
     MockHashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
             : HashJoinProbeLocalState(state, parent) {
-        _runtime_profile = std::make_unique<RuntimeProfile>("test");
+        _runtime_profile = state->obj_pool()->add(new RuntimeProfile("test"));
     }
 
     Status open(RuntimeState* state) override { return Status::OK(); }
@@ -177,7 +173,7 @@ class MockPartitionedHashJoinProbeLocalState : public PartitionedHashJoinProbeLo
 public:
     MockPartitionedHashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
             : PartitionedHashJoinProbeLocalState(state, parent) {
-        _runtime_profile = std::make_unique<RuntimeProfile>("test");
+        _runtime_profile = state->obj_pool()->add(new RuntimeProfile("test"));
     }
 
     void init_counters() {
