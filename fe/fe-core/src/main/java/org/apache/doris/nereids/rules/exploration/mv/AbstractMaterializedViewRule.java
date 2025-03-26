@@ -24,6 +24,7 @@ import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
@@ -108,13 +109,20 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         List<Plan> rewrittenPlans = new ArrayList<>();
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
         // if available materialization list is empty, bail out
-        if (cascadesContext.getMaterializationContexts().isEmpty()
-                || cascadesContext.getStatementContext().getMaterializedViewRewriteDuration()
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        if (cascadesContext.getMaterializationContexts().isEmpty()) {
+            return rewrittenPlans;
+        }
+        if (statementContext.getMaterializedViewRewriteDuration()
                 > sessionVariable.materializedViewRewriteDurationThreshold) {
+            LOG.warn("materialized view rewrite duration is exceeded, the query sql hash is {}",
+                    cascadesContext.getConnectContext().getSqlHash());
+            MaterializationContext.makeFailWithDurationExceeded(queryPlan,
+                    cascadesContext.getMaterializationContexts());
             return rewrittenPlans;
         }
         for (MaterializationContext context : cascadesContext.getMaterializationContexts()) {
-            cascadesContext.getStatementContext().getMaterializedViewStopwatch().reset().start();
+            statementContext.getMaterializedViewStopwatch().reset().start();
             if (checkIfRewritten(queryPlan, context)) {
                 continue;
             }
@@ -128,16 +136,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (queryStructInfos.isEmpty()) {
                 continue;
             }
-            cascadesContext.getStatementContext().addMaterializedViewRewriteDuration(cascadesContext
-                    .getStatementContext().getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS));
+            statementContext.addMaterializedViewRewriteDuration(
+                    statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS));
             for (StructInfo queryStructInfo : queryStructInfos) {
-                cascadesContext.getStatementContext().getMaterializedViewStopwatch().reset().start();
-                if (cascadesContext.getStatementContext().getMaterializedViewRewriteDuration()
+                statementContext.getMaterializedViewStopwatch().reset().start();
+                if (statementContext.getMaterializedViewRewriteDuration()
                         > sessionVariable.materializedViewRewriteDurationThreshold) {
-                    cascadesContext.getStatementContext().getMaterializedViewStopwatch().stop();
+                    statementContext.getMaterializedViewStopwatch().stop();
                     LOG.warn("materialized view rewrite duration is exceeded, the query sql hash is {}",
                             cascadesContext.getConnectContext().getSqlHash());
-                    MaterializationContext.makeFailWithDurationExceeded(queryStructInfo,
+                    MaterializationContext.makeFailWithDurationExceeded(queryStructInfo.getOriginalPlan(),
                             cascadesContext.getMaterializationContexts());
                     return rewrittenPlans;
                 }
@@ -150,9 +158,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     context.recordFailReason(queryStructInfo,
                             "Materialized view rule exec fail", exception::toString);
                 } finally {
-                    cascadesContext.getStatementContext().addMaterializedViewRewriteDuration(cascadesContext
-                            .getStatementContext().getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS)
-                    );
+                    statementContext.addMaterializedViewRewriteDuration(
+                            statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS));
                 }
             }
         }

@@ -230,7 +230,6 @@ public class StatementContext implements Closeable {
 
     private boolean privChecked;
 
-    // the duration which materialized view rewrite used, if -1 means this duration is exceeded
     // if greater than 0 means the duration has used
     private long materializedViewRewriteDuration = 0L;
 
