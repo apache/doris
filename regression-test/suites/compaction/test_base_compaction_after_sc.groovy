@@ -62,7 +62,7 @@ suite("test_base_compaction_after_sc") {
         )
 
     """
-    sql """ ALTER TABLE MODIFY COLUMN L_COMMENT CHAR(44) NOT NULL """
+    sql """ ALTER TABLE ${tableName} MODIFY COLUMN L_COMMENT CHAR(44) NOT NULL """
 
     def wait_for_schema_change = {
                 def try_times=100
