@@ -130,6 +130,21 @@ suite("test_base_schema_change_mtmv","mtmv") {
     order_qt_drop_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
     order_qt_drop_t1_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
 
+    sql """
+        CREATE TABLE ${tableName1}
+        (
+            k1 INT,
+            k2 varchar(32)
+        )
+        DISTRIBUTED BY HASH(k1) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+        """
+    sql """
+            INSERT INTO ${tableName1} VALUES(1,"a");
+        """
+
     mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName2}")
     mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName4}")
     mv_rewrite_fail("""${querySql}""", "${mvName1}")
