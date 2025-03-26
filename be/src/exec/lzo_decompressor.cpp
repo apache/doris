@@ -191,7 +191,7 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
     if (next_uncompressed_size == 0) {
         // 0 means current block is the last block.
         // consume this uncompressed_size to finish reading.
-        ptr += sizeof(uint32_t);
+        // ptr += sizeof(uint32_t);
     }
 
     // 8. done
