@@ -221,6 +221,8 @@ public:
     TxnState get_txn_state(TPartitionId partition_id, TTransactionId transaction_id,
                            TTabletId tablet_id, TabletUid tablet_uid);
 
+    void check_txn_finish(TTransactionId transaction_id, std::vector<TTransactionId> req_partition_ids);
+
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
 

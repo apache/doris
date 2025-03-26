@@ -175,6 +175,8 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     auto load_info = std::make_shared<TabletTxnInfo>(load_id, nullptr, ingest);
     load_info->prepare();
     txn_tablet_map[key][tablet_info] = std::move(load_info);
+    LOG_INFO("prepare txn, partition_id={}, tablet={}, txn={}, txn's map size={}", partition_id,
+             tablet_id, transaction_id, txn_tablet_map[key].size());
     _insert_txn_partition_map_unlocked(transaction_id, partition_id);
     VLOG_NOTICE << "add transaction to engine successfully."
                 << "partition_id: " << key.first << ", transaction_id: " << key.second
@@ -437,6 +439,8 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
 
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         txn_tablet_map[key][tablet_info] = std::move(load_info);
+        LOG_INFO("commit txn, partition_id={}, tablet={}, txn={}, txn's map size={}", partition_id,
+                 tablet_id, transaction_id, txn_tablet_map[key].size());
         _insert_txn_partition_map_unlocked(transaction_id, partition_id);
         VLOG_NOTICE << "commit transaction to engine successfully."
                     << " partition_id: " << key.first << ", transaction_id: " << key.second
@@ -869,6 +873,33 @@ void TxnManager::get_partition_ids(const TTransactionId transaction_id,
     if (it != txn_partition_map.end()) {
         for (int64_t partition_id : it->second) {
             partition_ids->push_back(partition_id);
+        }
+    }
+}
+
+void TxnManager::check_txn_finish(TTransactionId transaction_id,
+                                  std::vector<TTransactionId> req_partition_ids) {
+    std::vector<TTransactionId> partition_ids;
+    get_partition_ids(transaction_id, &partition_ids);
+    if (!partition_ids.empty()) {
+        LOG_WARNING(
+                "[xxx check fail] txn={}, partition_ids not empty,\n"
+                "req_partition_ids={},\npartition_ids={}",
+                transaction_id, fmt::join(req_partition_ids, ","), fmt::join(partition_ids, ","));
+    }
+
+    for (auto partition_id : req_partition_ids) {
+        std::map<TabletInfo, RowsetSharedPtr> tablet_infos;
+        get_txn_related_tablets(transaction_id, partition_id, &tablet_infos);
+        if (!tablet_infos.empty()) {
+            std::vector<int64_t> tablet_ids;
+            for (const auto& [_, rs] : tablet_infos) {
+                tablet_ids.emplace_back(rs->rowset_meta()->tablet_id());
+            }
+            LOG_WARNING(
+                    "[xxx check fail] txn={}, partition_id={}, txn_tablet_map not empty, "
+                    "remain={}, tablet_ids=[{}]",
+                    transaction_id, partition_id, tablet_infos.size(), fmt::join(tablet_ids, ","));
         }
     }
 }
