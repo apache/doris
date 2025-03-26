@@ -56,11 +56,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
-import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.HashMultimap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
@@ -222,12 +220,6 @@ public class StructInfo {
             List<? extends Expression> joinConjunctExpressions = edge.getExpressions();
             // shuttle expression in edge for the build of LogicalCompatibilityContext later.
             // Record the exprId to expr map in the processing to strut info
-            ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
-                    new ExpressionLineageReplacer.ExpressionReplaceContext(
-                            joinConjunctExpressions.stream().map(expr -> (Expression) expr)
-                                    .collect(Collectors.toList()),
-                            ImmutableSet.of(), ImmutableSet.of(), new BitSet());
-            topPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
             // Replace expressions by expression map
             List<? extends Expression> shuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(
                     joinConjunctExpressions, topPlan, new BitSet());
