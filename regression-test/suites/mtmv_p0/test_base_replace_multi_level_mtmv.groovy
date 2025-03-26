@@ -17,17 +17,16 @@
 
 import org.junit.Assert;
 
-suite("test_base_rename_multi_level_mtmv","mtmv") {
+suite("test_base_replace_multi_level_mtmv","mtmv") {
     String dbName = context.config.getDbNameByFile(context.file)
-    String suiteName = "test_base_rename_multi_level_mtmv"
+    String suiteName = "test_base_replace_multi_level_mtmv"
     String tableName1 = "${suiteName}_table1"
-    String tableName1Rename = "${suiteName}_table1_rename"
     String tableName2 = "${suiteName}_table2"
     String mvName1 = "${suiteName}_mv1"
     String mvName2 = "${suiteName}_mv2"
     String mvName3 = "${suiteName}_mv3"
     String mvName4 = "${suiteName}_mv4"
-    String querySql = "SELECT t1.k1,t1.k2,t2.k4 from ${tableName1Rename} t1 join ${tableName2} t2 on t1.k1=t2.k3;";
+    String querySql = "SELECT t1.k1,t1.k2,t2.k2 as k3 from ${tableName1} t1 join ${tableName2} t2 on t1.k1=t2.k1;";
 
     sql """drop table if exists `${tableName1}`"""
     sql """drop table if exists `${tableName2}`"""
@@ -50,8 +49,8 @@ suite("test_base_rename_multi_level_mtmv","mtmv") {
     sql """
         CREATE TABLE ${tableName2}
         (
-            k3 INT,
-            k4 varchar(32)
+            k1 INT,
+            k2 varchar(33)
         )
         DISTRIBUTED BY HASH(k3) BUCKETS 2
         PROPERTIES (
@@ -124,16 +123,16 @@ suite("test_base_rename_multi_level_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName4)
 
-    // rename t1
+    // replace t1
     sql """
-        ALTER TABLE ${tableName1} rename ${tableName1Rename};
+        ALTER TABLE ${tableName1} REPLACE WITH TABLE ${tableName2} PROPERTIES('swap' = 'true');
         """
     order_qt_drop_t1_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
     order_qt_drop_t1_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
     order_qt_drop_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
     order_qt_drop_t1_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
 
-    mv_rewrite_success_without_check_chosen(querySql, mvName2)
+    mv_not_part_in(querySql, mvName2)
     mv_not_part_in(querySql, mvName1)
     mv_not_part_in(querySql, mvName3)
     mv_not_part_in(querySql, mvName4)
