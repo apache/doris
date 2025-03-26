@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post.runtimefilterv2;
 
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -37,6 +38,8 @@ public class RuntimeFilterContextV2 {
     private final List<TRuntimeFilterType> types = new ArrayList<>();
 
     private final IdGenerator<RuntimeFilterId> idGenerator;
+
+    private final List<RuntimeFilter> legacyFilters = new ArrayList<>();
 
     /**
      * constr
@@ -70,6 +73,14 @@ public class RuntimeFilterContextV2 {
 
     public void addRuntimeFilterV2(RuntimeFilterV2 rfv2) {
         rfsV2.add(rfv2);
+    }
+
+    public void addLegacyRuntimeFilter(RuntimeFilter legacyFilter) {
+        legacyFilters.add(legacyFilter);
+    }
+
+    public List<RuntimeFilter> getLegacyFilters() {
+        return legacyFilters;
     }
 
 }
