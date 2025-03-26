@@ -523,8 +523,8 @@ Status Segment::load_index(OlapReaderStatistics* stats) {
 
             Slice body;
             PageFooterPB footer;
-            RETURN_IF_ERROR(PageIO::read_and_decompress_page_with_file_cache_retry(
-                    opts, &_sk_index_handle, &body, &footer));
+            RETURN_IF_ERROR(
+                    PageIO::read_and_decompress_page(opts, &_sk_index_handle, &body, &footer));
             DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
             DCHECK(footer.has_short_key_page_footer());
 

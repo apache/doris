@@ -368,7 +368,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
 
     // index page should not pre decode
     if (iter_opts.type == INDEX_PAGE) opts.pre_decode = false;
-    return PageIO::read_and_decompress_page_with_file_cache_retry(opts, handle, page_body, footer);
+    return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
 
 Status ColumnReader::get_row_ranges_by_zone_map(

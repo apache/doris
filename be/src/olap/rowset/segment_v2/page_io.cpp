@@ -250,7 +250,7 @@ Status PageIO::read_and_decompress_page_with_file_cache_retry(const PageReadOpti
                                                               PageHandle* handle, Slice* body,
                                                               PageFooterPB* footer) {
     // First try to read with file cache
-    Status st = read_and_decompress_page(opts, handle, body, footer);
+    Status st = do_read_and_decompress_page(opts, handle, body, footer);
     if (!st.is<ErrorCode::CORRUPTION>() || !config::is_cloud_mode()) {
         return st;
     }
@@ -275,7 +275,7 @@ Status PageIO::read_and_decompress_page_with_file_cache_retry(const PageReadOpti
     }
 
     // Retry with file cache
-    st = read_and_decompress_page(opts, handle, body, footer);
+    st = do_read_and_decompress_page(opts, handle, body, footer);
     if (!st.is<ErrorCode::CORRUPTION>()) {
         return st;
     }
@@ -287,7 +287,7 @@ Status PageIO::read_and_decompress_page_with_file_cache_retry(const PageReadOpti
 
     PageReadOptions new_opts = opts;
     new_opts.file_reader = cached_file_reader->get_remote_reader();
-    st = read_and_decompress_page(new_opts, handle, body, footer);
+    st = do_read_and_decompress_page(new_opts, handle, body, footer);
     if (!st.ok()) {
         LOG(WARNING) << "Corruption again with retry read directly from remote,"
                      << " error msg: " << st.msg()
