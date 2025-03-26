@@ -82,7 +82,7 @@ public class CloudRestoreJob extends RestoreJob {
     @SerializedName("cloudClusterName")
     private String cloudClusterName = null;
 
-    private String storageVaultId = null;
+    private String storageVaultId = "";
 
     private String cloudClusterId = null;
 
@@ -110,8 +110,10 @@ public class CloudRestoreJob extends RestoreJob {
         super(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
                 false, reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions,
                 isAtomicRestore, isForceReplace, env, repoId);
-        this.storageVaultName = storageVaultName;
-        properties.put(PROP_STORAGE_VAULT_NAME, String.valueOf(storageVaultName));
+        if (((CloudEnv) env).getEnableStorageVault()) {
+            this.storageVaultName = storageVaultName;
+            properties.put(PROP_STORAGE_VAULT_NAME, storageVaultName);
+        }
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             String clusterName = "";
@@ -166,8 +168,8 @@ public class CloudRestoreJob extends RestoreJob {
 
     @Override
     public void checkStorageVault(OlapTable localTable) {
-        Preconditions.checkNotNull(storageVaultName);
         if (((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+            Preconditions.checkNotNull(storageVaultName);
             if (localTable.getStorageVaultId().isEmpty()) {
                 status = new Status(Status.ErrCode.COMMON_ERROR, "local table " + localTable.getName()
                         + " has no storage vault.");
@@ -200,11 +202,13 @@ public class CloudRestoreJob extends RestoreJob {
                 }
             }
             // set storage vault for new restoring table
-            for (Table table : restoredTbls) {
-                if (table.getType() == TableIf.TableType.OLAP) {
-                    OlapTable olapTable = (OlapTable) table;
-                    if (olapTable.getStorageVaultId().isEmpty() && storageVaultId != null) {
-                        olapTable.setStorageVaultId(storageVaultId);
+            if (((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
+                for (Table table : restoredTbls) {
+                    if (table.getType() == TableIf.TableType.OLAP) {
+                        OlapTable olapTable = (OlapTable) table;
+                        if (olapTable.getStorageVaultId().isEmpty() && storageVaultId != null) {
+                            olapTable.setStorageVaultId(storageVaultId);
+                        }
                     }
                 }
             }
@@ -278,11 +282,10 @@ public class CloudRestoreJob extends RestoreJob {
     @Override
     protected DownloadTask createDownloadTask(long beId, long signature, long jobId, long dbId,
                                               Map<String, String> srcToDest, FsBroker brokerAddr) {
-        if (storageVaultId == null) {
+        if (Strings.isNullOrEmpty(storageVaultId)) {
             storageVaultId = snapshotInfos.values().iterator().next().getStorageVaultId();
-            Preconditions.checkState(storageVaultId != null && !storageVaultId.isEmpty(),
-                    "Storage vault ID cannot be null or empty");
         }
+        Preconditions.checkState(storageVaultId != null, "Storage vault ID cannot be null");
         return new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
             brokerAddr, S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
             repo.getRemoteFileSystem().getStorageType(), repo.getLocation(), storageVaultId);

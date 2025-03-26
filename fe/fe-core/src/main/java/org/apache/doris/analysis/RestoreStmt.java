@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -226,7 +227,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
         }
 
         // storage vault name
-        if (Config.isCloudMode()) {
+        if (Config.isCloudMode() && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
             Pair<String, String> info = PropertyAnalyzer.analyzeStorageVault(copiedProperties,
                     Env.getCurrentInternalCatalog().getDbOrAnalysisException(labelName.getDbName()));
             Preconditions.checkArgument(StringUtils.isNumeric(info.second),
