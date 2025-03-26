@@ -1038,11 +1038,10 @@ public:
 private:
     static int day_of_week(const StringRef& weekday) {
         static const std::unordered_map<std::string, int> weekday_map = {
-                {"SU", 1}, {"SUN", 1}, {"SUNDAY", 1},   {"MO", 2}, {"MON", 2}, {"MONDAY", 2},
-                {"TU", 3}, {"TUE", 3}, {"TUESDAY", 3},  {"WE", 4}, {"WED", 4}, {"WEDNESDAY", 4},
-                {"TH", 5}, {"THU", 5}, {"THURSDAY", 5}, {"FR", 6}, {"FRI", 6}, {"FRIDAY", 6},
-                {"SA", 7}, {"SAT", 7}, {"SATURDAY", 7},
-        };
+                {"MO", 1}, {"MON", 1}, {"MONDAY", 1},    {"TU", 2}, {"TUE", 2}, {"TUESDAY", 2},
+                {"WE", 3}, {"WED", 3}, {"WEDNESDAY", 3}, {"TH", 4}, {"THU", 4}, {"THURSDAY", 4},
+                {"FR", 5}, {"FRI", 5}, {"FRIDAY", 5},    {"SA", 6}, {"SAT", 6}, {"SATURDAY", 6},
+                {"SU", 7}, {"SUN", 7}, {"SUNDAY", 7}};
         auto weekday_upper = weekday.to_string();
         std::transform(weekday_upper.begin(), weekday_upper.end(), weekday_upper.begin(),
                        ::toupper);
@@ -1053,7 +1052,7 @@ private:
         return it->second;
     }
     static Status compute_next_day(DateV2Value<DateV2ValueType>& dtv, const int week_day) {
-        auto days_to_add = (week_day - dtv.day_of_week() + 7) % 7;
+        auto days_to_add = (week_day - (dtv.weekday() + 1) + 7) % 7;
         days_to_add = days_to_add == 0 ? 7 : days_to_add;
         dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, days_to_add, false));
         return Status::OK();
