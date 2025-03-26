@@ -998,6 +998,7 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
 bool StorageEngine::_should_delay_big_task() {
     CHECK_GE(_cumu_compaction_thread_pool->max_threads(),
              _cumu_compaction_thread_pool_used_threads);
+    CHECK_GE(_cumu_compaction_thread_pool_small_tasks_running, 0);
     // Case 1: Multiple threads available => accept big task
     if (_cumu_compaction_thread_pool->max_threads() - _cumu_compaction_thread_pool_used_threads >
         0) {
@@ -1056,7 +1057,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
                                             compaction_type, permits, force, this]() {
-            bool is_big_task = false;
+            bool is_big_task = true;
             Defer defer {[&]() {
                 DBUG_EXECUTE_IF("StorageEngine._submit_compaction_task.sleep", { sleep(5); })
                 if (!force) {
@@ -1097,6 +1098,17 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                             _cumu_compaction_thread_pool_small_tasks_running++;
                             break;
                         }
+                        LOG_WARNING("lyk_dbg")
+                                .tag("tablet_id", tablet->tablet_id())
+                                .tag("input_rows", input_row_num)
+                                .tag("input_rowsets_total_size", input_rowsets_total_size)
+                                .tag("config::cumu_delay_strategy_size",
+                                     config::cumu_delay_strategy_size)
+                                .tag("config::cumu_delay_strategy_row_num",
+                                     config::cumu_delay_strategy_row_num)
+                                .tag("remaining threads", _cumu_compaction_thread_pool_used_threads)
+                                .tag("small_tasks_running",
+                                     _cumu_compaction_thread_pool_small_tasks_running);
                         // Deal with big task
                         if (_should_delay_big_task()) {
                             LOG_WARNING(

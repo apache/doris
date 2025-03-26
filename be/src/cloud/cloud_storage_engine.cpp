@@ -633,6 +633,7 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
 bool CloudStorageEngine::_cloud_should_delay_big_task() {
     CHECK_GE(_cumu_compaction_thread_pool->max_threads(),
              _cumu_compaction_thread_pool_used_threads);
+    CHECK_GE(_cumu_compaction_thread_pool_small_tasks_running, 0);
     // Case 1: Multiple threads available => accept big task
     if (_cumu_compaction_thread_pool->max_threads() - _cumu_compaction_thread_pool_used_threads >
         0) {
@@ -699,7 +700,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
     };
     st = _cumu_compaction_thread_pool->submit_func([=, compaction = std::move(compaction)]() {
         signal::tablet_id = tablet->tablet_id();
-        bool is_big_task = false;
+        bool is_big_task = true;
         Defer defer {[&]() {
             DBUG_EXECUTE_IF("CloudStorageEngine._submit_cumulative_compaction_task.sleep",
                             { sleep(5); })
