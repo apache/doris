@@ -149,10 +149,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     LOG.warn("Materialized view rule exec fail", exception);
                     context.recordFailReason(queryStructInfo,
                             "Materialized view rule exec fail", exception::toString);
+                } finally {
+                    cascadesContext.getStatementContext().addMaterializedViewRewriteDuration(cascadesContext
+                            .getStatementContext().getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS)
+                    );
                 }
-                cascadesContext.getStatementContext().addMaterializedViewRewriteDuration(cascadesContext
-                        .getStatementContext().getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS)
-                );
             }
         }
         return rewrittenPlans;
