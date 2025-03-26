@@ -4604,44 +4604,25 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         CHECK_EQ(arguments.size(), 2);
         auto col_res = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
-        bool col_const[2];
-        ColumnPtr argument_columns[2];
-        for (int i = 0; i < 2; ++i) {
-            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        const auto& [left_col, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_col, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        const auto& xml_col = *assert_cast<const ColumnString*>(left_col.get());
+        const auto& xpath_col = *assert_cast<const ColumnString*>(right_col.get());
+
+        Status status;
+        if constexpr (left_const && right_const) {
+            status = execute_vector<true, true>(input_rows_count, xml_col, xpath_col, *col_res);
+        } else if constexpr (left_const) {
+            status = execute_vector<true, false>(input_rows_count, xml_col, xpath_col, *col_res);
+        } else if constexpr (right_const) {
+            status = execute_vector<false, true>(input_rows_count, xml_col, xpath_col, *col_res);
         }
-        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
-                                                     *block.get_by_position(arguments[0]).column)
-                                                     .convert_to_full_column()
-                                           : block.get_by_position(arguments[0]).column;
-        default_preprocess_parameter_columns(argument_columns, col_const, {1}, block, arguments);
-
-        const auto* col_xml = assert_cast<const ColumnString*>(argument_columns[0].get());
-        const auto* col_xpath = assert_cast<const ColumnString*>(argument_columns[1].get());
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            const auto& xml_str = col_xml->get_data_at(i);
-            const auto& xpath_str = col_xpath->get_data_at(i);
-            if (xml_str.empty() || xpath_str.empty()) {
-                // if xml_str or xpath_str is empty, return null
-                col_res->insert_default();
-                continue;
-            }
-            pugi::xml_document doc;
-            pugi::xml_parse_result result = doc.load_string(xml_str.to_string_view().data());
-            if (!result) {
-                return Status::InvalidArgument("Failed to parse XML string: {}",
-                                               result.description());
-            }
-
-            pugi::xpath_node node = doc.select_node(xpath_str.to_string_view().data());
-            if (!node) {
-                // if not found, return empty
-                col_res->insert("");
-                continue;
-            }
-            auto text = get_text(node.node());
-            col_res->insert_data(text.data(), text.size());
+        if (!status.ok()) {
+            return status;
         }
+
         block.get_by_position(result).column = std::move(col_res);
         return Status::OK();
     }
@@ -4661,6 +4642,71 @@ private:
         for (pugi::xml_node child : node.children()) {
             build_text(child, builder);
         }
+    }
+
+    static Status parse_xml(const StringRef& xml_str, pugi::xml_document& xml_doc) {
+        pugi::xml_parse_result result = xml_doc.load_string(xml_str.to_string_view().data());
+        if (!result) {
+            return Status::InvalidArgument(
+                    "function {} failed, reason: Failed to parse XML string: {}", name,
+                    result.description());
+        }
+        return Status::OK();
+    }
+
+    template <bool left_const, bool right_const>
+    static Status execute_vector(const size_t input_rows_count, const ColumnString& xml_col,
+                                 const ColumnString& xpath_col, ColumnNullable& res_col) {
+        pugi::xml_document xml_doc;
+        StringRef xpath_str;
+        // first check right_const, because we want to check empty input first
+        if constexpr (right_const) {
+            xpath_str = xpath_col.get_data_at(0);
+            if (xpath_str.empty()) {
+                // should return null if xpath_str is empty
+                res_col.insert_many_defaults(input_rows_count);
+                return Status::OK();
+            }
+        }
+        if constexpr (left_const) {
+            auto xml_str = xml_col.get_data_at(0);
+            if (xml_str.empty()) {
+                // should return null if xml_str is empty
+                res_col.insert_many_defaults(input_rows_count);
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(parse_xml(xml_str, xml_doc));
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if constexpr (!right_const) {
+                xpath_str = xpath_col.get_data_at(i);
+                if (xpath_str.empty()) {
+                    // should return null if xpath_str is empty
+                    res_col.insert_default();
+                    continue;
+                }
+            }
+            if constexpr (!left_const) {
+                auto xml_str = xml_col.get_data_at(i);
+                if (xml_str.empty()) {
+                    // should return null if xml_str is empty
+                    res_col.insert_default();
+                    continue;
+                }
+                RETURN_IF_ERROR(parse_xml(xml_str, xml_doc));
+            }
+            pugi::xpath_node node = xml_doc.select_node(xpath_str.to_string_view().data());
+            if (!node) {
+                // should return empty string if not found
+                auto empty_str = StringRef("");
+                res_col.insert_data(empty_str.data(), empty_str.size());
+                continue;
+            }
+            auto text = get_text(node.node());
+            res_col.insert_data(text.data(), text.size());
+        }
+        return Status::OK();
     }
 };
 
