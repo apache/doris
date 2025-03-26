@@ -73,12 +73,9 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         } else {
             // collect the rowsets of cumulative part
             score += rs_meta->get_compaction_score();
-            if (rs_meta->compaction_level() == 0) {
-                level0_total_size += rs_meta->total_disk_size();
-                level0_score += rs_meta->get_compaction_score();
-            } else {
-                checked_rs_metas.push_back(rs_meta);
-            }
+            level0_total_size += rs_meta->total_disk_size();
+            level0_score += rs_meta->get_compaction_score();
+            checked_rs_metas.push_back(rs_meta);
         }
     }
 
@@ -122,12 +119,16 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         int64_t continuous_size = 0;
         std::vector<RowsetMetaSharedPtr> level1_rowsets;
         for (const auto& rs_meta : checked_rs_metas) {
-            if (rs_meta->compaction_level() == 0) {
+            int64_t start_version = rs_meta->start_version();
+            int64_t end_version = rs_meta->end_version();
+            if (now - (rs_meta->creation_time() * 1000) >= (MAX_LEVEL2_COMPACTION_TIMEOUT * 1000)) {
+                if (level1_rowsets.empty()) {
+                    return 1;
+                }
                 break;
             }
-            if (rs_meta->compaction_level() == 1 &&
-                (now - rs_meta->creation_time()) <= MAX_LEVEL2_COMPACTION_TIMEOUT) {
-                continue;
+            if (start_version == end_version) {
+                break;
             }
             level1_rowsets.push_back(rs_meta);
             continuous_size += rs_meta->total_disk_size();
@@ -140,7 +141,7 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         }
 
         // Condition 5: level1 achieve compaction_time_threshold
-        if (last_cumu != 0 && level1_rowsets.size() >= 2) {
+        if (last_cumu != 0) {
             int64_t cumu_interval = now - last_cumu;
             if (cumu_interval > compaction_time_threshold * 10 * 1000) {
                 return level1_rowsets.size();
@@ -196,7 +197,6 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
     CHECK((*base_rowset_meta)->start_version() == 0);
 
     int64_t prev_version = -1;
-    int64_t now = UnixSeconds();
     for (const RowsetMetaSharedPtr& rs : existing_rss) {
         if (rs->version().first > prev_version + 1) {
             // There is a hole, do not continue
@@ -223,15 +223,6 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
             rs->num_segments() == 0) {
             *ret_cumulative_point = rs->version().first;
             break;
-        }
-
-        // upgrade: [0 0 2 1 1 0 0]
-        if (!is_delete && tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
-            if (rs->compaction_level() == 1 &&
-                (now - rs->creation_time()) <= MAX_LEVEL2_COMPACTION_TIMEOUT) {
-                *ret_cumulative_point = rs->version().first;
-                break;
-            }
         }
 
         // include one situation: When the segment is not deleted, and is singleton delta, and is NONOVERLAPPING, ret_cumulative_point increase
@@ -274,6 +265,8 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
             tablet->tablet_meta()->time_series_compaction_file_count_threshold();
     int64_t compaction_time_threshold =
             tablet->tablet_meta()->time_series_compaction_time_threshold_seconds();
+
+    LOG(ERROR) << "--- 1 ---: " << compaction_level << ", " << compaction_goal_size_mbytes;
 
     int transient_size = 0;
     *compaction_score = 0;
@@ -360,18 +353,25 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         std::vector<RowsetSharedPtr> level1_rowsets;
         for (const auto& rowset : candidate_rowsets) {
             const auto& rs_meta = rowset->rowset_meta();
-            if (rs_meta->compaction_level() == 0) {
+            int64_t start_version = rs_meta->start_version();
+            int64_t end_version = rs_meta->end_version();
+            if (now - (rs_meta->creation_time() * 1000) >= (MAX_LEVEL2_COMPACTION_TIMEOUT * 1000)) {
+                if (level1_rowsets.empty()) {
+                    input_rowsets->push_back(rowset);
+                    return input_rowsets->size();
+                }
                 break;
             }
-            if (rs_meta->compaction_level() == 1 &&
-                (now - rs_meta->creation_time()) <= MAX_LEVEL2_COMPACTION_TIMEOUT) {
-                continue;
+            if (start_version == end_version) {
+                break;
             }
             level1_rowsets.push_back(rowset);
             continuous_size += rs_meta->total_disk_size();
             // Condition 4: level1 achieve compaction_goal_size
             if (level1_rowsets.size() >= 2) {
                 if (continuous_size >= compaction_goal_size_mbytes * 10 * 1024 * 1024) {
+                    LOG(ERROR) << "--- 2 ---: " << continuous_size << ", "
+                               << compaction_goal_size_mbytes * 10 * 1024 * 1024;
                     input_rowsets->swap(level1_rowsets);
                     return input_rowsets->size();
                 }
@@ -385,10 +385,15 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
             }
         })
 
+        LOG(ERROR) << "--- 3 ---: " << level1_rowsets.size() << ", " << continuous_size << ", "
+                   << (now - last_cumu) << ", " << (compaction_time_threshold * 3 * 1000);
+
         // Condition 5: level1 achieve compaction_time_threshold
-        if (last_cumu != 0 && level1_rowsets.size() >= 2) {
+        if (last_cumu != 0) {
             int64_t cumu_interval = now - last_cumu;
-            if (cumu_interval > compaction_time_threshold * 10 * 1000) {
+            if (cumu_interval > compaction_time_threshold * 3 * 1000) {
+                LOG(ERROR) << "--- 4 ---: " << cumu_interval << ", "
+                           << compaction_time_threshold * 3 * 1000;
                 input_rowsets->swap(level1_rowsets);
                 return input_rowsets->size();
             }
