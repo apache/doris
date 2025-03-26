@@ -1100,6 +1100,10 @@ void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schem
     _num_key_columns = 0;
     _cols.clear();
     _vl_field_mem_size = 0;
+    _delete_sign_idx = -1;
+    _sequence_col_idx = -1;
+    _version_col_idx = -1;
+    _skip_bitmap_col_idx = -1;
     // notice : do not ref columns
     _column_cache_handlers.clear();
 }
