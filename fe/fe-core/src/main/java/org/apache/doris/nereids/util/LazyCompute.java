@@ -24,14 +24,22 @@ public class LazyCompute<T> implements Supplier<T> {
     private volatile Result<T> result;
     private final Supplier<T> supplier;
 
-    public LazyCompute(Supplier<T> supplier) {
+    private LazyCompute(Supplier<T> supplier) {
         this.supplier = supplier;
         this.result = Result.NOT_COMPUTED;
     }
 
-    public LazyCompute(T value) {
+    private LazyCompute(T value) {
         this.supplier = null;
         this.result = new Result<>(value);
+    }
+
+    public static <T> LazyCompute<T> of(Supplier<T> supplier) {
+        return new LazyCompute<>(supplier);
+    }
+
+    public static <T> LazyCompute<T> ofInstance(T value) {
+        return new LazyCompute<>(value);
     }
 
     @Override

@@ -42,7 +42,7 @@ public class GroupPlan extends LogicalLeaf implements BlockFuncDepsPropagation {
     private final Group group;
 
     public GroupPlan(Group group) {
-        super(PlanType.GROUP_PLAN, Optional.empty(), new LazyCompute<>(group.getLogicalProperties()), true);
+        super(PlanType.GROUP_PLAN, Optional.empty(), LazyCompute.ofInstance(group.getLogicalProperties()), true);
         this.group = group;
     }
 

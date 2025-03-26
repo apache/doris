@@ -53,10 +53,10 @@ public class LogicalProperties {
     public LogicalProperties(
             Supplier<List<Slot>> outputSupplier,
             Supplier<DataTrait> dataTraitSupplier) {
-        this.outputSupplier = new LazyCompute<>(
+        this.outputSupplier = LazyCompute.of(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
         );
-        this.outputExprIdsSupplier = new LazyCompute<>(() -> {
+        this.outputExprIdsSupplier = LazyCompute.of(() -> {
             List<Slot> output = this.outputSupplier.get();
             ImmutableList.Builder<Id> exprIdSet
                     = ImmutableList.builderWithExpectedSize(output.size());
@@ -65,7 +65,7 @@ public class LogicalProperties {
             }
             return exprIdSet.build();
         });
-        this.outputSetSupplier = new LazyCompute<>(() -> {
+        this.outputSetSupplier = LazyCompute.of(() -> {
             List<Slot> output = this.outputSupplier.get();
             ImmutableSet.Builder<Slot> slots = ImmutableSet.builderWithExpectedSize(output.size());
             for (Slot slot : output) {
@@ -73,7 +73,7 @@ public class LogicalProperties {
             }
             return slots.build();
         });
-        this.outputMapSupplier = new LazyCompute<>(() -> {
+        this.outputMapSupplier = LazyCompute.of(() -> {
             Set<Slot> slots = this.outputSetSupplier.get();
             ImmutableMap.Builder<Slot, Slot> map = ImmutableMap.builderWithExpectedSize(slots.size());
             for (Slot slot : slots) {
@@ -81,7 +81,7 @@ public class LogicalProperties {
             }
             return map.build();
         });
-        this.outputExprIdSetSupplier = new LazyCompute<>(() -> {
+        this.outputExprIdSetSupplier = LazyCompute.of(() -> {
             List<Slot> output = this.outputSupplier.get();
             ImmutableSet.Builder<ExprId> exprIdSet
                     = ImmutableSet.builderWithExpectedSize(output.size());
@@ -90,7 +90,7 @@ public class LogicalProperties {
             }
             return exprIdSet.build();
         });
-        this.dataTraitSupplier = new LazyCompute<>(
+        this.dataTraitSupplier = LazyCompute.of(
                 Objects.requireNonNull(dataTraitSupplier, "Data Trait can not be null")
         );
     }

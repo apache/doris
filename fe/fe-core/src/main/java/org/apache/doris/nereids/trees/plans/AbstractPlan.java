@@ -72,7 +72,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             LogicalProperties logicalProperties = optLogicalProperties.get();
             this.logicalPropertiesSupplier = () -> logicalProperties;
         } else {
-            this.logicalPropertiesSupplier = new LazyCompute<>(this::computeLogicalProperties);
+            this.logicalPropertiesSupplier = LazyCompute.of(this::computeLogicalProperties);
         }
         this.statistics = statistics;
         this.id = StatementScopeIdGenerator.newObjectId();
@@ -228,7 +228,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     private Supplier<Boolean> buildHasUnboundChildCache() {
-        return new LazyCompute<>(() -> {
+        return LazyCompute.of(() -> {
             if (hasUnboundExpression()) {
                 return true;
             }

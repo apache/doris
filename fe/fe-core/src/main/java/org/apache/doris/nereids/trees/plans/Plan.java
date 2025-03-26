@@ -178,6 +178,19 @@ public interface Plan extends TreeNode<Plan> {
     Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children);
 
+    /** getUsedSlotExprIds */
+    default BitSet getUsedSlotExprIds() {
+        BitSet ids = new BitSet();
+        for (Expression expression : getExpressions()) {
+            expression.foreach(e -> {
+                if (e instanceof Slot) {
+                    ids.set(((Slot) e).getExprId().asInt());
+                }
+            });
+        }
+        return ids;
+    }
+
     /**
      * a simple version of explain, used to verify plan shape
      * @param prefix "  "

@@ -165,6 +165,24 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         }
     }
 
+    // @Override
+    // public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation, PruneContext context) {
+    //     List<Slot> output = catalogRelation.getOutput();
+    //     ImmutableList.Builder<Slot> prunedOutputBuilder = ImmutableList.builderWithExpectedSize(output.size());
+    //     for (Slot slot : output) {
+    //         if (context.requiredSlotsIds.get(slot.getExprId().asInt())) {
+    //             prunedOutputBuilder.add(slot);
+    //         } else if (slot instanceof SlotReference && !((SlotReference) slot).isVisible()) {
+    //             prunedOutputBuilder.add(slot);
+    //         }
+    //     }
+    //     List<Slot> prunedOutput = prunedOutputBuilder.build();
+    //     DataTrait trait = catalogRelation.getLogicalProperties().getTrait();
+    //     LogicalProperties prunedProperties = new LogicalProperties(() -> prunedOutput, () -> trait);
+    //     return catalogRelation.withGroupExprLogicalPropChildren(
+    //             Optional.empty(), Optional.of(prunedProperties), catalogRelation.children());
+    // }
+
     @Override
     public Plan visit(Plan plan, PruneContext context) {
         if (plan instanceof OutputPrunable) {
@@ -190,7 +208,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             //
             // the filter is not OutputPrunable, we should pass through the parent required slots
             // (slot a, which in the context.requiredSlots) and the used slots currently(slot b) to child plan.
-            return pruneChildren(plan, context.needPrune ? context.requiredSlotsIds : new BitSet());
+            return pruneChildren(plan, context.requiredSlotsIds);
         }
     }
 
