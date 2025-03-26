@@ -853,13 +853,19 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
 
-    if (params.local_params[0].__isset.runtime_filter_params &&
-        !params.local_params[0].runtime_filter_params.rid_to_runtime_filter.empty()) {
+    const auto& local_param = params.local_params[0];
+    if (local_param.__isset.runtime_filter_params &&
+        !local_param.runtime_filter_params.rid_to_runtime_filter.empty()) {
         auto handler = std::make_shared<RuntimeFilterMergeControllerEntity>(
                 RuntimeFilterParamsContext::create(context->get_runtime_state()));
-        RETURN_IF_ERROR(
-                handler->init(params.query_id, params.local_params[0].runtime_filter_params));
+        RETURN_IF_ERROR(handler->init(params.query_id, local_param.runtime_filter_params));
         query_ctx->set_merge_controller_handler(handler);
+
+        query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                local_param.runtime_filter_params);
+    }
+    if (local_param.__isset.topn_filter_descs) {
+        query_ctx->init_runtime_predicates(local_param.topn_filter_descs);
     }
 
     {
