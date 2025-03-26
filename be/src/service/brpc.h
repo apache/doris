@@ -19,6 +19,9 @@
 
 // all header need by brpc is contain in this file.
 // include this file instead of include <brpc/xxx.h>.
+#ifdef EINTERNAL
+#undef EINTERNAL
+#endif
 
 #include <brpc/channel.h>
 #include <brpc/server.h>

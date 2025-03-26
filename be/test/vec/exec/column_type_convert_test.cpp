@@ -907,6 +907,235 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
     }
 }
 }
+TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
+    // 1. Test STRING -> TINYINT
+    {
+        TypeDescriptor src_type(TYPE_STRING);
+        auto dst_type = std::make_shared<DataTypeInt8>(); // TINYINT represented as Int8
+        auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
+
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
+                                                                       converter::COMMON);
+        ASSERT_TRUE(converter->support());
+        ASSERT_FALSE(converter->is_consistent());
+
+        auto src_col = ColumnString::create();
+        // Add test strings
+        src_col->insert_data("123", 3);  // Valid value
+        src_col->insert_data("-128", 4); // Min value for TINYINT
+        src_col->insert_data("127", 3);  // Max value for TINYINT
+        src_col->insert_data("128", 3);  // Overflow - should be NULL
+        src_col->insert_data("-129", 4); // Underflow - should be NULL
+        src_col->insert_data("abc", 3);  // Invalid - should be NULL
+        src_col->insert_data("", 0);     // Empty - should be NULL
+
+        auto dst_col = nullable_dst_type->create_column();
+        auto mutable_dst = dst_col->assume_mutable();
+
+        auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
+        auto& nested_col = static_cast<ColumnInt8&>(nullable_col.get_nested_column());
+        auto& null_map = nullable_col.get_null_map_data();
+        null_map.resize_fill(src_col->size(), 0);
+
+        // Perform conversion
+        Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
+        ASSERT_TRUE(st.ok());
+
+        ASSERT_EQ(7, nested_col.size());
+        EXPECT_EQ(123, nested_col.get_data()[0]);  // "123" -> 123
+        EXPECT_EQ(-128, nested_col.get_data()[1]); // "-128" -> -128
+        EXPECT_EQ(127, nested_col.get_data()[2]);  // "127" -> 127
+
+        // Check NULL values for invalid inputs
+        EXPECT_EQ(0, null_map[0]); // Valid
+        EXPECT_EQ(0, null_map[1]); // Valid
+        EXPECT_EQ(0, null_map[2]); // Valid
+        EXPECT_EQ(1, null_map[3]); // Overflow -> NULL
+        EXPECT_EQ(1, null_map[4]); // Underflow -> NULL
+        EXPECT_EQ(1, null_map[5]); // Invalid -> NULL
+        EXPECT_EQ(1, null_map[6]); // Empty -> NULL
+    }
+
+    // 2. Test STRING -> SMALLINT
+    {
+        TypeDescriptor src_type(TYPE_STRING);
+        auto dst_type = std::make_shared<DataTypeInt16>(); // SMALLINT represented as Int16
+        auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
+
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
+                                                                       converter::COMMON);
+        ASSERT_TRUE(converter->support());
+        ASSERT_FALSE(converter->is_consistent());
+
+        auto src_col = ColumnString::create();
+        // Add test strings
+        src_col->insert_data("12345", 5);  // Valid value
+        src_col->insert_data("-32768", 6); // Min value for SMALLINT
+        src_col->insert_data("32767", 5);  // Max value for SMALLINT
+        src_col->insert_data("32768", 5);  // Overflow - should be NULL
+        src_col->insert_data("-32769", 6); // Underflow - should be NULL
+        src_col->insert_data("123.45", 6); // Decimal - should be NULL
+
+        auto dst_col = nullable_dst_type->create_column();
+        auto mutable_dst = dst_col->assume_mutable();
+
+        auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
+        auto& nested_col = static_cast<ColumnInt16&>(nullable_col.get_nested_column());
+        auto& null_map = nullable_col.get_null_map_data();
+        null_map.resize_fill(src_col->size(), 0);
+
+        // Perform conversion
+        Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
+        ASSERT_TRUE(st.ok());
+
+        ASSERT_EQ(6, nested_col.size());
+        EXPECT_EQ(12345, nested_col.get_data()[0]);  // "12345" -> 12345
+        EXPECT_EQ(-32768, nested_col.get_data()[1]); // "-32768" -> -32768
+        EXPECT_EQ(32767, nested_col.get_data()[2]);  // "32767" -> 32767
+
+        // Check NULL values for invalid inputs
+        EXPECT_EQ(0, null_map[0]); // Valid
+        EXPECT_EQ(0, null_map[1]); // Valid
+        EXPECT_EQ(0, null_map[2]); // Valid
+        EXPECT_EQ(1, null_map[3]); // Overflow -> NULL
+        EXPECT_EQ(1, null_map[4]); // Underflow -> NULL
+        EXPECT_EQ(1, null_map[5]); // Decimal -> NULL
+    }
+
+    // 3. Test STRING -> INT
+    {
+        TypeDescriptor src_type(TYPE_STRING);
+        auto dst_type = std::make_shared<DataTypeInt32>(); // INT represented as Int32
+        auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
+
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
+                                                                       converter::COMMON);
+        ASSERT_TRUE(converter->support());
+        ASSERT_FALSE(converter->is_consistent());
+
+        auto src_col = ColumnString::create();
+        // Add test strings
+        src_col->insert_data("2147483647", 10);  // Max value for INT
+        src_col->insert_data("-2147483648", 11); // Min value for INT
+        src_col->insert_data("0", 1);            // Zero
+        src_col->insert_data("1000000", 7);      // Million
+        src_col->insert_data("2147483648", 10);  // Overflow - should be NULL
+
+        auto dst_col = nullable_dst_type->create_column();
+        auto mutable_dst = dst_col->assume_mutable();
+
+        auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
+        auto& nested_col = static_cast<ColumnInt32&>(nullable_col.get_nested_column());
+        auto& null_map = nullable_col.get_null_map_data();
+        null_map.resize_fill(src_col->size(), 0);
+
+        // Perform conversion
+        Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
+        ASSERT_TRUE(st.ok());
+
+        ASSERT_EQ(5, nested_col.size());
+        EXPECT_EQ(2147483647, nested_col.get_data()[0]);  // "2147483647" -> 2147483647
+        EXPECT_EQ(-2147483648, nested_col.get_data()[1]); // "-2147483648" -> -2147483648
+        EXPECT_EQ(0, nested_col.get_data()[2]);           // "0" -> 0
+        EXPECT_EQ(1000000, nested_col.get_data()[3]);     // "1000000" -> 1000000
+
+        // Check NULL values for invalid inputs
+        EXPECT_EQ(0, null_map[0]); // Valid
+        EXPECT_EQ(0, null_map[1]); // Valid
+        EXPECT_EQ(0, null_map[2]); // Valid
+        EXPECT_EQ(0, null_map[3]); // Valid
+        EXPECT_EQ(1, null_map[4]); // Overflow -> NULL
+    }
+
+    // 4. Test STRING -> BIGINT
+    {
+        TypeDescriptor src_type(TYPE_STRING);
+        auto dst_type = std::make_shared<DataTypeInt64>(); // BIGINT represented as Int64
+        auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
+
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
+                                                                       converter::COMMON);
+        ASSERT_TRUE(converter->support());
+        ASSERT_FALSE(converter->is_consistent());
+
+        auto src_col = ColumnString::create();
+        // Add test strings
+        src_col->insert_data("9223372036854775807", 19);  // Max value for BIGINT
+        src_col->insert_data("-9223372036854775808", 20); // Min value for BIGINT
+        src_col->insert_data("123456789012345", 15);      // Regular big number
+        src_col->insert_data("9223372036854775808", 19);  // Overflow - should be NULL
+        src_col->insert_data("123abc", 6);                // Invalid - should be NULL
+
+        auto dst_col = nullable_dst_type->create_column();
+        auto mutable_dst = dst_col->assume_mutable();
+
+        auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
+        auto& nested_col = static_cast<ColumnInt64&>(nullable_col.get_nested_column());
+        auto& null_map = nullable_col.get_null_map_data();
+        null_map.resize_fill(src_col->size(), 0);
+
+        // Perform conversion
+        Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
+        ASSERT_TRUE(st.ok());
+
+        ASSERT_EQ(5, nested_col.size());
+        EXPECT_EQ(9223372036854775807LL, nested_col.get_data()[0]);   // Max value
+        EXPECT_EQ(-9223372036854775808ULL, nested_col.get_data()[1]); // Min value
+        EXPECT_EQ(123456789012345LL, nested_col.get_data()[2]);       // Regular big number
+
+        // Check NULL values for invalid inputs
+        EXPECT_EQ(0, null_map[0]); // Valid
+        EXPECT_EQ(0, null_map[1]); // Valid
+        EXPECT_EQ(0, null_map[2]); // Valid
+        EXPECT_EQ(1, null_map[3]); // Overflow -> NULL
+        EXPECT_EQ(1, null_map[4]); // Invalid -> NULL
+    }
+
+    // 5. Test STRING -> LARGEINT
+    {
+        TypeDescriptor src_type(TYPE_STRING);
+        auto dst_type = std::make_shared<DataTypeInt128>(); // LARGEINT represented as Int128
+        auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
+
+        auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
+                                                                       converter::COMMON);
+        ASSERT_TRUE(converter->support());
+        ASSERT_FALSE(converter->is_consistent());
+
+        auto src_col = ColumnString::create();
+        // Add test strings
+        src_col->insert_data("123456789012345678901234567890", 30);  // Valid large number
+        src_col->insert_data("-123456789012345678901234567890", 31); // Negative large number
+        src_col->insert_data("0", 1);                                // Zero
+        src_col->insert_data("123e45", 6); // Scientific notation - should be NULL
+
+        auto dst_col = nullable_dst_type->create_column();
+        auto mutable_dst = dst_col->assume_mutable();
+
+        auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
+        auto& nested_col = static_cast<ColumnInt128&>(nullable_col.get_nested_column());
+        auto& null_map = nullable_col.get_null_map_data();
+        null_map.resize_fill(src_col->size(), 0);
+
+        // Perform conversion
+        Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
+        ASSERT_TRUE(st.ok());
+
+        ASSERT_EQ(4, nested_col.size());
+        EXPECT_EQ("123456789012345678901234567890", int128_to_string(nested_col.get_data()[0]));
+
+        EXPECT_EQ("-123456789012345678901234567890", int128_to_string(nested_col.get_data()[1]));
+
+        // Check zero
+        EXPECT_EQ(0, nested_col.get_data()[2]);
+
+        // Check NULL values for invalid inputs
+        EXPECT_EQ(0, null_map[0]); // Valid
+        EXPECT_EQ(0, null_map[1]); // Valid
+        EXPECT_EQ(0, null_map[2]); // Valid
+        EXPECT_EQ(1, null_map[3]); // Scientific notation -> NULL
+    }
+}
 
 TEST_F(ColumnTypeConverterTest, TestUnsupportedConversions) {
     {

@@ -471,6 +471,8 @@ bool OrcReader::_check_acid_schema(const orc::Type& type) {
                 return false;
             }
         }
+    } else {
+        return false;
     }
     return true;
 }
@@ -1664,15 +1666,9 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
     case TypeIndex::Decimal128V3:
         return _decode_decimal_column<Decimal128V3, is_filter>(col_name, data_column, data_type,
                                                                cvb, num_values);
-    case TypeIndex::Date:
-        return _decode_time_column<VecDateTimeValue, Int64, orc::LongVectorBatch, is_filter>(
-                col_name, data_column, cvb, num_values);
     case TypeIndex::DateV2:
         return _decode_time_column<DateV2Value<DateV2ValueType>, UInt32, orc::LongVectorBatch,
                                    is_filter>(col_name, data_column, cvb, num_values);
-    case TypeIndex::DateTime:
-        return _decode_time_column<VecDateTimeValue, Int64, orc::TimestampVectorBatch, is_filter>(
-                col_name, data_column, cvb, num_values);
     case TypeIndex::DateTimeV2:
         return _decode_time_column<DateV2Value<DateTimeV2ValueType>, UInt64,
                                    orc::TimestampVectorBatch, is_filter>(col_name, data_column, cvb,
@@ -1912,8 +1908,6 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
         {
             SCOPED_RAW_TIMER(&_statistics.get_batch_time);
-            // reset decimal_scale_params_index;
-            _decimal_scale_params_index = 0;
             try {
                 rr = _row_reader->nextBatch(*_batch, block);
                 if (rr == 0 || _batch->numElements == 0) {
@@ -1982,8 +1976,6 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
         {
             SCOPED_RAW_TIMER(&_statistics.get_batch_time);
-            // reset decimal_scale_params_index;
-            _decimal_scale_params_index = 0;
             try {
                 rr = _row_reader->nextBatch(*_batch, block);
                 if (rr == 0 || _batch->numElements == 0) {
