@@ -24,6 +24,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
@@ -326,7 +327,7 @@ public abstract class MaterializationContext {
     }
 
     /**
-     * Record fail reason when in rewriting
+     * Record fail reason when in rewriting by struct info
      */
     public void recordFailReason(StructInfo structInfo, String summary, Supplier<String> failureReasonSupplier) {
         // record it's rewritten
@@ -339,6 +340,24 @@ public abstract class MaterializationContext {
             return;
         }
         this.failReason.put(structInfo.getOriginalPlanId(),
+                Pair.of(summary, this.isEnableRecordFailureDetail() ? failureReasonSupplier.get() : ""));
+    }
+
+    /**
+     * Record fail reason when in rewriting by queryGroupPlan
+     */
+    public void recordFailReason(Plan queryGroupPlan, String summary, Supplier<String> failureReasonSupplier) {
+        // record it's rewritten
+        if (queryGroupPlan.getGroupExpression().isPresent()) {
+            this.addMatchedGroup(queryGroupPlan.getGroupExpression().get().getOwnerGroup().getGroupId(),
+                    false);
+        }
+        // once success, do not record the fail reason
+        if (this.success) {
+            return;
+        }
+        this.failReason.put(queryGroupPlan.getGroupExpression()
+                        .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1)),
                 Pair.of(summary, this.isEnableRecordFailureDetail() ? failureReasonSupplier.get() : ""));
     }
 
@@ -414,13 +433,13 @@ public abstract class MaterializationContext {
      * If materialized view rewrite duration is exceeded, make all materializationContexts with reason
      * materialized view rewrite duration is exceeded
      * */
-    public static void makeFailWithDurationExceeded(StructInfo queryInfo,
+    public static void makeFailWithDurationExceeded(Plan queryPlan,
             List<MaterializationContext> materializationContexts) {
         for (MaterializationContext context : materializationContexts) {
             if (context.isSuccess()) {
                 continue;
             }
-            context.recordFailReason(queryInfo, "materialized view rewrite duration is exceeded",
+            context.recordFailReason(queryPlan, "materialized view rewrite duration is exceeded",
                     () -> "materialized view rewrite duration is exceeded");
         }
     }
