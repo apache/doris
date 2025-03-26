@@ -24,7 +24,8 @@ suite("test_type_length_change", "p0") {
             k INT,
             c0 CHAR(5),
             c1 VARCHAR(5)
-        )
+        ) DUPLICATE KEY (k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1");
     """
 
