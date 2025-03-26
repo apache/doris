@@ -60,6 +60,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.DropInfo;
@@ -1522,9 +1523,11 @@ public class MaterializedViewHandler extends AlterHandler {
         }
     }
 
-    public void cancel(CancelAlterTableCommand command) throws DdlException {
-        String dbName = command.getDbName();
-        String tableName = command.getTableName();
+    @Override
+    public void cancel(CancelCommand command) throws DdlException {
+        CancelAlterTableCommand cancelAlterTableCommand = (CancelAlterTableCommand) command;
+        String dbName = cancelAlterTableCommand.getDbName();
+        String tableName = cancelAlterTableCommand.getTableName();
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
         Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
 
@@ -1546,8 +1549,8 @@ public class MaterializedViewHandler extends AlterHandler {
             }
 
             // find from new alter jobs first
-            if (command.getAlterJobIdList() != null) {
-                for (Long jobId : command.getAlterJobIdList()) {
+            if (cancelAlterTableCommand.getAlterJobIdList() != null) {
+                for (Long jobId : cancelAlterTableCommand.getAlterJobIdList()) {
                     AlterJobV2 alterJobV2 = getUnfinishedAlterJobV2ByJobId(jobId);
                     if (alterJobV2 == null) {
                         continue;

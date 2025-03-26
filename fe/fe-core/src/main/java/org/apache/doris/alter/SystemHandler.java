@@ -51,6 +51,7 @@ import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddFollowerOp;
@@ -591,6 +592,11 @@ public class SystemHandler extends AlterHandler {
                 }
             }
         }
+    }
+
+    @Override
+    public void cancel(CancelCommand command) throws DdlException {
+
     }
 
     @Override
