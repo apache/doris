@@ -80,7 +80,8 @@ struct AggregateFunctionDSHllCountDistinctData {
             hll_data->serialize(result);
             write_binary(StringRef(result.data(), result.size()), buf);
         } else {
-            write_binary("", buf);
+            static std::string empty_str = "";
+            write_binary(StringRef(empty_str), buf);
         }
     }
 
