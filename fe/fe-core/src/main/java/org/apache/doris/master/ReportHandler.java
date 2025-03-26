@@ -618,6 +618,7 @@ public class ReportHandler extends Daemon {
 
             // to escape sending duplicate agent task to be
             if (task.shouldResend(taskReportTime)) {
+                MetricRepo.COUNTER_AGENT_TASK_RESEND_TOTAL.getOrAdd(task.getTaskType().toString()).increase(1L);
                 batchTask.addTask(task);
             }
 
