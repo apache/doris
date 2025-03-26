@@ -27,7 +27,7 @@ namespace doris {
 class TCountsTest : public testing::Test {};
 
 TEST_F(TCountsTest, TotalTest) {
-    Counts counts;
+    Counts<int64_t> counts;
     // 1 1 1 2 5 7 7 9 9 19
     // >>> import numpy as np
     // >>> a = np.array([1,1,1,2,5,7,7,9,9,19])
@@ -46,12 +46,12 @@ TEST_F(TCountsTest, TotalTest) {
     uint8_t* type_reader = writer;
     counts.serialize(writer);
 
-    Counts other;
+    Counts<int64_t> other;
     other.unserialize(type_reader);
     double result1 = other.terminate(0.2);
     EXPECT_EQ(result, result1);
 
-    Counts other1;
+    Counts<int64_t> other1;
     other1.increment(1, 1);
     other1.increment(100, 3);
     other1.increment(50, 3);
