@@ -4649,9 +4649,8 @@ private:
     static Status parse_xml(const StringRef& xml_str, pugi::xml_document& xml_doc) {
         pugi::xml_parse_result result = xml_doc.load_string(xml_str.to_string_view().data());
         if (!result) {
-            return Status::InvalidArgument(
-                    "function {} failed, reason: Failed to parse XML string: {}", name,
-                    result.description());
+            return Status::InvalidArgument("Function {} failed to parse XML string: {}", name,
+                                           result.description());
         }
         return Status::OK();
     }
