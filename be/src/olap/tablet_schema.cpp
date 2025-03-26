@@ -1231,9 +1231,13 @@ void TabletSchema::merge_dropped_columns(const TabletSchema& src_schema) {
 
 TabletSchemaSPtr TabletSchema::copy_without_variant_extracted_columns() {
     TabletSchemaSPtr copy = std::make_shared<TabletSchema>();
-    TabletSchemaPB tablet_schema_pb;
-    this->to_schema_pb(&tablet_schema_pb);
-    copy->init_from_pb(tablet_schema_pb, true /*ignore extracted_columns*/);
+    copy->shawdow_copy_without_columns(*this);
+    for (auto& col : this->columns()) {
+        if (col->is_extracted_column()) {
+            continue;
+        }
+        copy->append_column(*col);
+    }
     return copy;
 }
 
