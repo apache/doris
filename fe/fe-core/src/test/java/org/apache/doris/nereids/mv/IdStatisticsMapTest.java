@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.mv;
 
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
@@ -56,7 +55,7 @@ public class IdStatisticsMapTest extends SqlTestBase {
         new MockUp<MTMVRelationManager>() {
             @Mock
             public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid,
-                    Map<BaseTableInfo, Set<String>> queryUsedRelatedTablePartitionsMap) {
+                    Set<String> queryUsedRelatedTablePartitionsMap) {
                 return true;
             }
         };

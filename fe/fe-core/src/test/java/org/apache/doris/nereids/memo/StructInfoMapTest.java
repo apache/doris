@@ -34,8 +34,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
 import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -68,7 +66,7 @@ class StructInfoMapTest extends SqlTestBase {
         new MockUp<MTMVRelationManager>() {
             @Mock
             public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
-                    Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap) {
+                    Set<String> relatedPartitions) {
                 return true;
             }
         };
@@ -127,7 +125,7 @@ class StructInfoMapTest extends SqlTestBase {
         new MockUp<MTMVRelationManager>() {
             @Mock
             public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
-                    Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap) {
+                    Set<String> relatedPartitions) {
                 return true;
             }
         };
@@ -150,7 +148,6 @@ class StructInfoMapTest extends SqlTestBase {
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
-        root.getstructInfoMap().refresh(root, c1, new HashSet<>());
         root.getstructInfoMap().refresh(root, c1, new HashSet<>());
         tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
@@ -176,7 +173,7 @@ class StructInfoMapTest extends SqlTestBase {
         new MockUp<MTMVRelationManager>() {
             @Mock
             public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
-                    Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap) {
+                    Set<String> relatedPartitions) {
                 return true;
             }
         };
