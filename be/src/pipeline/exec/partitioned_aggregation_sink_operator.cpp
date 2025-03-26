@@ -149,6 +149,11 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
 
     size_t revocable_size = 0;
     int64_t query_mem_limit = 0;
+    if (node_id() == 14) {
+        LOG(WARNING) << "=======1 " << print_id(state->fragment_instance_id()) << " " << eos << " "
+                     << local_state._shared_state->is_spilled;
+    }
+
     if (eos) {
         revocable_size = revocable_mem_size(state);
         query_mem_limit = state->get_query_ctx()->get_mem_limit();
@@ -301,6 +306,9 @@ Status PartitionedAggSinkLocalState::revoke_memory(
                     }
 
                     if (_eos) {
+                        if (_parent->node_id() == 14) {
+                            LOG(WARNING) << "=======2 " << print_id(state->fragment_instance_id());
+                        }
                         Base::_dependency->set_ready_to_read();
                     }
                     state->get_query_ctx()->decrease_revoking_tasks_count();

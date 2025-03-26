@@ -282,7 +282,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
                 _pipeline_profiles[cur_pipe->id()].get(), shared_state_map, task_id);
         cur_pipe->incr_created_tasks(task_id, task);
         local_runtime_state->set_task(task.get());
-        task->set_task_queue(_task_queue.get(), &task_schedulers);
+        task->set_task_queue(_task_queue.get(), &task_scheduler);
         _pipeline_tasks[cur_pipe->id()].push_back(std::move(task));
         _runtime_states[cur_pipe->id()].push_back(std::move(local_runtime_state));
     }
