@@ -4590,6 +4590,18 @@ private:
     }
 };
 
+/// xpath_string(xml, xpath) -> String
+/// Returns the text content of the first node that matches the XPath expression.
+/// Returns NULL if either xml or xpath is NULL.
+/// Returns empty string if the XPath expression matches no nodes.
+/// The text content includes the node and all its descendants.
+/// Example:
+///   xpath_string('<a><b>b1</b><b>b2</b></a>', '/a/b[1]') = 'b1'
+///   xpath_string('<a><b>b1</b><b>b2</b></a>', '/a/b[2]') = 'b2'
+///   xpath_string('<a><b>b1</b><b>b2</b></a>', '/a/c') = ''
+///   xpath_string('invalid xml', '/a/b[1]') = NULL
+///   xpath_string(NULL, '/a/b[1]') = NULL
+///   xpath_string('<a><b>b1</b><b>b2</b></a>', NULL) = NULL
 class FunctionXPathString : public IFunction {
 public:
     static constexpr auto name = "xpath_string";

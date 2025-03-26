@@ -3405,14 +3405,22 @@ TEST(function_string_test, function_xpath_string_test) {
             {{std::string(""), std::string("/a")}, Null()},
             {{Null(), std::string("/a")}, Null()},
             {{std::string("<a>123</a>"), Null()}, Null()},
-            {{std::string("<book><title>Intro to Hive</title><author>John Doe</author><publisher>Tech Press</publisher></book>"), 
-             std::string("//title/text()")}, std::string("Intro to Hive")},
-            {{std::string("<book><title>Intro to Hive</title><author>John Doe</author><publisher>Tech Press</publisher></book>"), 
-             std::string("//author/text()")}, std::string("John Doe")},
-            {{std::string("<book><title>Intro to Hive</title><author>John Doe</author><publisher>Tech Press</publisher></book>"), 
-             std::string("//publisher/text()")}, std::string("Tech Press")},
-            {{std::string("<book><title>Intro to Hive</title><author>John Doe</author><publisher>Tech Press</publisher></book>"), 
-             std::string("/book")}, std::string("Intro to HiveJohn DoeTech Press")},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("//title/text()")},
+             std::string("Intro to Hive")},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("//author/text()")},
+             std::string("John Doe")},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("//publisher/text()")},
+             std::string("Tech Press")},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("/book")},
+             std::string("Intro to HiveJohn DoeTech Press")},
             {{Null(), Null()}, Null()}};
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
