@@ -60,6 +60,7 @@ import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
+import org.apache.doris.nereids.rules.rewrite.EliminateConstHashJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
@@ -488,11 +489,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
                         topDown(new MergeProjects())
                 ),
-                topic("Adjust topN project",
+                topic("adjust topN project",
                         topDown(new MergeProjects(),
                                 new PullUpProjectBetweenTopNAndAgg())),
+                topic("remove const hash join condition",
+                        topDown(new EliminateConstHashJoinCondition())),
+
                 // this rule batch must keep at the end of rewrite to do some plan check
-                topic("Final rewrite and check",
+                topic("final rewrite and check",
                         custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
                         topDown(new PushDownFilterThroughProject(), new MergeProjects()),
                         custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
