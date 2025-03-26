@@ -142,7 +142,6 @@ public class IcebergMetadataCache {
         IcebergSnapshot lastedIcebergSnapshot = IcebergUtils.getLastedIcebergSnapshot(
                 (ExternalCatalog) key.catalog, key.dbName, key.tableName);
         IcebergPartitionInfo icebergPartitionInfo;
-        // TODO mmc 这里怎么判断hms下面的IcebergDlaTable？
         if (!table.isValidRelatedTable()) {
             icebergPartitionInfo = IcebergPartitionInfo.empty();
         } else {
