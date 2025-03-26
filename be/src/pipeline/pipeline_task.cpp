@@ -706,6 +706,12 @@ std::string PipelineTask::debug_string() {
                        _filter_dependencies[j]->debug_string(i + 1));
     }
 
+    fmt::format_to(debug_string_buffer, "\nSpill Dependency Information: \n");
+    for (size_t j = 0; j < _spill_dependencies.size(); j++, i++) {
+        fmt::format_to(debug_string_buffer, "{}. {}\n", i,
+                       _spill_dependencies[j]->debug_string(i + 1));
+    }
+
     fmt::format_to(debug_string_buffer, "Finish Dependency Information: \n");
     for (size_t j = 0; j < _finish_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
