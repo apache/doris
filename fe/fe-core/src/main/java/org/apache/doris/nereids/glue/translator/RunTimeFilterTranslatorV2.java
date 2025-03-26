@@ -109,6 +109,8 @@ public class RunTimeFilterTranslatorV2 {
                 head.getBuildNdvOrRowCount(),
                 head.getTMinMaxRuntimeFilterType());
 
+        ctx.getRuntimeFilterV2Context().addLegacyRuntimeFilter(legacyFilter);
+
         // finalize
         legacyFilter.assignToPlanNodes();
         legacyFilter.extractTargetsPosition();
