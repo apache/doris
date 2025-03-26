@@ -521,7 +521,7 @@ public class DateTimeArithmetic {
     }
 
     private static int getDayOfWeek(String day) {
-        Integer dayOfWeek = DAY_OF_WEEK.get(day.toLowerCase());
+        Integer dayOfWeek = DAY_OF_WEEK.get(day.toUpperCase());
         if (dayOfWeek == null) {
             return 0;
         }
@@ -529,8 +529,7 @@ public class DateTimeArithmetic {
     }
 
     /**
-     * Returns the first DATE that is later than expr and has the same day of the
-     * week as dayOfWeek.
+     * date arithmetic function next_day
      */
     @ExecFunction(name = "next_day")
     public static Expression nextDay(DateV2Literal date, StringLiteral day) {
