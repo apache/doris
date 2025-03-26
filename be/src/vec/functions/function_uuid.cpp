@@ -180,6 +180,7 @@ public:
             col_offset[row] = col_offset[row - 1] + str_length;
             deserialize((char*)arg, col_data.data() + str_length * row);
         }
+        col_data.resize(str_length * input_rows_count);
         block.replace_by_position(result, std::move(result_column));
         return Status::OK();
     }

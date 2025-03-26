@@ -249,7 +249,7 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
     Status st = _get_block_wrapped(state, block, eof);
     if (!st.ok()) {
         // add cur path in error msg for easy debugging
-        return std::move(st.prepend("cur path: " + get_current_scan_range_name() + ". "));
+        return std::move(st.append(". cur path: " + get_current_scan_range_name()));
     }
     return st;
 }
@@ -572,6 +572,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                     if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index]) &&
                         !_src_block_ptr->get_by_position(_dest_slot_to_src_slot_index[dest_index])
                                  .column->is_null_at(i)) {
+                        filter_map[i] = false;
                         RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
                                     return _src_block_ptr->dump_one_line(i,
@@ -591,10 +592,9 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                    "src value is {}",
                                                    slot_desc->col_name(), _strict_mode, raw_string);
                                     return fmt::to_string(error_msg);
-                                },
-                                &_scanner_eof));
-                        filter_map[i] = false;
+                                }));
                     } else if (!slot_desc->is_nullable()) {
+                        filter_map[i] = false;
                         RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
                                     return _src_block_ptr->dump_one_line(i,
@@ -607,9 +607,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
                                                    "nullable",
                                                    slot_desc->col_name());
                                     return fmt::to_string(error_msg);
-                                },
-                                &_scanner_eof));
-                        filter_map[i] = false;
+                                }));
                     }
                 }
             }

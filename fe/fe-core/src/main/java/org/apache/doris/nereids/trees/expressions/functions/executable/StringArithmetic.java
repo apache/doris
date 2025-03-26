@@ -83,7 +83,7 @@ public class StringArithmetic {
         if (stringLength == 0) {
             return "";
         }
-        int leftIndex = 0;
+        long leftIndex = 0;
         if (second < (- stringLength)) {
             return "";
         } else if (second < 0) {
@@ -93,7 +93,7 @@ public class StringArithmetic {
         } else {
             return "";
         }
-        int rightIndex = 0;
+        long rightIndex = 0;
         if (third <= 0) {
             return "";
         } else if ((third + leftIndex) > stringLength) {
@@ -101,7 +101,8 @@ public class StringArithmetic {
         } else {
             rightIndex = third + leftIndex;
         }
-        return first.substring(leftIndex, rightIndex);
+        // left index and right index are in integer range because of definition, so we can safely cast it to int
+        return first.substring((int) leftIndex, (int) rightIndex);
     }
 
     /**
@@ -143,13 +144,17 @@ public class StringArithmetic {
         if (left) {
             do {
                 result = afterReplace;
-                afterReplace = result.replaceFirst("^" + second, "");
+                if (result.startsWith(second)) {
+                    afterReplace = result.substring(second.length());
+                }
             } while (!afterReplace.equals(result));
         }
         if (right) {
             do {
                 result = afterReplace;
-                afterReplace = result.replaceFirst(second + "$", "");
+                if (result.endsWith(second)) {
+                    afterReplace = result.substring(0, result.length() - second.length());
+                }
             } while (!afterReplace.equals(result));
         }
         return result;
@@ -699,6 +704,9 @@ public class StringArithmetic {
                 return new NullLiteral(first.getDataType());
             }
         }
+        if (!first.getValue().contains(chr.getValue())) {
+            return new NullLiteral(first.getDataType());
+        }
         String separator = chr.getValue();
         String[] parts;
         if (number.getValue() < 0) {
@@ -839,39 +847,71 @@ public class StringArithmetic {
         StringBuilder sb = new StringBuilder();
         switch (second.getValue().toUpperCase()) {
             case "PROTOCOL":
-                sb.append(uri.getScheme()); // e.g., http, https
+                String scheme = uri.getScheme();
+                if (scheme == null) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(scheme); // e.g., http, https
                 break;
             case "HOST":
-                sb.append(uri.getHost());  // e.g., www.example.com
+                String host = uri.getHost();
+                if (host == null) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(host);  // e.g., www.example.com
                 break;
             case "PATH":
-                sb.append(uri.getPath());  // e.g., /page
+                String path = uri.getPath();
+                if (path == null) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(path);  // e.g., /page
                 break;
             case "REF":
                 try {
-                    sb.append(uri.toURL().getRef());  // e.g., /page
+                    String ref = uri.toURL().getRef();
+                    if (ref == null) {
+                        return new NullLiteral(first.getDataType());
+                    }
+                    sb.append(ref);  // e.g., /page
                 } catch (MalformedURLException e) {
                     throw new RuntimeException(e);
                 }
                 break;
             case "AUTHORITY":
-                sb.append(uri.getAuthority());  // e.g., param1=value1&param2=value2
+                String authority = uri.getAuthority();
+                if (authority == null) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(authority);  // e.g., param1=value1&param2=value2
                 break;
             case "FILE":
                 try {
-                    sb.append(uri.toURL().getFile());  // e.g., param1=value1&param2=value2
+                    String file = uri.toURL().getFile();
+                    if (file == null) {
+                        return new NullLiteral(first.getDataType());
+                    }
+                    sb.append(file);  // e.g., param1=value1&param2=value2
                 } catch (MalformedURLException e) {
                     throw new RuntimeException(e);
                 }
                 break;
             case "QUERY":
-                sb.append(uri.getQuery());  // e.g., param1=value1&param2=value2
+                String query = uri.getQuery();
+                if (query == null) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(query);  // e.g., param1=value1&param2=value2
                 break;
             case "PORT":
                 sb.append(uri.getPort());
                 break;
             case "USERINFO":
-                sb.append(uri.getUserInfo());  // e.g., user:pass
+                String userInfo = uri.getUserInfo();
+                if (userInfo == null) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(userInfo);  // e.g., user:pass
                 break;
             default:
                 throw new RuntimeException("Valid URL parts are 'PROTOCOL', 'HOST', "
@@ -939,10 +979,15 @@ public class StringArithmetic {
         if (first.getValue() == null || first.getValue().indexOf('?') == -1) {
             return castStringLikeLiteral(first, "");
         }
+        URI uri;
+        try {
+            uri = new URI(first.getValue());
+        } catch (URISyntaxException e) {
+            throw new RuntimeException(e);
+        }
 
-        String[] urlParts = first.getValue().split("\\?", -1);
-        if (urlParts.length > 1) {
-            String query = urlParts[1];
+        String query = uri.getQuery();
+        if (query != null) {
             String[] pairs = query.split("&", -1);
 
             for (String pair : pairs) {

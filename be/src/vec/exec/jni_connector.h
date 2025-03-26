@@ -100,13 +100,11 @@ public:
 
         ScanPredicate(const std::string column_name) : column_name(std::move(column_name)) {}
 
-        ScanPredicate(const ScanPredicate& other) {
-            column_name = other.column_name;
-            op = other.op;
+        ScanPredicate(const ScanPredicate& other)
+                : column_name(other.column_name), op(other.op), scale(other.scale) {
             for (auto v : other.values) {
                 values.emplace_back(v);
             }
-            scale = other.scale;
         }
 
         int length() {

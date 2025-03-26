@@ -568,7 +568,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         }
 
         auto rowset = DORIS_TRY(_internal_sorting(
-                blocks, Version(_temp_delta_versions.second, _temp_delta_versions.second),
+                blocks, Version(_temp_delta_versions.second, _temp_delta_versions.second + 1),
                 newest_write_timestamp, new_tablet, BETA_ROWSET, segments_overlap,
                 new_tablet_schema));
         _src_rowsets.push_back(std::move(rowset));
@@ -578,7 +578,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         blocks.clear();
 
         // increase temp version
-        _temp_delta_versions.second++;
+        _temp_delta_versions.second += 2;
         return Status::OK();
     };
 

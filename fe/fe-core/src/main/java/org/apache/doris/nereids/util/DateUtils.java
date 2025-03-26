@@ -68,7 +68,7 @@ public class DateUtils {
                         break;
                     case 'h': // %h Hour (01..12)
                     case 'I': // %I Hour (01..12)
-                        builder.appendValue(ChronoField.HOUR_OF_AMPM, 2);
+                        builder.appendValue(ChronoField.CLOCK_HOUR_OF_AMPM, 2);
                         break;
                     case 'i': // %i Minutes, numeric (00..59)
                         builder.appendValue(ChronoField.MINUTE_OF_HOUR, 2);
@@ -80,7 +80,7 @@ public class DateUtils {
                         builder.appendValue(ChronoField.HOUR_OF_DAY);
                         break;
                     case 'l': // %l Hour (1..12)
-                        builder.appendValue(ChronoField.HOUR_OF_AMPM);
+                        builder.appendValue(ChronoField.CLOCK_HOUR_OF_AMPM);
                         break;
                     case 'M': // %M Month name (January..December)
                         builder.appendText(ChronoField.MONTH_OF_YEAR, TextStyle.FULL);
@@ -92,8 +92,10 @@ public class DateUtils {
                         builder.appendText(ChronoField.AMPM_OF_DAY);
                         break;
                     case 'r': // %r Time, 12-hour (hh:mm:ss followed by AM or PM)
-                        builder.appendValue(ChronoField.HOUR_OF_AMPM, 2)
+                        builder.appendValue(ChronoField.CLOCK_HOUR_OF_AMPM, 2)
+                                .appendLiteral(':')
                                 .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
+                                .appendLiteral(':')
                                 .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
                                 .appendLiteral(' ')
                                 .appendText(ChronoField.AMPM_OF_DAY, TextStyle.FULL)
