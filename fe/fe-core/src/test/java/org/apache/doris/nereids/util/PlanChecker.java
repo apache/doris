@@ -121,7 +121,6 @@ public class PlanChecker {
     public PlanChecker analyze() {
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.toMemo();
-        InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
         return this;
     }
 
