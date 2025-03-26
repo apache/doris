@@ -76,4 +76,8 @@ public abstract class HMSDlaTable implements MTMVBaseTableIf {
         Env.getCurrentEnv().getRefreshManager()
                 .refreshTable(hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(), true);
     }
+
+    boolean isValidRelatedTable() {
+        return true;
+    }
 }

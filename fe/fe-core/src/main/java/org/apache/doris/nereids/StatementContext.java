@@ -215,8 +215,6 @@ public class StatementContext implements Closeable {
 
     private boolean privChecked;
 
-    private final Map<TableIf, TableSnapshot> queryTableSnapshot = Maps.newHashMap();
-
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -775,13 +773,5 @@ public class StatementContext implements Closeable {
 
     public void setPrivChecked(boolean privChecked) {
         this.privChecked = privChecked;
-    }
-
-    public void setQueryTableSnapshot(TableIf table, TableSnapshot snapshot) {
-        queryTableSnapshot.put(table, snapshot);
-    }
-
-    public TableSnapshot getQueryTableSnapshot(TableIf table) {
-        return queryTableSnapshot.get(table);
     }
 }

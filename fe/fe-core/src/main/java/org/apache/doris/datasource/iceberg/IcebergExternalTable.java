@@ -30,13 +30,11 @@ import org.apache.doris.datasource.PartitionColumnsCache;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
-import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -133,12 +131,15 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
-        return Maps.newHashMap(getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo().getNameToPartitionItem());
+        return Maps.newHashMap(
+                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, getCatalog(), getDbName(), getName())
+                        .getPartitionInfo().getNameToPartitionItem());
     }
 
     @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
-        return getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo().getNameToPartitionItem();
+        return IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, getCatalog(), getDbName(), getName())
+                .getPartitionInfo().getNameToPartitionItem();
     }
 
     @Override
@@ -153,7 +154,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
-        IcebergSnapshotCacheValue snapshotValue = getOrFetchSnapshotCacheValue(snapshot);
+        IcebergSnapshotCacheValue snapshotValue =
+                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, getCatalog(), getDbName(), getName());
         PartitionColumnsCache schemaValue = IcebergUtils.getIcebergPartitionColumnsCache(
                 catalog, getDbName(), getName(), snapshotValue.getSnapshot().getSchemaId());
         return schemaValue.getPartitionColumns();
@@ -162,7 +164,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
                                                Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        IcebergSnapshotCacheValue snapshotValue = getOrFetchSnapshotCacheValue(snapshot);
+        IcebergSnapshotCacheValue snapshotValue =
+                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, getCatalog(), getDbName(), getName());
         long latestSnapshotId = snapshotValue.getPartitionInfo().getLatestSnapshotId(partitionName);
         if (latestSnapshotId <= 0) {
             throw new AnalysisException("can not find partition: " + partitionName);
@@ -174,7 +177,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
         makeSureInitialized();
-        IcebergSnapshotCacheValue snapshotValue = getOrFetchSnapshotCacheValue(snapshot);
+        IcebergSnapshotCacheValue snapshotValue =
+                IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, getCatalog(), getDbName(), getName());
         return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
     }
 
@@ -225,26 +229,13 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot) {
-        return new IcebergMvccSnapshot(IcebergUtils.getIcebergSnapshotCacheValue(getCatalog(), getDbName(), getName()));
+        return new IcebergMvccSnapshot(IcebergUtils.getIcebergSnapshotCacheValue(
+                tableSnapshot, getCatalog(), getDbName(), getName()));
     }
 
     @Override
     public List<Column> getFullSchema() {
-        Optional<MvccSnapshot> snapshotFromContext = MvccUtil.getSnapshotFromContext(this);
-        TableSnapshot queryTableSnapshot = ConnectContext.get().getStatementContext().getQueryTableSnapshot(this);
-        long snapshotId = IcebergUtils.getQuerySpecSnapshot(getIcebergTable(), queryTableSnapshot);
-        IcebergSnapshotCacheValue cacheValue = getOrFetchSnapshotCacheValue(snapshotFromContext);
-        if (snapshotId > 0) {
-            if (cacheValue.getSnapshot().getSnapshotId() == snapshotId) {
-                return IcebergUtils.getIcebergSchemaCacheValue(
-                        catalog, getDbName(), getName(), cacheValue.getSnapshot().getSchemaId()).getSchema();
-            } else {
-                return IcebergUtils.getIcebergSchemaCacheValue(
-                        catalog, getDbName(), getName(), getIcebergTable().snapshot(snapshotId).schemaId()).getSchema();
-            }
-        }
-        return IcebergUtils.getIcebergSchemaCacheValue(
-                catalog, getDbName(), getName(), cacheValue.getSnapshot().getNewestSchemaId()).getSchema();
+        return IcebergUtils.getIcebergSchema(this, getCatalog(), getDbName(), getName());
     }
 
     @Override
@@ -266,13 +257,5 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     public void setIsValidRelatedTableCached(boolean isCached) {
         this.isValidRelatedTableCached = isCached;
-    }
-
-    public IcebergSnapshotCacheValue getOrFetchSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {
-        if (snapshot.isPresent()) {
-            return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
-        } else {
-            return IcebergUtils.getIcebergSnapshotCacheValue(getCatalog(), getDbName(), getName());
-        }
     }
 }
