@@ -81,7 +81,7 @@ suite("test_base_replace_multi_level_mtmv","mtmv") {
     sql """
         CREATE MATERIALIZED VIEW ${mvName2}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
-        DISTRIBUTED BY hash(k3) BUCKETS 2
+        DISTRIBUTED BY hash(k1) BUCKETS 2
         PROPERTIES (
         'replication_num' = '1'
         )
@@ -101,7 +101,7 @@ suite("test_base_replace_multi_level_mtmv","mtmv") {
         'replication_num' = '1'
         )
         AS
-        SELECT t1.k1,t1.k2,t2.k4 from ${tableName1} t1 join ${tableName2} t2 on t1.k1=t2.k3;
+        SELECT t1.k1,t1.k2,t2.k2 as k3 from ${tableName1} t1 join ${tableName2} t2 on t1.k1=t2.k1;
         """
     sql """
             REFRESH MATERIALIZED VIEW ${mvName3} auto
@@ -116,7 +116,7 @@ suite("test_base_replace_multi_level_mtmv","mtmv") {
         'replication_num' = '1'
         )
         AS
-        SELECT t1.k1,t1.k2,t2.k4 from ${mvName1} t1 join ${mvName2} t2 on t1.k1=t2.k3;
+        SELECT t1.k1,t1.k2,t2.k1 as k3 from ${mvName1} t1 join ${mvName2} t2 on t1.k1=t2.k1;
         """
     sql """
             REFRESH MATERIALIZED VIEW ${mvName4} auto
