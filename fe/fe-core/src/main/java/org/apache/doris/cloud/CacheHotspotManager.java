@@ -330,7 +330,7 @@ public class CacheHotspotManager extends MasterDaemon {
         return responseList;
     }
 
-    private Long getFileCacheCapacity(String clusterName) throws RuntimeException {
+    Long getFileCacheCapacity(String clusterName) throws RuntimeException {
         List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                                         .getBackendsByClusterName(clusterName);
         Long totalFileCache = 0L;
@@ -516,7 +516,7 @@ public class CacheHotspotManager extends MasterDaemon {
         }
     }
 
-    private Map<Long, List<Tablet>> warmUpNewClusterByTable(long jobId, String dstClusterName,
+    Map<Long, List<Tablet>> warmUpNewClusterByTable(long jobId, String dstClusterName,
             List<Triple<String, String, String>> tables,
             boolean isForce) throws RuntimeException {
         Map<Long, List<Tablet>> beToWarmUpTablets = new HashMap<>();
@@ -544,6 +544,9 @@ public class CacheHotspotManager extends MasterDaemon {
                 Long partitionSize = partition.getDataSize(true);
                 warmUpTotalFileCache += partitionSize;
                 warmUpPartitions.add(partition);
+                if (warmUpTotalFileCache > totalFileCache) {
+                    break;
+                }
             }
             List<MaterializedIndex> indexes = new ArrayList<>();
             for (Partition partition : warmUpPartitions) {
