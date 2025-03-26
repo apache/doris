@@ -4591,6 +4591,16 @@ private:
     }
 };
 
+// printf(format_str, arg1, arg2, ...) -> String
+// Returns a string formatted according to the format string and arguments.
+// The format string supports the following format specifiers:
+//   %d - integer
+//   %ld - long integer
+//   %u - unsigned integer
+//   %lu - unsigned long integer
+//   %f - floating-point number
+//   %lf - double-precision floating-point number
+//   %s - string
 class FunctionPrintf : public IFunction {
 public:
     static constexpr auto name = "printf";
@@ -4611,13 +4621,17 @@ public:
         size_t num_element = arguments.size();
         auto result_col = block.get_by_position(result).type->create_column();
 
-        // first arg is format string, so it should be string type
+        // First arg is format string, so it should be string type
         auto format_str_type = block.get_by_position(arguments[0]).type;
         if (format_str_type->get_type_id() != TypeIndex::String) {
             return Status::InvalidArgument(
-                    "Argument 1 of function PRINTF must be string, but {} was found.",
+                    "The first argument of function {} must be string, but {} was found.", name,
                     format_str_type->get_name());
         }
+
+        // We don't need const optimization for printf function since in most cases
+        // only the format string is const, while the arguments are dynamic values
+        // that need to be formatted at runtime
         const auto* format_str_column =
                 assert_cast<const ColumnString*>(block.get_by_position(arguments[0]).column.get());
         std::vector<ColumnWithTypeAndName> format_arg_columns(num_element);
@@ -4638,8 +4652,8 @@ public:
                 auto formatted = fmt::vsprintf(format_str, store);
                 result_col->insert_data(formatted.data(), formatted.size());
             } catch (const fmt::format_error& e) {
-                return Status::InvalidArgument("Failed to format string: {}, error: {}", format_str,
-                                               e.what());
+                return Status::InvalidArgument("Function {} failed to format string: {}, error: {}",
+                                               name, format_str, e.what());
             }
         }
         block.replace_by_position(result, std::move(result_col));
@@ -4684,13 +4698,15 @@ private:
             store.push_back(data.to_string());
             return Status::OK();
         default:
-            return Status::InvalidArgument("Unsupported printf type: {}", type->get_name());
+            return Status::InvalidArgument("Function {} does not support printf type: {}", name,
+                                           type->get_name());
         }
     }
 
     template <typename T>
     static T get_value_from_data(const StringRef& data) {
         T value;
+        DCHECK(sizeof(value) == data.size);
         memcpy(&value, data.data, sizeof(value));
         return value;
     }

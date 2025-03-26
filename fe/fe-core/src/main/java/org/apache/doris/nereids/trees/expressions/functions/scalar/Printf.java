@@ -68,12 +68,11 @@ public class Printf extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
+        // replace decimal with double
         Function<DataType, DataType> replaceDecimalWithDouble = dataType -> {
-            if (dataType.isDecimalLikeType()) {
-                return DoubleType.INSTANCE;
-            }
-            return dataType;
+            return dataType.isDecimalLikeType() ? DoubleType.INSTANCE : dataType;
         };
+        // support dynamic type arguments
         List<DataType> argTypes = children.stream().map(ExpressionTrait::getDataType)
                 .map(replaceDecimalWithDouble)
                 .collect(Collectors.toList());
