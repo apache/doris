@@ -396,9 +396,6 @@ public class NereidsStreamLoadPlanner {
         CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(), currentRootPlan,
                 PhysicalProperties.ANY);
         ConnectContext ctx = cascadesContext.getConnectContext();
-        if (ctx.getEnv() == null) {
-            ctx.setEnv(Env.getCurrentEnv());
-        }
         try {
             ctx.getSessionVariable().setDebugSkipFoldConstant(true);
             Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
