@@ -110,7 +110,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
         // if available materialization list is empty, bail out
         StatementContext statementContext = cascadesContext.getStatementContext();
-        if (cascadesContext.getMaterializationContexts().isEmpty()) {
+        if (cascadesContext.getMaterializationContexts().isEmpty()
+                || !MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext())) {
             return rewrittenPlans;
         }
         if (statementContext.getMaterializedViewRewriteDuration()
@@ -284,11 +285,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext, cascadesContext);
-            rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
-                    childContext -> {
-                        Rewriter.getWholeTreeRewriter(childContext).execute();
-                        return childContext.getRewritePlan();
-                    }, rewrittenPlan, queryPlan);
             if (rewrittenPlan == null) {
                 continue;
             }
@@ -410,7 +406,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         Rewriter.getCteChildrenRewriter(childContext,
                                 ImmutableList.of(Rewriter.bottomUp(new MergeProjects()))).execute();
                         return childContext.getRewritePlan();
-                    }, rewrittenPlan, queryPlan);
+                    }, rewrittenPlan, queryPlan, true, false);
             if (!isOutputValid(queryPlan, rewrittenPlan)) {
                 LogicalProperties logicalProperties = rewrittenPlan.getLogicalProperties();
                 materializationContext.recordFailReason(queryStructInfo,

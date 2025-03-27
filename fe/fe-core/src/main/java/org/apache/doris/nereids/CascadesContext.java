@@ -221,8 +221,25 @@ public class CascadesContext implements ScheduleContext {
         return isTimeout;
     }
 
+    /**
+     * Init memo with plan
+     */
     public void toMemo() {
         this.memo = new Memo(getConnectContext(), plan);
+        List<Plan> rewrittenPlansByMv = this.getStatementContext().getRewrittenPlansByMv();
+        // only consider result sink to avoid Insert a plan into targetGroup but differ in logical properties
+        boolean initMultiPlanMemo = Memo.needInitMultiPlanMemo(this, plan);
+        if (initMultiPlanMemo) {
+            // copy tmp plan for mv rewrite firstly
+            for (Plan rewrittenPlan : rewrittenPlansByMv) {
+                // aggregate_without_roll_up query_13_0 cause error into targetGroup but differ in logical properties
+                // tmp rewritten plan output is different from final rewritten plan output
+                if (!rewrittenPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
+                    continue;
+                }
+                this.memo.copyIn(rewrittenPlan, this.memo.getRoot(), false);
+            }
+        }
     }
 
     public TableCollectAndHookInitializer newTableCollector() {

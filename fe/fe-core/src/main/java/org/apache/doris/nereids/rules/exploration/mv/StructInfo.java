@@ -281,6 +281,9 @@ public class StructInfo {
      * Maybe return multi structInfo when original plan already be rewritten by mv
      */
     public static StructInfo of(Plan derivedPlan, Plan originalPlan, CascadesContext cascadesContext) {
+        if (originalPlan == null) {
+            originalPlan = derivedPlan;
+        }
         // Split plan by the boundary which contains multi child
         LinkedHashSet<Class<? extends Plan>> set = Sets.newLinkedHashSet();
         set.add(LogicalJoin.class);
@@ -755,7 +758,7 @@ public class StructInfo {
         return Pair.of(MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
             Rewriter.getWholeTreeRewriter(context).execute();
             return context.getRewritePlan();
-        }, queryPlanWithUnionFilter, queryPlan), true);
+        }, queryPlanWithUnionFilter, queryPlan, true, false), true);
     }
 
     /**

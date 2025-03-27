@@ -610,6 +610,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
 
+    public static final String ENABLE_PRE_MATERIALIZED_VIEW_REWRITE
+            = "enable_pre_materialized_view_rewrite";
+
     public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE
             = "enable_dml_materialized_view_rewrite";
 
@@ -2178,6 +2181,11 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否开启基于结构信息的物化视图透明改写",
                     "Whether to enable materialized view rewriting based on struct info"})
     public boolean enableMaterializedViewRewrite = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_PRE_MATERIALIZED_VIEW_REWRITE, needForward = true,
+            description = {"是否开启在RBO阶段基于结构信息的物化视图透明改写",
+                    "Whether to enable pre materialized view rewriting based on struct info"})
+    public boolean enablePreMaterializedViewRewrite = true;
 
     @VariableMgr.VarAttr(name = ALLOW_MODIFY_MATERIALIZED_VIEW_DATA, needForward = true,
             description = {"是否允许修改物化视图的数据",
@@ -4647,8 +4655,20 @@ public class SessionVariable implements Serializable, Writable {
         this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
     }
 
+    public boolean isEnablePreMaterializedViewRewrite() {
+        return enablePreMaterializedViewRewrite;
+    }
+
+    public void setEnablePreMaterializedViewRewrite(boolean enablePreMaterializedViewRewrite) {
+        this.enablePreMaterializedViewRewrite = enablePreMaterializedViewRewrite;
+    }
+
     public boolean isEnableDmlMaterializedViewRewrite() {
         return enableDmlMaterializedViewRewrite;
+    }
+
+    public void setEnableDmlMaterializedViewRewrite(boolean enableDmlMaterializedViewRewrite) {
+        this.enableDmlMaterializedViewRewrite = enableDmlMaterializedViewRewrite;
     }
 
     public boolean isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness() {
