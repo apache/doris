@@ -158,7 +158,7 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
         if (_hybrid_set) {
             _hybrid_set->clear();
         }
-        set_state(State::DISABLED, other->_reason);
+        set_state(State::DISABLED, *other->_reason);
         return Status::OK();
     }
 
@@ -598,7 +598,7 @@ std::string RuntimeFilterWrapper::debug_string() const {
         }
     }
 
-    auto reason = _reason.load();
+    auto reason = *_reason;
     if (!reason.empty()) {
         result += fmt::format(", reason: {}", reason);
     }
