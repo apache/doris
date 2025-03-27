@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_mv_plus") {
+
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -50,45 +53,50 @@ suite ("test_dup_mv_plus") {
 
     qt_select_star "select * from d_table order by k1;"
 
+    mv_rewrite_success_without_check_chosen("select k1,k2+1 from d_table order by k1;", "k12p")
+
+    mv_rewrite_success_without_check_chosen("select k2+1 from d_table order by k1;", "k12p")
+
+    mv_rewrite_success_without_check_chosen("select k2+1 from d_table order by k1+1-1;", "k12p")
+
+    mv_rewrite_success_without_check_chosen("select sum(k2+1) from d_table group by k1 order by k1;", "k12p")
+
+    mv_rewrite_success_without_check_chosen("select sum(k1) from d_table group by k2+1 order by k2+1;", "k12p")
+
+    mv_rewrite_success_without_check_chosen("select sum(k1+1-1) from d_table group by k2+1 order by k2+1;", "k12p")
+
+    mv_rewrite_fail("select sum(k2) from d_table group by k3;", "k12p")
+
+    mv_rewrite_fail("select k1,k2+1 from d_table order by k2;", "k12p")
+
+    sql """set enable_stats=true;"""
     mv_rewrite_success("select k1,k2+1 from d_table order by k1;", "k12p")
     qt_select_mv "select k1,k2+1 from d_table order by k1;"
 
     mv_rewrite_success("select k2+1 from d_table order by k1;", "k12p")
     qt_select_mv_sub "select k2+1 from d_table order by k1;"
 
-    mv_rewrite_success("select k2+1 from d_table order by k1+1-1;", "k12p")
+    mv_rewrite_success_without_check_chosen("select k2+1 from d_table order by k1+1-1;", "k12p")
     qt_select_mv_sub_add "select k2+1-1 from d_table order by k1+1-1;"
 
     mv_rewrite_success("select sum(k2+1) from d_table group by k1 order by k1;", "k12p")
     qt_select_group_mv "select sum(k2+1) from d_table group by k1 order by k1;"
 
+
     mv_rewrite_success("select sum(k1) from d_table group by k2+1 order by k2+1;", "k12p")
     qt_select_group_mv "select sum(k1) from d_table group by k2+1 order by k2+1;"
+
 
     mv_rewrite_success("select sum(k1+1-1) from d_table group by k2+1 order by k2+1;", "k12p")
     qt_select_group_mv_add "select sum(k1+1-1) from d_table group by k2+1 order by k2+1;"
 
+
     mv_rewrite_fail("select sum(k2) from d_table group by k3;", "k12p")
     qt_select_group_mv_not "select sum(k2) from d_table group by k3 order by k3;"
+
 
     mv_rewrite_fail("select k1,k2+1 from d_table order by k2;", "k12p")
     qt_select_mv "select k1,k2+1 from d_table order by k2;"
 
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("select k1,k2+1 from d_table order by k1;", "k12p")
-
-    mv_rewrite_success("select k2+1 from d_table order by k1;", "k12p")
-
-    mv_rewrite_success("select k2+1 from d_table order by k1+1-1;", "k12p")
-
-    mv_rewrite_success("select sum(k2+1) from d_table group by k1 order by k1;", "k12p")
-
-    mv_rewrite_success("select sum(k1) from d_table group by k2+1 order by k2+1;", "k12p")
-
-    mv_rewrite_success("select sum(k1+1-1) from d_table group by k2+1 order by k2+1;", "k12p")
-
-    mv_rewrite_fail("select sum(k2) from d_table group by k3;", "k12p")
-
-    mv_rewrite_fail("select k1,k2+1 from d_table order by k2;", "k12p")
 
 }

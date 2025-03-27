@@ -44,7 +44,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-/** CheckPrivileges */
+/**
+ * CheckPrivileges
+ * This rule should only check once, because after check would set setPrivChecked in statementContext
+ */
 public class CheckPrivileges extends ColumnPruning {
     private JobContext jobContext;
 

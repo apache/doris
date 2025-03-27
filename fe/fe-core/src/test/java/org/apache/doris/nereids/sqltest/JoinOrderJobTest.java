@@ -28,10 +28,17 @@ import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class JoinOrderJobTest extends SqlTestBase {
+
+    @BeforeAll
+    public void beforeAllRun() {
+        connectContext.getSessionVariable().enableDPHypOptimizer = true;
+    }
+
     @Test
     protected void testSimpleSQL() {
         String sql = "select * from T1, T2, T3, T4 "
@@ -124,9 +131,13 @@ public class JoinOrderJobTest extends SqlTestBase {
                 + "where \n"
                 + "T1.id = doubleT4.id and \n"
                 + "T1.score = subTable.score;\n";
-        Memo memo = PlanChecker.from(connectContext)
+        PlanChecker planChecker = PlanChecker.from(connectContext)
                 .analyze(sql)
-                .rewrite()
+                .rewrite();
+        Assertions.assertEquals(Memo.countMaxContinuousJoin(
+                planChecker.getCascadesContext().getRewritePlan()), 2);
+        Memo memo = planChecker
+                .deriveStats()
                 .getCascadesContext()
                 .getMemo();
         Assertions.assertEquals(memo.countMaxContinuousJoin(), 2);
@@ -139,6 +150,8 @@ public class JoinOrderJobTest extends SqlTestBase {
                 .randomBuildPlanWith(65, 65);
         plan = new LogicalProject(plan.getOutput(), plan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        Assertions.assertEquals(Memo.countMaxContinuousJoin(plan), 64);
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         Assertions.assertEquals(cascadesContext.getMemo().countMaxContinuousJoin(), 64);
         hyperGraphBuilder.initStats("test", cascadesContext);
         PlanChecker.from(cascadesContext)
