@@ -915,8 +915,16 @@ TEST_F(GeoTypesTest, circle_touches) {
     }
     {
         GeoPoint point;
-        point.from_coord(0, 9.99);
+        point.from_coord(0, 10);
         EXPECT_TRUE(circle.touches(&point));
+    }
+    {
+        GeoCircle circle2;
+        auto res = circle2.init(1, 1, 1);
+        EXPECT_EQ(GEO_PARSE_OK, res);
+        GeoPoint point;
+        point.from_coord(2, 1);
+        EXPECT_TRUE(circle2.touches(&point));
     }
     {
         GeoPoint point;
@@ -951,10 +959,32 @@ TEST_F(GeoTypesTest, circle_touches) {
         std::unique_ptr<GeoShape> poly(GeoShape::from_wkt(wkt, strlen(wkt), &status));
         EXPECT_TRUE(circle.touches(poly.get()));
     }
+    {
+        const char* wkt = "POLYGON((10.1 0,20 0,20 10,10.1 10,10.1 0))";
+        std::unique_ptr<GeoShape> poly(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(circle.touches(poly.get()));
+    }
+    {
+        const char* wkt = "POLYGON((9.99 0,20 0,20 10,9.99 10,9.99 0))";
+        std::unique_ptr<GeoShape> poly(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(circle.touches(poly.get()));
+    }
+    {
+        const char* wkt = "POLYGON((-10 -10,10 -10,10 -20,-10 -20,-10 -10))";
+        std::unique_ptr<GeoShape> poly(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(circle.touches(poly.get()));
+    }
 
     // ======================
     // Circle vs Circle
     // ======================
+    {
+        GeoCircle circle1;
+        circle1.init(1, 1, 1);
+        GeoCircle circle2;
+        circle2.init(3, 1, 1);
+        EXPECT_TRUE(circle1.touches(&circle2));
+    }
     {
         GeoCircle other;
         other.init(7, 7, 5);
