@@ -66,6 +66,8 @@ private:
     int _add_one_cell(const ColumnPtr& column_ptr, size_t row_idx, const DataTypePtr& type,
                       MysqlRowBuffer<is_binary_format>& buffer, int scale = -1);
 
+    Status _append_block(Block& block);
+
     BufferControlBlock* _sinker;
 
     const VExprContextSPtrs& _output_vexpr_ctxs;
