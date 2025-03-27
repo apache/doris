@@ -3990,7 +3990,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
 
                     if (table == null) {
-                        // Since Database.getTableNullable is lock-free, we need to take lock and check again, to ensure the visibility of the table.
+                        // Since Database.getTableNullable is lock-free, we need to take lock and check again,
+                        // to ensure the visibility of the table.
                         db.readLock();
                         try {
                             if (getMetaTable.isSetId()) {
