@@ -570,7 +570,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     Rewriter.getCteChildrenRewriter(childContext,
                             ImmutableList.of(Rewriter.topDown(new EliminateGroupByKey()))).execute();
                     return childContext.getRewritePlan();
-                }, viewProject, viewProject);
+                }, viewProject, viewProject, true, false);
 
         Optional<LogicalAggregate<Plan>> viewAggreagateOptional =
                 rewrittenPlan.collectFirst(LogicalAggregate.class::isInstance);

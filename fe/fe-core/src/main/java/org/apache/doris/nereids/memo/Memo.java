@@ -20,8 +20,11 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
@@ -40,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -132,6 +136,10 @@ public class Memo {
         return refreshVersion.get();
     }
 
+    public long incrementAndGetRefreshVersion() {
+        return refreshVersion.incrementAndGet();
+    }
+
     /**
      * Record materialization check result for performance
      */
@@ -181,7 +189,7 @@ public class Memo {
      */
 
     public Pair<Integer, Integer> countGroupJoin(Group group) {
-        GroupExpression logicalExpr = group.getLogicalExpression();
+        GroupExpression logicalExpr = group.getLastLogicalExpression();
         List<Pair<Integer, Integer>> children = new ArrayList<>();
         for (Group child : logicalExpr.children()) {
             children.add(countGroupJoin(child));
@@ -196,7 +204,7 @@ public class Memo {
         for (Pair<Integer, Integer> child : children) {
             maxJoinCount = Math.max(maxJoinCount, child.second);
         }
-        if (group.getLogicalExpression().getPlan() instanceof LogicalJoin) {
+        if (group.getLastLogicalExpression().getPlan() instanceof LogicalJoin) {
             for (Pair<Integer, Integer> child : children) {
                 continuousJoinCount += child.first;
             }
@@ -299,7 +307,7 @@ public class Memo {
      * @return plan
      */
     public Plan copyOut(Group group, boolean includeGroupExpression) {
-        GroupExpression logicalExpression = group.getLogicalExpression();
+        GroupExpression logicalExpression = group.getLastLogicalExpression();
         return copyOut(logicalExpression, includeGroupExpression);
     }
 
@@ -321,6 +329,19 @@ public class Memo {
                 : Optional.empty();
 
         return planWithChildren.withGroupExpression(groupExpression);
+    }
+
+    /**
+     * Calculate that if need init multi plan in memo or not
+     */
+    public static boolean needInitMultiPlanMemo(CascadesContext cascadesContext, Plan rboFinalPlan) {
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        List<Plan> rewrittenPlansByMv = statementContext.getRewrittenPlansByMv();
+        return !cascadesContext.getMaterializationContexts().isEmpty()
+                && !rewrittenPlansByMv.isEmpty() && rboFinalPlan instanceof LogicalResultSink
+                && rewrittenPlansByMv.stream().anyMatch(
+                        tmpPlan -> rboFinalPlan.getLogicalProperties().equals(tmpPlan.getLogicalProperties()))
+                && !Optimizer.isDpHyp(cascadesContext);
     }
 
     /**

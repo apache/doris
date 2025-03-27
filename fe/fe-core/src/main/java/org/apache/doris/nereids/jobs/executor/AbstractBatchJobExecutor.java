@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
+import org.apache.doris.nereids.jobs.rewrite.MvRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
@@ -87,6 +88,10 @@ public abstract class AbstractBatchJobExecutor {
 
     public static RewriteJob costBased(RewriteJob... jobs) {
         return new CostBasedRewriteJob(Arrays.asList(jobs));
+    }
+
+    public static RewriteJob mvRewriteJob() {
+        return new MvRewriteJob();
     }
 
     public static RewriteJob bottomUp(RuleFactory... ruleFactories) {
