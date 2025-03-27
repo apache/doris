@@ -31,9 +31,6 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "vec/columns/column.h"
 #include "vec/common/uint128.h"
-#include "vec/core/field.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
@@ -129,13 +126,6 @@ private:
     size_t current_anonymous_array_level = 0;
 };
 using PathsInData = std::vector<PathInData>;
-/// Result of parsing of a document.
-/// Contains all paths extracted from document
-/// and values which are related to them.
-struct ParseResult {
-    std::vector<PathInData> paths;
-    std::vector<Field> values;
-};
 
 struct PathInDataRef {
     const PathInData* ref;

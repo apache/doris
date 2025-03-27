@@ -44,6 +44,7 @@
 #include "util/quantile_state.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 namespace vectorized {
@@ -154,7 +155,7 @@ DEFINE_FIELD_VECTOR(Tuple);
 DEFINE_FIELD_VECTOR(Map);
 #undef DEFINE_FIELD_VECTOR
 
-using FieldMap = std::map<String, Field, std::less<String>>;
+using FieldMap = std::map<PathInData, Field>;
 #define DEFINE_FIELD_MAP(X)       \
     struct X : public FieldMap {  \
         using FieldMap::FieldMap; \

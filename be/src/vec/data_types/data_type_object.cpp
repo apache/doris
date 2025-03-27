@@ -70,6 +70,8 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
         }
         PColumnMeta column_meta_pb;
         column_meta_pb.set_name(entry->path.get_path());
+        segment_v2::ColumnPathInfo path;
+        entry->path.to_protobuf(column_meta_pb.mutable_column_path(), -1 /*not used here*/);
         type->to_pb_column_meta(&column_meta_pb);
         std::string meta_binary;
         column_meta_pb.SerializeToString(&meta_binary);
@@ -113,6 +115,8 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_ve
         ++num_of_columns;
         PColumnMeta column_meta_pb;
         column_meta_pb.set_name(entry->path.get_path());
+        segment_v2::ColumnPathInfo path;
+        entry->path.to_protobuf(column_meta_pb.mutable_column_path(), -1 /*not used here*/);
         type->to_pb_column_meta(&column_meta_pb);
         std::string meta_binary;
         column_meta_pb.SerializeToString(&meta_binary);
@@ -160,11 +164,15 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
         MutableColumnPtr sub_column = type->create_column();
         buf = type->deserialize(buf, &sub_column, be_exec_version);
 
-        // add subcolumn to column_object
         PathInData key;
-        if (!column_meta_pb.name().empty()) {
+        if (column_meta_pb.has_column_path()) {
+            // init from path pb
+            key.from_protobuf(column_meta_pb.column_path());
+        } else if (!column_meta_pb.name().empty()) {
+            // init from name for compatible
             key = PathInData {column_meta_pb.name()};
         }
+        // add subcolumn to column_object
         column_object->add_sub_column(key, std::move(sub_column), type);
     }
     size_t num_rows = 0;
