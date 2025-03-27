@@ -239,18 +239,15 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     struct evhttp_request* ev_req = req->get_evhttp_request();
     auto evbuf = evhttp_request_get_input_buffer(ev_req);
 
+    // In HttpStreamAction::on_chunk_data
+    //      -> process_put
+    //      -> StreamLoadExecutor::execute_plan_fragment
+    //      -> exec_plan_fragment
+    // , SCOPED_SWITCH_RESOURCE_CONTEXT will be called, SCOPED_ATTACH_TASK not allow nesting.
+    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
+
     int64_t start_read_data_time = MonotonicNanos();
-    Status st;
-    {
-        // In HttpStreamAction::on_chunk_data
-        //      -> process_put
-        //      -> StreamLoadExecutor::execute_plan_fragment
-        //      -> exec_plan_fragment
-        // , SCOPED_ATTACH_TASK will be called.
-        // SCOPED_ATTACH_TASK not allow nesting.
-        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
-        st = ctx->allocate_schema_buffer();
-    }
+    Status st = ctx->allocate_schema_buffer();
 
     if (!st.ok()) {
         ctx->status = st;
@@ -258,10 +255,7 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     }
     while (evbuffer_get_length(evbuf) > 0) {
         ByteBufferPtr bb;
-        {
-            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
-            st = ByteBuffer::allocate(128 * 1024, &bb);
-        }
+        st = ByteBuffer::allocate(128 * 1024, &bb);
         if (!st.ok()) {
             ctx->status = st;
             return;
