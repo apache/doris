@@ -46,11 +46,10 @@ suite ("testSingleMVMultiUsage") {
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
-    explain {
-        sql("select * from (select deptno, empid from emps where deptno>100) A join (select deptno, empid from emps where deptno >200) B using (deptno);")
-        contains "(emps_mv)"
-        notContains "(emps)"
-    }
+    mv_rewrite_success_without_check_chosen(
+            "select * from (select deptno, empid from emps where deptno>100) A join (select deptno, empid from emps where deptno >200) B using (deptno);",
+            "emps_mv")
+
     qt_select_mv "select * from (select deptno, empid from emps where deptno>100) A join (select deptno, empid from emps where deptno >200) B using (deptno) order by 1;"
     sql """set enable_stats=true;"""
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
