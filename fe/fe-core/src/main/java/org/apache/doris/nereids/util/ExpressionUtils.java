@@ -754,6 +754,12 @@ public class ExpressionUtils {
         return newPredicates.build();
     }
 
+    public static boolean isGeneratedNotNull(Expression expression) {
+        return expression instanceof Not
+                && ((Not) expression).isGeneratedIsNotNull()
+                && ((Not) expression).child() instanceof IsNull;
+    }
+
     /** flatExpressions */
     public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressionLists) {
         int num = 0;

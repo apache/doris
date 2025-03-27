@@ -51,6 +51,7 @@ import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.ConstantPropagation;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
@@ -172,6 +173,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ImmutableSet.of(LogicalCTEAnchor.class),
             () -> jobs(
                 topic("Plan Normalization",
+                        custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
                         topDown(
                                 new EliminateOrderByConstant(),
                                 new EliminateSortUnderSubqueryOrView(),
@@ -183,7 +185,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 //   such as group by key matching and replaced
                                 //   but we need to do some normalization before subquery unnesting,
                                 //   such as extract common expression.
-                                new ExpressionNormalizationAndOptimization(),
+                                new ExpressionNormalizationAndOptimization(true),
                                 new AvgDistinctToSumDivCount(),
                                 new CountDistinctRewrite(),
                                 new ExtractFilterFromCrossJoin()
@@ -282,6 +284,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new InferFilterNotNull(),
                                 new InferJoinNotNull()
                         ),
+                        custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
                         // ReorderJoin depends PUSH_DOWN_FILTERS
                         // the PUSH_DOWN_FILTERS depends on lots of rules, e.g. merge project, eliminate outer,
                         // sometimes transform the bottom plan make some rules usable which can apply to the top plan,
@@ -334,10 +337,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // is because that pulling up predicates from union needs EliminateEmptyRelation in union child
                 topic("Column pruning and infer predicate",
                         custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                        custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
                         custom(RuleType.INFER_PREDICATES, InferPredicates::new),
                         // column pruning create new project, so we should use PUSH_DOWN_FILTERS
                         // to change filter-project to project-filter
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                        custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
                         // after eliminate outer join in the PUSH_DOWN_FILTERS,
                         // we can infer more predicate and push down
                         custom(RuleType.INFER_PREDICATES, InferPredicates::new),
