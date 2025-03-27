@@ -38,6 +38,7 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     RETURN_IF_ERROR(JoinProbeLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+    _task_idx = info.task_idx;
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
     _probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
     for (size_t i = 0; i < _probe_expr_ctxs.size(); i++) {
@@ -233,7 +234,11 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                         st = Status::InternalError("uninited hash table probe");
                     }
                 },
-                local_state._shared_state->hash_table_variants->method_variant,
+                local_state._shared_state->hash_table_variant_vector.size() == 1
+                        ? local_state._shared_state->hash_table_variant_vector[0]->method_variant
+                        : local_state._shared_state
+                                  ->hash_table_variant_vector[local_state._task_idx]
+                                  ->method_variant,
                 *local_state._process_hashtable_ctx_variants);
     } else if (local_state._probe_eos) {
         if (_is_right_semi_anti || (_is_outer_join && _join_op != TJoinOp::LEFT_OUTER_JOIN)) {
@@ -252,7 +257,12 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                             st = Status::InternalError("uninited hash table probe");
                         }
                     },
-                    local_state._shared_state->hash_table_variants->method_variant,
+                    local_state._shared_state->hash_table_variant_vector.size() == 1
+                            ? local_state._shared_state->hash_table_variant_vector[0]
+                                      ->method_variant
+                            : local_state._shared_state
+                                      ->hash_table_variant_vector[local_state._task_idx]
+                                      ->method_variant,
                     *local_state._process_hashtable_ctx_variants);
         } else {
             *eos = true;

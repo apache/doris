@@ -48,9 +48,9 @@ class PipelineTask {
 public:
     PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                  PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
-                 std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                         std::shared_ptr<Dependency>>>
-                         le_state_map,
+                 std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                         std::vector<std::shared_ptr<Dependency>>>>
+                         shared_state_map,
                  int task_idx);
 
     Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
@@ -290,8 +290,9 @@ private:
     std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;
     std::shared_ptr<BasicSharedState> _sink_shared_state;
     std::vector<TScanRangeParams> _scan_ranges;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            _le_state_map;
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            _shared_state_map;
     int _task_idx;
     bool _dry_run = false;
 

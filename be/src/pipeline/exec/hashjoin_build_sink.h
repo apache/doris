@@ -82,6 +82,7 @@ protected:
 
     size_t _evaluate_mem_usage = 0;
     size_t _build_side_rows = 0;
+    int _task_idx;
 
     vectorized::MutableBlock _build_side_mutable_block;
     std::shared_ptr<RuntimeFilterProducerHelper> _runtime_filter_producer_helper;
@@ -168,9 +169,6 @@ private:
     std::vector<bool> _is_null_safe_eq_join;
 
     bool _is_broadcast_join = false;
-    std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller;
-
-    vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     const std::vector<TExpr> _partition_exprs;
 
     std::vector<SlotId> _hash_output_slot_ids;
@@ -179,6 +177,12 @@ private:
     // if build side has variant column and need output variant column
     // need to finalize variant column to speed up the join op
     bool _need_finalize_variant_column = false;
+
+    bool _use_shared_hash_table = false;
+    std::shared_ptr<vectorized::SharedHashTableContext> shared_hash_table_context =
+            std::make_shared<vectorized::SharedHashTableContext>();
+    vectorized::SharedHashTableContextPtr _shared_hash_table_context =
+            std::make_shared<vectorized::SharedHashTableContext>();
 };
 
 template <class HashTableContext>

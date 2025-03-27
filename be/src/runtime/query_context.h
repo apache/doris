@@ -185,10 +185,6 @@ public:
 
     void set_ready_to_execute_only();
 
-    std::shared_ptr<vectorized::SharedHashTableController> get_shared_hash_table_controller() {
-        return _shared_hash_table_controller;
-    }
-
     bool has_runtime_predicate(int source_node_id) {
         return _runtime_predicates.contains(source_node_id);
     }
@@ -414,7 +410,6 @@ private:
     void _init_resource_context();
     void _init_query_mem_tracker();
 
-    std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;

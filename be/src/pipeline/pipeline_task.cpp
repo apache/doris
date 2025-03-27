@@ -53,13 +53,13 @@ class RuntimeState;
 
 namespace doris::pipeline {
 
-PipelineTask::PipelineTask(
-        PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
-        PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
-        std::map<int,
-                 std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-                le_state_map,
-        int task_idx)
+PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
+                           PipelineFragmentContext* fragment_context,
+                           RuntimeProfile* parent_profile,
+                           std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                                   std::vector<std::shared_ptr<Dependency>>>>
+                                   shared_state_map,
+                           int task_idx)
         : _index(task_id),
           _pipeline(pipeline),
           _opened(false),
@@ -70,7 +70,7 @@ PipelineTask::PipelineTask(
           _source(_operators.front().get()),
           _root(_operators.back().get()),
           _sink(pipeline->sink_shared_pointer()),
-          _le_state_map(std::move(le_state_map)),
+          _shared_state_map(std::move(shared_state_map)),
           _task_idx(task_idx),
           _execution_dep(state->get_query_ctx()->get_execution_dependency()),
           _memory_sufficient_dependency(
@@ -96,9 +96,9 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
     });
     {
         // set sink local state
-        LocalSinkStateInfo info {_task_idx,     _task_profile.get(),
-                                 sender_id,     get_sink_shared_state().get(),
-                                 _le_state_map, tsink};
+        LocalSinkStateInfo info {_task_idx,         _task_profile.get(),
+                                 sender_id,         get_sink_shared_state().get(),
+                                 _shared_state_map, tsink};
         RETURN_IF_ERROR(_sink->setup_local_state(_state, info));
     }
 
@@ -108,7 +108,7 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
         LocalStateInfo info {parent_profile, _scan_ranges, get_op_shared_state(op->operator_id()),
-                             _le_state_map, _task_idx};
+                             _shared_state_map, _task_idx};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
     }
@@ -590,7 +590,7 @@ Status PipelineTask::finalize() {
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
     _sink_shared_state.reset();
     _op_shared_states.clear();
-    _le_state_map.clear();
+    _shared_state_map.clear();
     return Status::OK();
 }
 
