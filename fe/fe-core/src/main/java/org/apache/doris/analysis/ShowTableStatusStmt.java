@@ -172,6 +172,10 @@ public class ShowTableStatusStmt extends ShowStmt implements NotFallbackInParser
         item = new SelectListItem(new SlotRef(tablesTableName, "CHECK_TIME"), "Check_time");
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, "Check_time"), item.getExpr().clone(null));
+        // access_time
+        item = new SelectListItem(new SlotRef(tablesTableName, "ACCESS_TIME"), "Access_time");
+        selectList.addItem(item);
+        aliasMap.put(new SlotRef(null, "Access_time"), item.getExpr().clone(null));
         // Collation
         item = new SelectListItem(new SlotRef(tablesTableName, "TABLE_COLLATION"), "Collation");
         selectList.addItem(item);
