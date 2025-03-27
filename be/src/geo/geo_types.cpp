@@ -33,6 +33,8 @@
 #include <s2/util/coding/coder.h>
 #include <s2/util/units/length-units.h>
 #include <string.h>
+
+#include "vec/common/assert_cast.h"
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath>
 #include <iomanip>
@@ -473,19 +475,19 @@ bool GeoPoint::intersects(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
         // points and points are considered to intersect when they are equal
-        const GeoPoint* point = (const GeoPoint*)rhs;
+        const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         return *_point == *point->point();
     }
     case GEO_SHAPE_LINE_STRING: {
-        const GeoLine* line = (const GeoLine*)rhs;
+        const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         return line->intersects(this);
     }
     case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* polygon = (const GeoPolygon*)rhs;
+        const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         return polygon->intersects(this);
     }
     case GEO_SHAPE_CIRCLE: {
-        const GeoCircle* circle = (const GeoCircle*)rhs;
+        const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->intersects(this);
     }
     default:
@@ -504,15 +506,15 @@ bool GeoPoint::touches(const GeoShape* rhs) const {
         return false;
     }
     case GEO_SHAPE_LINE_STRING: {
-        const GeoLine* line = (const GeoLine*)rhs;
+        const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         return line->touches(this);
     }
     case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* polygon = (const GeoPolygon*)rhs;
+        const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         return polygon->touches(this);
     }
     case GEO_SHAPE_CIRCLE: {
-        const GeoCircle* circle = (const GeoCircle*)rhs;
+        const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->touches(this);
     }
     default:
@@ -627,11 +629,11 @@ GeoParseStatus GeoLine::from_coords(const GeoCoordinateList& list) {
 bool GeoLine::intersects(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
-        const GeoPoint* point = (const GeoPoint*)rhs;
+        const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         return ComputeDistanceToLine(*point->point(), _polyline.get()) < TOLERANCE;
     }
     case GEO_SHAPE_LINE_STRING: {
-        const GeoLine* line = (const GeoLine*)rhs;
+        const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         if (!_polyline->Intersects(*line->polyline())) {
             // s2geometry may return an incorrect result when the two lines overlap at only one point
             for (int i = 0; i < _polyline->num_vertices(); i++) {
@@ -654,11 +656,11 @@ bool GeoLine::intersects(const GeoShape* rhs) const {
         return true;
     }
     case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* polygon = (const GeoPolygon*)rhs;
+        const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         return polygon->polygon()->Intersects(*_polyline);
     }
     case GEO_SHAPE_CIRCLE: {
-        const GeoCircle* circle = (const GeoCircle*)rhs;
+        const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->intersects(this);
     }
     default:
@@ -704,7 +706,7 @@ bool line_touches_line(const S2Polyline* line1, const S2Polyline* line2) {
 bool GeoLine::touches(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
-        const GeoPoint* point = (const GeoPoint*)rhs;
+        const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         const S2Point& start = _polyline->vertex(0);
         const S2Point& end = _polyline->vertex(_polyline->num_vertices() - 1);
         // 1. Points do not have boundaries. when the point is on the start or end of the line return true
@@ -714,15 +716,15 @@ bool GeoLine::touches(const GeoShape* rhs) const {
         return false;
     }
     case GEO_SHAPE_LINE_STRING: {
-        const GeoLine* other = (const GeoLine*)rhs;
+        const GeoLine* other = assert_cast<const GeoLine*>(rhs);
         return line_touches_line(_polyline.get(), other->polyline());
     }
     case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* polygon = (const GeoPolygon*)rhs;
+        const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         return polygon->touches(this);
     }
     case GEO_SHAPE_CIRCLE: {
-        const GeoCircle* circle = (const GeoCircle*)rhs;
+        const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->touches(this);
     }
     default:
@@ -806,14 +808,14 @@ std::string GeoPolygon::as_wkt() const {
 bool GeoPolygon::intersects(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
-        const GeoPoint* point = (const GeoPoint*)rhs;
+        const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         if (isPointInPolygon(*point->point(), _polygon.get())) {
             return true;
         }
         return polygon_touch_point(_polygon.get(), point->point());
     }
     case GEO_SHAPE_LINE_STRING: {
-        const GeoLine* line = (const GeoLine*)rhs;
+        const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         std::vector<std::unique_ptr<S2Polyline>> intersect_lines =
                 _polygon->IntersectWithPolyline(*line->polyline());
         if (!intersect_lines.empty()) {
@@ -838,7 +840,7 @@ bool GeoPolygon::intersects(const GeoShape* rhs) const {
         return false;
     }
     case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* other = (const GeoPolygon*)rhs;
+        const GeoPolygon* other = assert_cast<const GeoPolygon*>(rhs);
         // When two polygons intersect only at the boundary, s2geometry may not return the correct result.
         if (!_polygon->Intersects(*other->polygon())) {
             return polygon_touch_polygon(_polygon.get(), other->polygon());
@@ -846,7 +848,7 @@ bool GeoPolygon::intersects(const GeoShape* rhs) const {
         return true;
     }
     case GEO_SHAPE_CIRCLE: {
-        const GeoCircle* circle = (const GeoCircle*)rhs;
+        const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->intersects(this);
     }
     default:
@@ -897,11 +899,11 @@ bool GeoPolygon::polygon_touch_polygon(const S2Polygon* polygon1, const S2Polygo
 bool GeoPolygon::touches(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
-        const GeoPoint* point = (const GeoPoint*)rhs;
+        const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         return polygon_touch_point(_polygon.get(), point->point());
     }
     case GEO_SHAPE_LINE_STRING: {
-        const GeoLine* line = (const GeoLine*)rhs;
+        const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         std::vector<std::unique_ptr<S2Polyline>> intersect_lines =
                 _polygon->IntersectWithPolyline(*line->polyline());
 
@@ -950,7 +952,7 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
         return true;
     }
     case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* other = (const GeoPolygon*)rhs;
+        const GeoPolygon* other = assert_cast<const GeoPolygon*>(rhs);
         const S2Polygon* polygon1 = _polygon.get();
         const S2Polygon* polygon2 = other->polygon();
         // when the two polygons do not have overlapping areas, then determine if the touch regulation is met.
@@ -960,7 +962,7 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
         return false;
     }
     case GEO_SHAPE_CIRCLE: {
-        const GeoCircle* circle = (const GeoCircle*)rhs;
+        const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->touches(this);
     }
     default:
@@ -1016,7 +1018,7 @@ GeoParseStatus GeoCircle::init(double lng, double lat, double radius_meter) {
 bool GeoCircle::intersects(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
-        const GeoPoint* point = (const GeoPoint*)rhs;
+        const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         const S2Point& center = _cap->center();
         S1ChordAngle radius_angle = _cap->radius();
         S1Angle distance_angle = S1Angle(center, *point->point());
@@ -1026,7 +1028,7 @@ bool GeoCircle::intersects(const GeoShape* rhs) const {
         return radius + TOLERANCE >= distance_angle.degrees();
     }
     case GEO_SHAPE_LINE_STRING: {
-        const GeoLine* line = (const GeoLine*)rhs;
+        const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         const S2Point& center = _cap->center();
         S1ChordAngle radius_angle = _cap->radius();
         int next;
@@ -1036,7 +1038,7 @@ bool GeoCircle::intersects(const GeoShape* rhs) const {
         return radius + TOLERANCE >= distance_angle.degrees();
     }
     case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* polygon = (const GeoPolygon*)rhs;
+        const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         const S2Point& center = _cap->center();
         S1ChordAngle radius_angle = _cap->radius();
 
@@ -1045,7 +1047,7 @@ bool GeoCircle::intersects(const GeoShape* rhs) const {
         return radius + TOLERANCE >= distance_angle.degrees();
     }
     case GEO_SHAPE_CIRCLE: {
-        const GeoCircle* circle = (const GeoCircle*)rhs;
+        const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         S1Angle distance_angle = S1Angle(_cap->center(), circle->circle()->center());
         S1ChordAngle radius_angle = _cap->radius();
         S1ChordAngle other_radius_angle = circle->circle()->radius();
@@ -1066,42 +1068,42 @@ bool GeoCircle::disjoint(const GeoShape* rhs) const {
 bool GeoCircle::touches(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
-        const GeoPoint* point = (const GeoPoint*)rhs;
+        const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
         const S2Point& center = _cap->center();
         S1ChordAngle radius_angle = _cap->radius();
         S1ChordAngle distance_angle = S1ChordAngle(center, *point->point());
 
         double radius = S2Earth::RadiansToMeters(radius_angle.radians());
-        return std::abs(radius - distance_angle.degrees()) < 1e-1;
+        return std::abs(radius - distance_angle.degrees()) < TOLERANCE;
     }
     case GEO_SHAPE_LINE_STRING: {
-        const GeoLine* line = (const GeoLine*)rhs;
+        const GeoLine* line = assert_cast<const GeoLine*>(rhs);
         const S2Point& center = _cap->center();
         S1ChordAngle radius_angle = _cap->radius();
         int next;
         const S2Point& closest_point = line->polyline()->Project(center, &next);
         S1ChordAngle distance_angle(closest_point, center);
         double radius = S2Earth::RadiansToMeters(radius_angle.radians());
-        return std::abs(radius - distance_angle.degrees()) < 1e-1;
+        return std::abs(radius - distance_angle.degrees()) < TOLERANCE;
     }
     case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* polygon = (const GeoPolygon*)rhs;
+        const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         const S2Point& center = _cap->center();
         S1ChordAngle radius_angle = _cap->radius();
 
         const S1Angle distance_angle = polygon->polygon()->GetDistance(center);
         double radius = S2Earth::RadiansToMeters(radius_angle.radians());
-        return std::abs(radius - distance_angle.degrees()) < 1e-1;
+        return std::abs(radius - distance_angle.degrees()) < TOLERANCE;
     }
     case GEO_SHAPE_CIRCLE: {
-        const GeoCircle* circle = (const GeoCircle*)rhs;
+        const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         S1ChordAngle distance_angle = S1ChordAngle(_cap->center(), circle->circle()->center());
         S1ChordAngle radius_angle = _cap->radius();
         S1ChordAngle other_radius_angle = circle->circle()->radius();
 
         double radius1 = S2Earth::RadiansToMeters(radius_angle.radians());
         double radius2 = S2Earth::RadiansToMeters(other_radius_angle.radians());
-        return std::abs(radius1 + radius2 - distance_angle.degrees()) < 1e-1;
+        return std::abs(radius1 + radius2 - distance_angle.degrees()) < TOLERANCE;
     }
     default:
         return false;
