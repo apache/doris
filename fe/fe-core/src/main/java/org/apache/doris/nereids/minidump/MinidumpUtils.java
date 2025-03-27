@@ -301,7 +301,8 @@ public class MinidumpUtils {
     private static ColumnStatistic getColumnStatistic(TableIf table, String colName, ConnectContext connectContext) {
         // TODO. Get index id for materialized view.
         return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-            table.getDatabase().getCatalog().getId(), table.getDatabase().getId(), table.getId(), -1, colName, connectContext);
+            table.getDatabase().getCatalog().getId(), table.getDatabase().getId(),
+            table.getId(), -1, colName, connectContext);
     }
 
     private static Histogram getColumnHistogram(TableIf table, String colName) {

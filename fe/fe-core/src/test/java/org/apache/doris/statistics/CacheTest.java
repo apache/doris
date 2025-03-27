@@ -28,7 +28,6 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.ha.FrontendNodeType;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;

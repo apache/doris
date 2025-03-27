@@ -27,7 +27,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -146,7 +145,7 @@ public class StatisticsCache {
     private PartitionColumnStatistic doGetPartitionColumnStatistics(
             long catalogId, long dbId, long tblId, long idxId, String partName, String colName) {
         PartitionColumnStatisticCacheKey k = new PartitionColumnStatisticCacheKey(
-        catalogId, dbId, tblId, idxId, partName, colName);
+                catalogId, dbId, tblId, idxId, partName, colName);
         try {
             CompletableFuture<Optional<PartitionColumnStatistic>> f = partitionColumnStatisticCache.get(k);
             if (f.isDone()) {

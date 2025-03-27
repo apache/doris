@@ -17,23 +17,19 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.Utils;
-
-import com.google.common.collect.ImmutableList;
 
 /**
  * We need this rule to cast all filter and join conjunct's return type to boolean after rewrite.
  */
 public class AddProjectForJoin extends OneRewriteRuleFactory {
     private static final String KEY = "GENERATED_PROJECT";
+
     @Override
     public Rule build() {
         return logicalJoin()
@@ -41,8 +37,8 @@ public class AddProjectForJoin extends OneRewriteRuleFactory {
                 .then(join -> {
                     join.setMutableState(KEY, true);
                     LogicalProject<LogicalJoin<Plan, Plan>> project
-                        = new LogicalProject<>(Utils.fastToImmutableList(join.getOutput()), join);
+                            = new LogicalProject<>(Utils.fastToImmutableList(join.getOutput()), join);
                     return project;
-        }).toRule(RuleType.ADD_PROJECT_FOR_JOIN);
+                }).toRule(RuleType.ADD_PROJECT_FOR_JOIN);
     }
 }

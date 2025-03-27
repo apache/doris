@@ -333,28 +333,28 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // putting the "Column pruning and infer predicate" topic behind the "Set operation optimization"
                 // is because that pulling up predicates from union needs EliminateEmptyRelation in union child
                 topic("Column pruning and infer predicate",
-                        custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                    custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                    topic("infer predicate",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
+                        custom(RuleType.INFER_PREDICATES, InferPredicates::new),
+                        // column pruning create new project, so we should use PUSH_DOWN_FILTERS
+                        // to change filter-project to project-filter
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                        topic("infer predicate",
-                                cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
-                                custom(RuleType.INFER_PREDICATES, InferPredicates::new),
-                                // column pruning create new project, so we should use PUSH_DOWN_FILTERS
-                                // to change filter-project to project-filter
-                                bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                                // after eliminate outer join in the PUSH_DOWN_FILTERS,
-                                // we can infer more predicate and push down
-                                custom(RuleType.INFER_PREDICATES, InferPredicates::new),
-                                bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                                // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
-                                // this can help to translate plan to backend
-                                topDown(new PushFilterInsideJoin()),
-                                topDown(new FindHashConditionForJoin()),
-                                // ProjectOtherJoinConditionForNestedLoopJoin will push down the expression
-                                // in the non-equivalent join condition and turn it into slotReference,
-                                // This results in the inability to obtain Cast child information in INFER_PREDICATES,
-                                // which will affect predicate inference with cast. So put this rule behind the INFER_PREDICATES
-                                topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
-                        )
+                        // after eliminate outer join in the PUSH_DOWN_FILTERS,
+                        // we can infer more predicate and push down
+                        custom(RuleType.INFER_PREDICATES, InferPredicates::new),
+                        bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                        // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
+                        // this can help to translate plan to backend
+                        topDown(new PushFilterInsideJoin()),
+                        topDown(new FindHashConditionForJoin()),
+                        // ProjectOtherJoinConditionForNestedLoopJoin will push down the expression
+                        // in the non-equivalent join condition and turn it into slotReference,
+                        // This results in the inability to obtain Cast child information in INFER_PREDICATES,
+                        // which will affect predicate inference with cast. So put this rule behind the INFER_PREDICATES
+                        topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
+                    )
                 ),
                 // this rule should invoke after ColumnPruning
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),

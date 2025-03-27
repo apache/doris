@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -153,7 +152,10 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         }
         if (!markConjuncts.isPresent()) {
             // hashConjuncts is not empty, mark join conjuncts are processed like other join conjuncts
-            Preconditions.checkState(!hashConjuncts.isPresent() || !hashConjuncts.get().isEmpty(), "hash conjuncts should not be empty");
+            Preconditions.checkState(
+                    !hashConjuncts.isPresent() || !hashConjuncts.get().isEmpty(),
+                    "hash conjuncts should not be empty"
+            );
             markConjuncts = updateExpressions(join.getMarkJoinConjuncts(), replaceMap);
         }
         Optional<List<Expression>> otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), replaceMap);
@@ -307,7 +309,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         window = (LogicalWindow<? extends Plan>) super.visit(window, replaceMap);
         Optional<List<NamedExpression>> windowExpressions =
                 updateExpressions(window.getWindowExpressions(), replaceMap);
-        for (NamedExpression w : !windowExpressions.isPresent() ? window.getWindowExpressions() : windowExpressions.get()) {
+        List<NamedExpression> windowOutput =
+                !windowExpressions.isPresent() ? window.getWindowExpressions() : windowExpressions.get();
+        for (NamedExpression w : windowOutput) {
             replaceMap.putIfAbsent(w.getExprId(), w.toSlot());
         }
         if (!windowExpressions.isPresent()) {
@@ -355,8 +359,10 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                     if (replacedSlot.getDataType().isAggStateType()) {
                         if (slotReference.nullable() != replacedSlot.nullable()
                                 || !slotReference.getDataType().equals(replacedSlot.getDataType())) {
-                            // we must replace data type, because nested type and agg state contains nullable of their children.
-                            // TODO: remove if statement after we ensure be constant folding do not change expr type at all.
+                            // we must replace data type, because nested type and agg state contains nullable
+                            // of their children.
+                            // TODO: remove if statement after we ensure be constant folding do not change
+                            //  expr type at all.
                             changed.set(true);
                             return slotReference.withNullableAndDataType(
                                     replacedSlot.nullable(), replacedSlot.getDataType()
