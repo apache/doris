@@ -624,9 +624,8 @@ public class ReportHandler extends Daemon {
         for (AgentTask task : diffTasks) {
             // these tasks no need to do diff
             // 1. CREATE
-            // 2. SYNC DELETE
-            // 3. CHECK_CONSISTENCY
-            // 4. STORAGE_MDEIUM_MIGRATE
+            // 2. CHECK_CONSISTENCY
+            // 3. STORAGE_MDEIUM_MIGRATE
             if (task.getTaskType() == TTaskType.CREATE
                     || task.getTaskType() == TTaskType.CHECK_CONSISTENCY
                     || task.getTaskType() == TTaskType.STORAGE_MEDIUM_MIGRATE) {
