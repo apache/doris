@@ -229,7 +229,7 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaCatalogMetaCacheStatsScanner::create_unique();
     case TSchemaTableType::SCH_BACKEND_KERBEROS_TICKET_CACHE:
         return SchemaBackendKerberosTicketCacheScanner::create_unique();
-    case TSchemaTableType::SCH_ROUTINE_LOAD_JOB:
+    case TSchemaTableType::SCH_ROUTINE_LOAD_JOBS:
         return SchemaRoutineLoadJobScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
