@@ -1362,7 +1362,7 @@ DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
-DEFINE_mInt32(compaction_num_per_round, "1");
+DEFINE_mInt32(compaction_num_per_round, "4");
 
 // whether to prune rows with delete sign = 1 in base compaction
 // ATTN: this config is only for test
