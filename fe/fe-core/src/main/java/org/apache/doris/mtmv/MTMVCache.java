@@ -53,16 +53,12 @@ public class MTMVCache {
     private final Plan logicalPlan;
     // The original rewritten plan of mv def sql
     private final Plan originalPlan;
-    // The analyzed plan of mv def sql, which is used by tableCollector,should not be optimized by rbo
-    private final Plan analyzedPlan;
     private final Statistics statistics;
     private final StructInfo structInfo;
 
-    public MTMVCache(Plan logicalPlan, Plan originalPlan, Plan analyzedPlan,
-            Statistics statistics, StructInfo structInfo) {
+    public MTMVCache(Plan logicalPlan, Plan originalPlan, Statistics statistics, StructInfo structInfo) {
         this.logicalPlan = logicalPlan;
         this.originalPlan = originalPlan;
-        this.analyzedPlan = analyzedPlan;
         this.statistics = statistics;
         this.structInfo = structInfo;
     }
@@ -73,10 +69,6 @@ public class MTMVCache {
 
     public Plan getOriginalPlan() {
         return originalPlan;
-    }
-
-    public Plan getAnalyzedPlan() {
-        return analyzedPlan;
     }
 
     public Statistics getStatistics() {
@@ -109,11 +101,14 @@ public class MTMVCache {
         }
         LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(defSql);
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
-        boolean originalRewriteFlag = createCacheContext.getSessionVariable().enableMaterializedViewRewrite;
-        createCacheContext.getSessionVariable().enableMaterializedViewRewrite = false;
         Plan originPlan;
         Plan mvPlan;
         Optional<StructInfo> structInfoOptional;
+        boolean originalRewriteFlag = createCacheContext.getSessionVariable().enableMaterializedViewRewrite;
+        createCacheContext.getSessionVariable().enableMaterializedViewRewrite = false;
+        boolean originalPreRewriteFlag = createCacheContext.getSessionVariable().enablePreMaterializedViewRewrite;
+        createCacheContext.getSessionVariable().enablePreMaterializedViewRewrite = currentContext != null
+                && currentContext.getSessionVariable().enablePreMaterializedViewRewrite;
         try {
             // Can not convert to table sink, because use the same column from different table when self join
             // the out slot is wrong
@@ -124,7 +119,12 @@ public class MTMVCache {
                 // No need cost for performance
                 planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
             }
-            originPlan = planner.getCascadesContext().getRewritePlan();
+            if (!planner.getCascadesContext().getStatementContext().getTmpPlanForMvRewrite().isEmpty()) {
+                originPlan = planner.getCascadesContext().getStatementContext().getTmpPlanForMvRewrite().get(0);
+            } else {
+                originPlan = planner.getCascadesContext().getRewritePlan();
+            }
+            // originPlan = planner.getCascadesContext().getRewritePlan();
             // Eliminate result sink because sink operator is useless in query rewrite by materialized view
             // and the top sort can also be removed
             mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
@@ -141,18 +141,18 @@ public class MTMVCache {
                 Rewriter.getCteChildrenRewriter(childContext,
                         ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
                 return childContext.getRewritePlan();
-            }, mvPlan, originPlan);
+            }, mvPlan, originPlan, true, false);
             // Construct structInfo once for use later
             structInfoOptional = MaterializationContext.constructStructInfo(mvPlan, originPlan,
-                    planner.getCascadesContext(),
-                    new BitSet());
+                    planner.getCascadesContext(), new BitSet());
         } finally {
             createCacheContext.getSessionVariable().enableMaterializedViewRewrite = originalRewriteFlag;
+            createCacheContext.getSessionVariable().enablePreMaterializedViewRewrite = originalPreRewriteFlag;
             if (currentContext != null) {
                 currentContext.setThreadLocalInfo();
             }
         }
-        return new MTMVCache(mvPlan, originPlan, planner.getAnalyzedPlan(), needCost
+        return new MTMVCache(mvPlan, originPlan, needCost
                 ? planner.getCascadesContext().getMemo().getRoot().getStatistics() : null,
                 structInfoOptional.orElse(null));
     }
