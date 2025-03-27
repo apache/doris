@@ -123,6 +123,53 @@ public class NereidsBrokerFileGroup implements Writable {
     }
 
     /**
+     * NereidsBrokerFileGroup
+     */
+    public NereidsBrokerFileGroup(long tableId, String columnSeparator, String lineDelimiter, String fileFormat,
+            TFileCompressType compressType, boolean isNegative, List<Long> partitionIds,
+            List<String> filePaths, List<Long> fileSize, List<String> fileFieldNames,
+            List<String> columnNamesFromPath, List<NereidsImportColumnDesc> columnExprList,
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction,
+            Expression precedingFilterExpr, Expression whereExpr, Expression deleteCondition,
+            LoadTask.MergeType mergeType, String sequenceCol, long srcTableId,
+            boolean isLoadFromTable, boolean stripOuterArray, String jsonPaths,
+            String jsonRoot, boolean fuzzyParse, boolean readJsonByLine, boolean numAsString,
+            boolean trimDoubleQuotes, int skipLines, boolean ignoreCsvRedundantCol,
+            byte enclose, byte escape) {
+        this.tableId = tableId;
+        this.columnSeparator = columnSeparator;
+        this.lineDelimiter = lineDelimiter;
+        this.fileFormat = fileFormat;
+        this.compressType = compressType;
+        this.isNegative = isNegative;
+        this.partitionIds = partitionIds;
+        this.filePaths = filePaths;
+        this.fileSize = fileSize;
+        this.fileFieldNames = fileFieldNames;
+        this.columnNamesFromPath = columnNamesFromPath;
+        this.columnExprList = columnExprList;
+        this.columnToHadoopFunction = columnToHadoopFunction;
+        this.precedingFilterExpr = precedingFilterExpr;
+        this.whereExpr = whereExpr;
+        this.deleteCondition = deleteCondition;
+        this.mergeType = mergeType;
+        this.sequenceCol = sequenceCol;
+        this.srcTableId = srcTableId;
+        this.isLoadFromTable = isLoadFromTable;
+        this.stripOuterArray = stripOuterArray;
+        this.jsonPaths = jsonPaths;
+        this.jsonRoot = jsonRoot;
+        this.fuzzyParse = fuzzyParse;
+        this.readJsonByLine = readJsonByLine;
+        this.numAsString = numAsString;
+        this.trimDoubleQuotes = trimDoubleQuotes;
+        this.skipLines = skipLines;
+        this.ignoreCsvRedundantCol = ignoreCsvRedundantCol;
+        this.enclose = enclose;
+        this.escape = escape;
+    }
+
+    /**
      * This will parse the input NereidsDataDescription to list for NereidsBrokerFileGroup
      */
     public void parse(Database db, NereidsDataDescription dataDescription) throws DdlException {
