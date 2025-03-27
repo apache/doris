@@ -71,7 +71,9 @@ void CloudBackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse&,
             if (!result.has_value()) {
                 return;
             }
-            Status st = result.value()->sync_rowsets(-1, true);
+            SyncOptions options;
+            options.warmup_delta_data = true;
+            Status st = result.value()->sync_rowsets(options);
             if (!st.ok()) {
                 LOG_WARNING("failed to sync load for tablet").error(st);
             }

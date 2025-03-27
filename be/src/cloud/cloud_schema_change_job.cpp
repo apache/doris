@@ -95,7 +95,9 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
                                               request.base_tablet_id);
     }
     // MUST sync rowsets before capturing rowset readers and building DeleteHandler
-    RETURN_IF_ERROR(_base_tablet->sync_rowsets(request.alter_version));
+    SyncOptions options;
+    options.query_version = request.alter_version;
+    RETURN_IF_ERROR(_base_tablet->sync_rowsets(options));
     // ATTN: Only convert rowsets of version larger than 1, MUST let the new tablet cache have rowset [0-1]
     _output_cumulative_point = _base_tablet->cumulative_layer_point();
     std::vector<RowSetSplits> rs_splits;

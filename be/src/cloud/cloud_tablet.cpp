@@ -146,28 +146,26 @@ Status CloudTablet::merge_rowsets_schema() {
 
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
 // This function will erase the tablet from `CloudTabletMgr` when it can't find this tablet in MS.
-Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data,
-                                 SyncRowsetStats* stats) {
+Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* stats) {
     RETURN_IF_ERROR(sync_if_not_running(stats));
 
-    if (query_version > 0) {
+    if (options.query_version > 0) {
         std::shared_lock rlock(_meta_lock);
-        if (_max_version >= query_version) {
+        if (_max_version >= options.query_version) {
             return Status::OK();
         }
     }
 
     // serially execute sync to reduce unnecessary network overhead
     std::unique_lock lock(_sync_meta_lock);
-    if (query_version > 0) {
+    if (options.query_version > 0) {
         std::shared_lock rlock(_meta_lock);
-        if (_max_version >= query_version) {
+        if (_max_version >= options.query_version) {
             return Status::OK();
         }
     }
 
-    auto st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, warmup_delta_data, true,
-                                                              false, stats);
+    auto st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, options, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }

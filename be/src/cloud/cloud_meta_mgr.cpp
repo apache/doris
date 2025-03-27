@@ -475,18 +475,16 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
     return Status::OK();
 }
 
-Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data,
-                                         bool sync_delete_bitmap, bool full_sync,
+Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions& options,
                                          SyncRowsetStats* sync_stats) {
     std::unique_lock lock {tablet->get_sync_meta_lock()};
-    return sync_tablet_rowsets_unlocked(tablet, lock, warmup_delta_data, sync_delete_bitmap,
-                                        full_sync, sync_stats);
+    return sync_tablet_rowsets_unlocked(tablet, lock, options, sync_stats);
 }
 
 Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                                                   std::unique_lock<bthread::Mutex>& lock,
-                                                  bool warmup_delta_data, bool sync_delete_bitmap,
-                                                  bool full_sync, SyncRowsetStats* sync_stats) {
+                                                  const SyncOptions& options,
+                                                  SyncRowsetStats* sync_stats) {
     using namespace std::chrono;
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
@@ -516,7 +514,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         idx->set_partition_id(tablet->partition_id());
         {
             std::shared_lock rlock(tablet->get_header_lock());
-            if (full_sync) {
+            if (options.full_sync) {
                 req.set_start_version(0);
             } else {
                 req.set_start_version(tablet->max_version_unlocked() + 1);
@@ -587,15 +585,15 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
 
         // If is mow, the tablet has no delete bitmap in base rowsets.
         // So dont need to sync it.
-        if (sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
+        if (options.sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
             tablet->tablet_state() == TABLET_RUNNING) {
             DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.sync_tablet_delete_bitmap.block",
                             DBUG_BLOCK);
             DeleteBitmap delete_bitmap(tablet_id);
             int64_t old_max_version = req.start_version() - 1;
             auto st = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
-                                                resp.stats(), req.idx(), &delete_bitmap, full_sync,
-                                                sync_stats);
+                                                resp.stats(), req.idx(), &delete_bitmap,
+                                                options.full_sync, sync_stats);
             if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
                 LOG_INFO("rowset meta is expired, need to retry, " + tablet_info)
                         .tag("tried", tried)
@@ -769,8 +767,11 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 //   after doing EMPTY_CUMULATIVE compaction, MS cp is 13, get_rowset will return [2-11][12-12].
                 bool version_overlap =
                         tablet->max_version_unlocked() >= rowsets.front()->start_version();
-                tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, warmup_delta_data);
-                RETURN_IF_ERROR(tablet->merge_rowsets_schema());
+                tablet->add_rowsets(std::move(rowsets), version_overlap, wlock,
+                                    options.warmup_delta_data);
+                if (options.merge_schema) {
+                    RETURN_IF_ERROR(tablet->merge_rowsets_schema());
+                }
             }
             tablet->last_base_compaction_success_time_ms = stats.last_base_compaction_time_ms();
             tablet->last_cumu_compaction_success_time_ms = stats.last_cumu_compaction_time_ms();
