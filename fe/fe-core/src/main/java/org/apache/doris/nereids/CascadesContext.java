@@ -232,7 +232,7 @@ public class CascadesContext implements ScheduleContext {
             this.memo = new Memo(getConnectContext(), tmpPlanForLaterMvRewrite.get(0));
             if (tmpPlanForLaterMvRewrite.size() > 1) {
                 for (int i = 1; i < tmpPlanForLaterMvRewrite.size(); i++) {
-                    this.memo.copyIn(tmpPlanForLaterMvRewrite.get(i), null, false);
+                    this.memo.copyIn(tmpPlanForLaterMvRewrite.get(i), this.memo.getRoot(), false);
                 }
             }
             this.memo.copyIn(plan, this.memo.getRoot(), false);
