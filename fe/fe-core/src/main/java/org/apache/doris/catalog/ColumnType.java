@@ -103,6 +103,7 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.DATEV2.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.STRING.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
+        // could not change varchar to char cuz varchar max length is larger than char
 
         schemaChangeMatrix[PrimitiveType.STRING.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
 
@@ -196,7 +197,10 @@ public abstract class ColumnType {
     // return true if the checkType and other are both char-type otherwise return false,
     // which used in checkSupportSchemaChangeForComplexType
     private static boolean checkSupportSchemaChangeForCharType(Type checkType, Type other) throws DdlException {
-        if (checkType.isStringType() && other.isStringType()) {
+        if (checkType.getPrimitiveType() == PrimitiveType.VARCHAR
+                && other.getPrimitiveType() == PrimitiveType.VARCHAR) {
+            // currently nested types only support light schema change for internal fields, for string types,
+            // only varchar can do light schema change
             checkForTypeLengthChange(checkType, other);
             return true;
         } else {
@@ -273,7 +277,8 @@ public abstract class ColumnType {
             // only support char-type schema change behavior for nested complex type
             // if nested is false, we do not check return value.
             if (nested && !checkSupportSchemaChangeForCharType(checkType, other)) {
-                throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+                throw new DdlException(
+                        "Cannot change " + checkType.toSql() + " to " + other.toSql() + " in nested types");
             }
         }
     }
