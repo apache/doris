@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionColumnFilterConverter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -68,8 +69,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
             for (Expression conjunct : filter.getConjuncts()) {
                 if (conjunct instanceof EqualTo && conjunct.child(0).isSlot()) {
                     Slot slot = (Slot) conjunct.child(0);
-                    String name = slot.getName();
-                    if (name.equals("__DORIS_DELETE_SIGN__")) {
+                    if (slot instanceof SlotReference && !((SlotReference) slot).isVisible()) {
                         continue;
                     }
                 }
@@ -84,7 +84,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
                     Partition partition = table.getPartition(id);
                     MaterializedIndex index = partition.getIndex(olapScan.getSelectedIndexId());
                     selectedTabletIdsBuilder
-                            .addAll(getSelectedTabletIds(filter.getConjuncts(), filterMap, index,
+                            .addAll(getSelectedTabletIds(filterMap, index,
                                     olapScan.getSelectedIndexId() == olapScan.getTable()
                                             .getBaseIndexId(),
                                     partition.getDistributionInfo()));
@@ -104,8 +104,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
         }).toRule(RuleType.OLAP_SCAN_TABLET_PRUNE);
     }
 
-    private Collection<Long> getSelectedTabletIds(Set<Expression> expressions,
-            Map<String, PartitionColumnFilter> filterMap,
+    private Collection<Long> getSelectedTabletIds(Map<String, PartitionColumnFilter> filterMap,
             MaterializedIndex index, boolean isBaseIndexSelected, DistributionInfo info) {
         if (info.getType() != DistributionInfoType.HASH) {
             return index.getTabletIdsInOrder();
