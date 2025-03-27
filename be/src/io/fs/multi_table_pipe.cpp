@@ -214,7 +214,7 @@ Status MultiTablePipe::request_and_exec_plans() {
 
         if (_ctx->multi_table_put_result.__isset.params &&
             !_ctx->multi_table_put_result.__isset.pipeline_params) {
-            st = exec_plans(exec_env, _ctx->multi_table_put_result.params);
+            return Status::Aborted("only support pipeline engine");
         } else if (!_ctx->multi_table_put_result.__isset.params &&
                    _ctx->multi_table_put_result.__isset.pipeline_params) {
             st = exec_plans(exec_env, _ctx->multi_table_put_result.pipeline_params);
@@ -229,8 +229,8 @@ Status MultiTablePipe::request_and_exec_plans() {
     return st;
 }
 
-template <typename ExecParam>
-Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> params) {
+Status MultiTablePipe::exec_plans(ExecEnv* exec_env,
+                                  const std::vector<TPipelineFragmentParams>& params) {
     // put unplanned pipes into planned pipes and clear unplanned pipes
     for (auto& pair : _unplanned_tables) {
         _ctx->table_list.push_back(pair.first);
@@ -249,9 +249,10 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
         }
 
         _inflight_cnt++;
-
+        TPipelineFragmentParamsList mocked;
         RETURN_IF_ERROR(exec_env->fragment_mgr()->exec_plan_fragment(
-                plan, QuerySource::ROUTINE_LOAD, [this, plan](RuntimeState* state, Status* status) {
+                plan, QuerySource::ROUTINE_LOAD,
+                [this, plan](RuntimeState* state, Status* status) {
                     DCHECK(state);
                     auto pair = _planned_tables.find(plan.table_name);
                     if (pair == _planned_tables.end()) {
@@ -292,7 +293,8 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
                     if (inflight_cnt == 1 && is_consume_finished()) {
                         _handle_consumer_finished();
                     }
-                }));
+                },
+                mocked));
     }
 
     return Status::OK();
@@ -343,11 +345,6 @@ void MultiTablePipe::_handle_consumer_finished() {
               << ", ctx: " << _ctx->brief();
     _ctx->promise.set_value(_status); // when all done, finish the routine load task
 }
-
-template Status MultiTablePipe::exec_plans(ExecEnv* exec_env,
-                                           std::vector<TExecPlanFragmentParams> params);
-template Status MultiTablePipe::exec_plans(ExecEnv* exec_env,
-                                           std::vector<TPipelineFragmentParams> params);
 
 } // namespace io
 } // namespace doris
