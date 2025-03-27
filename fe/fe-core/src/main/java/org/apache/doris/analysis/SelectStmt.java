@@ -52,7 +52,6 @@ import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
-import com.google.common.base.Strings;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -396,17 +395,12 @@ public class SelectStmt extends QueryStmt {
                 tableMap.put(tblFuncRef.getTableFunction().getTable().getId(),
                         tblFuncRef.getTableFunction().getTable());
             } else {
-                String dbName = tblRef.getName().getDb();
-                String tableName = tblRef.getName().getTbl();
-                if (Strings.isNullOrEmpty(dbName)) {
-                    dbName = analyzer.getDefaultDb();
-                } else {
-                    dbName = tblRef.getName().getDb();
-                }
                 if (isViewTableRef(tblRef.getName().toString(), parentViewNameSet)) {
                     continue;
                 }
                 tblRef.getName().analyze(analyzer);
+                String dbName = tblRef.getName().getDb();
+                String tableName = tblRef.getName().getTbl();
                 DatabaseIf db = analyzer.getEnv().getCatalogMgr()
                         .getCatalogOrAnalysisException(tblRef.getName().getCtl()).getDbOrAnalysisException(dbName);
                 TableIf table = db.getTableOrAnalysisException(tableName);

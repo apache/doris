@@ -24,6 +24,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -64,6 +65,11 @@ public class RelationUtil {
                 String catalogName = catalogIf.getName();
                 // if the relation is view, nameParts.get(0) is dbName.
                 String dbName = nameParts.get(0);
+                // SQL from BI may like [from `hive_catalog.db`.`tbl`]
+                if (GlobalVariable.showFullDbNameInInfoSchemaDb && dbName.length() > catalogName.length() + 1
+                        && dbName.startsWith(catalogName + '.')) {
+                    dbName = dbName.substring(catalogName.length() + 1);
+                }
                 String tableName = nameParts.get(1);
                 return ImmutableList.of(catalogName, dbName, tableName);
             }

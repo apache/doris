@@ -29,6 +29,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -88,6 +89,10 @@ public class TableName implements Writable {
             if (Strings.isNullOrEmpty(db)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
+        }
+        // SQL from BI may like [from `hive_catalog.db`.`tbl`]
+        if (GlobalVariable.showFullDbNameInInfoSchemaDb && db.length() > ctl.length() + 1 && db.startsWith(ctl + '.')) {
+            db = db.substring(ctl.length() + 1);
         }
 
         if (Strings.isNullOrEmpty(tbl)) {
