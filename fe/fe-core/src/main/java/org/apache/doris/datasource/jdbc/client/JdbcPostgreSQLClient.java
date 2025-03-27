@@ -76,7 +76,7 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                             arrayDimensions = arrayRs.getInt(1);
                         }
                     } catch (SQLException ex) {
-                        LOG.warn("Failed to get array dimensions for column {}: {}", 
+                        LOG.warn("Failed to get array dimensions for column {}: {}",
                                 columnName, Util.getRootCauseMessage(ex));
                     } finally {
                         close(arrayRs, null);
