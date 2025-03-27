@@ -246,6 +246,12 @@ bool PipelineTask::_wait_to_start() {
 }
 
 bool PipelineTask::_is_pending_finish() {
+    // Spilling may be in progress if eos is true.
+    for (auto* dep : _spill_dependencies) {
+        if (dep->is_blocked_by(this)) {
+            return true;
+        }
+    }
     for (auto* dep : _finish_dependencies) {
         if (dep->is_blocked_by(this)) {
             return true;
