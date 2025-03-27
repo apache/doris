@@ -276,7 +276,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
                                 std::vector<std::shared_ptr<Dependency>>>>
                 shared_state_map;
         auto task = std::make_unique<PipelineTask>(
-                cur_pipe, task_id, local_runtime_state.get(), _context.back(),
+                cur_pipe, task_id, local_runtime_state.get(), _context.back().get(),
                 _pipeline_profiles[cur_pipe->id()].get(), shared_state_map, task_id);
         cur_pipe->incr_created_tasks(task_id, task.get());
         local_runtime_state->set_task(task.get());
@@ -940,7 +940,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                                         std::vector<std::shared_ptr<Dependency>>>>
                         shared_state_map;
                 auto task = std::make_unique<PipelineTask>(
-                        _pipelines[i], task_id, local_runtime_state.get(), _context.back(),
+                        _pipelines[i], task_id, local_runtime_state.get(), _context.back().get(),
                         _pipeline_profiles[_pipelines[i]->id()].get(), shared_state_map, j);
                 _pipelines[i]->incr_created_tasks(j, task.get());
                 local_runtime_state->set_task(task.get());

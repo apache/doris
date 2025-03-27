@@ -597,7 +597,10 @@ struct JoinSharedState : public BasicSharedState {
 
 struct HashJoinSharedState : public JoinSharedState {
     ENABLE_FACTORY_CREATOR(HashJoinSharedState)
-    HashJoinSharedState(int num_instances = 1) {
+    HashJoinSharedState() {
+        hash_table_variant_vector.push_back(std::make_shared<JoinDataVariants>());
+    }
+    HashJoinSharedState(int num_instances) {
         source_deps.resize(num_instances, nullptr);
         hash_table_variant_vector.resize(num_instances, nullptr);
         for (int i = 0; i < num_instances; i++) {
@@ -777,9 +780,6 @@ public:
         }
     }
 
-    std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
-        return {source_deps[channel_id]};
-    }
     Dependency* get_sink_dep_by_channel_id(int channel_id) { return nullptr; }
 
     void set_ready_to_read(int channel_id) {
