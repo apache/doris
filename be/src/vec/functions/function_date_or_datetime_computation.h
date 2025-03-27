@@ -1014,16 +1014,20 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         CHECK_EQ(arguments.size(), 3);
         auto res = ColumnFloat64::create();
-        const auto* date1_col =
-                assert_cast<const ColumnType*>(block.get_by_position(arguments[0]).column.get());
-        const auto* date2_col =
-                assert_cast<const ColumnType*>(block.get_by_position(arguments[1]).column.get());
-        const auto* round_off_col =
-                assert_cast<const ColumnBool*>(block.get_by_position(arguments[2]).column.get());
-        for (int i = 0; i < input_rows_count; ++i) {
-            auto date1 = date1_col->get_element(i);
-            auto date2 = date2_col->get_element(i);
-            auto round_off = round_off_col->get_element(i);
+
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (size_t i = 0; i < 3; ++i) {
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        }
+        default_preprocess_parameter_columns(argument_columns, col_const, {0, 1, 2}, block,
+                                             arguments);
+
+        const auto& date1_col = *assert_cast<const ColumnType*>(argument_columns[0].get());
+        const auto& date2_col = *assert_cast<const ColumnType*>(argument_columns[1].get());
+        const auto& round_off_col = *assert_cast<const ColumnBool*>(argument_columns[2].get());
+
+        auto calc_months_between = [](const auto& date1, const auto& date2, bool round_off) {
             auto dtv1 = binary_cast<NativeType, DateV2Value<DateValueType>>(date1);
             auto dtv2 = binary_cast<NativeType, DateV2Value<DateValueType>>(date2);
             double months_between = (dtv1.daynr() - dtv2.daynr()) / 31.0;
@@ -1031,8 +1035,23 @@ public:
             if (round_off) {
                 months_between = round(months_between * 100000000) / 100000000;
             }
-            res->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&months_between)),
-                             sizeof(double));
+            return months_between;
+        };
+
+        // only handle all const case
+        if (col_const[0] && col_const[1] && col_const[2]) {
+            double months_between =
+                    calc_months_between(date1_col.get_element(0), date2_col.get_element(0),
+                                        round_off_col.get_element(0));
+            res->insert_many_vals(months_between, input_rows_count);
+        } else {
+            for (int i = 0; i < input_rows_count; ++i) {
+                double months_between =
+                        calc_months_between(date1_col.get_element(i), date2_col.get_element(i),
+                                            round_off_col.get_element(i));
+                res->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&months_between)),
+                                 sizeof(double));
+            }
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
