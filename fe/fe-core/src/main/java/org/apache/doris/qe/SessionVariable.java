@@ -2271,7 +2271,8 @@ public class SessionVariable implements Serializable, Writable {
                 "use other health replica when the use_fix_replica meet error" })
     public boolean fallbackOtherReplicaWhenFixedCorrupt = false;
 
-    @VariableMgr.VarAttr(name = "FE_DEBUG", needForward = true, fuzzy = true,
+    public static final String FE_DEBUG = "fe_debug";
+    @VariableMgr.VarAttr(name = FE_DEBUG, needForward = true, fuzzy = true,
             description = {"when set true, FE will throw exceptions instead swallow them. This is used for test",
                     "when set true, FE will throw exceptions instead swallow them. This is used for test"})
     public boolean feDebug = false;
