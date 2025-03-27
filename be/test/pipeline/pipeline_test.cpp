@@ -1111,7 +1111,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                     << sink_local_state._runtime_filter_producer_helper->_producers[0]
                                ->debug_string();
             EXPECT_TRUE(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                                ->_wrapper->_state == RuntimeFilterWrapper::State::READY);
+                                ->_wrapper->_state->_state == RuntimeFilterWrapper::State::READY);
 
             if (j == 0) {
                 EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]

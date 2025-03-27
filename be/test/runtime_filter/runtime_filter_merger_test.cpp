@@ -37,7 +37,7 @@ public:
                 RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, &merger, &_profile));
         merger->set_expected_producer_num(2);
         ASSERT_FALSE(merger->ready());
-        ASSERT_EQ(merger->_wrapper->_state, RuntimeFilterWrapper::State::IGNORED);
+        ASSERT_EQ(merger->_wrapper->_state->_state, RuntimeFilterWrapper::State::IGNORED);
 
         std::shared_ptr<RuntimeFilterProducer> producer;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -45,7 +45,7 @@ public:
         producer->set_wrapper_state_and_ready_to_publish(first_product_state);
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(producer.get()));
         ASSERT_FALSE(merger->ready());
-        ASSERT_EQ(merger->_wrapper->_state, first_expected_state);
+        ASSERT_EQ(merger->_wrapper->_state->_state, first_expected_state);
 
         std::shared_ptr<RuntimeFilterProducer> producer2;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -53,7 +53,7 @@ public:
         producer2->set_wrapper_state_and_ready_to_publish(second_product_state);
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(producer2.get()));
         ASSERT_TRUE(merger->ready());
-        ASSERT_EQ(merger->_wrapper->_state, second_expected_state);
+        ASSERT_EQ(merger->_wrapper->_state->_state, second_expected_state);
     }
 
     void test_serialize(RuntimeFilterWrapper::State state,
@@ -87,7 +87,7 @@ public:
         buf.append(data, len);
         butil::IOBufAsZeroCopyInputStream stream(buf);
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(deserialized_producer->assign(request, &stream));
-        ASSERT_EQ(deserialized_producer->_wrapper->_state, state);
+        ASSERT_EQ(deserialized_producer->_wrapper->_state->_state, state);
     }
 };
 
@@ -123,14 +123,14 @@ TEST_F(RuntimeFilterMergerTest, invalid_merge) {
             RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, &merger, &_profile));
     merger->set_expected_producer_num(1);
     ASSERT_FALSE(merger->ready());
-    ASSERT_EQ(merger->_wrapper->_state, RuntimeFilterWrapper::State::IGNORED);
+    ASSERT_EQ(merger->_wrapper->_state->_state, RuntimeFilterWrapper::State::IGNORED);
 
     std::shared_ptr<RuntimeFilterProducer> producer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             _runtime_states[0]->register_producer_runtime_filter(desc, &producer, &_profile));
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(producer.get())); // ready wrapper
-    ASSERT_EQ(merger->_wrapper->_state, RuntimeFilterWrapper::State::READY);
+    ASSERT_EQ(merger->_wrapper->_state->_state, RuntimeFilterWrapper::State::READY);
 
     std::shared_ptr<RuntimeFilterProducer> producer2;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
