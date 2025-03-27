@@ -78,6 +78,7 @@ public class MTMVPlanUtil {
         ctx.getSessionVariable().setDisableNereidsRules(
                 String.join(",", ImmutableSet.of(
                         "COMPRESSED_MATERIALIZE_AGG", "COMPRESSED_MATERIALIZE_SORT",
+                        "ELIMINATE_CONST_JOIN_CONDITION",
                         RuleType.ADD_DEFAULT_LIMIT.name())));
         ctx.setStartTime();
         if (parentContext != null) {

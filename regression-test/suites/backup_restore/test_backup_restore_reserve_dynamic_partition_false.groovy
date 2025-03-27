@@ -16,7 +16,8 @@
 // under the License.
 
 suite("test_backup_restore_reserve_dynamic_partition_false", "backup_restore") {
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String suiteName = "test_backup_restore_reserve_dynamic_partition_false"
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "backup_restore_dynamic_partition_reserve_false_db"
     String tableName = "dynamic_partition_reserve_false_table"
 

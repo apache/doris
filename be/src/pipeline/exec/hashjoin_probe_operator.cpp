@@ -93,34 +93,6 @@ void HashJoinProbeLocalState::prepare_for_next() {
     _prepare_probe_block();
 }
 
-bool HashJoinProbeLocalState::have_other_join_conjunct() const {
-    return _parent->cast<HashJoinProbeOperatorX>()._have_other_join_conjunct;
-}
-
-bool HashJoinProbeLocalState::is_right_semi_anti() const {
-    return _parent->cast<HashJoinProbeOperatorX>()._is_right_semi_anti;
-}
-
-bool HashJoinProbeLocalState::is_outer_join() const {
-    return _parent->cast<HashJoinProbeOperatorX>()._is_outer_join;
-}
-
-std::vector<bool>* HashJoinProbeLocalState::left_output_slot_flags() {
-    return &_parent->cast<HashJoinProbeOperatorX>()._left_output_slot_flags;
-}
-
-std::vector<bool>* HashJoinProbeLocalState::right_output_slot_flags() {
-    return &_parent->cast<HashJoinProbeOperatorX>()._right_output_slot_flags;
-}
-
-vectorized::DataTypes HashJoinProbeLocalState::right_table_data_types() {
-    return _parent->cast<HashJoinProbeOperatorX>()._right_table_data_types;
-}
-
-vectorized::DataTypes HashJoinProbeLocalState::left_table_data_types() {
-    return _parent->cast<HashJoinProbeOperatorX>()._left_table_data_types;
-}
-
 Status HashJoinProbeLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
@@ -132,12 +104,6 @@ Status HashJoinProbeLocalState::close(RuntimeState* state) {
                                          [&](auto&& process_hashtable_ctx) {
                                              if (process_hashtable_ctx._arena) {
                                                  process_hashtable_ctx._arena.reset();
-                                             }
-
-                                             if (process_hashtable_ctx._serialize_key_arena) {
-                                                 process_hashtable_ctx._serialize_key_arena.reset();
-                                                 process_hashtable_ctx._serialized_key_buffer_size =
-                                                         0;
                                              }
                                          }},
                    *_process_hashtable_ctx_variants);
@@ -259,7 +225,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                                             : nullptr,
                                     mutable_join_block, &temp_block,
                                     cast_set<uint32_t>(local_state._probe_block.rows()),
-                                    _is_mark_join, _have_other_join_conjunct);
+                                    _is_mark_join);
                         } else {
                             st = Status::InternalError("uninited hash table");
                         }
@@ -520,6 +486,10 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     // _other_join_conjuncts are evaluated in the context of the rows produced by this node
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+    }
+
+    for (auto conjunct : _other_join_conjuncts) {
+        conjunct->root()->collect_slot_column_ids(_other_conjunct_refer_column_ids);
     }
 
     for (auto& conjunct : _mark_join_conjuncts) {

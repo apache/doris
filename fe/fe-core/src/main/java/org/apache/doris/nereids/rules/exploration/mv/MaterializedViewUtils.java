@@ -262,7 +262,8 @@ public class MaterializedViewUtils {
                 .getSessionVariable()
                 .getDisableNereidsRuleNames();
         rewrittenPlanContext.getStatementContext().getConnectContext().getSessionVariable()
-                .setDisableNereidsRules(String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
+                .setDisableNereidsRules(String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name(),
+                        RuleType.ELIMINATE_CONST_JOIN_CONDITION.name())));
         rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         try {
             rewrittenPlanContext.getConnectContext().setSkipAuth(true);

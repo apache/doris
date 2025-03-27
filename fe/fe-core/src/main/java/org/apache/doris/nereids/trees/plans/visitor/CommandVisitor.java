@@ -150,6 +150,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
@@ -159,6 +160,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
@@ -531,6 +533,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showSmallFilesCommand, context);
     }
 
+    default R visitShowSnapshotCommand(ShowSnapshotCommand showSnapshotCommand, C context) {
+        return visitCommand(showSnapshotCommand, context);
+    }
+
     default R visitShowSqlBlockRuleCommand(ShowSqlBlockRuleCommand showblockruleCommand, C context) {
         return visitCommand(showblockruleCommand, context);
     }
@@ -860,6 +866,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTableCommand(ShowTableCommand showTableCommand, C context) {
         return visitCommand(showTableCommand, context);
+    }
+
+    default R visitShowTableStatsCommand(ShowTableStatsCommand showTableStatsCommand, C context) {
+        return visitCommand(showTableStatsCommand, context);
     }
 
     default R visitDropStatsCommand(DropStatsCommand dropStatsCommand, C context) {

@@ -92,10 +92,10 @@ suite("test_cloud_mow_new_tablet_compaction", "nonConcurrent") {
             def threads = []
             threads << Thread.start { sql "insert into ${table1} values(1,99,99,99),(3,99,99,99);"}
             ++end_ver
-            Thread.sleep(200)
+            Thread.sleep(2000)
             threads << Thread.start { sql "insert into ${table1} values(5,88,88,88),(1,88,88,88);" }
             ++end_ver
-            Thread.sleep(200)
+            Thread.sleep(2000)
             threads << Thread.start { sql "insert into ${table1} values(3,77,77,77),(5,77,77,77);" }
             ++end_ver
             Thread.sleep(2000)
