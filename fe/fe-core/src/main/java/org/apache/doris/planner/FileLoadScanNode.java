@@ -43,7 +43,7 @@ import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.LoadScanProvider;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsFileGroupInfo;
-import org.apache.doris.nereids.load.NereidsLoadPlanTranslator;
+import org.apache.doris.nereids.load.NereidsLoadPlanInfoCollector;
 import org.apache.doris.nereids.load.NereidsParamCreateContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
@@ -217,7 +217,7 @@ public class FileLoadScanNode extends FileScanNode {
     }
 
     public void finalizeForNereids(TUniqueId loadId, List<NereidsFileGroupInfo> fileGroupInfos,
-            List<NereidsParamCreateContext> contexts, NereidsLoadPlanTranslator.LoadPlanInfo loadPlanInfo)
+            List<NereidsParamCreateContext> contexts, NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo)
             throws UserException {
         Preconditions.checkState(contexts.size() == fileGroupInfos.size(),
                 contexts.size() + " vs. " + fileGroupInfos.size());
