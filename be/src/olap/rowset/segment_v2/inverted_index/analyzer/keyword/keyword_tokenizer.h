@@ -45,6 +45,9 @@ public:
     Token* next(Token* token) override {
         if (!_done) {
             _done = true;
+            if (_char_buffer == nullptr) {
+                return nullptr;
+            }
             int32_t length = std::min(_char_length, _buffer_size);
             std::string term(_char_buffer, length);
             token->set(term.data(), 0, term.size());

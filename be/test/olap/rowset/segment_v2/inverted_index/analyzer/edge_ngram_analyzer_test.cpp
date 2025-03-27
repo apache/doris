@@ -17,6 +17,8 @@
 
 #include <gtest/gtest.h>
 
+#include <unordered_map>
+
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ngram/edge_ngram_tokenizer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ngram/edge_ngram_tokenizer_factory.h"
 
@@ -57,9 +59,10 @@ TEST(EdgeNGramTokenizerTest, DefaultMinMaxValues) {
 
 TEST(EdgeNGramTokenizerTest, CustomMinMaxValues) {
     EdgeNGramTokenizerFactory factory;
-    Settings settings;
-    settings["min_gram"] = 3;
-    settings["max_gram"] = 5;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "3";
+    args["max_gram"] = "5";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "photography");
@@ -70,9 +73,10 @@ TEST(EdgeNGramTokenizerTest, CustomMinMaxValues) {
 
 TEST(EdgeNGramTokenizerTest, MinGramLargerThanInput) {
     EdgeNGramTokenizerFactory factory;
-    Settings settings;
-    settings["min_gram"] = 5;
-    settings["max_gram"] = 10;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "5";
+    args["max_gram"] = "10";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "test");
@@ -82,10 +86,11 @@ TEST(EdgeNGramTokenizerTest, MinGramLargerThanInput) {
 
 TEST(EdgeNGramTokenizerTest, MixedTokenChars) {
     EdgeNGramTokenizerFactory factory;
-    Settings settings;
-    settings["min_gram"] = 2;
-    settings["max_gram"] = 3;
-    settings["token_chars"] = std::vector<std::string> {"letter", "digit"};
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "2";
+    args["max_gram"] = "3";
+    args["token_chars"] = "letter, digit";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "a1b2c3");
@@ -96,11 +101,12 @@ TEST(EdgeNGramTokenizerTest, MixedTokenChars) {
 
 TEST(EdgeNGramTokenizerTest, CustomTokenChars) {
     EdgeNGramTokenizerFactory factory;
-    Settings settings;
-    settings["min_gram"] = 1;
-    settings["max_gram"] = 2;
-    settings["token_chars"] = std::vector<std::string> {"custom"};
-    settings["custom_token_chars"] = "*-";
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "1";
+    args["max_gram"] = "2";
+    args["token_chars"] = "custom";
+    args["custom_token_chars"] = "*";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "a*b-c+d");
@@ -113,8 +119,9 @@ TEST(EdgeNGramTokenizerTest, InvalidTokenCharsType) {
     bool exception_thrown = false;
     try {
         EdgeNGramTokenizerFactory factory;
-        Settings settings;
-        settings["token_chars"] = std::vector<std::string> {"invalid"};
+        std::unordered_map<std::string, std::string> args;
+        args["token_chars"] = "invalid";
+        Settings settings(args);
         factory.initialize(settings);
     } catch (...) {
         exception_thrown = true;
@@ -134,8 +141,9 @@ TEST(EdgeNGramTokenizerTest, EmptyInputString) {
 
 TEST(EdgeNGramTokenizerTest, WhitespaceDelimiters) {
     EdgeNGramTokenizerFactory factory;
-    Settings settings;
-    settings["token_chars"] = std::vector<std::string> {"letter"};
+    std::unordered_map<std::string, std::string> args;
+    args["token_chars"] = "letter";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "foo bar");
@@ -146,8 +154,9 @@ TEST(EdgeNGramTokenizerTest, WhitespaceDelimiters) {
 
 TEST(EdgeNGramTokenizerTest, MaxGramCutoff) {
     EdgeNGramTokenizerFactory factory;
-    Settings settings;
-    settings["max_gram"] = 4;
+    std::unordered_map<std::string, std::string> args;
+    args["max_gram"] = "4";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "abcdef");
@@ -158,9 +167,10 @@ TEST(EdgeNGramTokenizerTest, MaxGramCutoff) {
 
 TEST(EdgeNGramTokenizerTest, CJKCharactersHandling) {
     EdgeNGramTokenizerFactory factory;
-    Settings settings;
-    settings["min_gram"] = 1;
-    settings["max_gram"] = 2;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "1";
+    args["max_gram"] = "2";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "你好世界");
@@ -171,10 +181,11 @@ TEST(EdgeNGramTokenizerTest, CJKCharactersHandling) {
 
 TEST(EdgeNGramTokenizerTest, CombinedTokenizationFlow) {
     EdgeNGramTokenizerFactory factory;
-    Settings settings;
-    settings["min_gram"] = 2;
-    settings["max_gram"] = 6;
-    settings["token_chars"] = std::vector<std::string> {"letter", "punctuation"};
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "2";
+    args["max_gram"] = "6";
+    args["token_chars"] = "letter, punctuation";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "hello,world!");
@@ -185,9 +196,10 @@ TEST(EdgeNGramTokenizerTest, CombinedTokenizationFlow) {
 
 TEST(EdgeNGramTokenizerTest, NumbersOnlyTokenization) {
     EdgeNGramTokenizerFactory factory;
-    Settings settings;
-    settings["max_gram"] = 5;
-    settings["token_chars"] = std::vector<std::string> {"digit"};
+    std::unordered_map<std::string, std::string> args;
+    args["max_gram"] = "5";
+    args["token_chars"] = "digit";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "2024year");

@@ -17,12 +17,30 @@
 
 #pragma once
 
-#include <unordered_map>
-#include <variant>
+#include <unicode/utext.h>
+
+#include <memory>
+#include <string_view>
+#include <unordered_set>
+
+#include "CLucene.h" // IWYU pragma: keep
+#include "CLucene/analysis/AnalysisHeader.h"
+
+using namespace lucene::analysis;
+
+using TokenStreamPtr = std::shared_ptr<TokenStream>;
+using TokenPtr = std::shared_ptr<Token>;
 
 namespace doris::segment_v2::inverted_index {
 
-using Object = std::variant<int32_t, std::string, std::vector<std::string>>;
-using Settings = std::unordered_map<std::string, Object>;
+class DorisTokenFilter : public TokenFilter {
+public:
+    DorisTokenFilter(TokenStreamPtr in) : TokenFilter(nullptr), _in(std::move(in)) {}
+    ~DorisTokenFilter() override = default;
+
+protected:
+    TokenStreamPtr _in;
+};
+using TokenFilterPtr = std::shared_ptr<DorisTokenFilter>;
 
 } // namespace doris::segment_v2::inverted_index

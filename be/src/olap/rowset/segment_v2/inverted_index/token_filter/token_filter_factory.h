@@ -17,34 +17,18 @@
 
 #pragma once
 
-#include "keyword_tokenizer.h"
 #include "olap/rowset/segment_v2/inverted_index/setting.h"
+#include "token_filter.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class KeywordTokenizerFactory {
+class TokenFilterFactory {
 public:
-    KeywordTokenizerFactory() = default;
-    ~KeywordTokenizerFactory() = default;
+    TokenFilterFactory() = default;
+    virtual ~TokenFilterFactory() = default;
 
-    void initialize(const Settings& settings) {
-        _max_token_len = settings.get_int("max_token_len", KeywordTokenizer::DEFAULT_BUFFER_SIZE);
-        if (_max_token_len > KeywordTokenizer::MAX_TOKEN_LENGTH_LIMIT || _max_token_len <= 0) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "maxTokenLen must be greater than 0 and less than " +
-                                    std::to_string(KeywordTokenizer::MAX_TOKEN_LENGTH_LIMIT) +
-                                    " passed: " + std::to_string(_max_token_len));
-        }
-    }
-
-    KeywordTokenizerPtr create() const {
-        auto tokenzier = std::make_shared<KeywordTokenizer>();
-        tokenzier->initialize(_max_token_len);
-        return tokenzier;
-    }
-
-private:
-    int32_t _max_token_len = 0;
+    virtual void initialize(const Settings& args) = 0;
+    virtual TokenFilterPtr create(const TokenStreamPtr& in) = 0;
 };
 
 } // namespace doris::segment_v2::inverted_index
