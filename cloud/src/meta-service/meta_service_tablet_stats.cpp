@@ -94,7 +94,8 @@ int get_detached_tablet_stats(const std::vector<std::pair<std::string, std::stri
                               TabletStats& detached_stats) {
     bool unexpected_size = false;
     // clang-format off
-    if (stats_kvs.size() != 7    // aggregated stats and 4 splitted stats: num_rowsets num_segs data_size num_rows index_size segment_size
+    if (stats_kvs.size() != 7    // aggregated stats and 6 splitted stats: num_rowsets num_segs data_size num_rows index_size segment_size
+        && stats_kvs.size() != 5 // aggregated stats and 4 splitted stats: num_rowsets num_segs data_size num_rows
         && stats_kvs.size() != 2 // aggregated stats and 1 splitted stats: num_rowsets
         && stats_kvs.size() != 1 // aggregated stats only (nothing has been imported since created)
         ) {
@@ -148,8 +149,11 @@ int get_detached_tablet_stats(const std::vector<std::pair<std::string, std::stri
     }
 
     if (unexpected_size) {
-        LOG_EVERY_N(WARNING, 100) << "unexpected tablet stats_kvs, it should be 1 or 2 or 5, size="
-                                  << stats_kvs.size() << " suffix=" << ss.str();
+        DCHECK(false) << "unexpected tablet stats_kvs, it should be 1 or 2 or 5 or 7, size="
+                      << stats_kvs.size() << " suffix=" << ss.str();
+        LOG_EVERY_N(WARNING, 100)
+                << "unexpected tablet stats_kvs, it should be 1 or 2 or 5 or 7, size="
+                << stats_kvs.size() << " suffix=" << ss.str();
     }
 
     return 0;

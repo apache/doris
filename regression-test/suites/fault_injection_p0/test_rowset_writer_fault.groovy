@@ -56,9 +56,6 @@ suite("test_rowset_writer_fault", "nonConcurrent") {
                 assertEquals("fail", json.Status.toLowerCase())
             }
         }
-    } catch(Exception e) {
-        logger.info(e.getMessage())
-        assertTrue(e.getMessage().contains(error_msg))
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs(injection)
     }

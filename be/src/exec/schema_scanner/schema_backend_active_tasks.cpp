@@ -25,10 +25,13 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 std::vector<SchemaScanner::ColumnDesc> SchemaBackendActiveTasksScanner::_s_tbls_columns = {
         //   name,       type,          size
         {"BE_ID", TYPE_BIGINT, sizeof(int64_t), false},
         {"FE_HOST", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"WORKLOAD_GROUP_ID", TYPE_BIGINT, sizeof(int64_t), false},
         {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), false},
         {"TASK_TIME_MS", TYPE_BIGINT, sizeof(int64_t), false},
         {"TASK_CPU_TIME_MS", TYPE_BIGINT, sizeof(int64_t), false},
@@ -39,6 +42,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaBackendActiveTasksScanner::_s_tbls_
         {"SHUFFLE_SEND_BYTES", TYPE_BIGINT, sizeof(int64_t), false},
         {"SHUFFLE_SEND_ROWS", TYPE_BIGINT, sizeof(int64_t), false},
         {"QUERY_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"SPILL_WRITE_BYTES_TO_LOCAL_STORAGE", TYPE_BIGINT, sizeof(int64_t), false},
+        {"SPILL_READ_BYTES_FROM_LOCAL_STORAGE", TYPE_BIGINT, sizeof(int64_t), false},
 };
 
 SchemaBackendActiveTasksScanner::SchemaBackendActiveTasksScanner()
@@ -76,7 +81,7 @@ Status SchemaBackendActiveTasksScanner::get_next_block_internal(vectorized::Bloc
 
         ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_active_be_tasks_block(
                 _task_stats_block.get());
-        _total_rows = _task_stats_block->rows();
+        _total_rows = (int)_task_stats_block->rows();
     }
 
     if (_row_idx == _total_rows) {

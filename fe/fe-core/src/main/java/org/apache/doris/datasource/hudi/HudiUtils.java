@@ -17,28 +17,49 @@
 
 package org.apache.doris.datasource.hudi;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.ExternalSchemaCache;
+import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.TablePartitionValues;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.hudi.source.HudiCachedPartitionProcessor;
 
 import org.apache.avro.LogicalType;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.Schema.Field;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
+import org.apache.hudi.common.util.Option;
+import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.internal.schema.Types;
+import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 
 import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class HudiUtils {
-    private static final SimpleDateFormat defaultDateFormat = new SimpleDateFormat("yyyy-MM-dd");
+    private static final DateTimeFormatter DEFAULT_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     /**
      * Convert different query instant time format to the commit time format.
@@ -60,7 +81,8 @@ public class HudiUtils {
             HoodieActiveTimeline.parseDateFromInstantTime(queryInstant); // validate the format
             return queryInstant;
         } else if (instantLength == 10) { // for yyyy-MM-dd
-            return HoodieActiveTimeline.formatDate(defaultDateFormat.parse(queryInstant));
+            LocalDate date = LocalDate.parse(queryInstant, DEFAULT_DATE_FORMATTER);
+            return HoodieActiveTimeline.formatDate(java.sql.Date.valueOf(date));
         } else {
             throw new IllegalArgumentException("Unsupported query instant time format: " + queryInstant
                     + ", Supported time format are: 'yyyy-MM-dd HH:mm:ss[.SSS]' "
@@ -86,7 +108,7 @@ public class HudiUtils {
             case LONG:
                 if (logicalType instanceof LogicalTypes.TimestampMillis
                         || logicalType instanceof LogicalTypes.TimestampMicros) {
-                    return logicalType.getName();
+                    return "timestamp";
                 }
                 if (logicalType instanceof LogicalTypes.TimeMicros) {
                     return handleUnsupportedType(schema);
@@ -231,4 +253,71 @@ public class HudiUtils {
         }
         return Type.UNSUPPORTED;
     }
+
+    public static TablePartitionValues getPartitionValues(Optional<TableSnapshot> tableSnapshot,
+            HMSExternalTable hmsTable) {
+        TablePartitionValues partitionValues = new TablePartitionValues();
+        if (hmsTable.getPartitionColumns().isEmpty()) {
+            //isn't partition table.
+            return partitionValues;
+        }
+
+        HoodieTableMetaClient hudiClient = hmsTable.getHudiClient();
+        HudiCachedPartitionProcessor processor = (HudiCachedPartitionProcessor) Env.getCurrentEnv()
+                .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog());
+        boolean useHiveSyncPartition = hmsTable.useHiveSyncPartition();
+
+        if (tableSnapshot.isPresent()) {
+            if (tableSnapshot.get().getType() == TableSnapshot.VersionType.VERSION) {
+                // Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`";
+                return partitionValues;
+            }
+            String queryInstant = tableSnapshot.get().getTime().replaceAll("[-: ]", "");
+            try {
+                partitionValues = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(() ->
+                        processor.getSnapshotPartitionValues(hmsTable, hudiClient, queryInstant, useHiveSyncPartition));
+            } catch (Exception e) {
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+            }
+        } else {
+            HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
+            Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
+            if (!snapshotInstant.isPresent()) {
+                return partitionValues;
+            }
+            try {
+                partitionValues = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(()
+                        -> processor.getPartitionValues(hmsTable, hudiClient, useHiveSyncPartition));
+            } catch (Exception e) {
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+            }
+        }
+        return partitionValues;
+    }
+
+    public static HoodieTableMetaClient buildHudiTableMetaClient(String hudiBasePath, Configuration conf) {
+        HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
+        return HiveMetaStoreClientHelper.ugiDoAs(
+            conf,
+            () -> HoodieTableMetaClient.builder()
+                .setConf(hadoopStorageConfiguration).setBasePath(hudiBasePath).build());
+    }
+
+    public static Map<Integer, String> getSchemaInfo(InternalSchema internalSchema) {
+        Types.RecordType record = internalSchema.getRecord();
+        Map<Integer, String> schemaInfo = new HashMap<>(record.fields().size());
+        for (Types.Field field : record.fields()) {
+            schemaInfo.put(field.fieldId(), field.name().toLowerCase());
+        }
+        return schemaInfo;
+    }
+
+    public static HudiSchemaCacheValue getSchemaCacheValue(HMSExternalTable hmsTable) {
+        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getSchemaCache(hmsTable.getCatalog());
+        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(hmsTable.getDbName(), hmsTable.getName());
+        return (HudiSchemaCacheValue) schemaCacheValue.get();
+    }
+
+
 }

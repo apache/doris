@@ -22,6 +22,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LimitElement;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -34,6 +35,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -43,9 +45,12 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
@@ -58,6 +63,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -94,11 +100,16 @@ public class PartitionsProcDir implements ProcDirInterface {
         if (filterMap == null) {
             return true;
         }
-        Expr subExpr = filterMap.get(columnName.toLowerCase());
+        Expr subExpr = filterMap.get(columnName.toLowerCase()); // predicate on this column.
         if (subExpr == null) {
             return true;
         }
         if (subExpr instanceof BinaryPredicate) {
+            // show partitions only provide very limited filtering capacity in FE. so restrict here.
+            if (!(subExpr.getChild(1) instanceof LiteralExpr)) {
+                throw new AnalysisException("Not Supported. Use `select * from partitions(...)` instead");
+            }
+
             BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
             if (subExpr.getChild(1) instanceof StringLiteral
                     && binaryPredicate.getOp() == BinaryPredicate.Operator.EQ) {
@@ -169,6 +180,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             filterPartitionInfos = partitionInfos;
         } else {
             filterPartitionInfos = Lists.newArrayList();
+            // TODO: we should change the order of loops to speed up. use filters to filter column value.
             for (List<Comparable> partitionInfo : partitionInfos) {
                 if (partitionInfo.size() != TITLE_NAMES.size()) {
                     throw new AnalysisException("PartitionInfos.size() " + partitionInfos.size()
@@ -243,22 +255,38 @@ public class PartitionsProcDir implements ProcDirInterface {
         List<Pair<List<Comparable>, TRow>> partitionInfos = new ArrayList<Pair<List<Comparable>, TRow>>();
         Map<Long, List<String>> partitionsUnSyncTables = null;
         String mtmvPartitionSyncErrorMsg = null;
+
+        List<TableIf> needLocked = Lists.newArrayList();
+        needLocked.add(olapTable);
         if (olapTable instanceof MTMV) {
-            try {
-                partitionsUnSyncTables = MTMVPartitionUtil
-                        .getPartitionsUnSyncTables((MTMV) olapTable);
-            } catch (AnalysisException e) {
-                mtmvPartitionSyncErrorMsg = e.getMessage();
+            MTMV mtmv = (MTMV) olapTable;
+            for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTables()) {
+                try {
+                    TableIf baseTable = MTMVUtil.getTable(baseTableInfo);
+                    needLocked.add(baseTable);
+                } catch (Exception e) {
+                    // do nothing, ignore not existed table
+                }
             }
+            needLocked.sort(Comparator.comparing(TableIf::getId));
         }
-        olapTable.readLock();
+        MetaLockUtils.readLockTables(needLocked);
         try {
+            if (olapTable instanceof MTMV) {
+                try {
+                    partitionsUnSyncTables = MTMVPartitionUtil
+                            .getPartitionsUnSyncTables((MTMV) olapTable);
+                } catch (AnalysisException e) {
+                    mtmvPartitionSyncErrorMsg = e.getMessage();
+                }
+            }
             List<Long> partitionIds;
             PartitionInfo tblPartitionInfo = olapTable.getPartitionInfo();
 
             // for range partitions, we return partitions in ascending range order by default.
             // this is to be consistent with the behaviour before 0.12
-            if (tblPartitionInfo.getType() == PartitionType.RANGE || tblPartitionInfo.getType() == PartitionType.LIST) {
+            if (tblPartitionInfo.getType() == PartitionType.RANGE
+                    || tblPartitionInfo.getType() == PartitionType.LIST) {
                 partitionIds = tblPartitionInfo.getPartitionItemEntryList(isTempPartition, true).stream()
                         .map(Map.Entry::getKey).collect(Collectors.toList());
             } else {
@@ -295,7 +323,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     String colNamesStr = joiner.join(colNames);
                     partitionInfo.add(colNamesStr);
                     trow.addToColumnValue(new TCell().setStringVal(colNamesStr));
-                    String itemStr = tblPartitionInfo.getItem(partitionId).getItems().toString();
+                    String itemStr = tblPartitionInfo.getPartitionRangeString(partitionId);
                     partitionInfo.add(itemStr);
                     trow.addToColumnValue(new TCell().setStringVal(itemStr));
                 } else {
@@ -395,7 +423,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfos.add(Pair.of(partitionInfo, trow));
             }
         } finally {
-            olapTable.readUnlock();
+            MetaLockUtils.readUnlockTables(needLocked);
         }
         return partitionInfos;
     }

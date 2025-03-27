@@ -949,7 +949,7 @@ void process_mow_when_commit_txn(
         // by another transaction and successfully committed.
         if (!lock_values[i].has_value()) {
             ss << "get delete bitmap update lock info, lock is expired"
-               << " table_id=" << table_id << " key=" << hex(lock_keys[i]);
+               << " table_id=" << table_id << " key=" << hex(lock_keys[i]) << " txn_id=" << txn_id;
             code = MetaServiceCode::LOCK_EXPIRED;
             msg = ss.str();
             LOG(WARNING) << msg << " txn_id=" << txn_id;
@@ -964,13 +964,14 @@ void process_mow_when_commit_txn(
             return;
         }
         if (lock_info.lock_id() != request->txn_id()) {
-            msg = "lock is expired";
+            ss << "lock is expired, locked by lock_id=" << lock_info.lock_id();
+            msg = ss.str();
             code = MetaServiceCode::LOCK_EXPIRED;
             return;
         }
         txn->remove(lock_keys[i]);
         LOG(INFO) << "xxx remove delete bitmap lock, lock_key=" << hex(lock_keys[i])
-                  << " txn_id=" << txn_id;
+                  << " table_id=" << table_id << " txn_id=" << txn_id;
 
         for (auto tablet_id : table_id_tablet_ids[table_id]) {
             std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
@@ -2558,6 +2559,10 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                instance_id, db_id, tmp_rowsets_meta, err);
         if ((MetaServiceCode::OK == code) || (TxnErrorCode::TXN_BYTES_TOO_LARGE != err) ||
             !allow_txn_lazy_commit) {
+            if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                msg += ", likely due to committing too many tablets. "
+                       "Please reduce the number of partitions involved in the load.";
+            }
             return;
         }
         DCHECK(code != MetaServiceCode::OK);

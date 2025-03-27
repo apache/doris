@@ -170,12 +170,6 @@ c	double	No	false	\N	NONE,STORED GENERATED
 b	int	Yes	false	\N	NONE
 d	int	Yes	false	\N	NONE,STORED GENERATED
 
--- !test_update --
-1
-
--- !test_update_generated_column --
-1	20	21
-
 -- !gen_col_unique_key --
 0
 
@@ -220,4 +214,10 @@ d	int	Yes	false	\N	NONE,STORED GENERATED
 
 -- !agg_replace_null --
 1	2	3	4	13
+
+-- !test_update --
+1
+
+-- !test_update_generated_column --
+1	20	21
 

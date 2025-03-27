@@ -20,6 +20,7 @@
 #include <bthread/mutex.h>
 
 #include "olap/delta_writer.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 
@@ -32,7 +33,7 @@ public:
                      const UniqueId& load_id);
     ~CloudDeltaWriter() override;
 
-    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) override;
+    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) override;
 
     Status close() override;
 
@@ -51,8 +52,7 @@ public:
     Status commit_rowset();
 
     Status set_txn_related_delete_bitmap();
-
-    QueryThreadContext query_thread_context() { return _query_thread_context; }
+    std::shared_ptr<ResourceContext> resource_context() { return _resource_ctx; }
 
 private:
     // Convert `_rowset_builder` from `BaseRowsetBuilder` to `CloudRowsetBuilder`
@@ -60,7 +60,7 @@ private:
 
     bthread::Mutex _mtx;
     CloudStorageEngine& _engine;
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 };
 
 } // namespace doris

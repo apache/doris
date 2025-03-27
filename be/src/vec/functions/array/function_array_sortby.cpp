@@ -95,13 +95,13 @@ public:
                 src_column_array.get_offsets_column().clone_resized(input_rows_count);
         MutableColumnPtr result_nullmap = nullptr;
         const ColumnUInt8::Container* src_null_map_data = nullptr;
-        if (argument_nullmap[0] != nullptr) {
+        if (argument_nullmap[0]) {
             const auto& src_column_nullmap = assert_cast<const ColumnUInt8&>(*argument_nullmap[0]);
             result_nullmap = src_column_nullmap.clone_resized(input_rows_count);
             src_null_map_data = &(src_column_nullmap.get_data());
         }
         const ColumnUInt8::Container* key_null_map_data = nullptr;
-        if (argument_nullmap[1] != nullptr) {
+        if (argument_nullmap[1]) {
             const auto& key_column_nullmap = assert_cast<const ColumnUInt8&>(*argument_nullmap[1]);
             key_null_map_data = &(key_column_nullmap.get_data());
         }
@@ -149,7 +149,7 @@ public:
             }
         }
         src_nested_nullable_column.append_data_by_selector(result_data_column, src_selector);
-        if (result_nullmap != nullptr) {
+        if (result_nullmap) {
             block.replace_by_position(
                     result,
                     ColumnNullable::create(ColumnArray::create(std::move(result_data_column),

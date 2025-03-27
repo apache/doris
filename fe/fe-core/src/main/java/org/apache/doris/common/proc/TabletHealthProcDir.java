@@ -67,7 +67,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
 
     private Env env;
 
-    private ForkJoinPool taskPool = new ForkJoinPool();
+    private static ForkJoinPool taskPool = new ForkJoinPool();
 
     public TabletHealthProcDir(Env env) {
         Preconditions.checkNotNull(env);

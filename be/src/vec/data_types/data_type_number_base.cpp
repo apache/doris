@@ -158,8 +158,7 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
     if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
         return Float64(node.float_literal.value);
     }
-    LOG(FATAL) << "__builtin_unreachable";
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("__builtin_unreachable"));
 }
 
 template <typename T>
@@ -311,16 +310,6 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
 template <typename T>
 MutableColumnPtr DataTypeNumberBase<T>::create_column() const {
     return ColumnVector<T>::create();
-}
-
-template <typename T>
-bool DataTypeNumberBase<T>::is_value_represented_by_integer() const {
-    return std::is_integral_v<T>;
-}
-
-template <typename T>
-bool DataTypeNumberBase<T>::is_value_represented_by_unsigned_integer() const {
-    return std::is_integral_v<T> && std::is_unsigned_v<T>;
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

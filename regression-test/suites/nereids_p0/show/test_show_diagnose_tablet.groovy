@@ -29,6 +29,8 @@ suite("test_show_diagnose_tablet_nereids", "query,diagnose") {
 
         // Execute the SHOW TABLET DIAGNOSIS command and verify the output
         checkNereidsExecute("SHOW TABLET DIAGNOSIS ${tabletId}")
+        // Execute the SHOW TABLET DIAGNOSIS command and verify the output
+        checkNereidsExecute("ADMIN DIAGNOSE TABLET ${tabletId}")
     } catch (Exception e) {
         log.error("Failed to execute SHOW TABLET DIAGNOSIS command", e)
         throw e

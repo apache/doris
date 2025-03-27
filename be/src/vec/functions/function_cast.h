@@ -665,7 +665,14 @@ struct ConvertImplNumberToJsonb {
             } else if constexpr (std::is_same_v<ColumnFloat64, ColumnType>) {
                 writer.writeDouble(data[i]);
             } else {
-                LOG(FATAL) << "unsupported type ";
+                static_assert(std::is_same_v<ColumnType, ColumnUInt8> ||
+                                      std::is_same_v<ColumnType, ColumnInt8> ||
+                                      std::is_same_v<ColumnType, ColumnInt16> ||
+                                      std::is_same_v<ColumnType, ColumnInt32> ||
+                                      std::is_same_v<ColumnType, ColumnInt64> ||
+                                      std::is_same_v<ColumnType, ColumnInt128> ||
+                                      std::is_same_v<ColumnType, ColumnFloat64>,
+                              "unsupported type");
                 __builtin_unreachable();
             }
             column_string->insert_data(writer.getOutput()->getBuffer(),
@@ -719,7 +726,7 @@ struct ConvertImplGenericFromJsonb {
             const bool is_dst_string = is_string_or_fixed_string(data_type_to);
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
-                JsonbDocument* doc = JsonbDocument::createDocument(val.data, val.size);
+                JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(val.data, val.size);
                 if (UNLIKELY(!doc || !doc->getValue())) {
                     (*vec_null_map_to)[i] = 1;
                     col_to->insert_default();
@@ -763,7 +770,7 @@ struct ConvertImplGenericFromJsonb {
                     continue;
                 }
                 ReadBuffer read_buffer((char*)(input_str.data()), input_str.size());
-                Status st = data_type_to->from_string(read_buffer, col_to);
+                Status st = data_type_to->from_string(read_buffer, col_to.get());
                 // if parsing failed, will return null
                 (*vec_null_map_to)[i] = !st.ok();
                 if (!st.ok()) {
@@ -882,7 +889,7 @@ struct ConvertImplFromJsonb {
                 }
 
                 // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-                JsonbDocument* doc = JsonbDocument::createDocument(val.data, val.size);
+                JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(val.data, val.size);
                 if (UNLIKELY(!doc || !doc->getValue())) {
                     null_map[i] = 1;
                     res[i] = 0;
@@ -950,8 +957,7 @@ struct ConvertImplFromJsonb {
                         res[i] = 0;
                     }
                 } else {
-                    LOG(FATAL) << "unsupported type ";
-                    __builtin_unreachable();
+                    throw Exception(Status::FatalError("unsupported type"));
                 }
             }
 
@@ -1871,6 +1877,7 @@ private:
             auto& variant = assert_cast<const ColumnObject&>(*col_from);
             ColumnPtr col_to = data_type_to->create_column();
             if (!variant.is_finalized()) {
+                // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
                 variant.assume_mutable()->finalize();
             }
             // It's important to convert as many elements as possible in this context. For instance,

@@ -53,13 +53,17 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
@@ -222,6 +226,8 @@ public class StatisticsUtil {
         sessionVariable.enablePushDownStringMinMax = true;
         sessionVariable.enableUniqueKeyPartialUpdate = false;
         sessionVariable.enableMaterializedViewRewrite = false;
+        sessionVariable.enableQueryCache = false;
+        sessionVariable.enableSqlCache = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ADMIN.getQualifiedUser());
@@ -289,6 +295,10 @@ public class StatisticsUtil {
             case VARCHAR:
             case STRING:
                 return new StringLiteral(columnValue);
+            case IPV4:
+                return new org.apache.doris.analysis.IPv4Literal(columnValue);
+            case IPV6:
+                return new org.apache.doris.analysis.IPv6Literal(columnValue);
             case HLL:
             case BITMAP:
             case ARRAY:
@@ -339,6 +349,12 @@ public class StatisticsUtil {
                 case STRING:
                     VarcharLiteral varchar = new VarcharLiteral(columnValue);
                     return varchar.getDouble();
+                case IPV4:
+                    IPv4Literal ipv4 = new IPv4Literal(columnValue);
+                    return ipv4.getDouble();
+                case IPV6:
+                    IPv6Literal ipv6 = new IPv6Literal(columnValue);
+                    return ipv6.getDouble();
                 case HLL:
                 case BITMAP:
                 case ARRAY:
@@ -351,6 +367,23 @@ public class StatisticsUtil {
             throw new AnalysisException(e.getMessage(), e);
         }
 
+    }
+
+    public static DBObjects convertTableNameToObjects(TableNameInfo tableNameInfo) {
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalogIf =
+                Env.getCurrentEnv().getCatalogMgr().getCatalog(tableNameInfo.getCtl());
+        if (catalogIf == null) {
+            throw new IllegalStateException(String.format("Catalog:%s doesn't exist", tableNameInfo.getCtl()));
+        }
+        DatabaseIf<? extends TableIf> databaseIf = catalogIf.getDbNullable(tableNameInfo.getDb());
+        if (databaseIf == null) {
+            throw new IllegalStateException(String.format("DB:%s doesn't exist", tableNameInfo.getDb()));
+        }
+        TableIf tableIf = databaseIf.getTableNullable(tableNameInfo.getTbl());
+        if (tableIf == null) {
+            throw new IllegalStateException(String.format("Table:%s doesn't exist", tableNameInfo.getTbl()));
+        }
+        return new DBObjects(catalogIf, databaseIf, tableIf);
     }
 
     public static DBObjects convertTableNameToObjects(TableName tableName) {
@@ -940,6 +973,24 @@ public class StatisticsUtil {
         return StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD;
     }
 
+    public static int getPartitionSampleCount() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.PARTITION_SAMPLE_COUNT).partitionSampleCount;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of partition_sample_count, return default", e);
+        }
+        return StatisticConstants.PARTITION_SAMPLE_COUNT;
+    }
+
+    public static long getPartitionSampleRowCount() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.PARTITION_SAMPLE_ROW_COUNT).partitionSampleRowCount;
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of partition_sample_row_count, return default", e);
+        }
+        return StatisticConstants.PARTITION_SAMPLE_ROW_COUNT;
+    }
+
     public static String encodeValue(ResultRow row, int index) {
         if (row == null || row.getValues().size() <= index) {
             return "NULL";
@@ -1012,12 +1063,6 @@ public class StatisticsUtil {
         if (columnStatsMeta == null) {
             return true;
         }
-        // Column hasn't been analyzed for longer than config interval.
-        if (Config.auto_analyze_interval_seconds > 0
-                && System.currentTimeMillis() - columnStatsMeta.updatedTime
-                        > Config.auto_analyze_interval_seconds * 1000) {
-            return true;
-        }
         // Partition table partition stats never been collected.
         if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()
                 && columnStatsMeta.partitionUpdateRows == null) {
@@ -1072,7 +1117,7 @@ public class StatisticsUtil {
             }
             // External is hard to calculate change rate, use time interval to control analyze frequency.
             return System.currentTimeMillis()
-                    - tableStatsStatus.updatedTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
+                    - tableStatsStatus.lastAnalyzeTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
         }
     }
 
@@ -1126,5 +1171,48 @@ public class StatisticsUtil {
             }
         }
         return false;
+    }
+
+    // This function return true means the column hasn't been analyzed for longer than the configured time.
+    public static boolean isLongTimeColumn(TableIf table, Pair<String, String> column) {
+        if (column == null) {
+            return false;
+        }
+        if (!table.autoAnalyzeEnabled()) {
+            return false;
+        }
+        if (!(table instanceof OlapTable)) {
+            return false;
+        }
+        AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
+        TableStatsMeta tblStats = manager.findTableStatsStatus(table.getId());
+        // Table never been analyzed, skip it for higher priority jobs.
+        if (tblStats == null) {
+            LOG.warn("Table stats is null.");
+            return false;
+        }
+        ColStatsMeta columnStats = tblStats.findColumnStatsMeta(column.first, column.second);
+        if (columnStats == null) {
+            // Column never been analyzed, skip it for higher priority jobs.
+            return false;
+        }
+        // User injected column stats, don't do auto analyze, avoid overwrite user injected stats.
+        if (tblStats.userInjected) {
+            return false;
+        }
+        boolean isLongTime = Config.auto_analyze_interval_seconds > 0
+                && System.currentTimeMillis() - columnStats.updatedTime > Config.auto_analyze_interval_seconds * 1000;
+        if (!isLongTime) {
+            return false;
+        }
+        // For olap table, if the table visible version and row count doesn't change since last analyze,
+        // we don't need to analyze it because its data is not changed.
+        OlapTable olapTable = (OlapTable) table;
+        return olapTable.getVisibleVersion() != columnStats.tableVersion
+                || olapTable.getRowCount() != columnStats.rowCount;
+    }
+
+    public static boolean canCollect() {
+        return enableAutoAnalyze() && inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()));
     }
 }

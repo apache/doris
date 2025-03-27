@@ -205,4 +205,16 @@ public class LocationPathTest {
         String beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.equalsIgnoreCase("/path/to/local"));
     }
+
+    @Test
+    public void testLocalFileSystem() {
+        HashMap<String, String> props = new HashMap<>();
+        props.put("fs.defaultFS", "hdfs:///xyz");
+        LocationPath p1 = new LocationPath("file:///abc/def", props);
+        Assertions.assertEquals(Scheme.LOCAL, p1.getScheme());
+        LocationPath p2 = new LocationPath("file:/abc/def", props);
+        Assertions.assertEquals(Scheme.LOCAL, p2.getScheme());
+        LocationPath p3 = new LocationPath("file://authority/abc/def", props);
+        Assertions.assertEquals(Scheme.LOCAL, p3.getScheme());
+    }
 }

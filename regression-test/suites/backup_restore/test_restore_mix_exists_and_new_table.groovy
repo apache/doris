@@ -18,7 +18,7 @@
 suite("test_restore_mix_exists_and_new_table", "backup_restore") {
     String dbName = "restore_mix_exists_and_new_table"
     String suiteName = "test_restore_mix_exists_and_new_table"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot"
     String tableNamePrefix = "${suiteName}_tables"
 
@@ -84,7 +84,7 @@ suite("test_restore_mix_exists_and_new_table", "backup_restore") {
     syncer.waitAllRestoreFinish(dbName)
 
     for (def tableName in tables) {
-        result = sql "SELECT * FROM ${dbName}.${tableName}"
+        def result = sql "SELECT * FROM ${dbName}.${tableName}"
         assertEquals(result.size(), numRows);
         sql "DROP TABLE ${dbName}.${tableName} FORCE"
     }

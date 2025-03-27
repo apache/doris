@@ -44,6 +44,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.cooldown.CooldownConf;
@@ -90,11 +91,13 @@ import org.apache.doris.thrift.TTabletMetaInfo;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -231,11 +234,13 @@ public class ReportHandler extends Daemon {
 
     private void putToQueue(ReportTask reportTask) throws Exception {
         int currentSize = reportQueue.size();
-        if (currentSize > Config.report_queue_size) {
-            LOG.warn("the report queue size exceeds the limit: {}. current: {}", Config.report_queue_size, currentSize);
+        int maxReportQueueSize = Math.max(Config.report_queue_size,
+                10 * Env.getCurrentSystemInfo().getAllBackendIds().size());
+        if (currentSize > maxReportQueueSize) {
+            LOG.warn("the report queue size exceeds the limit: {}. current: {}", maxReportQueueSize, currentSize);
             throw new Exception(
                     "the report queue size exceeds the limit: "
-                            + Config.report_queue_size + ". current: " + currentSize);
+                            + maxReportQueueSize + ". current: " + currentSize);
         }
 
         BackendReportType backendReportType = new BackendReportType(reportTask.beId, reportTask.reportType);
@@ -503,8 +508,8 @@ public class ReportHandler extends Daemon {
         Map<Long, Long> partitionVersionSyncMap = Maps.newConcurrentMap();
 
         // dbid -> txn id -> [partition info]
-        Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
-        ListMultimap<Long, Long> transactionsToClear = LinkedListMultimap.create();
+        Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
+        SetMultimap<Long, Long> transactionsToClear = LinkedHashMultimap.create();
 
         // db id -> tablet id
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
@@ -592,7 +597,22 @@ public class ReportHandler extends Daemon {
         LOG.info("finished to handle tablet report from backend[{}] cost: {} ms", backendId, (end - start));
     }
 
+    private static void debugBlock() {
+        if (DebugPointUtil.isEnable("ReportHandler.block")) {
+            LOG.info("debug point: block at ReportHandler.block");
+            while (DebugPointUtil.isEnable("ReportHandler.block")) {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    LOG.info("error ", e);
+                }
+            }
+            LOG.info("debug point: leave ReportHandler.block");
+        }
+    }
+
     private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
+        debugBlock();
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to handle task report from backend {}", backendId);
         }
@@ -634,6 +654,7 @@ public class ReportHandler extends Daemon {
 
             // to escape sending duplicate agent task to be
             if (task.shouldResend(taskReportTime)) {
+                MetricRepo.COUNTER_AGENT_TASK_RESEND_TOTAL.getOrAdd(task.getTaskType().toString()).increase(1L);
                 batchTask.addTask(task);
             }
 
@@ -979,13 +1000,13 @@ public class ReportHandler extends Daemon {
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());
                                     if (indexId == olapTable.getBaseIndexId() || olapTable.isShadowIndex(indexId)) {
-                                        List<Integer> clusterKeyIndexes = OlapTable.getClusterKeyIndexes(
+                                        List<Integer> clusterKeyUids = OlapTable.getClusterKeyUids(
                                                 indexMeta.getSchema());
-                                        if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
-                                            createReplicaTask.setClusterKeyIndexes(clusterKeyIndexes);
+                                        if (!CollectionUtils.isEmpty(clusterKeyUids)) {
+                                            createReplicaTask.setClusterKeyUids(clusterKeyUids);
                                             LOG.info("table: {}, partition: {}, index: {}, tablet: {}, "
-                                                            + "cluster key indexes: {}", tableId, partitionId, indexId,
-                                                    tabletId, clusterKeyIndexes);
+                                                            + "cluster key uids: {}", tableId, partitionId, indexId,
+                                                    tabletId, clusterKeyUids);
                                         }
                                     }
                                     createReplicaBatchTask.addTask(createReplicaTask);
@@ -1147,14 +1168,14 @@ public class ReportHandler extends Daemon {
     }
 
     private static void handleRepublishVersionInfo(
-            Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish, long backendId) {
+            Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish, long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
         long createPublishVersionTaskTime = System.currentTimeMillis();
         for (Long dbId : transactionsToPublish.keySet()) {
-            ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(dbId);
+            SetMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(dbId);
             for (long txnId : map.keySet()) {
                 PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId,
-                        map.get(txnId), createPublishVersionTaskTime);
+                        Lists.newArrayList(map.get(txnId)), createPublishVersionTaskTime);
                 batchTask.addTask(task);
                 // add to AgentTaskQueue for handling finish report.
                 AgentTaskQueue.addTask(task);
@@ -1277,11 +1298,11 @@ public class ReportHandler extends Daemon {
         AgentTaskExecutor.submit(batchTask);
     }
 
-    private static void handleClearTransactions(ListMultimap<Long, Long> transactionsToClear, long backendId) {
+    private static void handleClearTransactions(SetMultimap<Long, Long> transactionsToClear, long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Long transactionId : transactionsToClear.keySet()) {
             ClearTransactionTask clearTransactionTask = new ClearTransactionTask(backendId,
-                    transactionId, transactionsToClear.get(transactionId));
+                    transactionId, Lists.newArrayList(transactionsToClear.get(transactionId)));
             batchTask.addTask(clearTransactionTask);
         }
         AgentTaskExecutor.submit(batchTask);

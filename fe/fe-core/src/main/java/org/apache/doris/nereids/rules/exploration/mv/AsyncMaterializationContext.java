@@ -131,11 +131,6 @@ public class AsyncMaterializationContext extends MaterializationContext {
 
     @Override
     public Plan getScanPlan(StructInfo queryInfo, CascadesContext cascadesContext) {
-        // If try to get scan plan or rewrite successfully, try to get mv read lock to avoid meta data inconsistent,
-        // try to get lock which should added before RBO
-        if (!this.isSuccess()) {
-            cascadesContext.getStatementContext().addTableReadLock(this.getMtmv());
-        }
         super.getScanPlan(queryInfo, cascadesContext);
         return scanPlan;
     }

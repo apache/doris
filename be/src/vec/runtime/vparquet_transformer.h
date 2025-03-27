@@ -25,7 +25,8 @@
 #include <parquet/file_writer.h>
 #include <parquet/properties.h>
 #include <parquet/types.h>
-#include <stdint.h>
+
+#include <cstdint>
 
 #include "vec/exec/format/table/iceberg/schema.h"
 #include "vfile_format_transformer.h"

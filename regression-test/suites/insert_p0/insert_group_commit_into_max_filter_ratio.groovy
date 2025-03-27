@@ -169,7 +169,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
     // 100 rows(success, fail), 10000 rows(success, fail), 15000 rows(success, fail)
     // async mode, sync mode, off mode
     sql """ truncate table ${tableName} """
-    connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+    connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
 
         sql """ set group_commit = sync_mode; """
         group_commit_insert """ insert into ${dbTableName} values (1, 'a', 10); """, 1

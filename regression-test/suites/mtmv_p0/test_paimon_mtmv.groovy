@@ -25,6 +25,24 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     String catalogName = "${suiteName}_catalog"
     String mvName = "${suiteName}_mv"
     String dbName = context.config.getDbNameByFile(context.file)
+    String otherDbName = "${suiteName}_otherdb"
+    String tableName = "${suiteName}_table"
+
+    sql """drop database if exists ${otherDbName}"""
+    sql """create database ${otherDbName}"""
+     sql """
+        CREATE TABLE  ${otherDbName}.${tableName} (
+          `user_id` INT,
+          `num` INT
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`)
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+       """
+
+    sql """
+        insert into ${otherDbName}.${tableName} values(1,2);
+        """
 
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -99,8 +117,10 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
      sql """
         CREATE MATERIALIZED VIEW ${mvName}
             BUILD DEFERRED REFRESH AUTO ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES ('replication_num' = '1')
+            KEY(`id`)
+            COMMENT "comment1"
+            DISTRIBUTED BY HASH(`id`) BUCKETS 2
+            PROPERTIES ('replication_num' = '1',"grace_period"="333")
             AS
             SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format;
         """
@@ -112,6 +132,167 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_not_partition "SELECT * FROM ${mvName} "
     order_qt_not_partition_after "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    sql """drop materialized view if exists ${mvName};"""
+
+    // refresh on schedule
+     sql """
+     CREATE MATERIALIZED VIEW ${mvName}
+        BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "9999-12-13 21:07:09"
+        KEY(`id`)
+        COMMENT "comment1"
+        DISTRIBUTED BY HASH(`id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1',"grace_period"="333")
+        AS
+        SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format;
+    """
+     waitingMTMVTaskFinishedByMvName(mvName)
+     sql """drop materialized view if exists ${mvName};"""
+
+    // refresh on schedule
+     sql """
+     CREATE MATERIALIZED VIEW ${mvName}
+        BUILD IMMEDIATE REFRESH AUTO ON commit
+        KEY(`id`)
+        COMMENT "comment1"
+        DISTRIBUTED BY HASH(`id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1',"grace_period"="333")
+        AS
+        SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format;
+    """
+    waitingMTMVTaskFinishedByMvName(mvName)
+     sql """drop materialized view if exists ${mvName};"""
+
+    // cross db and join internal table
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`par`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format a left join internal.${otherDbName}.${tableName} b on a.id=b.user_id;
+        """
+    def showJoinPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showJoinPartitionsResult: " + showJoinPartitionsResult.toString())
+    assertTrue(showJoinPartitionsResult.toString().contains("p_a"))
+    assertTrue(showJoinPartitionsResult.toString().contains("p_b"))
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} partitions(p_a);
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_join_one_partition "SELECT * FROM ${mvName} "
+    sql """drop materialized view if exists ${mvName};"""
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`create_date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${catalogName}.`test_paimon_spark`.two_partition;
+        """
+    def showTwoPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showTwoPartitionsResult: " + showTwoPartitionsResult.toString())
+    assertTrue(showTwoPartitionsResult.toString().contains("p_20200101"))
+    assertTrue(showTwoPartitionsResult.toString().contains("p_20380101"))
+    assertTrue(showTwoPartitionsResult.toString().contains("p_20380102"))
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} auto;
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_two_partition "SELECT * FROM ${mvName} "
+    sql """drop materialized view if exists ${mvName};"""
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`create_date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1','partition_sync_limit'='2','partition_date_format'='%Y-%m-%d',
+                        'partition_sync_time_unit'='MONTH')
+            AS
+            SELECT * FROM ${catalogName}.`test_paimon_spark`.two_partition;
+        """
+    def showLimitPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showLimitPartitionsResult: " + showLimitPartitionsResult.toString())
+    assertFalse(showLimitPartitionsResult.toString().contains("p_20200101"))
+    assertTrue(showLimitPartitionsResult.toString().contains("p_20380101"))
+    assertTrue(showLimitPartitionsResult.toString().contains("p_20380102"))
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} auto;
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_limit_partition "SELECT * FROM ${mvName} "
+    sql """drop materialized view if exists ${mvName};"""
+
+    // not allow date trunc
+    test {
+         sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by (date_trunc(`create_date`,'month'))
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES ('replication_num' = '1','partition_sync_limit'='2','partition_date_format'='%Y-%m-%d',
+                            'partition_sync_time_unit'='MONTH')
+                AS
+                SELECT * FROM ${catalogName}.`test_paimon_spark`.two_partition;
+            """
+          exception "only support"
+      }
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`region`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${catalogName}.`test_paimon_spark`.null_partition;
+        """
+    def showNullPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showNullPartitionsResult: " + showNullPartitionsResult.toString())
+    assertTrue(showNullPartitionsResult.toString().contains("p_null"))
+    assertTrue(showNullPartitionsResult.toString().contains("p_NULL"))
+    assertTrue(showNullPartitionsResult.toString().contains("p_bj"))
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} auto;
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    // Will lose null data
+    order_qt_null_partition "SELECT * FROM ${mvName} "
+    sql """drop materialized view if exists ${mvName};"""
+
+    // date type will has problem
+    order_qt_date_partition_base_table "SELECT * FROM ${catalogName}.`test_paimon_spark`.date_partition"
+    test {
+         sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by (`create_date`)
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES ('replication_num' = '1')
+                AS
+                SELECT * FROM ${catalogName}.`test_paimon_spark`.date_partition;
+            """
+          exception "Unable to find a suitable base table"
+      }
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${catalogName}.`test_paimon_spark`.date_partition;
+        """
+    sql """
+         REFRESH MATERIALIZED VIEW ${mvName} auto;
+     """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_date_partition "SELECT * FROM ${mvName} "
+
     sql """drop materialized view if exists ${mvName};"""
     sql """drop catalog if exists ${catalogName}"""
 

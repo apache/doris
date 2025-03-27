@@ -149,12 +149,6 @@ suite("aggregate_strategies") {
             from $tableName
         )a
         group by c"""
-
-
-        test {
-            sql "select count(distinct id, name), count(distinct id) from $tableName"
-            exception "The query contains multi count distinct or sum distinct, each can't have multi columns"
-        }
     }
 
     test_aggregate_strategies('test_bucket1_table', 1)

@@ -26,6 +26,7 @@
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_count_by_enum(const std::string& name,
                                                              const DataTypes& argument_types,

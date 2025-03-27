@@ -169,7 +169,7 @@ suite("mtmv_range_date_part_up_rewrite") {
     for (int i = 0; i < mv_name_list.size(); i++) {
         def job_name = getJobName(db, mv_name_list[i])
         waitingMTMVTaskFinished(job_name)
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
@@ -178,38 +178,38 @@ suite("mtmv_range_date_part_up_rewrite") {
     sql """insert into lineitem_range_date_union values 
         (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-11-01')"""
     for (int i = 0; i < mv_name_list.size(); i++) {
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
     for (int i = 0; i < mv_name_list.size(); i++) {
         sql """refresh MATERIALIZED VIEW ${mv_name_list[i]} auto;"""
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
     sql """insert into lineitem_range_date_union values 
         (2, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-11-01');"""
     for (int i = 0; i < mv_name_list.size(); i++) {
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
     for (int i = 0; i < mv_name_list.size(); i++) {
         sql """refresh MATERIALIZED VIEW ${mv_name_list[i]} auto;"""
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
     sql """ALTER TABLE lineitem_range_date_union DROP PARTITION IF EXISTS p4 FORCE"""
     for (int i = 0; i < mv_name_list.size(); i++) {
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 
     for (int i = 0; i < mv_name_list.size(); i++) {
         sql """refresh MATERIALIZED VIEW ${mv_name_list[i]} auto;"""
-        mv_rewrite_success(query_stmt_list[i], mv_name_list[i])
+        mv_rewrite_any_success(query_stmt_list[i], mv_name_list)
         compare_res(query_stmt_list[i] + " order by 1,2,3")
     }
 

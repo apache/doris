@@ -30,7 +30,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     try_sql("DROP USER ${user}")
@@ -54,7 +54,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
         """
 
     // ddl create
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """create materialized view ${mvName} as select username from ${dbName}.${tableName};"""
             exception "denied"
@@ -65,7 +65,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
         }
     }
     sql """grant select_priv(username) on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         test {
             sql """create materialized view ${mvName} as select username from ${dbName}.${tableName};"""
@@ -77,12 +77,12 @@ suite("test_ddl_mv_auth","p0,auth_call") {
         }
     }
     sql """grant alter_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """create materialized view ${mvName} as select username from ${dbName}.${tableName};"""
-        waitingMVTaskFinishedByMvName(dbName, tableName)
+        waitingMVTaskFinishedByMvName(dbName, tableName, mvName)
         sql """alter table ${dbName}.${tableName} add rollup ${rollupName}(username)"""
-        waitingMVTaskFinishedByMvName(dbName, tableName)
+        waitingMVTaskFinishedByMvName(dbName, tableName, rollupName)
 
         def mv_res = sql """desc ${dbName}.${tableName} all;"""
         logger.info("mv_res: " + mv_res)
@@ -92,7 +92,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
     sql """revoke select_priv(username) on ${dbName}.${tableName} from ${user}"""
 
     // ddl drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """DROP MATERIALIZED VIEW IF EXISTS ${mvName} ON ${dbName}.${tableName};"""
             exception "denied"
@@ -103,7 +103,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
         }
     }
     sql """grant alter_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mvName} ON ${tableName};"""
         sql """ALTER TABLE ${dbName}.${tableName} DROP ROLLUP ${rollupName};"""

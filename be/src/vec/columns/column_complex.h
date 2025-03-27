@@ -87,7 +87,7 @@ public:
         if (UNLIKELY(num == 0)) {
             return;
         }
-
+        // the offsets size should be num + 1
         for (size_t i = 0; i != num; ++i) {
             insert_binary_data(data + offsets[i], offsets[i + 1] - offsets[i]);
         }
@@ -113,6 +113,11 @@ public:
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
 
     size_t allocated_bytes() const override { return byte_size(); }
+
+    bool has_enough_capacity(const IColumn& src) const override {
+        const Self& src_vec = assert_cast<const Self&>(src);
+        return data.capacity() - data.size() > src_vec.size();
+    }
 
     void insert_value(T value) { data.emplace_back(std::move(value)); }
 

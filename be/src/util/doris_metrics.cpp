@@ -122,6 +122,11 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_rows_total, MetricUnit::ROWS, "
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(load_rows, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(load_bytes, MetricUnit::BYTES);
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_get_msg_latency, MetricUnit::MILLISECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_get_msg_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_consume_rows, MetricUnit::ROWS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_consume_bytes, MetricUnit::BYTES);
+
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_total, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_duration_us, MetricUnit::MICROSECONDS);
 
@@ -191,9 +196,12 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_ctx_cnt, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_ctx_cnt, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_cnt, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_task_cnt, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_task_queued, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_task_running, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_task_submit_failed, MetricUnit::NOUNIT);
+
+DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(runtime_filter_consumer_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(runtime_filter_consumer_ready_num, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(runtime_filter_consumer_wait_ready_ms,
+                                     MetricUnit::MILLISECONDS);
+DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(runtime_filter_consumer_timeout_num, MetricUnit::NOUNIT);
 
 const std::string DorisMetrics::_s_registry_name = "doris_be";
 const std::string DorisMetrics::_s_hook_name = "doris_metrics";
@@ -258,6 +266,11 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_receive_bytes_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_load_rows_total);
 
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_get_msg_latency);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_get_msg_count);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_consume_bytes);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_consume_rows);
+
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, memtable_flush_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, memtable_flush_duration_us);
 
@@ -311,17 +324,19 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, broker_file_open_reading);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, local_file_open_writing);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, s3_file_open_writing);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_total);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_cache);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_remote);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_cache);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, num_io_bytes_read_from_remote);
 
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, query_ctx_cnt);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_ctx_cnt);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_cnt);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_cnt);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_queued);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_running);
-    INT_ATOMIC_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_submit_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_ctx_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_ctx_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, scanner_task_cnt);
+
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, runtime_filter_consumer_num);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, runtime_filter_consumer_ready_num);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, runtime_filter_consumer_wait_ready_ms);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, runtime_filter_consumer_timeout_num);
 }
 
 void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,

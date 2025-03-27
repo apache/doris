@@ -32,6 +32,7 @@
 #include "vec/data_types/data_type_quantilestate.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -157,3 +158,5 @@ AggregateFunctionPtr create_aggregate_function_quantile_state_union(
         const AggregateFunctionAttr& attr);
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

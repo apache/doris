@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_pull_up_predicate_literal") {
+suite("pull_up_predicate_literal") {
     sql """ DROP TABLE IF EXISTS test_pull_up_predicate_literal; """
     sql "set enable_fallback_to_original_planner=false"
     sql """SET ignore_shape_nodes='PhysicalDistribute'"""
@@ -997,7 +997,7 @@ select c1 from (select
     qt_const_value_and_join_column_type169 """
 explain shape plan
 select c1 from (select 
-'2024-08-02 10:10:00.123332' as c1 from test_pull_up_predicate_literal limit 10) t inner join test_types t2 on d_date=t.c1"""
+'2024-08-02 00:00:00.000000' as c1 from test_pull_up_predicate_literal limit 10) t inner join test_types t2 on d_date=t.c1"""
 
     qt_const_value_and_join_column_type170 """
 explain shape plan

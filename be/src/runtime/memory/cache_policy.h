@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+
+#include <vector>
+
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -50,6 +54,7 @@ public:
         FOR_UT_CACHE_NUMBER = 19,
         QUERY_CACHE = 20,
         TABLET_COLUMN_OBJECT_POOL = 21,
+        SCHEMA_CLOUD_DICTIONARY_CACHE = 22,
     };
 
     static std::string type_string(CacheType type) {
@@ -96,11 +101,13 @@ public:
             return "QueryCache";
         case CacheType::TABLET_COLUMN_OBJECT_POOL:
             return "TabletColumnObjectPool";
+        case CacheType::SCHEMA_CLOUD_DICTIONARY_CACHE:
+            return "SchemaCloudDictionaryCache";
         default:
-            LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
+            throw Exception(Status::FatalError("not match type of cache policy :{}",
+                                               static_cast<int>(type)));
         }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("__builtin_unreachable"));
     }
 
     inline static std::unordered_map<std::string, CacheType> StringToType = {
@@ -123,7 +130,10 @@ public:
             {"CloudTabletCache", CacheType::CLOUD_TABLET_CACHE},
             {"CloudTxnDeleteBitmapCache", CacheType::CLOUD_TXN_DELETE_BITMAP_CACHE},
             {"ForUTCacheNumber", CacheType::FOR_UT_CACHE_NUMBER},
-            {"TabletColumnObjectPool", CacheType::TABLET_COLUMN_OBJECT_POOL}};
+            {"QueryCache", CacheType::QUERY_CACHE},
+            {"TabletColumnObjectPool", CacheType::TABLET_COLUMN_OBJECT_POOL},
+            {"SchemaCloudDictionaryCache", CacheType::SCHEMA_CLOUD_DICTIONARY_CACHE},
+    };
 
     static CacheType string_to_type(std::string type) {
         if (StringToType.contains(type)) {
@@ -132,6 +142,9 @@ public:
             return CacheType::NONE;
         }
     }
+
+    inline static std::vector<CacheType> MetadataCache {
+            CacheType::SEGMENT_CACHE, CacheType::SCHEMA_CACHE, CacheType::TABLET_SCHEMA_CACHE};
 
     CachePolicy(CacheType type, size_t capacity, uint32_t stale_sweep_time_s, bool enable_prune);
     virtual ~CachePolicy();

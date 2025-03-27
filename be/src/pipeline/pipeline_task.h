@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -54,47 +53,33 @@ public:
                          le_state_map,
                  int task_idx);
 
-    Status prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
-                   QueryContext* query_ctx);
+    Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
+                   const TDataSink& tsink, QueryContext* query_ctx);
 
-    Status execute(bool* eos);
+    Status execute(bool* done);
 
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
-    Status close(Status exec_status);
+    Status close(Status exec_status, bool close_sink = true);
 
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
     QueryContext* query_context();
 
-    int get_previous_core_id() const {
-        return _previous_schedule_id != -1 ? _previous_schedule_id
-                                           : _pipeline->_previous_schedule_id;
-    }
+    int get_core_id() const { return _core_id; }
 
-    void set_previous_core_id(int id) {
-        if (id != _previous_schedule_id) {
-            if (_previous_schedule_id != -1) {
+    void set_core_id(int id) {
+        if (id != _core_id) {
+            if (_core_id != -1) {
                 COUNTER_UPDATE(_core_change_times, 1);
             }
-            _previous_schedule_id = id;
+            _core_id = id;
         }
     }
 
-    void finalize();
+    Status finalize();
 
     std::string debug_string();
-
-    bool is_pending_finish() {
-        for (auto* fin_dep : _finish_dependencies) {
-            _blocked_dep = fin_dep->is_blocked_by(this);
-            if (_blocked_dep != nullptr) {
-                _blocked_dep->start_watcher();
-                return true;
-            }
-        }
-        return false;
-    }
 
     std::shared_ptr<BasicSharedState> get_source_shared_state() {
         return _op_shared_states.contains(_source->operator_id())
@@ -114,7 +99,8 @@ public:
             }
         }
         if (shared_state->related_op_ids.contains(_sink->dests_id().front())) {
-            DCHECK(_sink_shared_state == nullptr);
+            DCHECK_EQ(_sink_shared_state, nullptr)
+                    << " Sink: " << _sink->get_name() << " dest id: " << _sink->dests_id().front();
             _sink_shared_state = shared_state;
         }
     }
@@ -128,36 +114,17 @@ public:
         return _op_shared_states[id].get();
     }
 
-    void wake_up();
+    Status wake_up(Dependency* dep);
 
     DataSinkOperatorPtr sink() const { return _sink; }
 
     int task_id() const { return _index; };
-    bool is_finalized() const { return _finalized; }
+    bool is_finalized() const { return _exec_state == State::FINALIZED; }
 
-    void clear_blocking_state(bool wake_up_by_downstream = false) {
-        _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
-        // We use a lock to assure all dependencies are not deconstructed here.
-        std::unique_lock<std::mutex> lc(_dependency_lock);
-        _wake_up_by_downstream = _wake_up_by_downstream || wake_up_by_downstream;
-        if (!_finalized) {
-            _execution_dep->set_always_ready();
-            for (auto* dep : _filter_dependencies) {
-                dep->set_always_ready();
-            }
-            for (auto& deps : _read_dependencies) {
-                for (auto* dep : deps) {
-                    dep->set_always_ready();
-                }
-            }
-            for (auto* dep : _write_dependencies) {
-                dep->set_always_ready();
-            }
-            for (auto* dep : _finish_dependencies) {
-                dep->set_always_ready();
-            }
-        }
-    }
+    void set_wake_up_early() { _wake_up_early = true; }
+
+    // Execution phase should be terminated. This is called if this task is canceled or waken up early.
+    void terminate();
 
     void set_task_queue(MultiCoreTaskQueue* task_queue) { _task_queue = task_queue; }
     MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
@@ -174,18 +141,6 @@ public:
     void update_queue_level(int queue_level) { this->_queue_level = queue_level; }
     int get_queue_level() const { return this->_queue_level; }
 
-    // 1.3 priority queue's core id
-    void set_core_id(int core_id) { this->_core_id = core_id; }
-    int get_core_id() const { return this->_core_id; }
-
-    /**
-     * Return true if:
-     * 1. `enable_force_spill` is true which forces this task to spill data.
-     * 2. Or memory consumption reaches the high water mark of current workload group (80% of memory limitation by default) and revocable_mem_bytes is bigger than min_revocable_mem_bytes.
-     * 3. Or memory consumption is higher than the low water mark of current workload group (50% of memory limitation by default) and `query_weighted_consumption >= query_weighted_limit` and revocable memory is big enough.
-     */
-    static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
-
     void put_in_runnable_queue() {
         _schedule_time++;
         _wait_worker_watcher.start();
@@ -194,7 +149,15 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
 
     bool is_running() { return _running.load(); }
-    void set_running(bool running) { _running = running; }
+    bool is_revoking() {
+        for (auto* dep : _spill_dependencies) {
+            if (dep->is_blocked_by()) {
+                return true;
+            }
+        }
+        return false;
+    }
+    bool set_running(bool running) { return _running.exchange(running); }
 
     bool is_exceed_debug_timeout() {
         if (_has_exceed_timeout) {
@@ -228,20 +191,34 @@ public:
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
+    // TODO: Maybe we do not need this safe code anymore
     void stop_if_finished() {
         if (_sink->is_finished(_state)) {
-            clear_blocking_state();
+            set_wake_up_early();
+            terminate();
         }
     }
 
     PipelineId pipeline_id() const { return _pipeline->id(); }
+    [[nodiscard]] size_t get_revocable_size() const;
+    [[nodiscard]] Status revoke_memory(const std::shared_ptr<SpillContext>& spill_context);
 
-    bool wake_up_by_downstream() const { return _wake_up_by_downstream; }
+    bool wake_up_early() const { return _wake_up_early; }
+
+    Status blocked(Dependency* dependency) {
+        DCHECK_EQ(_blocked_dep, nullptr) << "task: " << debug_string();
+        _blocked_dep = dependency;
+        return _state_transition(PipelineTask::State::BLOCKED);
+    }
 
 private:
     friend class RuntimeFilterDependency;
-    bool _is_blocked();
+    // Whether this task is blocked before execution (FE 2-phase commit trigger, runtime filters)
     bool _wait_to_start();
+    // Whether this task is blocked during execution (read dependency, write dependency)
+    bool _is_blocked();
+    // Whether this task is blocked after execution (pending finish dependency)
+    bool _is_pending_finish();
 
     Status _extract_dependencies();
     void _init_profile();
@@ -253,9 +230,10 @@ private:
     bool _has_exceed_timeout = false;
     bool _opened;
     RuntimeState* _state = nullptr;
-    int _previous_schedule_id = -1;
+    int _core_id = -1;
     uint32_t _schedule_time = 0;
-    std::unique_ptr<doris::vectorized::Block> _block;
+    std::unique_ptr<vectorized::Block> _block;
+
     PipelineFragmentContext* _fragment_context = nullptr;
     MultiCoreTaskQueue* _task_queue = nullptr;
 
@@ -268,7 +246,6 @@ private:
     // 2 exe task
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
-    int _core_id = 0;
 
     RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;
@@ -286,6 +263,8 @@ private:
     // TODO we should calculate the time between when really runnable and runnable
     RuntimeProfile::Counter* _yield_counts = nullptr;
     RuntimeProfile::Counter* _core_change_times = nullptr;
+    RuntimeProfile::Counter* _memory_reserve_times = nullptr;
+    RuntimeProfile::Counter* _memory_reserve_failed_times = nullptr;
 
     MonotonicStopWatch _pipeline_task_watcher;
 
@@ -296,6 +275,7 @@ private:
 
     // `_read_dependencies` is stored as same order as `_operators`
     std::vector<std::vector<Dependency*>> _read_dependencies;
+    std::vector<Dependency*> _spill_dependencies;
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
     std::vector<Dependency*> _filter_dependencies;
@@ -312,13 +292,94 @@ private:
     Dependency* _blocked_dep = nullptr;
 
     Dependency* _execution_dep = nullptr;
-
-    std::atomic<bool> _finalized = false;
+    Dependency* _memory_sufficient_dependency;
     std::mutex _dependency_lock;
 
-    std::atomic<bool> _running = false;
-    std::atomic<bool> _eos = false;
-    std::atomic<bool> _wake_up_by_downstream = false;
+    std::atomic<bool> _running {false};
+    std::atomic<bool> _eos {false};
+    std::atomic<bool> _wake_up_early {false};
+
+    /**
+         *
+         * INITED -----> RUNNABLE -------------------------+----> FINISHED ---+---> FINALIZED
+         *                   ^                             |                  |
+         *                   |                             |                  |
+         *                   +----------- BLOCKED <--------+------------------+
+         */
+    enum class State : int {
+        INITED,
+        RUNNABLE,
+        BLOCKED,
+        FINISHED,
+        FINALIZED,
+    };
+
+    std::string _to_string(State state) const {
+        switch (state) {
+        case State::INITED:
+            return "INITED";
+        case State::RUNNABLE:
+            return "RUNNABLE";
+        case State::BLOCKED:
+            return "BLOCKED";
+        case State::FINISHED:
+            return "FINISHED";
+        case State::FINALIZED:
+            return "FINALIZED";
+        default:
+            __builtin_unreachable();
+        }
+    }
+
+    Status _state_transition(State new_state) {
+        if (_exec_state != new_state) {
+            _state_change_watcher.reset();
+            _state_change_watcher.start();
+        }
+        _task_profile->add_info_string("TaskState", _to_string(new_state));
+        _task_profile->add_info_string("BlockedByDependency",
+                                       _blocked_dep ? _blocked_dep->name() : "");
+        switch (new_state) {
+        case State::RUNNABLE:
+            if (_exec_state != State::RUNNABLE && _exec_state != State::BLOCKED &&
+                _exec_state != State::INITED) {
+                return Status::InternalError(
+                        "Task state transition from {} to {} is not allowed! Task info: {}",
+                        _to_string(_exec_state), _to_string(new_state), debug_string());
+            }
+            break;
+        case State::BLOCKED:
+            if (_exec_state != State::RUNNABLE && _exec_state != State::FINISHED) {
+                return Status::InternalError(
+                        "Task state transition from {} to {} is not allowed! Task info: {}",
+                        _to_string(_exec_state), _to_string(new_state), debug_string());
+            }
+            break;
+        case State::FINISHED:
+            if (_exec_state != State::RUNNABLE) {
+                return Status::InternalError(
+                        "Task state transition from {} to {} is not allowed! Task info: {}",
+                        _to_string(_exec_state), _to_string(new_state), debug_string());
+            }
+            break;
+        case State::FINALIZED:
+            if (_exec_state != State::FINISHED && _exec_state != State::INITED) {
+                return Status::InternalError(
+                        "Task state transition from {} to {} is not allowed! Task info: {}",
+                        _to_string(_exec_state), _to_string(new_state), debug_string());
+            }
+            break;
+        default:
+            return Status::InternalError(
+                    "Task state transition from {} to {} is not allowed! Task info: {}",
+                    _to_string(_exec_state), _to_string(new_state), debug_string());
+        }
+        _exec_state = new_state;
+        return Status::OK();
+    }
+    std::atomic<State> _exec_state = State::INITED;
+    MonotonicStopWatch _state_change_watcher;
+    std::atomic<bool> _spilling = false;
 };
 
 } // namespace doris::pipeline

@@ -25,6 +25,7 @@
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory);

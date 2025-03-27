@@ -23,7 +23,7 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/common/runtime_filter_consumer.h"
+#include "runtime_filter/runtime_filter_consumer_helper.h"
 
 namespace doris {
 class RuntimeState;
@@ -37,11 +37,11 @@ namespace pipeline {
 class MultiCastDataStreamer;
 class MultiCastDataStreamerSourceOperatorX;
 
-class MultiCastDataStreamSourceLocalState final : public PipelineXLocalState<MultiCastSharedState>,
-                                                  public RuntimeFilterConsumer {
+class MultiCastDataStreamSourceLocalState final
+        : public PipelineXSpillLocalState<MultiCastSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSourceLocalState);
-    using Base = PipelineXLocalState<MultiCastSharedState>;
+    using Base = PipelineXSpillLocalState<MultiCastSharedState>;
     using Parent = MultiCastDataStreamerSourceOperatorX;
     MultiCastDataStreamSourceLocalState(RuntimeState* state, OperatorXBase* parent);
     Status init(RuntimeState* state, LocalStateInfo& info) override;
@@ -62,6 +62,8 @@ public:
         return res;
     }
 
+    std::vector<Dependency*> dependencies() const override;
+
 private:
     friend class MultiCastDataStreamerSourceOperatorX;
     vectorized::VExprContextSPtrs _output_expr_contexts;
@@ -71,6 +73,8 @@ private:
     RuntimeProfile::Counter* _filter_timer = nullptr;
     RuntimeProfile::Counter* _get_data_timer = nullptr;
     RuntimeProfile::Counter* _materialize_data_timer = nullptr;
+
+    RuntimeFilterConsumerHelper _helper;
 };
 
 class MultiCastDataStreamerSourceOperatorX final
@@ -83,30 +87,26 @@ public:
             : Base(pool, -1, operator_id),
               _consumer_id(consumer_id),
               _t_data_stream_sink(sink),
-              _row_descriptor(row_descriptor) {
+              _multi_cast_output_row_descriptor(row_descriptor) {
         _op_name = "MULTI_CAST_DATA_STREAM_SOURCE_OPERATOR";
     };
     ~MultiCastDataStreamerSourceOperatorX() override = default;
 
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::open(state));
+    Status prepare(RuntimeState* state) override {
+        RETURN_IF_ERROR(Base::prepare(state));
         // init profile for runtime filter
-        // RuntimeFilterConsumer::_init_profile(local_state._shared_state->_multi_cast_data_streamer->profile());
         if (_t_data_stream_sink.__isset.output_exprs) {
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_data_stream_sink.output_exprs,
                                                                  _output_expr_contexts));
-            RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_expr_contexts, state, _row_desc()));
-        }
-
-        if (_t_data_stream_sink.__isset.conjuncts) {
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_data_stream_sink.conjuncts,
-                                                                 conjuncts()));
-            RETURN_IF_ERROR(vectorized::VExpr::prepare(conjuncts(), state, _row_desc()));
-        }
-        if (_t_data_stream_sink.__isset.output_exprs) {
+            RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_expr_contexts, state,
+                                                       _multi_cast_output_row_descriptor));
             RETURN_IF_ERROR(vectorized::VExpr::open(_output_expr_contexts, state));
         }
         if (_t_data_stream_sink.__isset.conjuncts) {
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_data_stream_sink.conjuncts,
+                                                                 conjuncts()));
+            RETURN_IF_ERROR(vectorized::VExpr::prepare(conjuncts(), state,
+                                                       _multi_cast_output_row_descriptor));
             RETURN_IF_ERROR(vectorized::VExpr::open(conjuncts(), state));
         }
         return Status::OK();
@@ -127,16 +127,7 @@ private:
     const int _consumer_id;
     const TDataStreamSink _t_data_stream_sink;
     vectorized::VExprContextSPtrs _output_expr_contexts;
-    // FIXME: non-static data member '_row_descriptor' of 'MultiCastDataStreamerSourceOperatorX' shadows member inherited from type 'OperatorXBase'
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wshadow-field"
-#endif
-    const RowDescriptor& _row_descriptor;
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
-    const RowDescriptor& _row_desc() { return _row_descriptor; }
+    const RowDescriptor& _multi_cast_output_row_descriptor;
 };
 
 } // namespace pipeline

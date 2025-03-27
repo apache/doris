@@ -23,6 +23,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "runtime/client_cache.h"
 
 namespace doris {
 class TConfirmUnusedRemoteFilesRequest;
@@ -67,6 +68,7 @@ private:
 
     // Not owner. Reference to the ExecEnv::_cluster_info
     const ClusterInfo* _cluster_info;
+    std::unique_ptr<FrontendServiceClientCache> _client_cache;
 };
 
 class AgentUtils {

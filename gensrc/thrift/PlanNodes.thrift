@@ -61,21 +61,6 @@ enum TPlanNodeType {
   GROUP_COMMIT_SCAN_NODE
 }
 
-// phases of an execution node
-enum TExecNodePhase {
-  PREPARE,
-  OPEN,
-  GETNEXT,
-  CLOSE,
-  INVALID
-}
-
-// what to do when hitting a debug point (TPaloQueryOptions.DEBUG_ACTION)
-enum TDebugAction {
-  WAIT,
-  FAIL
-}
-
 struct TKeyRange {
   1: required i64 begin_key
   2: required i64 end_key
@@ -284,6 +269,8 @@ struct TFileAttributes {
     10: optional bool trim_double_quotes;
     // csv skip line num, only used when csv header_type is not set.
     11: optional i32 skip_lines;
+    //For text type file reading, whether to enable utf8 encoding check.(Catalog && TVF)
+    12: optional bool enable_text_validate_utf8 = true;
     // for cloud copy into
     1001: optional bool ignore_csv_redundant_col;
 }
@@ -309,6 +296,7 @@ struct TIcebergFileDesc {
     // Deprecated
     5: optional Exprs.TExpr file_select_conjunct;
     6: optional string original_file_path;
+    // Deprecated
     7: optional i64 row_count;
 }
 
@@ -333,6 +321,8 @@ struct TPaimonFileDesc {
     12: optional TPaimonDeletionFileDesc deletion_file;
     13: optional map<string, string> hadoop_conf // deprecated
     14: optional string paimon_table  // deprecated
+    15: optional i64 row_count // deprecated
+    16: optional i64 schema_id; // for schema change.
 }
 
 struct TTrinoConnectorFileDesc {
@@ -353,7 +343,10 @@ struct TMaxComputeFileDesc {
     1: optional string partition_spec // deprecated 
     2: optional string session_id 
     3: optional string table_batch_read_session
-
+    // for mc network configuration
+    4: optional i32 connect_timeout
+    5: optional i32 read_timeout
+    6: optional i32 retry_times
 }
 
 struct THudiFileDesc {
@@ -367,6 +360,8 @@ struct THudiFileDesc {
     8: optional list<string> column_names;
     9: optional list<string> column_types;
     10: optional list<string> nested_fields;
+    11: optional string hudi_jni_scanner;
+    12: optional i64 schema_id; // for schema change. (native reader)
 }
 
 struct TLakeSoulFileDesc {
@@ -396,6 +391,7 @@ struct TTableFormatFileDesc {
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
     8: optional TLakeSoulFileDesc lakesoul_params
+    9: optional i64 table_level_row_count
 }
 
 enum TTextSerdeType {
@@ -406,6 +402,7 @@ enum TTextSerdeType {
 struct TFileScanRangeParams {
     // deprecated, move to TFileScanRange
     1: optional Types.TFileType file_type;
+    // deprecated, move to TFileScanRange
     2: optional TFileFormatType format_type;
     // deprecated, move to TFileScanRange
     3: optional TFileCompressType compress_type;
@@ -453,6 +450,7 @@ struct TFileScanRangeParams {
     //    1. Reduce the access to HMS and HDFS on the JNI side.
     //    2. There will be no inconsistency between the fe and be tables.
     24: optional string serialized_table
+    25: optional map<i64, map<i32, string>> history_schema_info // paimon/hudi map<schema id, map<column unique id , column name>> : for schema change. (native reader)
 }
 
 struct TFileRangeDesc {
@@ -480,6 +478,7 @@ struct TFileRangeDesc {
     // for hive table, different files may have different fs,
     // so fs_name should be with TFileRangeDesc
     12: optional string fs_name
+    13: optional TFileFormatType format_type;
 }
 
 struct TSplitSource {
@@ -524,6 +523,13 @@ struct TDataGenScanRange {
 
 struct TIcebergMetadataParams {
   1: optional Types.TIcebergQueryType iceberg_query_type
+  2: optional string catalog
+  3: optional string database
+  4: optional string table
+}
+
+struct THudiMetadataParams {
+  1: optional Types.THudiQueryType hudi_query_type
   2: optional string catalog
   3: optional string database
   4: optional string table
@@ -589,6 +595,7 @@ struct TMetaScanRange {
   9: optional TPartitionsMetadataParams partitions_params
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
+  12: optional THudiMetadataParams hudi_params
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -829,12 +836,9 @@ struct THashJoinNode {
   // anything from the ON, USING or WHERE clauses that's an equi-join predicate
   2: required list<TEqJoinCondition> eq_join_conjuncts
 
-  // anything from the ON or USING clauses (but *not* the WHERE clause) that's not an
-  // equi-join predicate
+  // deprecated
   3: optional list<Exprs.TExpr> other_join_conjuncts
-
-  // If true, this join node can (but may choose not to) generate slot filters
-  // after constructing the build side that can be applied to the probe side.
+  // deprecated
   4: optional bool add_probe_filters
 
   // anything from the ON or USING clauses (but *not* the WHERE clause) that's not an
@@ -845,8 +849,9 @@ struct THashJoinNode {
   6: optional list<Types.TSlotId> hash_output_slot_ids
 
   // TODO: remove 7 and 8 in the version after the version include projection on ExecNode
+  // deprecated
   7: optional list<Exprs.TExpr> srcExprList
-
+  // deprecated
   8: optional Types.TTupleId voutput_tuple_id
 
   9: optional list<Types.TTupleId> vintermediate_tuple_id_list
@@ -857,14 +862,15 @@ struct THashJoinNode {
   12: optional TJoinDistributionType dist_type
   13: optional list<Exprs.TExpr> mark_join_conjuncts
   // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+  // deprecated
   14: optional bool use_specific_projections
 }
 
 struct TNestedLoopJoinNode {
   1: required TJoinOp join_op
-  // TODO: remove 2 and 3 in the version after the version include projection on ExecNode
+  // deprecated
   2: optional list<Exprs.TExpr> srcExprList
-
+  // deprecated
   3: optional Types.TTupleId voutput_tuple_id
 
   4: optional list<Types.TTupleId> vintermediate_tuple_id_list
@@ -879,7 +885,7 @@ struct TNestedLoopJoinNode {
   8: optional list<Exprs.TExpr> join_conjuncts
 
   9: optional list<Exprs.TExpr> mark_join_conjuncts
-  // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
+  // deprecated
   10: optional bool use_specific_projections
 }
 
@@ -991,6 +997,7 @@ struct TSortNode {
   9: optional bool is_analytic_sort
   10: optional bool is_colocate
   11: optional TSortAlgorithm algorithm
+  12: optional bool use_local_merge
 }
 
 enum TopNAlgorithm {
@@ -1102,6 +1109,8 @@ struct TAnalyticNode {
   9: optional Exprs.TExpr order_by_eq
 
   10: optional bool is_colocate
+
+  11: optional list<Exprs.TExpr> range_between_offset_exprs
 }
 
 struct TMergeNode {
@@ -1252,7 +1261,7 @@ struct TRuntimeFilterDesc {
   // The order of Expr in join predicate
   3: required i32 expr_order
 
-  // Map of target node id to the target expr
+  // Map of target node id to the target expr. Used by consumer
   4: required map<Types.TPlanNodeId, Exprs.TExpr> planId_to_target_expr
 
   // Indicates if the source join node of this filter is a broadcast or
@@ -1261,6 +1270,8 @@ struct TRuntimeFilterDesc {
 
   // Indicates if there is at least one target scan node that is in the
   // same fragment as the broadcast join that produced the runtime filter
+  // Now only use has_remote_targets to judge how to publish,
+  // the values ​​of has_local_targets and has_remote_targets must be different
   6: required bool has_local_targets
 
   // Indicates if there is at least one target scan node that is not in the same
@@ -1293,7 +1304,9 @@ struct TRuntimeFilterDesc {
   // true, if join type is null aware like <=>. rf should dispose the case
   15: optional bool null_aware;
 
-  16: optional bool sync_filter_size;
+  16: optional bool sync_filter_size; // Deprecated
+  
+  17: optional bool build_bf_by_runtime_size;
 }
 
 

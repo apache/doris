@@ -43,6 +43,7 @@ suite ("agg_have_dup_base") {
     sql "insert into d_table select -4,-4,-4,'d';"
 
     sql "analyze table d_table with sync;"
+    sql """alter table d_table modify column k4 set stats ('row_count'='5');"""
     sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
@@ -60,7 +61,6 @@ suite ("agg_have_dup_base") {
     qt_select_mv "select unix_timestamp(k1) tmp,sum(k2) from d_table group by tmp order by tmp;"
 
     sql """set enable_stats=true;"""
-    sql """alter table d_table modify column k4 set stats ('row_count'='5');"""
 
     mv_rewrite_success("select k1,sum(k2),max(k2) from d_table group by k1;", "k12s3m")
 

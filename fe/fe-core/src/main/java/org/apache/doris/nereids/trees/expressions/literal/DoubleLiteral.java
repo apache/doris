@@ -23,6 +23,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
 
+import java.math.BigDecimal;
+
 /**
  * Double literal
  */
@@ -33,6 +35,11 @@ public class DoubleLiteral extends FractionalLiteral {
     public DoubleLiteral(double value) {
         super(DoubleType.INSTANCE);
         this.value = value;
+    }
+
+    @Override
+    public BigDecimal getBigDecimalValue() {
+        return new BigDecimal(String.valueOf(value));
     }
 
     @Override

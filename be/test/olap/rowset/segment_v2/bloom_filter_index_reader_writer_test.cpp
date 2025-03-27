@@ -124,10 +124,10 @@ void get_bloom_filter_reader_iter(const std::string& file_name, const ColumnInde
     io::FileReaderSPtr file_reader;
     ASSERT_EQ(io::global_local_filesystem()->open_file(fname, &file_reader), Status::OK());
     *reader = new BloomFilterIndexReader(std::move(file_reader), meta.bloom_filter_index());
-    auto st = (*reader)->load(true, false);
+    auto st = (*reader)->load(true, false, nullptr);
     EXPECT_TRUE(st.ok());
 
-    st = (*reader)->new_iterator(iter);
+    st = (*reader)->new_iterator(iter, nullptr);
     EXPECT_TRUE(st.ok());
 }
 
@@ -180,7 +180,12 @@ Status test_bloom_filter_index_reader_writer_template(
         }
         // test nullptr
         EXPECT_TRUE(bf->test_bytes(nullptr, 1));
-
+        if (is_slice_type) {
+            Slice* value = (Slice*)(not_exist_value);
+            EXPECT_FALSE(bf->test_bytes(value->data, value->size));
+        } else {
+            EXPECT_FALSE(bf->test_bytes((char*)not_exist_value, sizeof(CppType)));
+        }
         delete reader;
     }
     return Status::OK();
@@ -802,6 +807,30 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_bloom_filter_fpp_multiple) {
     for (double fpp : fpp_values) {
         test_bloom_filter_fpp(fpp);
     }
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_slice_memory_usage) {
+    size_t num = 1024 * 3;
+    const size_t slice_size = 256;
+
+    std::vector<char> data_buffer;
+    data_buffer.resize(num * slice_size);
+
+    std::vector<Slice> slice_vals(num);
+    for (size_t i = 0; i < num; ++i) {
+        char* ptr = data_buffer.data() + i * slice_size;
+        memset(ptr, 'a' + (i % 26), slice_size);
+
+        slice_vals[i].data = ptr;
+        slice_vals[i].size = slice_size;
+    }
+
+    std::string not_exist_str = "not_exist_val";
+    Slice not_exist_value(not_exist_str);
+
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
+            "bloom_filter_large_slices", slice_vals.data(), num, 1, &not_exist_value, true, false);
+    EXPECT_TRUE(st.ok());
 }
 } // namespace segment_v2
 } // namespace doris

@@ -73,7 +73,8 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
             "AWS_ENDPOINT" = "${getS3Endpoint()}",
             "AWS_ACCESS_KEY" = "${getS3AK()}",
             "AWS_SECRET_KEY" = "${getS3SK()}",
-            "AWS_REGION" = "${getS3Region()}"
+            "AWS_REGION" = "${getS3Region()}",
+            "PROVIDER" = "${getS3Provider()}"
         );
     """
     logger.info("the first sql result is {}", result)
@@ -93,7 +94,8 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
                 "AWS_ENDPOINT" = "${getS3Endpoint()}1",
                 "AWS_ACCESS_KEY" = "${getS3AK()}",
                 "AWS_SECRET_KEY" = "${getS3SK()}",
-                "AWS_REGION" = "${getS3Region()}"
+                "AWS_REGION" = "${getS3Region()}",
+                "PROVIDER" = "${getS3Provider()}"
             );
         """
         logger.info("the second sql result is {}", result)
@@ -118,7 +120,8 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
                 "AWS_ACCESS_KEY" = "${getS3AK()}1",
                 "AWS_SECRET_KEY" = "${getS3SK()}",
-                "AWS_REGION" = "${getS3Region()}"
+                "AWS_REGION" = "${getS3Region()}",
+                "PROVIDER" = "${getS3Provider()}"
             );
         """
         logger.info("the third sql result is {}", result)
@@ -147,7 +150,8 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
                 "AWS_ACCESS_KEY" = "${getS3AK()}",
                 "AWS_SECRET_KEY" = "${getS3SK()}",
-                "AWS_REGION" = "${getS3Region()}"
+                "AWS_REGION" = "${getS3Region()}",
+                "PROVIDER" = "${getS3Provider()}"
             );
         """
         logger.info("the fourth sql result is {}", result)

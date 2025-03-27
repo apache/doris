@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h"
 #include "common/exception.h"
 #include "common/logging.h"
@@ -41,6 +42,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 const char* UDAF_EXECUTOR_CLASS = "org/apache/doris/udf/UdafExecutor";
 const char* UDAF_EXECUTOR_CTOR_SIGNATURE = "([B)V";
@@ -57,7 +59,7 @@ const char* UDAF_EXECUTOR_RESET_SIGNATURE = "(J)V";
 struct AggregateJavaUdafData {
 public:
     AggregateJavaUdafData() = default;
-    AggregateJavaUdafData(int64_t num_args) { argument_size = num_args; }
+    AggregateJavaUdafData(int64_t num_args) { cast_set(argument_size, num_args); }
 
     ~AggregateJavaUdafData() = default;
 
@@ -115,8 +117,8 @@ public:
     }
 
     Status add(int64_t places_address, bool is_single_place, const IColumn** columns,
-               int row_num_start, int row_num_end, const DataTypes& argument_types,
-               int place_offset) {
+               int64_t row_num_start, int64_t row_num_end, const DataTypes& argument_types,
+               int64_t place_offset) {
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf add function");
 
@@ -134,8 +136,10 @@ public:
                 {"columns_types", input_table_schema.second}};
         jobject input_map = JniUtil::convert_to_java_map(env, input_params);
         // invoke add batch
-        env->CallObjectMethod(executor_obj, executor_add_batch_id, is_single_place, row_num_start,
-                              row_num_end, places_address, place_offset, input_map);
+        // Keep consistent with the function signature of executor_add_batch_id.
+        env->CallObjectMethod(executor_obj, executor_add_batch_id, is_single_place,
+                              cast_set<int>(row_num_start), cast_set<int>(row_num_end),
+                              places_address, cast_set<int>(place_offset), input_map);
         env->DeleteLocalRef(input_map);
         return JniUtil::GetJniExceptionMsg(env);
     }
@@ -144,7 +148,7 @@ public:
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf merge function");
         serialize_data = rhs.serialize_data;
-        long len = serialize_data.length();
+        jsize len = cast_set<jsize>(serialize_data.length()); // jsize needs to be used.
         jbyteArray arr = env->NewByteArray(len);
         env->SetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
         env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_merge_id, place, arr);
@@ -203,9 +207,8 @@ public:
         jobject output_map = JniUtil::convert_to_java_map(env, output_params);
         long output_address =
                 env->CallLongMethod(executor_obj, executor_get_value_id, place, output_map);
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
         env->DeleteLocalRef(output_map);
-
+        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
         return JniConnector::fill_block(&output_block, {0}, output_address);
     }
 
@@ -288,16 +291,12 @@ public:
     void create(AggregateDataPtr __restrict place) const override {
         new (place) Data(argument_types.size());
         if (_first_created) {
-            Status status = Status::OK();
-            SAFE_CREATE(RETURN_IF_STATUS_ERROR(status,
-                                               this->data(place).init_udaf(_fn, _local_location)),
-                        {
-                            static_cast<void>(this->data(place).destroy());
-                            this->data(place).~Data();
-                        });
+            Status status = this->data(place).init_udaf(_fn, _local_location);
             _first_created = false;
             _exec_place = place;
             if (UNLIKELY(!status.ok())) {
+                static_cast<void>(this->data(place).destroy());
+                this->data(place).~Data();
                 throw doris::Exception(ErrorCode::INTERNAL_ERROR, status.to_string());
             }
         }
@@ -417,3 +416,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

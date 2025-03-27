@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
@@ -68,6 +69,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     private final Supplier<Set<Slot>> inputSlots = Suppliers.memoize(
             () -> collect(e -> e instanceof Slot && !(e instanceof ArrayItemSlot)));
     private final int fastChildrenHashCode;
+    private final Supplier<String> toSqlCache = Suppliers.memoize(this::computeToSql);
+    private final Supplier<Integer> hashCodeCache = Suppliers.memoize(this::computeHashCode);
 
     protected Expression(Expression... children) {
         super(children);
@@ -210,6 +213,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return fastChildrenHashCode;
     }
 
+    protected String computeToSql() {
+        throw new UnboundException("sql");
+    }
+
     protected TypeCheckResult checkInputDataTypesInternal() {
         return TypeCheckResult.SUCCESS;
     }
@@ -299,6 +306,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     public boolean isInferred() {
         return inferred;
+    }
+
+    public final String toSql() {
+        return toSqlCache.get();
     }
 
     @Override
@@ -395,6 +406,32 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 && ((SlotReference) this).getColumn().get().isKey();
     }
 
+    /** containsNullLiteralChildren */
+    public boolean containsNullLiteralChildren() {
+        return getOrInitMutableState("CONTAINS_NULL_LITERAL_CHILDREN", () -> {
+            for (Expression child : children) {
+                if (child instanceof NullLiteral) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+    /** allChildrenAreLiteral */
+    public boolean allChildrenAreLiteral() {
+        return getOrInitMutableState("ALL_CHILDREN_ARE_LITERAL", () -> {
+            boolean allLiteral = true;
+            for (Expression child : getArguments()) {
+                if (!(child instanceof Literal)) {
+                    allLiteral = false;
+                    break;
+                }
+            }
+            return allLiteral;
+        });
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -430,6 +467,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     @Override
     public int hashCode() {
+        return hashCodeCache.get();
+    }
+
+    protected int computeHashCode() {
         return getClass().hashCode() + fastChildrenHashCode();
     }
 

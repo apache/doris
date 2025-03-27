@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -46,8 +47,8 @@ public class InPredicateToEqualToRule implements ExpressionPatternRuleFactory {
         return ImmutableList.of(
                 matchesType(InPredicate.class)
                     .when(in -> in.getOptions().size() == 1)
-                    .then(in -> new EqualTo(in.getCompareExpr(), in.getOptions().get(0))
-                )
+                    .then(in -> new EqualTo(in.getCompareExpr(), in.getOptions().get(0)))
+                    .toRule(ExpressionRuleType.IN_PREDICATE_TO_EQUAL_TO)
         );
     }
 }

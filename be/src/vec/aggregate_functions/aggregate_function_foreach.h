@@ -31,6 +31,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct AggregateFunctionForEachData {
     size_t dynamic_array_size = 0;
@@ -259,3 +260,5 @@ public:
     }
 };
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

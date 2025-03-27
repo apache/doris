@@ -26,6 +26,7 @@
 #include <memory>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -41,6 +42,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 template <typename T>
@@ -302,7 +304,8 @@ public:
 struct SingleValueDataString {
 private:
     using Self = SingleValueDataString;
-
+    // This function uses int32 for storage, which triggers a 64-bit to 32-bit conversion warning.
+    // However, considering compatibility with future upgrades, no changes will be made here.
     Int32 size = -1;    /// -1 indicates that there is no value.
     Int32 capacity = 0; /// power of two or zero
     std::unique_ptr<char[]> large_data;
@@ -364,7 +367,7 @@ public:
                 }
             } else {
                 if (capacity < rhs_size) {
-                    capacity = round_up_to_power_of_two_or_zero(rhs_size);
+                    capacity = (Int32)round_up_to_power_of_two_or_zero(rhs_size);
                     large_data.reset(new char[capacity]);
                 }
 
@@ -381,8 +384,7 @@ public:
 
     /// Assuming to.has()
     void change_impl(StringRef value, Arena*) {
-        Int32 value_size = value.size;
-
+        Int32 value_size = cast_set<Int32>(value.size);
         if (value_size <= MAX_SMALL_STRING_SIZE) {
             /// Don't free large_data here.
             size = value_size;
@@ -393,7 +395,7 @@ public:
         } else {
             if (capacity < value_size) {
                 /// Don't free large_data here.
-                capacity = round_up_to_power_of_two_or_zero(value_size);
+                capacity = (Int32)round_up_to_power_of_two_or_zero(value_size);
                 large_data.reset(new char[capacity]);
             }
 
@@ -717,3 +719,5 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                                                             const bool result_is_nullable,
                                                             const AggregateFunctionAttr& attr = {});
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

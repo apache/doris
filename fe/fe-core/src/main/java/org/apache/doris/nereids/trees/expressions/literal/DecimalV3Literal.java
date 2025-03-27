@@ -77,6 +77,11 @@ public class DecimalV3Literal extends FractionalLiteral {
         return value.doubleValue();
     }
 
+    @Override
+    public BigDecimal getBigDecimalValue() {
+        return value;
+    }
+
     /**
      * get ceiling of a decimal v3 literal
      * @param newScale scale we want to cast to
@@ -152,7 +157,7 @@ public class DecimalV3Literal extends FractionalLiteral {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return value.toPlainString();
     }
 

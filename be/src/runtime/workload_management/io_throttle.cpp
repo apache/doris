@@ -22,12 +22,6 @@
 
 namespace doris {
 
-IOThrottle::IOThrottle(std::string prefix, std::string name) {
-    _io_adder = std::make_unique<bvar::Adder<size_t>>(prefix, name);
-    _io_adder_per_second = std::make_unique<bvar::PerSecond<bvar::Adder<size_t>>>(
-            prefix, name + "_per_second", _io_adder.get(), 1);
-}
-
 bool IOThrottle::acquire(int64_t block_timeout_ms) {
     if (_io_bytes_per_second_limit < 0) {
         return true;
@@ -57,11 +51,6 @@ bool IOThrottle::try_acquire() {
 }
 
 void IOThrottle::update_next_io_time(int64_t io_bytes) {
-    Defer defer {[&]() {
-        if (io_bytes > 0) {
-            (*_io_adder) << io_bytes;
-        }
-    }};
     if (_io_bytes_per_second_limit <= 0 || io_bytes <= 0) {
         return;
     }

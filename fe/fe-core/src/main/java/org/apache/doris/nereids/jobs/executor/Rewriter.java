@@ -55,10 +55,12 @@ import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
+import org.apache.doris.nereids.rules.rewrite.DecoupleEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
+import org.apache.doris.nereids.rules.rewrite.EliminateConstHashJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
@@ -72,6 +74,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOrderByConstant;
+import org.apache.doris.nereids.rules.rewrite.EliminateOrderByKey;
 import org.apache.doris.nereids.rules.rewrite.EliminateSemiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubqueryOrView;
@@ -82,6 +85,7 @@ import org.apache.doris.nereids.rules.rewrite.ExtractSingleTableExpressionFromDi
 import org.apache.doris.nereids.rules.rewrite.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.InferAggNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferFilterNotNull;
+import org.apache.doris.nereids.rules.rewrite.InferInPredicateFromOr;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
@@ -98,6 +102,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
+import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
 import org.apache.doris.nereids.rules.rewrite.ProjectOtherJoinConditionForNestedLoopJoin;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
@@ -106,6 +111,7 @@ import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
 import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnionAll;
+import org.apache.doris.nereids.rules.rewrite.PullUpProjectBetweenTopNAndAgg;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
@@ -113,7 +119,10 @@ import org.apache.doris.nereids.rules.rewrite.PushCountIntoUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
 import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOneSide;
+import org.apache.doris.nereids.rules.rewrite.PushDownAggWithDistinctThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterIntoSchemaScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
@@ -131,8 +140,10 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
+import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
+import org.apache.doris.nereids.rules.rewrite.SplitMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.SumLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
@@ -251,6 +262,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         new CountLiteralRewrite(),
                         new NormalizeSort()
                 ),
+
+                topDown(// must behind NormalizeAggregate/NormalizeSort
+                        new MergeProjects(),
+                        new PushDownEncodeSlot(),
+                        new DecoupleEncodeDecode()
+                ),
+
                 topic("Window analysis",
                         topDown(
                                 new ExtractAndNormalizeWindowExpression(),
@@ -310,6 +328,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // after EliminateEmptyRelation, project can be pushed into union
                         topDown(new PushProjectIntoUnion())
                 ),
+                topic("infer In-predicate from Or-predicate",
+                        topDown(new InferInPredicateFromOr())
+                        ),
                 // putting the "Column pruning and infer predicate" topic behind the "Set operation optimization"
                 // is because that pulling up predicates from union needs EliminateEmptyRelation in union child
                 topic("Column pruning and infer predicate",
@@ -334,7 +355,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 // this rule should invoke after ColumnPruning
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
-
+                topic("Eliminate Order By Key",
+                        topDown(new EliminateOrderByKey())),
                 topic("Eliminate GroupBy",
                         topDown(new EliminateGroupBy(),
                                 new MergeAggregate(),
@@ -344,6 +366,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
                 topic("Eager aggregation",
                         costBased(topDown(
+                                new PushDownAggWithDistinctThroughJoinOneSide(),
                                 new PushDownAggThroughJoinOneSide(),
                                 new PushDownAggThroughJoin()
                         )),
@@ -369,8 +392,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         //       generate one PhysicalLimit if current distribution is gather or two
                         //       PhysicalLimits with gather exchange
                         topDown(new LimitSortToTopN()),
-                        topDown(new LimitAggToTopNAgg()),
                         topDown(new MergeTopNs()),
+                        topDown(new SimplifyEncodeDecode(),
+                                new MergeProjects()
+                        ),
+                        topDown(new LimitAggToTopNAgg()),
                         topDown(new SplitLimit()),
                         topDown(
                                 new PushDownLimit(),
@@ -393,7 +419,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(
                                 new PruneOlapScanPartition(),
                                 new PruneEmptyPartition(),
-                                new PruneFileScanPartition()
+                                new PruneFileScanPartition(),
+                                new PushDownFilterIntoSchemaScan()
                         )
                 ),
                 topic("MV optimization",
@@ -462,8 +489,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
                         topDown(new MergeProjects())
                 ),
+                topic("adjust topN project",
+                        topDown(new MergeProjects(),
+                                new PullUpProjectBetweenTopNAndAgg())),
+                topic("remove const hash join condition",
+                        topDown(new EliminateConstHashJoinCondition())),
+
                 // this rule batch must keep at the end of rewrite to do some plan check
-                topic("Final rewrite and check",
+                topic("final rewrite and check",
                         custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
                         topDown(new PushDownFilterThroughProject(), new MergeProjects()),
                         custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
@@ -475,7 +508,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new CheckAfterRewrite()
                         )
                 ),
-                topDown(new CollectCteConsumerOutput())
+                topDown(new CollectCteConsumerOutput()),
+                custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new)
             )
     );
 
@@ -546,6 +580,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     rewriteJobs.addAll(jobs(topic("or expansion",
                             custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
                 }
+                rewriteJobs.addAll(jobs(topic("split multi distinct",
+                        custom(RuleType.SPLIT_MULTI_DISTINCT, () -> SplitMultiDistinct.INSTANCE))));
+
                 if (needSubPathPushDown) {
                     rewriteJobs.addAll(jobs(
                             topic("variant element_at push down",

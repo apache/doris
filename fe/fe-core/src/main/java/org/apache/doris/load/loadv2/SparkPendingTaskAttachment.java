@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+@Deprecated
 public class SparkPendingTaskAttachment extends TaskAttachment {
     private SparkLoadAppHandle handle;
     private String appId;

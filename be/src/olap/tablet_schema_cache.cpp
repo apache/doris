@@ -52,11 +52,11 @@ std::pair<Cache::Handle*, TabletSchemaSPtr> TabletSchemaCache::insert(const std:
         tablet_schema_ptr = std::make_shared<TabletSchema>();
         TabletSchemaPB pb;
         pb.ParseFromString(key);
-        // We should reuse the memory of the same TabletColumn object, set reuse_cached_column to true
+        // We should reuse the memory of the same TabletColumn/TabletIndex object, set reuse_cached_column to true
         tablet_schema_ptr->init_from_pb(pb, false, true);
         value->tablet_schema = tablet_schema_ptr;
         lru_handle = LRUCachePolicy::insert(key_signature, value, tablet_schema_ptr->num_columns(),
-                                            0, CachePriority::NORMAL);
+                                            tablet_schema_ptr->mem_size(), CachePriority::NORMAL);
         g_tablet_schema_cache_count << 1;
         g_tablet_schema_cache_columns_count << tablet_schema_ptr->num_columns();
     }

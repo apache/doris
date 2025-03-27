@@ -77,8 +77,6 @@ suite("test_multi_stale_rowset") {
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
 
     sql "use @regression_cluster_name0"
 
@@ -88,7 +86,7 @@ suite("test_multi_stale_rowset") {
     sql (new File("""${context.file.parent}/ddl/${table}.sql""").text + ttlProperties)
     sleep(10000)
 
-    def load_customer_once =  { 
+    def load_customer_once =  {
         def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
         def loadLabel = table + "_" + uniqueID
         // load data from cos
@@ -145,55 +143,7 @@ suite("test_multi_stale_rowset") {
     String[][] tablets = sql """ show tablets from ${tableName}; """
 
     // trigger compactions for all tablets in ${tableName}
-    for (String[] tablet in tablets) {
-        String tablet_id = tablet[0]
-        backend_id = tablet[2]
-        StringBuilder sb = new StringBuilder();
-        sb.append("curl -X POST http://")
-        sb.append(ipList[0])
-        sb.append(":")
-        sb.append(httpPortList[0])
-        sb.append("/api/compaction/run?tablet_id=")
-        sb.append(tablet_id)
-        sb.append("&compact_type=cumulative")
-
-        String command = sb.toString()
-        process = command.execute()
-        code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-        out = process.getText()
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-    }
-
-    // wait for all compactions done
-    for (String[] tablet in tablets) {
-        boolean running = true
-        do {
-            Thread.sleep(1000)
-            String tablet_id = tablet[0]
-            backend_id = tablet[2]
-            StringBuilder sb = new StringBuilder();
-            sb.append("curl -X GET http://")
-            sb.append(ipList[0])
-            sb.append(":")
-            sb.append(httpPortList[0])
-            sb.append("/api/compaction/run_status?tablet_id=")
-            sb.append(tablet_id)
-
-            String command = sb.toString()
-            logger.info(command)
-            process = command.execute()
-            code = process.waitFor()
-            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-            out = process.getText()
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("success", compactionStatus.status.toLowerCase())
-            running = compactionStatus.run_status
-        } while (running)
-    }
+    trigger_and_wait_compaction(tableName, "cumulative")
 
     sleep(90000);
     def backendIdToAfterCompactionCacheSize = getCurCacheSize()

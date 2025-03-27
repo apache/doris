@@ -20,11 +20,15 @@
 #include <ctype.h>
 #include <math.h>
 #include <re2/stringpiece.h>
+#include <unicode/unistr.h>
+#include <unicode/ustream.h>
 
 #include <bitset>
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "runtime/string_search.hpp"
 #include "util/url_coding.h"
@@ -38,6 +42,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 struct NameStringASCII {
     static constexpr auto name = "ascii";
 };
@@ -68,7 +73,7 @@ struct NameQuoteImpl {
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         size_t offset_size = offsets.size();
-        size_t pos = 0;
+        ColumnString::Offset pos = 0;
         res_offsets.resize(offset_size);
         res_data.resize(data.size() + offset_size * 2);
         for (int i = 0; i < offset_size; i++) {
@@ -285,9 +290,9 @@ struct StringInStrImpl {
 
             /// We check that the entry does not pass through the boundaries of strings.
             if (pos + rdata.size <= begin + loffsets[i]) {
-                int loc = pos - begin - loffsets[i - 1];
+                int loc = (int)(pos - begin) - loffsets[i - 1];
                 int l_str_size = loffsets[i] - loffsets[i - 1];
-                size_t len = std::min(l_str_size, loc);
+                auto len = std::min(l_str_size, loc);
                 loc = simd::VStringFunctions::get_char_len((char*)(begin + loffsets[i - 1]), len);
                 res[i] = loc + 1;
             }
@@ -332,7 +337,7 @@ struct StringInStrImpl {
         // Hive returns positions starting from 1.
         int loc = search.search(&strl);
         if (loc > 0) {
-            size_t len = std::min((size_t)loc, strl.size);
+            int len = std::min(loc, (int)strl.size);
             loc = simd::VStringFunctions::get_char_len(strl.data, len);
         }
 
@@ -446,19 +451,58 @@ struct TransferImpl {
             return Status::OK();
         }
 
+        const bool is_ascii = simd::VStringFunctions::is_ascii({data.data(), data.size()});
         res_offsets.resize(offset_size);
-        memcpy_small_allow_read_write_overflow15(
-                res_offsets.data(), offsets.data(),
-                offset_size * sizeof(ColumnString::Offsets::value_type));
+        if (is_ascii) {
+            memcpy_small_allow_read_write_overflow15(
+                    res_offsets.data(), offsets.data(),
+                    offset_size * sizeof(ColumnString::Offsets::value_type));
 
-        size_t data_length = data.size();
-        res_data.resize(data_length);
-        if constexpr (std::is_same_v<OpName, NameToUpper>) {
-            simd::VStringFunctions::to_upper(data.data(), data_length, res_data.data());
-        } else if constexpr (std::is_same_v<OpName, NameToLower>) {
-            simd::VStringFunctions::to_lower(data.data(), data_length, res_data.data());
+            size_t data_length = data.size();
+            res_data.resize(data_length);
+            if constexpr (std::is_same_v<OpName, NameToUpper>) {
+                simd::VStringFunctions::to_upper(data.data(), data_length, res_data.data());
+            } else if constexpr (std::is_same_v<OpName, NameToLower>) {
+                simd::VStringFunctions::to_lower(data.data(), data_length, res_data.data());
+            }
+        } else {
+            execute_utf8(data, offsets, res_data, res_offsets);
         }
+
         return Status::OK();
+    }
+
+    static void execute_utf8(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                             ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        std::string result;
+        for (int64_t i = 0; i < offsets.size(); ++i) {
+            const char* begin = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            uint32_t size = offsets[i] - offsets[i - 1];
+
+            result.clear();
+            if constexpr (std::is_same_v<OpName, NameToUpper>) {
+                to_upper_utf8(begin, size, result);
+            } else if constexpr (std::is_same_v<OpName, NameToLower>) {
+                to_lower_utf8(begin, size, result);
+            }
+            StringOP::push_value_string(result, i, res_data, res_offsets);
+        }
+    }
+
+    static void to_upper_utf8(const char* data, uint32_t size, std::string& result) {
+        icu::StringPiece sp;
+        sp.set(data, size);
+        icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
+        unicode_str.toUpper();
+        unicode_str.toUTF8String(result);
+    }
+
+    static void to_lower_utf8(const char* data, uint32_t size, std::string& result) {
+        icu::StringPiece sp;
+        sp.set(data, size);
+        icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
+        unicode_str.toLower();
+        unicode_str.toUTF8String(result);
     }
 };
 
@@ -489,7 +533,16 @@ struct InitcapImpl {
                 if (!::isalnum(res_data[i])) {
                     need_capitalize = true;
                 } else if (need_capitalize) {
-                    res_data[i] = ::toupper(res_data[i]);
+                    /*
+                    https://en.cppreference.com/w/cpp/string/byte/toupper
+                    Like all other functions from <cctype>, the behavior of std::toupper is undefined if the argument's value is neither representable as unsigned char nor equal to EOF. 
+                    To use these functions safely with plain chars (or signed chars), the argument should first be converted to unsigned char:
+                    char my_toupper(char ch)
+                    {
+                        return static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+                    }
+                    */
+                    res_data[i] = static_cast<unsigned char>(::toupper(res_data[i]));
                     need_capitalize = false;
                 }
             }
@@ -540,7 +593,8 @@ struct TrimUtil {
             }
 
             res_data.insert_assume_reserved(str_begin, str_end);
-            res_offsets[i] = res_data.size();
+            // The length of the result of the trim function will never exceed the length of the input.
+            res_offsets[i] = (ColumnString::Offset)res_data.size();
         }
         return Status::OK();
     }
@@ -606,7 +660,8 @@ private:
             }
 
             res_data.insert_assume_reserved(left_trim_pos, right_trim_pos);
-            res_offsets[i] = res_data.size();
+            // The length of the result of the trim function will never exceed the length of the input.
+            res_offsets[i] = (ColumnString::Offset)res_data.size();
         }
 
         return Status::OK();
@@ -669,7 +724,8 @@ private:
             }
 
             res_data.insert_assume_reserved(left_trim_pos, right_trim_pos);
-            res_offsets[i] = res_data.size();
+            // The length of the result of the trim function will never exceed the length of the input.
+            res_offsets[i] = (ColumnString::Offset)res_data.size();
         }
         return Status::OK();
     }
@@ -820,7 +876,7 @@ struct UnHexImpl {
         return false;
     }
 
-    static int hex_decode(const char* src_str, size_t src_len, char* dst_str) {
+    static int hex_decode(const char* src_str, ColumnString::Offset src_len, char* dst_str) {
         // if str length is odd or 0, return empty string like mysql dose.
         if ((src_len & 1) != 0 or src_len == 0) {
             return 0;
@@ -848,7 +904,7 @@ struct UnHexImpl {
 
         for (int i = 0; i < rows_count; ++i) {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1];
+            ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
 
             if (srclen == 0) {
                 StringOP::push_empty_string(i, dst_data, dst_offsets);
@@ -888,16 +944,19 @@ struct StringSpace {
                          ColumnString::Offsets& res_offsets) {
         res_offsets.resize(data.size());
         size_t input_size = res_offsets.size();
-        std::vector<char, Allocator_<char>> buffer;
+        int64_t total_size = 0;
         for (size_t i = 0; i < input_size; ++i) {
-            buffer.clear();
             if (data[i] > 0) {
-                buffer.resize(data[i]);
-                for (size_t j = 0; j < data[i]; ++j) {
-                    buffer[i] = ' ';
-                }
-                StringOP::push_value_string(std::string_view(buffer.data(), buffer.size()), i,
-                                            res_data, res_offsets);
+                total_size += data[i];
+            }
+        }
+        ColumnString::check_chars_length(total_size, input_size);
+        res_data.reserve(total_size);
+
+        for (size_t i = 0; i < input_size; ++i) {
+            if (data[i] > 0) [[likely]] {
+                res_data.resize_fill(res_data.size() + data[i], ' ');
+                cast_set(res_offsets[i], res_data.size());
             } else {
                 StringOP::push_empty_string(i, res_data, res_offsets);
             }
@@ -961,7 +1020,7 @@ struct FromBase64Impl {
             }
 
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t srclen = offsets[i] - offsets[i - 1];
+            ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
 
             if (srclen == 0) {
                 StringOP::push_empty_string(i, dst_data, dst_offsets);

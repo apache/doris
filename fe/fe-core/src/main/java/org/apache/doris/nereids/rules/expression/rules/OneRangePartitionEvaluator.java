@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.PartitionKey;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
@@ -48,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MaxLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -353,22 +353,38 @@ public class OneRangePartitionEvaluator<K>
 
     @Override
     public EvaluateRangeResult visitInPredicate(InPredicate inPredicate, EvaluateRangeInput context) {
-        EvaluateRangeResult result = evaluateChildrenThenThis(inPredicate, context);
-        if (!(result.result instanceof InPredicate)) {
+        if (!inPredicate.optionsAreLiterals()) {
+            EvaluateRangeResult result = evaluateChildrenThenThis(inPredicate, context);
+            if (!(result.result instanceof InPredicate)) {
+                return result;
+            }
+            result = result.withRejectNot(false);
             return result;
         }
-        inPredicate = (InPredicate) result.result;
-        Map<Expression, ColumnRange> exprRanges = result.childrenResult.get(0).columnRanges;
-        if (exprRanges.containsKey(inPredicate.getCompareExpr())
-                && inPredicate.getOptions().stream().allMatch(Literal.class::isInstance)) {
-            Expression compareExpr = inPredicate.getCompareExpr();
-            ColumnRange unionLiteralRange = ColumnRange.empty();
-            ColumnRange compareExprRange = result.childrenResult.get(0).columnRanges.get(compareExpr);
-            for (Expression expr : inPredicate.getOptions()) {
-                unionLiteralRange = unionLiteralRange.union(
-                        compareExprRange.intersect(ColumnRange.singleton((Literal) expr)));
+
+        EvaluateRangeResult leftResult = inPredicate.getCompareExpr().accept(this, context);
+        Map<Expression, ColumnRange> exprRanges = leftResult.columnRanges;
+        if (!exprRanges.containsKey(inPredicate.getCompareExpr())) {
+            EvaluateRangeResult result = evaluateChildrenThenThis(inPredicate, context);
+            if (!(result.result instanceof InPredicate)) {
+                return result;
             }
-            result = intersectSlotRange(result, exprRanges, compareExpr, unionLiteralRange);
+            result = result.withRejectNot(false);
+            return result;
+        }
+
+        Expression compareExpr = inPredicate.getCompareExpr();
+        ColumnRange compareExprRange = exprRanges.get(compareExpr);
+        ColumnRange optionsRange = inPredicate.getLiteralOptionsRangeSet();
+
+        ColumnRange intersect = optionsRange.intersect(compareExprRange);
+        Map<Expression, ColumnRange> newColumnRanges = replaceExprRange(exprRanges, compareExpr, intersect);
+
+        EvaluateRangeResult result;
+        if (intersect.isEmptyRange()) {
+            result = new EvaluateRangeResult(BooleanLiteral.FALSE, newColumnRanges, ImmutableList.of(leftResult));
+        } else {
+            result = new EvaluateRangeResult(inPredicate, newColumnRanges, ImmutableList.of(leftResult));
         }
         result = result.withRejectNot(false);
         return result;
@@ -395,19 +411,23 @@ public class OneRangePartitionEvaluator<K>
     @Override
     public EvaluateRangeResult visitAnd(And and, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(and, context);
-        result = mergeRanges(result.result, result.childrenResult.get(0), result.childrenResult.get(1),
-                context.rangeMap,
-                (leftRange, rightRange) -> leftRange.intersect(rightRange));
 
-        result = returnFalseIfExistEmptyRange(result);
-        if (result.result.equals(BooleanLiteral.FALSE)) {
-            return result;
+        EvaluateRangeResult andResult = result.childrenResult.get(0);
+        for (int i = 1; i < result.childrenResult.size(); i++) {
+            andResult = mergeRanges(result.result, andResult, result.childrenResult.get(i),
+                    context.rangeMap,
+                    (leftRange, rightRange) -> leftRange.intersect(rightRange));
+        }
+
+        andResult = returnFalseIfExistEmptyRange(andResult);
+        if (andResult.result.equals(BooleanLiteral.FALSE)) {
+            return andResult;
         }
 
         // shrink range and prune the other type: if previous column is literal and equals to the bound
-        result = determinateRangeOfOtherType(result, lowers, true);
-        result = determinateRangeOfOtherType(result, uppers, false);
-        return result;
+        andResult = determinateRangeOfOtherType(andResult, lowers, true);
+        andResult = determinateRangeOfOtherType(andResult, uppers, false);
+        return andResult;
     }
 
     @Override
@@ -415,19 +435,26 @@ public class OneRangePartitionEvaluator<K>
         EvaluateRangeResult result = evaluateChildrenThenThis(or, context);
         if (result.result.equals(BooleanLiteral.FALSE)) {
             return result;
-        } else if (result.childrenResult.get(0).result.equals(BooleanLiteral.FALSE)) {
-            // false or a<1 -> return range a<1
-            return new EvaluateRangeResult(result.result, result.childrenResult.get(1).columnRanges,
-                    result.childrenResult);
-        } else if (result.childrenResult.get(1).result.equals(BooleanLiteral.FALSE)) {
-            // a<1 or false -> return range a<1
-            return new EvaluateRangeResult(result.result, result.childrenResult.get(0).columnRanges,
-                    result.childrenResult);
         }
-        result = mergeRanges(result.result, result.childrenResult.get(0), result.childrenResult.get(1),
-                context.rangeMap,
-                (leftRange, rightRange) -> leftRange.union(rightRange));
-        return returnFalseIfExistEmptyRange(result);
+
+        List<EvaluateRangeResult> nonFalseResults = new ArrayList<>();
+        for (EvaluateRangeResult evaluateRangeResult : result.childrenResult) {
+            if (!evaluateRangeResult.result.equals(BooleanLiteral.FALSE)) {
+                nonFalseResults.add(evaluateRangeResult);
+            }
+        }
+
+        if (nonFalseResults.size() == 1) {
+            return new EvaluateRangeResult(result.result, nonFalseResults.get(0).columnRanges, result.childrenResult);
+        }
+
+        EvaluateRangeResult orResult = nonFalseResults.get(0);
+        for (int i = 1; i < nonFalseResults.size(); i++) {
+            orResult = mergeRanges(result.result, orResult, nonFalseResults.get(i),
+                    context.rangeMap,
+                    (leftRange, rightRange) -> leftRange.union(rightRange));
+        }
+        return returnFalseIfExistEmptyRange(orResult);
     }
 
     @Override
@@ -603,8 +630,7 @@ public class OneRangePartitionEvaluator<K>
     private List<Literal> toSingleNereidsLiteral(PartitionKey partitionKey) {
         List<LiteralExpr> keys = partitionKey.getKeys();
         LiteralExpr literalExpr = keys.get(0);
-        PrimitiveType primitiveType = partitionKey.getTypes().get(0);
-        Type type = Type.fromPrimitiveType(primitiveType);
+        Type type = literalExpr.getType();
         return ImmutableList.of(Literal.fromLegacyLiteral(literalExpr, type));
     }
 
@@ -613,8 +639,7 @@ public class OneRangePartitionEvaluator<K>
         List<Literal> literals = Lists.newArrayListWithCapacity(keys.size());
         for (int i = 0; i < keys.size(); i++) {
             LiteralExpr literalExpr = keys.get(i);
-            PrimitiveType primitiveType = partitionKey.getTypes().get(i);
-            Type type = Type.fromPrimitiveType(primitiveType);
+            Type type = literalExpr.getType();
             literals.add(Literal.fromLegacyLiteral(literalExpr, type));
         }
         return literals;
@@ -807,22 +832,30 @@ public class OneRangePartitionEvaluator<K>
                 : new NonNullable(funcChild));
         partitionSlotContainsNull.put((Expression) func, withNullable.nullable());
 
-        if (!result.childrenResult.get(0).columnRanges.containsKey(funcChild)) {
+        if (!result.childrenResult.get(childIndex).columnRanges.containsKey(funcChild)) {
             return result;
         }
-        ColumnRange childRange = result.childrenResult.get(0).columnRanges.get(funcChild);
+        ColumnRange childRange = result.childrenResult.get(childIndex).columnRanges.get(funcChild);
         if (childRange.isEmptyRange() || childRange.asRanges().size() != 1
                 || (!childRange.span().hasLowerBound() && !childRange.span().hasUpperBound())) {
             return result;
         }
         Range<ColumnBound> span = childRange.span();
+        // null means positive infinity or negative infinity
         Literal lower = span.hasLowerBound() ? span.lowerEndpoint().getValue() : null;
         Literal upper = span.hasUpperBound() && !(span.upperEndpoint().getValue() instanceof MaxLiteral)
                 ? span.upperEndpoint().getValue() : null;
+        if (!func.isMonotonic(lower, upper)) {
+            return result;
+        }
         Expression lowerValue = lower != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(lower),
                 expressionRewriteContext) : null;
         Expression upperValue = upper != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(upper),
                 expressionRewriteContext) : null;
+        if (!checkFoldConstantValueIsValid(lowerValue, upperValue)) {
+            return result;
+        }
+
         if (!func.isPositive()) {
             Expression temp = lowerValue;
             lowerValue = upperValue;
@@ -842,9 +875,21 @@ public class OneRangePartitionEvaluator<K>
             if (upperValue instanceof Literal) {
                 newRange = newRange.withUpperBound((Literal) upperValue);
             }
+            if (newRange.isEmptyRange() || !newRange.span().hasLowerBound() && !newRange.span().hasUpperBound()) {
+                return result;
+            }
             context.rangeMap.put((Expression) func, newRange);
             newRanges.put((Expression) func, newRange);
             return new EvaluateRangeResult((Expression) func, newRanges, result.childrenResult);
         }
+    }
+
+    // only allow literal(except NullLiteral) and null
+    private boolean checkFoldConstantValueIsValid(Expression lowerValue, Expression upperValue) {
+        if (lowerValue instanceof NullLiteral || upperValue instanceof NullLiteral) {
+            return false;
+        }
+        return (lowerValue == null || lowerValue instanceof Literal)
+                && (upperValue == null || upperValue instanceof Literal);
     }
 }

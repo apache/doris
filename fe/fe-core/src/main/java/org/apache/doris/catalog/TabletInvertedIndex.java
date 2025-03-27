@@ -37,13 +37,14 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
+import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
@@ -135,8 +136,8 @@ public class TabletInvertedIndex {
                              Set<Long> tabletFoundInMeta,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, Long> partitionVersionSyncMap,
-                             Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
-                             ListMultimap<Long, Long> transactionsToClear,
+                             Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+                             SetMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              List<TTabletMetaInfo> tabletToUpdate,
                              List<CooldownConf> cooldownConfToPush,
@@ -302,20 +303,26 @@ public class TabletInvertedIndex {
         cooldownTablets.forEach(p -> handleCooldownConf(p.first, p.second, cooldownConfToPush, cooldownConfToUpdate));
 
         long end = System.currentTimeMillis();
+        long toClearTransactionsNum = transactionsToClear.keySet().size();
+        long toClearTransactionsPartitions = transactionsToClear.values().size();
+        long toPublishTransactionsNum = transactionsToPublish.values().stream()
+                                        .mapToLong(m -> m.keySet().size()).sum();
+        long toPublishTransactionsPartitions = transactionsToPublish.values().stream()
+                                               .mapToLong(m -> m.values().size()).sum();
         LOG.info("finished to do tablet diff with backend[{}]. fe tablet num: {}, backend tablet num: {}. sync: {}."
                         + " metaDel: {}. foundInMeta: {}. migration: {}. backend partition num: {}, backend need "
-                        + "update: {}. found invalid transactions {}. found republish "
-                        + "transactions {}. tabletToUpdate: {}. need recovery: {}. cost: {} ms",
+                        + "update: {}. found invalid transactions {}(partitions: {}). found republish "
+                        + "transactions {}(partitions: {}). tabletToUpdate: {}. need recovery: {}. cost: {} ms",
                 backendId, feTabletNum, backendTablets.size(), tabletSyncMap.size(),
                 tabletDeleteFromMeta.size(), tabletFoundInMeta.size(), tabletMigrationMap.size(),
-                backendPartitionsVersion.size(), partitionVersionSyncMap.size(),
-                transactionsToClear.size(), transactionsToPublish.size(), tabletToUpdate.size(),
-                tabletRecoveryMap.size(), (end - start));
+                backendPartitionsVersion.size(), partitionVersionSyncMap.size(), toClearTransactionsNum,
+                toClearTransactionsPartitions, toPublishTransactionsNum, toPublishTransactionsPartitions,
+                tabletToUpdate.size(), tabletRecoveryMap.size(), (end - start));
     }
 
     private void handleBackendTransactions(long backendId, List<Long> transactionIds, long tabletId,
-            TabletMeta tabletMeta, Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
-            ListMultimap<Long, Long> transactionsToClear) {
+            TabletMeta tabletMeta, Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
+            SetMultimap<Long, Long> transactionsToClear) {
         GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
         long partitionId = tabletMeta.getPartitionId();
         for (Long transactionId : transactionIds) {
@@ -376,15 +383,15 @@ public class TabletInvertedIndex {
     }
 
     private void publishPartition(TransactionState transactionState, long transactionId, TabletMeta tabletMeta,
-            long partitionId, Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish) {
+            long partitionId, Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish) {
         TPartitionVersionInfo versionInfo = generatePartitionVersionInfoWhenReport(transactionState,
                 transactionId, tabletMeta, partitionId);
         if (versionInfo != null) {
             synchronized (transactionsToPublish) {
-                ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(
+                SetMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(
                         transactionState.getDbId());
                 if (map == null) {
-                    map = ArrayListMultimap.create();
+                    map = LinkedHashMultimap.create();
                     transactionsToPublish.put(transactionState.getDbId(), map);
                 }
                 map.put(transactionId, versionInfo);

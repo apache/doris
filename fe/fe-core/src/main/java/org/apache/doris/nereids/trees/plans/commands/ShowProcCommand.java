@@ -35,16 +35,12 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.List;
 
 /**
  * show proc command
  */
 public class ShowProcCommand extends ShowCommand {
-    public static final Logger LOG = LogManager.getLogger(ShowProcCommand.class);
     private final String path;
 
     /**

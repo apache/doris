@@ -21,7 +21,6 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
@@ -77,11 +76,6 @@ public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitUnboundTVFRelation(this, context);
-    }
-
-    @Override
-    public List<? extends Expression> getExpressions() {
-        throw new UnsupportedOperationException(this.getClass().getSimpleName() + " don't support getExpression()");
     }
 
     @Override

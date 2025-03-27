@@ -47,7 +47,7 @@ suite("show_repositories_command") {
     def show_repo = checkNereidsExecuteWithResult("""SHOW REPOSITORIES;""").toString();
     assertTrue(show_repo.contains("${repoName}"))
 
-    sql """DROP REPOSITORY `${repoName}`;"""
+    checkNereidsExecute("DROP REPOSITORY `${repoName}`;")
 
     def show_repo_after_drop = checkNereidsExecuteWithResult("""SHOW REPOSITORIES;""").toString();
     assertFalse(show_repo_after_drop.contains("${repoName}"))

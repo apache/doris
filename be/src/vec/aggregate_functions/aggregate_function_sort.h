@@ -41,6 +41,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -133,8 +134,8 @@ public:
               _arguments(arguments),
               _sort_desc(sort_desc),
               _state(state) {
-        if (auto f = _nested_func->transmit_to_stable(); f) {
-            _nested_func = f;
+        if (auto* f = _nested_func->transmit_to_stable(); f) {
+            _nested_func = AggregateFunctionPtr(f);
         }
         for (const auto& type : _arguments) {
             _block.insert({type, ""});
@@ -204,3 +205,5 @@ AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& 
                                                     const SortDescription& sort_desc,
                                                     RuntimeState* state);
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

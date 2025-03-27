@@ -19,7 +19,6 @@
 
 #include <vector>
 
-#include "join_op.h"
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
@@ -33,12 +32,13 @@ struct HashJoinProbeContext;
 namespace pipeline {
 
 class HashJoinProbeLocalState;
+class HashJoinProbeOperatorX;
 
 using MutableColumnPtr = vectorized::IColumn::MutablePtr;
 using MutableColumns = std::vector<vectorized::MutableColumnPtr>;
 
 using NullMap = vectorized::ColumnUInt8::Container;
-using ConstNullMapPtr = const vectorized::NullMap*;
+using ConstNullMapPtr = const NullMap*;
 
 template <int JoinOpType>
 struct ProcessHashTableProbe {
@@ -46,43 +46,37 @@ struct ProcessHashTableProbe {
     ~ProcessHashTableProbe() = default;
 
     // output build side result column
-    void build_side_output_column(vectorized::MutableColumns& mcol,
-                                  const std::vector<bool>& output_slot_flags, int size,
-                                  bool have_other_join_conjunct, bool is_mark_join);
+    void build_side_output_column(vectorized::MutableColumns& mcol, int size, bool is_mark_join);
 
-    void probe_side_output_column(vectorized::MutableColumns& mcol,
-                                  const std::vector<bool>& output_slot_flags, int size,
-                                  int last_probe_index, bool all_match_one,
-                                  bool have_other_join_conjunct);
+    void probe_side_output_column(vectorized::MutableColumns& mcol, int size, bool all_match_one);
 
-    template <bool need_judge_null, typename HashTableType>
+    template <typename HashTableType>
     Status process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
                    vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
-                   uint32_t probe_rows, bool is_mark_join, bool have_other_join_conjunct);
+                   uint32_t probe_rows, bool is_mark_join);
 
     // Only process the join with no other join conjunct, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe
-    // TODO: opt the visited here to reduce the size of hash table
-    template <bool need_judge_null, typename HashTableType, bool with_other_conjuncts,
-              bool is_mark_join>
-    Status do_process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
+    template <typename HashTableType, bool is_mark_join>
+    Status do_process(HashTableType& hash_table_ctx, const uint8_t* null_map,
                       vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
                       uint32_t probe_rows);
     // In the presence of other join conjunct, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
     // The output result is determined by the other join conjunct result and same_to_prev struct
-    Status do_other_join_conjuncts(vectorized::Block* output_block, std::vector<uint8_t>& visited,
+    Status do_other_join_conjuncts(vectorized::Block* output_block, DorisVector<uint8_t>& visited,
                                    bool has_null_in_build_side);
 
-    template <bool with_other_conjuncts>
-    Status do_mark_join_conjuncts(vectorized::Block* output_block, size_t hash_table_bucket_size);
+    Status do_mark_join_conjuncts(vectorized::Block* output_block, const uint8_t* null_map);
+
+    Status finalize_block_with_filter(vectorized::Block* output_block, size_t filter_column_id,
+                                      size_t column_to_keep);
 
     template <typename HashTableType>
     typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
-                                                   bool with_other_join_conjuncts,
-                                                   const uint8_t* null_map, bool need_judge_null);
+                                                   const uint8_t* null_map);
 
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
@@ -95,15 +89,17 @@ struct ProcessHashTableProbe {
     uint32_t _process_probe_null_key(uint32_t probe_idx);
 
     pipeline::HashJoinProbeLocalState* _parent = nullptr;
+    pipeline::HashJoinProbeOperatorX* _parent_operator = nullptr;
+
     const int _batch_size;
     const std::shared_ptr<vectorized::Block>& _build_block;
     std::unique_ptr<vectorized::Arena> _arena;
-    std::vector<StringRef> _probe_keys;
 
-    std::vector<uint32_t> _probe_indexs;
+    vectorized::ColumnVector<uint32_t> _probe_indexs;
+    vectorized::ColumnVector<uint32_t> _output_row_indexs;
     bool _probe_visited = false;
     bool _picking_null_keys = false;
-    std::vector<uint32_t> _build_indexs;
+    vectorized::ColumnVector<uint32_t> _build_indexs;
     std::vector<uint8_t> _null_flags;
 
     /// If the probe key of one row on left side is null,
@@ -112,24 +108,15 @@ struct ProcessHashTableProbe {
     uint32_t _build_index_for_null_probe_key {0};
 
     std::vector<int> _build_blocks_locs;
-    // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
-    vectorized::ColumnUInt8::Container* _tuple_is_null_left_flags = nullptr;
-    // only need set the tuple is null in LEFT_OUTER_JOIN and FULL_OUTER_JOIN
-    vectorized::ColumnUInt8::Container* _tuple_is_null_right_flags = nullptr;
 
-    size_t _serialized_key_buffer_size {0};
-    uint8_t* _serialized_key_buffer = nullptr;
-    std::unique_ptr<vectorized::Arena> _serialize_key_arena;
     std::vector<char> _probe_side_find_result;
 
-    bool _have_other_join_conjunct;
-    bool _is_right_semi_anti;
-    std::vector<bool>* _left_output_slot_flags = nullptr;
-    std::vector<bool>* _right_output_slot_flags = nullptr;
+    const bool _have_other_join_conjunct;
+    const std::vector<bool>& _left_output_slot_flags;
+    const std::vector<bool>& _right_output_slot_flags;
     // nullable column but not has null except first row
     std::vector<bool> _build_column_has_null;
     bool _need_calculate_build_index_has_zero = true;
-    bool* _has_null_in_build_side;
 
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
     RuntimeProfile::Counter* _init_probe_side_timer = nullptr;

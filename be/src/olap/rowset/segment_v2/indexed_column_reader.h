@@ -50,9 +50,12 @@ class EncodingInfo;
 class IndexedColumnReader : public MetadataAdder<IndexedColumnReader> {
 public:
     explicit IndexedColumnReader(io::FileReaderSPtr file_reader, const IndexedColumnMetaPB& meta)
-            : _file_reader(std::move(file_reader)), _meta(meta) {}
+            : _file_reader(std::move(file_reader)), _meta(meta) {
+        _ordinal_index_reader = std::make_unique<IndexPageReader>();
+        _value_index_reader = std::make_unique<IndexPageReader>();
+    }
 
-    ~IndexedColumnReader();
+    ~IndexedColumnReader() override;
 
     Status load(bool use_page_cache, bool kept_in_memory,
                 OlapReaderStatistics* index_load_stats = nullptr);
@@ -73,7 +76,8 @@ public:
     void set_is_pk_index(bool is_pk) { _is_pk_index = is_pk; }
 
 private:
-    Status load_index_page(const PagePointerPB& pp, PageHandle* handle, IndexPageReader* reader);
+    Status load_index_page(const PagePointerPB& pp, PageHandle* handle, IndexPageReader* reader,
+                           OlapReaderStatistics* index_load_stats);
 
     int64_t get_metadata_size() const override;
 
@@ -90,8 +94,8 @@ private:
     bool _has_index_page = false;
     // valid only when the column contains only one data page
     PagePointer _sole_data_page;
-    IndexPageReader _ordinal_index_reader;
-    IndexPageReader _value_index_reader;
+    std::unique_ptr<IndexPageReader> _ordinal_index_reader;
+    std::unique_ptr<IndexPageReader> _value_index_reader;
     PageHandle _ordinal_index_page_handle;
     PageHandle _value_index_page_handle;
 
@@ -100,7 +104,6 @@ private:
     const KeyCoder* _value_key_coder = nullptr;
     uint64_t _mem_size = 0;
     bool _is_pk_index = false;
-    OlapReaderStatistics* _index_load_stats = nullptr;
 };
 
 class IndexedColumnIterator {
@@ -108,8 +111,8 @@ public:
     explicit IndexedColumnIterator(const IndexedColumnReader* reader,
                                    OlapReaderStatistics* stats = nullptr)
             : _reader(reader),
-              _ordinal_iter(&reader->_ordinal_index_reader),
-              _value_iter(&reader->_value_index_reader),
+              _ordinal_iter(reader->_ordinal_index_reader.get()),
+              _value_iter(reader->_value_index_reader.get()),
               _stats(stats) {}
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.

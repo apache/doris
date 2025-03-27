@@ -25,7 +25,7 @@ import org.apache.doris.nereids.types.BooleanType;
 /**
  * Represents Boolean literal
  */
-public class BooleanLiteral extends Literal {
+public class BooleanLiteral extends Literal implements ComparableLiteral {
 
     public static final BooleanLiteral TRUE = new BooleanLiteral(true);
     public static final BooleanLiteral FALSE = new BooleanLiteral(false);
@@ -67,6 +67,21 @@ public class BooleanLiteral extends Literal {
     @Override
     public LiteralExpr toLegacyLiteral() {
         return new BoolLiteral(value);
+    }
+
+    @Override
+    public int compareTo(ComparableLiteral other) {
+        if (other instanceof BooleanLiteral) {
+            return Boolean.compare(value, ((BooleanLiteral) other).value);
+        }
+        if (other instanceof NullLiteral) {
+            return 1;
+        }
+        if (other instanceof MaxLiteral) {
+            return -1;
+        }
+        throw new RuntimeException("Cannot compare two values with different data types: "
+                + this + " (" + dataType + ") vs " + other + " (" + ((Literal) other).dataType + ")");
     }
 
     @Override

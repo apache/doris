@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/defer_op.h"
@@ -36,6 +38,7 @@
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class IColumn;
@@ -80,7 +83,7 @@ using ConstAggregateDataPtr = const char*;
   */
 class IAggregateFunction {
 public:
-    IAggregateFunction(const DataTypes& argument_types_) : argument_types(argument_types_) {}
+    IAggregateFunction(DataTypes argument_types_) : argument_types(std::move(argument_types_)) {}
 
     /// Get main function name.
     virtual String get_name() const = 0;
@@ -224,11 +227,24 @@ public:
 
     virtual void set_version(const int version_) { version = version_; }
 
-    virtual AggregateFunctionPtr transmit_to_stable() { return nullptr; }
+    virtual IAggregateFunction* transmit_to_stable() { return nullptr; }
 
     /// Verify function signature
     virtual Status verify_result_type(const bool without_key, const DataTypes& argument_types,
                                       const DataTypePtr result_type) const = 0;
+
+    // agg function is used result column push_back to insert result,
+    // and now want's resize column early and use operator[] to insert result.
+    // but like result column is string column, it's can't resize dirctly with operator[]
+    // need template specialization agg for the string type in insert_result_into_range
+    virtual bool result_column_could_resize() const { return false; }
+
+    virtual void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                          const size_t start, const size_t end) const {
+        for (size_t i = start; i < end; ++i) {
+            insert_result_into(place, to);
+        }
+    }
 
 protected:
     DataTypes argument_types;
@@ -598,3 +614,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

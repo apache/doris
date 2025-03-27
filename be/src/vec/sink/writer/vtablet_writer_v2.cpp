@@ -55,6 +55,7 @@
 #include "vec/sink/vtablet_finder.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 VTabletWriterV2::VTabletWriterV2(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
                                  std::shared_ptr<pipeline::Dependency> dep,
@@ -216,7 +217,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
-    // if partition_type is TABLET_SINK_SHUFFLE_PARTITIONED, we handle the processing of auto_increment column
+    // if partition_type is OLAP_TABLE_SINK_HASH_PARTITIONED, we handle the processing of auto_increment column
     // on exchange node rather than on TabletWriter
     _block_convertor->init_autoinc_info(
             _schema->db_id(), _schema->table_id(), _state->batch_size(),
@@ -269,14 +270,20 @@ Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
 }
 
 Status VTabletWriterV2::_open_streams() {
-    bool fault_injection_skip_be = true;
+    int fault_injection_skip_be = 0;
     bool any_backend = false;
     bool any_success = false;
     for (auto& [dst_id, _] : _tablets_for_node) {
         auto streams = _load_stream_map->get_or_create(dst_id);
         DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_one_backend", {
-            if (fault_injection_skip_be) {
-                fault_injection_skip_be = false;
+            if (fault_injection_skip_be < 1) {
+                fault_injection_skip_be++;
+                continue;
+            }
+        });
+        DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_two_backends", {
+            if (fault_injection_skip_be < 2) {
+                fault_injection_skip_be++;
                 continue;
             }
         });
@@ -353,7 +360,7 @@ void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& r
         auto& partition_ids = row_part_tablet_ids[index_idx].partition_ids;
         auto& tablet_ids = row_part_tablet_ids[index_idx].tablet_ids;
 
-        for (int i = 0; i < row_ids.size(); i++) {
+        for (size_t i = 0; i < row_ids.size(); i++) {
             auto& tablet_id = tablet_ids[i];
             auto it = rows_for_tablet.find(tablet_id);
             if (it == rows_for_tablet.end()) {
@@ -372,6 +379,7 @@ void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& r
 
 Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
                                         std::vector<std::shared_ptr<LoadStreamStub>>& streams) {
+    std::vector<int64_t> failed_node_ids;
     const auto* location = _location->find_tablet(tablet_id);
     DBUG_EXECUTE_IF("VTabletWriterV2._select_streams.location_null", { location = nullptr; });
     if (location == nullptr) {
@@ -385,14 +393,40 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
         VLOG_DEBUG << fmt::format("_select_streams P{} I{} T{}", partition_id, index_id, tablet_id);
         _tablets_for_node[node_id].emplace(tablet_id, tablet);
         auto stream = _load_stream_map->at(node_id)->select_one_stream();
+        DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_two_backends", {
+            LOG(INFO) << "[skip_two_backends](detail) tablet_id=" << tablet_id
+                      << ", node_id=" << node_id
+                      << ", stream_ok=" << (stream == nullptr ? "no" : "yes");
+        });
         if (stream == nullptr) {
+            LOG(WARNING) << "skip writing tablet " << tablet_id << " to backend " << node_id
+                         << ": stream is not open";
+            failed_node_ids.push_back(node_id);
             continue;
         }
         streams.emplace_back(std::move(stream));
     }
+    DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_two_backends", {
+        LOG(INFO) << "[skip_two_backends](summary) tablet_id=" << tablet_id
+                  << ", num_streams=" << streams.size()
+                  << ", num_nodes=" << location->node_ids.size();
+    });
     if (streams.size() <= location->node_ids.size() / 2) {
-        return Status::InternalError("not enough streams {}/{}", streams.size(),
-                                     location->node_ids.size());
+        std::ostringstream success_msg;
+        std::ostringstream failed_msg;
+        for (auto& s : streams) {
+            success_msg << ", " << s->dst_id();
+        }
+        for (auto id : failed_node_ids) {
+            failed_msg << ", " << id;
+        }
+        LOG(INFO) << "failed to write enough replicas " << streams.size() << "/"
+                  << location->node_ids.size() << " for tablet " << tablet_id
+                  << " due to connection errors; success nodes" << success_msg.str()
+                  << "; failed nodes" << failed_msg.str() << ".";
+        return Status::InternalError(
+                "failed to write enough replicas {}/{} for tablet {} due to connection errors",
+                streams.size(), location->node_ids.size(), tablet_id);
     }
     Status st;
     for (auto& stream : streams) {
@@ -452,6 +486,14 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
         RETURN_IF_ERROR(_write_memtable(block, tablet_id, rows));
     }
 
+    COUNTER_SET(_input_rows_counter, _number_input_rows);
+    COUNTER_SET(_output_rows_counter, _number_output_rows);
+    COUNTER_SET(_filtered_rows_counter,
+                _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows());
+    COUNTER_SET(_send_data_timer, _send_data_ns);
+    COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
+    COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
+
     return Status::OK();
 }
 
@@ -503,7 +545,8 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
     }
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
-        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_workload_group_memtable_flush(
+                _state->workload_group());
     }
     SCOPED_TIMER(_write_memtable_timer);
     st = delta_writer->write(block.get(), rows.row_idxes);
@@ -639,10 +682,7 @@ Status VTabletWriterV2::close(Status exec_status) {
             std::vector<TTabletCommitInfo> tablet_commit_infos;
             RETURN_IF_ERROR(
                     _create_commit_info(tablet_commit_infos, _load_stream_map, _num_replicas));
-            _state->tablet_commit_infos().insert(
-                    _state->tablet_commit_infos().end(),
-                    std::make_move_iterator(tablet_commit_infos.begin()),
-                    std::make_move_iterator(tablet_commit_infos.end()));
+            _state->add_tablet_commit_infos(tablet_commit_infos);
         }
 
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node

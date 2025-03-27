@@ -82,6 +82,8 @@ under the License.
 
 7. Do not create the same table in different cases under the same directory to avoid conflicts.
 
+8. Cases injected should be marked as nonConcurrent and ensured injection to be removed after running the case.
+
 ## Compatibility case
 
 Refers to the resources or rules created on the initial cluster during FE testing or upgrade testing, which can still be used normally after the cluster restart or upgrade, such as permissions, UDF, etc.

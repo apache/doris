@@ -98,24 +98,24 @@ suite("test_table_properties") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }	
     sql "GRANT SELECT_PRIV ON information_schema.table_properties  TO ${user}"
     
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
 
-    connect(user=user, password='123abc!@#', url=url) {
+    connect(user, '123abc!@#', url) {
        qt_select_check_4 """select * from information_schema.table_properties where PROPERTY_NAME != "default.replication_allocation" ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,PROPERTY_NAME,PROPERTY_VALUE"""
     }
 
     sql "GRANT SELECT_PRIV ON ${dbName}.duplicate_table  TO ${user}"
-    connect(user=user, password='123abc!@#', url=url) {
+    connect(user, '123abc!@#', url) {
        qt_select_check_5 """select * from information_schema.table_properties where PROPERTY_NAME != "default.replication_allocation" ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,PROPERTY_NAME,PROPERTY_VALUE"""
     }
  
     sql "REVOKE SELECT_PRIV ON ${dbName}.duplicate_table  FROM ${user}"
-    connect(user=user, password='123abc!@#', url=url) {
+    connect(user, '123abc!@#', url) {
        qt_select_check_6 """select * from information_schema.table_properties where PROPERTY_NAME != "default.replication_allocation" ORDER BY TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,PROPERTY_NAME,PROPERTY_VALUE"""
     }
 

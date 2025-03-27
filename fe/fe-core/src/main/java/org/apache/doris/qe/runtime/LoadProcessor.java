@@ -24,46 +24,39 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.AbstractJobProcessor;
 import org.apache.doris.qe.CoordinatorContext;
-import org.apache.doris.qe.JobProcessor;
 import org.apache.doris.qe.LoadContext;
 import org.apache.doris.thrift.TFragmentInstanceReport;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
-public class LoadProcessor implements JobProcessor {
+public class LoadProcessor extends AbstractJobProcessor {
     private static final Logger LOG = LogManager.getLogger(LoadProcessor.class);
 
-    public final CoordinatorContext coordinatorContext;
     public final LoadContext loadContext;
     public final long jobId;
 
     // this latch is used to wait finish for load, for example, insert into statement
     // MarkedCountDownLatch:
     //  key: fragmentId, value: backendId
-    private volatile Optional<PipelineExecutionTask> executionTask;
     private volatile Optional<MarkedCountDownLatch<Integer, Long>> latch;
-    private volatile Optional<Map<BackendFragmentId, SingleFragmentPipelineTask>> backendFragmentTasks;
     private volatile List<SingleFragmentPipelineTask> topFragmentTasks;
 
     public LoadProcessor(CoordinatorContext coordinatorContext, long jobId) {
-        this.coordinatorContext = Objects.requireNonNull(coordinatorContext, "coordinatorContext can not be null");
+        super(coordinatorContext);
+
         this.loadContext = new LoadContext();
-        this.executionTask = Optional.empty();
         this.latch = Optional.empty();
         this.backendFragmentTasks = Optional.empty();
 
@@ -87,14 +80,8 @@ public class LoadProcessor implements JobProcessor {
     }
 
     @Override
-    public void setSqlPipelineTask(PipelineExecutionTask pipelineExecutionTask) {
-        Preconditions.checkArgument(pipelineExecutionTask != null, "sqlPipelineTask can not be null");
-
-        this.executionTask = Optional.of(pipelineExecutionTask);
-        Map<BackendFragmentId, SingleFragmentPipelineTask> backendFragmentTasks
-                = buildBackendFragmentTasks(pipelineExecutionTask);
-        this.backendFragmentTasks = Optional.of(backendFragmentTasks);
-
+    protected void afterSetPipelineExecutionTask(PipelineExecutionTask pipelineExecutionTask) {
+        Map<BackendFragmentId, SingleFragmentPipelineTask> backendFragmentTasks = this.backendFragmentTasks.get();
         MarkedCountDownLatch<Integer, Long> latch = new MarkedCountDownLatch<>(backendFragmentTasks.size());
         for (BackendFragmentId backendFragmentId : backendFragmentTasks.keySet()) {
             latch.addMark(backendFragmentId.fragmentId, backendFragmentId.backendId);
@@ -168,34 +155,9 @@ public class LoadProcessor implements JobProcessor {
         return latch.get().await(timeout, unit);
     }
 
-    public void updateFragmentExecStatus(TReportExecStatusParams params) {
-        SingleFragmentPipelineTask fragmentTask = backendFragmentTasks.get().get(
-                new BackendFragmentId(params.getBackendId(), params.getFragmentId()));
-        if (fragmentTask == null || !fragmentTask.processReportExecStatus(params)) {
-            return;
-        }
-        TUniqueId queryId = coordinatorContext.queryId;
-        Status status = new Status(params.status);
-        // for now, abort the query if we see any error except if the error is cancelled
-        // and returned_all_results_ is true.
-        // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
-        if (!status.ok()) {
-            if (coordinatorContext.isEos() && status.isCancelled()) {
-                LOG.warn("Query {} has returned all results, fragment_id={} instance_id={}, be={}"
-                                + " is reporting failed status {}",
-                        DebugUtil.printId(queryId), params.getFragmentId(),
-                        DebugUtil.printId(params.getFragmentInstanceId()),
-                        params.getBackendId(),
-                        status.toString());
-            } else {
-                LOG.warn("one instance report fail, query_id={} fragment_id={} instance_id={}, be={},"
-                                + " error message: {}",
-                        DebugUtil.printId(queryId), params.getFragmentId(),
-                        DebugUtil.printId(params.getFragmentInstanceId()),
-                        params.getBackendId(), status.toString());
-                coordinatorContext.updateStatusIfOk(status);
-            }
-        }
+
+    @Override
+    protected void doProcessReportExecStatus(TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {
         LoadContext loadContext = coordinatorContext.asLoadProcessor().loadContext;
         if (params.isSetDeltaUrls()) {
             loadContext.updateDeltaUrls(params.getDeltaUrls());
@@ -234,7 +196,7 @@ public class LoadProcessor implements JobProcessor {
         if (fragmentTask.isDone()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Query {} fragment {} is marked done",
-                        DebugUtil.printId(queryId), params.getFragmentId());
+                        DebugUtil.printId(coordinatorContext.queryId), params.getFragmentId());
             }
             latch.get().markedCountDown(params.getFragmentId(), params.getBackendId());
         }
@@ -256,22 +218,6 @@ public class LoadProcessor implements JobProcessor {
                         params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
             }
         }
-    }
-
-    private Map<BackendFragmentId, SingleFragmentPipelineTask> buildBackendFragmentTasks(
-            PipelineExecutionTask executionTask) {
-        ImmutableMap.Builder<BackendFragmentId, SingleFragmentPipelineTask> backendFragmentTasks
-                = ImmutableMap.builder();
-        for (Entry<Long, MultiFragmentsPipelineTask> backendTask : executionTask.getChildrenTasks().entrySet()) {
-            Long backendId = backendTask.getKey();
-            for (Entry<Integer, SingleFragmentPipelineTask> fragmentIdToTask : backendTask.getValue()
-                    .getChildrenTasks().entrySet()) {
-                Integer fragmentId = fragmentIdToTask.getKey();
-                SingleFragmentPipelineTask fragmentTask = fragmentIdToTask.getValue();
-                backendFragmentTasks.put(new BackendFragmentId(backendId, fragmentId), fragmentTask);
-            }
-        }
-        return backendFragmentTasks.build();
     }
 
     /*

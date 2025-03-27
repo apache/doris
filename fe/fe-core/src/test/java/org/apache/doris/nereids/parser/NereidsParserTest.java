@@ -448,7 +448,7 @@ public class NereidsParserTest extends ParserTestBase {
 
         sql = "use a";
         plan = nereidsParser.parseSingle(sql);
-        Assertions.assertEquals(plan.stmtType(), StmtType.OTHER);
+        Assertions.assertEquals(plan.stmtType(), StmtType.USE);
 
         sql = "CREATE TABLE tbl (`id` INT NOT NULL) DISTRIBUTED BY HASH(`id`) BUCKETS 1";
         plan = nereidsParser.parseSingle(sql);
@@ -463,10 +463,12 @@ public class NereidsParserTest extends ParserTestBase {
     public void testParseUse() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "use db";
-        nereidsParser.parseSingle(sql);
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertEquals(logicalPlan.stmtType(), StmtType.USE);
 
         sql = "use catalog.db";
-        nereidsParser.parseSingle(sql);
+        LogicalPlan logicalPlan1 = nereidsParser.parseSingle(sql);
+        Assertions.assertEquals(logicalPlan1.stmtType(), StmtType.USE);
     }
 
     @Test
@@ -601,12 +603,6 @@ public class NereidsParserTest extends ParserTestBase {
         nereidsParser.parseSingle(sql);
 
         sql = "describe tbl all";
-        nereidsParser.parseSingle(sql);
-
-        sql = "describe function tvf('a' = 'b')";
-        nereidsParser.parseSingle(sql);
-
-        sql = "describe function tvf('a' = 'b') as tvf";
         nereidsParser.parseSingle(sql);
     }
 

@@ -186,22 +186,26 @@ public class StmtExecutionAction extends RestBaseController {
     @NotNull
     private String getSchema(String sql) {
         LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(sql);
-        StatementContext statementContext = new StatementContext(ConnectContext.get(),
-                new OriginStatement(sql, 0));
-        NereidsPlanner planner = new NereidsPlanner(statementContext);
-        if (statementContext.getConnectContext().getStatementContext() == null) {
-            statementContext.getConnectContext().setStatementContext(statementContext);
-        }
-        planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.ANALYZED_PLAN);
-        LogicalPlan logicalPlan = (LogicalPlan) planner.getCascadesContext().getRewritePlan();
+        try (StatementContext statementContext = new StatementContext(ConnectContext.get(),
+                new OriginStatement(sql, 0))) {
+            StatementContext originalContext = ConnectContext.get().getStatementContext();
+            try {
+                ConnectContext.get().setStatementContext(statementContext);
+                NereidsPlanner planner = new NereidsPlanner(statementContext);
+                planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.ANALYZED_PLAN);
+                LogicalPlan logicalPlan = (LogicalPlan) planner.getCascadesContext().getRewritePlan();
 
-        List<String> createStmts = PlanUtils.getLogicalScanFromRootPlan(logicalPlan).stream().map(plan -> {
-            TableIf tbl = plan.getTable();
-            List<String> createTableStmts = Lists.newArrayList();
-            Env.getDdlStmt(tbl, createTableStmts, null, null, false, true, -1L);
-            return createTableStmts.get(0);
-        }).collect(Collectors.toList());
-        return Joiner.on("\n\n").join(createStmts);
+                List<String> createStmts = PlanUtils.getLogicalScanFromRootPlan(logicalPlan).stream().map(plan -> {
+                    TableIf tbl = plan.getTable();
+                    List<String> createTableStmts = Lists.newArrayList();
+                    Env.getDdlStmt(tbl, createTableStmts, null, null, false, true, -1L);
+                    return createTableStmts.get(0);
+                }).collect(Collectors.toList());
+                return Joiner.on("\n\n").join(createStmts);
+            } finally {
+                ConnectContext.get().setStatementContext(originalContext);
+            }
+        }
     }
 
     private static class StmtRequestBody {

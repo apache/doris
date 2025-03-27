@@ -33,16 +33,14 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename K>
 struct AggregateFunctionMapAggData {
     using KeyType = std::conditional_t<std::is_same_v<K, String>, StringRef, K>;
     using Map = phmap::flat_hash_map<StringRef, int64_t>;
 
-    AggregateFunctionMapAggData() {
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }
+    AggregateFunctionMapAggData() { throw Exception(Status::FatalError("__builtin_unreachable")); }
 
     AggregateFunctionMapAggData(const DataTypes& argument_types) {
         _key_type = remove_nullable(argument_types[0]);
@@ -345,3 +343,5 @@ protected:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

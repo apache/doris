@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
@@ -66,7 +67,7 @@ public class Placeholder extends Expression implements LeafExpression {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return "?";
     }
 
@@ -90,5 +91,14 @@ public class Placeholder extends Expression implements LeafExpression {
 
     public MysqlColType getMysqlColType() {
         return mysqlColType.get();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof PlaceHolderExpr)) {
+            return false;
+        }
+        Placeholder other = (Placeholder) o;
+        return placeholderId == other.placeholderId;
     }
 }

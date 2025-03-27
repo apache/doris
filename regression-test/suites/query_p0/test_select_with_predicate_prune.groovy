@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_select_with_predicate_prune") {
+suite("test_select_with_predicate_prune", "arrow_flight_sql") {
     sql """
         drop table if exists `test_select_with_predicate_prune`;
     """

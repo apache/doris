@@ -21,7 +21,7 @@ suite("test_partial_update_case_insensitivity", "p0") {
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql "use ${db};"
             def tableName = "test_partial_update_case_insensitivity"
             sql """ DROP TABLE IF EXISTS ${tableName} """

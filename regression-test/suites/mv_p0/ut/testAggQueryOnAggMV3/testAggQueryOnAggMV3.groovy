@@ -41,6 +41,7 @@ suite ("testAggQueryOnAggMV3") {
     createMV("create materialized view emps_mv as select deptno, commission, sum(salary) from emps group by deptno, commission;")
 
     sql "analyze table emps with sync;"
+    sql """alter table emps modify column time_col set stats ('row_count'='4');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
@@ -55,7 +56,6 @@ suite ("testAggQueryOnAggMV3") {
     qt_select_mv "select commission, sum(salary) from emps where commission = 100 group by commission order by commission;"
 
     sql """set enable_stats=true;"""
-    sql """alter table emps modify column time_col set stats ('row_count'='4');"""
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
 
     mv_rewrite_success("select commission, sum(salary) from emps where deptno > 0 and commission * (deptno + commission) = 100 group by commission order by commission;",

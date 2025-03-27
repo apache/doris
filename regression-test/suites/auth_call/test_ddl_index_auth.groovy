@@ -58,7 +58,7 @@ suite("test_ddl_index_auth","p0,auth_call") {
         logger.info("cluster:" + clusters)
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
     sql """create database ${dbName}"""
     sql """
@@ -80,7 +80,7 @@ suite("test_ddl_index_auth","p0,auth_call") {
     assertTrue(index_res_tmp.size() == 0)
 
     // ddl create
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE INDEX IF NOT EXISTS ${indexName} ON ${dbName}.${tableName} (username3) USING INVERTED COMMENT 'balabala';"""
             exception "denied"
@@ -97,7 +97,7 @@ suite("test_ddl_index_auth","p0,auth_call") {
         }
     }
     sql """grant ALTER_PRIV on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def ss = sql """show grants"""
         logger.info("ss:" + ss)
         sql """use ${dbName}"""

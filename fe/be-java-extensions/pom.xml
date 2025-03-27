@@ -22,6 +22,7 @@ under the License.
     <modelVersion>4.0.0</modelVersion>
     <modules>
         <module>hudi-scanner</module>
+        <module>hadoop-hudi-scanner</module>
         <module>java-common</module>
         <module>java-udf</module>
         <module>jdbc-scanner</module>

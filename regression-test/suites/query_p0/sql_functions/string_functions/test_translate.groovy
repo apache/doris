@@ -88,30 +88,15 @@ suite("test_translate") {
     order_qt_const3 "select translate(b, a, 'abc') from test_translate"
 
     /// folding
-    def re_fe
-    def re_be
-    def re_no_fold
-    def check_three_ways = { test_sql ->
-        sql "set enable_fold_constant_by_be=false;"
-        re_fe = order_sql "select ${test_sql}"
-        sql "set enable_fold_constant_by_be=true;"
-        re_be = order_sql "select ${test_sql}"
-        sql "set debug_skip_fold_constant=true;"
-        re_no_fold = order_sql "select ${test_sql}"
-        logger.info("check on sql \${test_sql}")
-        assertEquals(re_fe, re_be)
-        assertEquals(re_fe, re_no_fold)
-    }
-
-    check_three_ways "translate('abcd', '', '');"
-    check_three_ways "translate('abcda', 'a', 'z');"
-    check_three_ways "translate('abcd', 'ac', 'z');"
-    check_three_ways "translate('abcd', 'aac', 'zq');"
-    check_three_ways "translate('abcd', 'aac', 'zqx');"
-    check_three_ways "translate('abcd', 'aac', '中文x');"
-    check_three_ways "translate('中文', '中', '文');"
-    check_three_ways "translate('中文', '中', 'a');"
-    check_three_ways "translate('\tt\tt\tt', '\t', 't');"
+    check_fold_consistency "translate('abcd', '', '');"
+    check_fold_consistency "translate('abcda', 'a', 'z');"
+    check_fold_consistency "translate('abcd', 'ac', 'z');"
+    check_fold_consistency "translate('abcd', 'aac', 'zq');"
+    check_fold_consistency "translate('abcd', 'aac', 'zqx');"
+    check_fold_consistency "translate('abcd', 'aac', '中文x');"
+    check_fold_consistency "translate('中文', '中', '文');"
+    check_fold_consistency "translate('中文', '中', 'a');"
+    check_fold_consistency "translate('\tt\tt\tt', '\t', 't');"
 
     order_qt_1 "select translate('abcd', '', '');"
     order_qt_2 "select translate('abcd', 'a', 'z')"

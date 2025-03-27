@@ -175,6 +175,7 @@ private:
                               const std::function<void(const RowLocation& loc)>& found_cb,
                               const std::function<Status()>& not_found_cb,
                               PartialUpdateStats& stats);
+    Status _partial_update_preconditions_check(size_t row_pos, bool is_flexible_update);
     Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
     Status _append_block_with_flexible_partial_content(RowsInBlock& data,
                                                        vectorized::Block& full_block);

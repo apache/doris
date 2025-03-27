@@ -68,54 +68,11 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
   """
 
   boolean disableAutoCompaction = false
-  
+
   def set_be_config = { key, value ->
     for (String backend_id: backendId_to_backendIP.keySet()) {
       def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
       logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-    }
-  }
-
-  def trigger_full_compaction_on_tablets = { tablets ->
-    for (def tablet : tablets) {
-      String tablet_id = tablet.TabletId
-      String backend_id = tablet.BackendId
-      int times = 1
-
-      String compactionStatus;
-      do{
-        def (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        ++times
-        sleep(2000)
-        compactionStatus = parseJson(out.trim()).status.toLowerCase();
-      } while (compactionStatus!="success" && times<=10 && compactionStatus!="e-6010")
-
-
-      if (compactionStatus == "fail") {
-        assertEquals(disableAutoCompaction, false)
-        logger.info("Compaction was done automatically!")
-      }
-      if (disableAutoCompaction && compactionStatus!="e-6010") {
-        assertEquals("success", compactionStatus)
-      }
-    }
-  }
-
-  def wait_full_compaction_done = { tablets ->
-    for (def tablet in tablets) {
-      boolean running = true
-      do {
-        Thread.sleep(1000)
-        String tablet_id = tablet.TabletId
-        String backend_id = tablet.BackendId
-        def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-        logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def compactionStatus = parseJson(out.trim())
-        assertEquals("success", compactionStatus.status.toLowerCase())
-        running = compactionStatus.run_status
-      } while (running)
     }
   }
 
@@ -148,7 +105,7 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
     }
   }
 
-  def run_test = { tableName -> 
+  def run_test = { tableName ->
     sql """ INSERT INTO ${tableName} VALUES (1, "40.135.0.0", "GET /images/hm_bg.jpg HTTP/1.0", 1, 2); """
     sql """ INSERT INTO ${tableName} VALUES (2, "40.135.0.0", "GET /images/hm_bg.jpg HTTP/1.0", 1, 2); """
     sql """ INSERT INTO ${tableName} VALUES (3, "40.135.0.0", "GET /images/hm_bg.jpg HTTP/1.0", 1, 2); """
@@ -178,15 +135,13 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
     assert (rowsetCount == 11 * replicaNum)
 
     // first
-    trigger_full_compaction_on_tablets.call(tablets)
-    wait_full_compaction_done.call(tablets)
+    trigger_and_wait_compaction(tableName, "full", 300, new String[]{"e-6010"})
 
     rowsetCount = get_rowset_count.call(tablets);
     assert (rowsetCount == 11 * replicaNum)
 
     // second
-    trigger_full_compaction_on_tablets.call(tablets)
-    wait_full_compaction_done.call(tablets)
+    trigger_and_wait_compaction(tableName, "full", 300, new String[]{"e-6010"})
 
     rowsetCount = get_rowset_count.call(tablets);
     if (isCloudMode) {
@@ -202,7 +157,7 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
     String backend_id;
     backend_id = backendId_to_backendIP.keySet()[0]
     def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-    
+
     logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
     def configList = parseJson(out.trim())

@@ -201,7 +201,8 @@ public class MTMV extends OlapTable {
                 // to connection issues such as S3, so it is directly set to null
                 if (!isReplay) {
                     // shouldn't do this while holding mvWriteLock
-                    mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true);
+                    mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
+                            true, null);
                 }
             } catch (Throwable e) {
                 mtmvCache = null;
@@ -320,13 +321,8 @@ public class MTMV extends OlapTable {
         }
         // Concurrent situations may result in duplicate cache generation,
         // but we tolerate this in order to prevent nested use of readLock and write MvLock for the table
-        MTMVCache mtmvCache;
-        try {
-            // Should new context with ADMIN user
-            mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true);
-        } finally {
-            connectionContext.setThreadLocalInfo();
-        }
+        MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
+                false, connectionContext);
         writeMvLock();
         try {
             this.cache = mtmvCache;
@@ -334,10 +330,6 @@ public class MTMV extends OlapTable {
         } finally {
             writeMvUnlock();
         }
-    }
-
-    public MTMVCache getCache() {
-        return cache;
     }
 
     public Map<String, String> getMvProperties() {
@@ -362,7 +354,7 @@ public class MTMV extends OlapTable {
      *
      * @return mvPartitionName ==> mvPartitionKeyDesc
      */
-    public Map<String, PartitionKeyDesc> generateMvPartitionDescs() throws AnalysisException {
+    public Map<String, PartitionKeyDesc> generateMvPartitionDescs() {
         Map<String, PartitionItem> mtmvItems = getAndCopyPartitionItems();
         Map<String, PartitionKeyDesc> result = Maps.newHashMap();
         for (Entry<String, PartitionItem> entry : mtmvItems.entrySet()) {

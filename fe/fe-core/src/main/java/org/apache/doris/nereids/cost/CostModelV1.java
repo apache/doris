@@ -19,8 +19,11 @@ package org.apache.doris.nereids.cost;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
@@ -63,8 +66,10 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
@@ -106,9 +111,31 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         double rows = statistics.getRowCount();
         double aggMvBonus = 0.0;
         if (table.getBaseIndexId() != physicalOlapScan.getSelectedIndexId()) {
+            Optional<UseMvHint> useMvHint = ConnectContext.get().getStatementContext().getUseMvHint("USE_MV");
+            if (useMvHint.isPresent()) {
+                List<String> mvQualifier = new ArrayList<>();
+                for (String qualifier : table.getFullQualifiers()) {
+                    mvQualifier.add(qualifier);
+                }
+                mvQualifier.add(table.getIndexNameById(physicalOlapScan.getSelectedIndexId()));
+                if (useMvHint.get().getUseMvTableColumnMap().containsKey(mvQualifier)) {
+                    useMvHint.get().getUseMvTableColumnMap().put(mvQualifier, true);
+                    useMvHint.get().setStatus(Hint.HintStatus.SUCCESS);
+                    return CostV1.ofCpu(context.getSessionVariable(), Double.NEGATIVE_INFINITY);
+                }
+            }
             if (table.getIndexMetaByIndexId(physicalOlapScan.getSelectedIndexId())
                     .getKeysType().equals(KeysType.AGG_KEYS)) {
                 aggMvBonus = rows > 1.0 ? 1.0 : rows * 0.5;
+            }
+        }
+        if (table instanceof MTMV) {
+            Optional<UseMvHint> useMvHint = ConnectContext.get().getStatementContext().getUseMvHint("USE_MV");
+            if (useMvHint.isPresent() && useMvHint.get().getUseMvTableColumnMap()
+                    .containsKey(table.getFullQualifiers())) {
+                useMvHint.get().getUseMvTableColumnMap().put(table.getFullQualifiers(), true);
+                useMvHint.get().setStatus(Hint.HintStatus.SUCCESS);
+                return CostV1.ofCpu(context.getSessionVariable(), Double.NEGATIVE_INFINITY);
             }
         }
         return CostV1.ofCpu(context.getSessionVariable(), rows - aggMvBonus);

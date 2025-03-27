@@ -165,7 +165,7 @@ struct BinaryOperationImpl {
 
     static ColumnPtr adapt_normal_vector_constant(ColumnPtr column_left, B b) {
         auto column_left_ptr =
-                check_and_get_column<typename Base::Traits::ColumnVectorA>(column_left);
+                check_and_get_column<typename Base::Traits::ColumnVectorA>(column_left.get());
         auto column_result = Base::ColumnVectorResult::create(column_left->size());
         DCHECK(column_left_ptr != nullptr);
 
@@ -182,7 +182,7 @@ struct BinaryOperationImpl {
 
     static ColumnPtr adapt_normal_constant_vector(A a, ColumnPtr column_right) {
         auto column_right_ptr =
-                check_and_get_column<typename Base::Traits::ColumnVectorB>(column_right);
+                check_and_get_column<typename Base::Traits::ColumnVectorB>(column_right.get());
         auto column_result = Base::ColumnVectorResult::create(column_right->size());
         DCHECK(column_right_ptr != nullptr);
 
@@ -199,9 +199,9 @@ struct BinaryOperationImpl {
 
     static ColumnPtr adapt_normal_vector_vector(ColumnPtr column_left, ColumnPtr column_right) {
         auto column_left_ptr =
-                check_and_get_column<typename Base::Traits::ColumnVectorA>(column_left);
+                check_and_get_column<typename Base::Traits::ColumnVectorA>(column_left.get());
         auto column_right_ptr =
-                check_and_get_column<typename Base::Traits::ColumnVectorB>(column_right);
+                check_and_get_column<typename Base::Traits::ColumnVectorB>(column_right.get());
 
         auto column_result = Base::ColumnVectorResult::create(column_left->size());
         DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
@@ -447,7 +447,8 @@ public:
         auto type_result =
                 assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type);
-        auto column_left_ptr = check_and_get_column<typename Traits::ColumnVectorA>(column_left);
+        auto column_left_ptr =
+                check_and_get_column<typename Traits::ColumnVectorA>(column_left.get());
         auto column_result = ColumnDecimal<ResultType>::create(
                 column_left->size(),
                 assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
@@ -482,7 +483,8 @@ public:
         auto type_result =
                 assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type);
-        auto column_right_ptr = check_and_get_column<typename Traits::ColumnVectorB>(column_right);
+        auto column_right_ptr =
+                check_and_get_column<typename Traits::ColumnVectorB>(column_right.get());
         auto column_result = ColumnDecimal<ResultType>::create(
                 column_right->size(),
                 assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
@@ -515,8 +517,10 @@ public:
                                                  const ResultType& max_result_number,
                                                  const ResultType& scale_diff_multiplier,
                                                  DataTypePtr res_data_type) {
-        auto column_left_ptr = check_and_get_column<typename Traits::ColumnVectorA>(column_left);
-        auto column_right_ptr = check_and_get_column<typename Traits::ColumnVectorB>(column_right);
+        auto column_left_ptr =
+                check_and_get_column<typename Traits::ColumnVectorA>(column_left.get());
+        auto column_right_ptr =
+                check_and_get_column<typename Traits::ColumnVectorB>(column_right.get());
 
         const auto& type_result = assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type);
         auto column_result =
@@ -556,7 +560,7 @@ private:
         if constexpr (IsDecimalV2<B> || IsDecimalV2<A>) {
             // Now, Doris only support decimal +-*/ decimal.
             if constexpr (check_overflow) {
-                auto res = Op::template apply(DecimalV2Value(a), DecimalV2Value(b)).value();
+                auto res = Op::apply(DecimalV2Value(a), DecimalV2Value(b)).value();
                 if (res > max_result_number.value || res < -max_result_number.value) {
                     THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
                             DecimalV2Value(a).to_string(), Name::name,
@@ -565,7 +569,7 @@ private:
                 }
                 return res;
             } else {
-                return Op::template apply(DecimalV2Value(a), DecimalV2Value(b)).value();
+                return Op::apply(DecimalV2Value(a), DecimalV2Value(b)).value();
             }
         } else {
             NativeResultType res;
@@ -660,7 +664,7 @@ private:
         if constexpr (IsDecimalV2<B> || IsDecimalV2<A>) {
             DecimalV2Value l(a);
             DecimalV2Value r(b);
-            auto ans = Op::template apply(l, r, is_null);
+            auto ans = Op::apply(l, r, is_null);
             using ANS_TYPE = std::decay_t<decltype(ans)>;
             if constexpr (check_overflow && OpTraits::is_division) {
                 if constexpr (std::is_same_v<ANS_TYPE, DecimalV2Value>) {
@@ -847,8 +851,8 @@ private:
     static ColumnPtr constant_constant(ColumnPtr column_left, ColumnPtr column_right,
                                        const LeftDataType& type_left,
                                        const RightDataType& type_right, DataTypePtr res_data_type) {
-        auto column_left_ptr = check_and_get_column<ColumnConst>(column_left);
-        auto column_right_ptr = check_and_get_column<ColumnConst>(column_right);
+        const auto* column_left_ptr = check_and_get_column<ColumnConst>(column_left.get());
+        const auto* column_right_ptr = check_and_get_column<ColumnConst>(column_right.get());
         DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
 
         ColumnPtr column_result = nullptr;
@@ -875,7 +879,7 @@ private:
     static ColumnPtr vector_constant(ColumnPtr column_left, ColumnPtr column_right,
                                      const LeftDataType& type_left, const RightDataType& type_right,
                                      DataTypePtr res_data_type) {
-        auto column_right_ptr = check_and_get_column<ColumnConst>(column_right);
+        const auto* column_right_ptr = check_and_get_column<ColumnConst>(column_right.get());
         DCHECK(column_right_ptr != nullptr);
 
         if constexpr (result_is_decimal) {
@@ -894,7 +898,7 @@ private:
     static ColumnPtr constant_vector(ColumnPtr column_left, ColumnPtr column_right,
                                      const LeftDataType& type_left, const RightDataType& type_right,
                                      DataTypePtr res_data_type) {
-        auto column_left_ptr = check_and_get_column<ColumnConst>(column_left);
+        const auto* column_left_ptr = check_and_get_column<ColumnConst>(column_left.get());
         DCHECK(column_left_ptr != nullptr);
 
         if constexpr (result_is_decimal) {

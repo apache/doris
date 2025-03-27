@@ -219,7 +219,7 @@ public class ExchangeNode extends PlanNode {
      * FRAGMENT 0:
      *  Merging Exchange (id = 1)
      *   NL Join (id = 2)
-     *  DataStreamSender (id = 3, dst_id = 3) (TABLET_SINK_SHUFFLE_PARTITIONED)
+     *  DataStreamSender (id = 3, dst_id = 3) (OLAP_TABLE_SINK_HASH_PARTITIONED)
      *
      * FRAGMENT 1:
      *  Exchange (id = 3)

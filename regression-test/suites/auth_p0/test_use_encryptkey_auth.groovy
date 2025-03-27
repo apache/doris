@@ -32,11 +32,11 @@ suite("test_use_encryptkey_auth","p0,auth") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
     sql """CREATE ENCRYPTKEY ${key} AS 'ABCD123456789'"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
               sql """
                   SELECT HEX(AES_ENCRYPT("Doris is Great", KEY ${dbName}.${key}));
@@ -45,7 +45,7 @@ suite("test_use_encryptkey_auth","p0,auth") {
           }
     }
     sql """grant select_priv on ${dbName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
           sql """
               SELECT HEX(AES_ENCRYPT("Doris is Great", KEY ${dbName}.${key}));
           """

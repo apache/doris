@@ -88,9 +88,10 @@ github:
           - P0 Regression (Doris Regression)
           - External Regression (Doris External Regression)
           - cloud_p0 (Doris Cloud Regression)
-      #required_pull_request_reviews:
-      #  dismiss_stale_reviews: true
-      #  required_approving_review_count: 1
+      required_pull_request_reviews:
+          require_code_owner_reviews: true
+          required_approving_review_count: 1
+          dismiss_stale_reviews: true
 
     branch-2.1:
       required_status_checks:
@@ -108,10 +109,10 @@ github:
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - P0 Regression (Doris Regression)
-
-        required_pull_request_reviews:
-          dismiss_stale_reviews: true
+      required_pull_request_reviews:
+          require_code_owner_reviews: true
           required_approving_review_count: 1
+          dismiss_stale_reviews: true
 
     branch-2.0:
       required_status_checks:
@@ -145,7 +146,6 @@ github:
         required_approving_review_count: 1
 
   collaborators:
-    - LemonLiTree
     - Yukang-Lian
     - TangSiyang2001
     - freemandealer

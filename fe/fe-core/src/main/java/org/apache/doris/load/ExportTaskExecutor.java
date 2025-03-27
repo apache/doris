@@ -34,6 +34,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.thrift.TStatusCode;
@@ -41,6 +42,8 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -50,8 +53,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 public class ExportTaskExecutor implements TransientTaskExecutor {
+    private static final Logger LOG = LogManager.getLogger(ExportTaskExecutor.class);
 
-    List<StatementBase> selectStmtLists;
+    Optional<StatementBase> selectStmt;
 
     ExportJob exportJob;
 
@@ -63,9 +67,9 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
 
     private AtomicBoolean isFinished;
 
-    ExportTaskExecutor(List<StatementBase> selectStmtLists, ExportJob exportJob) {
+    ExportTaskExecutor(Optional<StatementBase> selectStmt, ExportJob exportJob) {
         this.taskId = UUID.randomUUID().getMostSignificantBits();
-        this.selectStmtLists = selectStmtLists;
+        this.selectStmt = selectStmt;
         this.exportJob = exportJob;
         this.isCanceled = new AtomicBoolean(false);
         this.isFinished = new AtomicBoolean(false);
@@ -78,25 +82,33 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
 
     @Override
     public void execute() throws JobException {
+        LOG.debug("[Export Task] taskId: {} starting execution", taskId);
         if (isCanceled.get()) {
+            LOG.debug("[Export Task] taskId: {} was already canceled before execution", taskId);
             throw new JobException("Export executor has been canceled, task id: {}", taskId);
         }
+        LOG.debug("[Export Task] taskId: {} updating state to EXPORTING", taskId);
         exportJob.updateExportJobState(ExportJobState.EXPORTING, taskId, null, null, null);
         List<OutfileInfo> outfileInfoList = Lists.newArrayList();
-        for (int idx = 0; idx < selectStmtLists.size(); ++idx) {
+        if (selectStmt.isPresent()) {
             if (isCanceled.get()) {
+                LOG.debug("[Export Task] taskId: {} canceled during execution", taskId);
                 throw new JobException("Export executor has been canceled, task id: {}", taskId);
             }
             // check the version of tablets, skip if the consistency is in partition level.
             if (exportJob.getExportTable().isManagedTable() && !exportJob.isPartitionConsistency()) {
+                LOG.debug("[Export Task] taskId: {} checking tablet versions", taskId);
                 try {
                     Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(
                             exportJob.getTableName().getDb());
                     OlapTable table = db.getOlapTableOrAnalysisException(exportJob.getTableName().getTbl());
+                    LOG.debug("[Export Lock] taskId: {}, table: {} about to acquire readLock",
+                            taskId, table.getName());
                     table.readLock();
+                    LOG.debug("[Export Lock] taskId: {}, table: {} acquired readLock", taskId, table.getName());
                     try {
                         List<Long> tabletIds;
-                        LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) selectStmtLists.get(idx);
+                        LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) selectStmt.get();
                         Optional<UnboundRelation> unboundRelation = findUnboundRelation(
                                 logicalPlanAdapter.getLogicalPlan());
                         tabletIds = unboundRelation.get().getTabletIds();
@@ -108,6 +120,8 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                             long nowVersion = partition.getVisibleVersion();
                             long oldVersion = exportJob.getPartitionToVersion().get(partition.getName());
                             if (nowVersion != oldVersion) {
+                                LOG.debug("[Export Lock] taskId: {}, table: {} about to release readLock"
+                                        + "due to version mismatch", taskId, table.getName());
                                 exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
                                         CancelType.RUN_FAIL, "The version of tablet {" + tabletId + "} has changed");
                                 throw new JobException("Export Job[{}]: Tablet {} has changed version, old version = {}"
@@ -115,11 +129,17 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                             }
                         }
                     } catch (Exception e) {
+                        LOG.debug("[Export Lock] taskId: {}, table: {} about to release readLock"
+                                + "due to exception: {}", taskId, table.getName(), e.getMessage());
                         exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
                                 ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
                         throw new JobException(e);
                     } finally {
+                        LOG.debug("[Export Lock] taskId: {}, table: {} releasing readLock in finally block",
+                                taskId, table.getName());
                         table.readUnlock();
+                        LOG.debug("[Export Lock] taskId: {}, table: {} released readLock successfully",
+                                taskId, table.getName());
                     }
                 } catch (AnalysisException e) {
                     exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
@@ -129,26 +149,34 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
             }
 
             try (AutoCloseConnectContext r = buildConnectContext()) {
-                stmtExecutor = new StmtExecutor(r.connectContext, selectStmtLists.get(idx));
+                LOG.debug("[Export Task] taskId: {} executing", taskId);
+                stmtExecutor = new StmtExecutor(r.connectContext, selectStmt.get());
                 stmtExecutor.execute();
                 if (r.connectContext.getState().getStateType() == MysqlStateType.ERR) {
+                    LOG.debug("[Export Task] taskId: {} failed with MySQL error: {}", taskId,
+                            r.connectContext.getState().getErrorMessage());
                     exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
                             ExportFailMsg.CancelType.RUN_FAIL, r.connectContext.getState().getErrorMessage());
                     return;
                 }
-                OutfileInfo outfileInfo = getOutFileInfo(r.connectContext.getResultAttachedInfo());
-                outfileInfoList.add(outfileInfo);
+                LOG.debug("[Export Task] taskId: {} executed successfully", taskId);
+                outfileInfoList = getOutFileInfo(r.connectContext.getResultAttachedInfo());
             } catch (Exception e) {
+                LOG.debug("[Export Task] taskId: {} failed with exception: {}",
+                        taskId, e.getMessage(), e);
                 exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
                         ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
                 throw new JobException(e);
             }
         }
         if (isCanceled.get()) {
+            LOG.debug("[Export Task] taskId: {} canceled after processing all statements", taskId);
             throw new JobException("Export executor has been canceled, task id: {}", taskId);
         }
+        LOG.debug("[Export Task] taskId: {} completed successfully, updating state to FINISHED", taskId);
         exportJob.updateExportJobState(ExportJobState.FINISHED, taskId, outfileInfoList, null, null);
         isFinished.getAndSet(true);
+        LOG.debug("[Export Task] taskId: {} execution completed", taskId);
     }
 
     @Override
@@ -165,7 +193,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
     private AutoCloseConnectContext buildConnectContext() {
         ConnectContext connectContext = new ConnectContext();
         exportJob.getSessionVariables().setQueryTimeoutS(exportJob.getTimeoutSecond());
-        connectContext.setSessionVariable(exportJob.getSessionVariables());
+        connectContext.setSessionVariable(VariableMgr.cloneSessionVariable(exportJob.getSessionVariables()));
         // The rollback to the old optimizer is prohibited
         // Since originStmt is empty, reverting to the old optimizer when the new optimizer is enabled is meaningless.
         connectContext.setEnv(Env.getCurrentEnv());
@@ -179,12 +207,18 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         return new AutoCloseConnectContext(connectContext);
     }
 
-    private OutfileInfo getOutFileInfo(Map<String, String> resultAttachedInfo) {
-        OutfileInfo outfileInfo = new OutfileInfo();
-        outfileInfo.setFileNumber(resultAttachedInfo.get(OutFileClause.FILE_NUMBER));
-        outfileInfo.setTotalRows(resultAttachedInfo.get(OutFileClause.TOTAL_ROWS));
-        outfileInfo.setFileSize(resultAttachedInfo.get(OutFileClause.FILE_SIZE) + "bytes");
-        outfileInfo.setUrl(resultAttachedInfo.get(OutFileClause.URL));
+    private List<OutfileInfo> getOutFileInfo(List<Map<String, String>> resultAttachedInfo) {
+        List<OutfileInfo> outfileInfo = Lists.newArrayList();
+        for (Map<String, String> row : resultAttachedInfo) {
+            OutfileInfo outfileInfoOneRow = new OutfileInfo();
+            outfileInfoOneRow.setFileNumber(row.get(OutFileClause.FILE_NUMBER));
+            outfileInfoOneRow.setTotalRows(row.get(OutFileClause.TOTAL_ROWS));
+            outfileInfoOneRow.setFileSize(row.get(OutFileClause.FILE_SIZE));
+            outfileInfoOneRow.setUrl(row.get(OutFileClause.URL));
+            outfileInfoOneRow.setWriteTime(row.get(OutFileClause.WRITE_TIME_SEC));
+            outfileInfoOneRow.setWriteSpeed(row.get(OutFileClause.WRITE_SPEED_KB));
+            outfileInfo.add(outfileInfoOneRow);
+        }
         return outfileInfo;
     }
 

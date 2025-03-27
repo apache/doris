@@ -34,8 +34,6 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -43,7 +41,6 @@ import java.util.List;
  * show grants command
  */
 public class ShowGrantsCommand extends ShowCommand {
-    public static final Logger LOG = LogManager.getLogger(ShowGrantsCommand.class);
     private static final ShowResultSetMetaData META_DATA;
     private final boolean isAll;
     private UserIdentity userIdent; // if not given will update with self.

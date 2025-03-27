@@ -23,6 +23,7 @@
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 const std::string AggregateFunctionGroupConcatImplStr::separator = ",";
 

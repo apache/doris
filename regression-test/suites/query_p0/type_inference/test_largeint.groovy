@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_largeint") {
+suite("test_largeint", "arrow_flight_sql") {
     def tbName = "test_largeint"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """

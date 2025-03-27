@@ -51,6 +51,7 @@
 #include "util/uid_util.h"
 
 namespace json2pb {
+#include "common/compile_check_begin.h"
 struct Pb2JsonOptions;
 } // namespace json2pb
 
@@ -99,8 +100,9 @@ public:
             const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id);
 
     TabletMeta();
+    ~TabletMeta() override;
     TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id, int64_t replica_id,
-               int32_t schema_hash, uint64_t shard_id, const TTabletSchema& tablet_schema,
+               int32_t schema_hash, int32_t shard_id, const TTabletSchema& tablet_schema,
                uint32_t next_unique_id,
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                TabletUid tablet_uid, TTabletType::type tabletType,
@@ -127,6 +129,7 @@ public:
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     Status create_from_file(const std::string& file_path);
+    static Status load_from_file(const std::string& file_path, TabletMetaPB* tablet_meta_pb);
     Status save(const std::string& file_path);
     Status save_as_json(const string& file_path);
     static Status save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
@@ -140,10 +143,6 @@ public:
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
-    // Don't use.
-    // TODO: memory size of TabletSchema cannot be accurately tracked.
-    // In some places, temporarily use num_columns() as TabletSchema size.
-    int64_t mem_size() const;
     size_t tablet_columns_num() const { return _schema->num_columns(); }
 
     TabletTypePB tablet_type() const { return _tablet_type; }
@@ -156,7 +155,7 @@ public:
     int64_t replica_id() const;
     void set_replica_id(int64_t replica_id) { _replica_id = replica_id; }
     int32_t schema_hash() const;
-    int16_t shard_id() const;
+    int32_t shard_id() const;
     void set_shard_id(int32_t shard_id);
     int64_t creation_time() const;
     void set_creation_time(int64_t creation_time);
@@ -218,9 +217,9 @@ public:
     }
 
     // used for after tablet cloned to clear stale rowset
-    void clear_stale_rowset() { _stale_rs_metas.clear(); }
+    void clear_stale_rowset();
 
-    void clear_rowsets() { _rs_metas.clear(); }
+    void clear_rowsets();
 
     // MUST hold EXCLUSIVE `_meta_lock` in belonged Tablet
     // `to_add` MUST NOT have overlapped version with `_rs_metas` in tablet meta.
@@ -302,6 +301,7 @@ public:
 
 private:
     Status _save_meta(DataDir* data_dir);
+    void _check_mow_rowset_cache_version_size(size_t rowset_cache_version_size);
 
     // _del_predicates is ignored to compare.
     friend bool operator==(const TabletMeta& a, const TabletMeta& b);
@@ -324,6 +324,7 @@ private:
     // the reference of _schema may use in tablet, so here need keep
     // the lifetime of tablemeta and _schema is same with tablet
     TabletSchemaSPtr _schema;
+    Cache::Handle* _handle = nullptr;
 
     std::vector<RowsetMetaSharedPtr> _rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
@@ -503,6 +504,14 @@ public:
                 DeleteBitmap* subset_delete_map) const;
 
     /**
+     * Gets count of delete_bitmap with given range [start, end)
+     *
+     * @parma start start
+     * @parma end end
+     */
+    size_t get_count_with_range(const BitmapKey& start, const BitmapKey& end) const;
+
+    /**
      * Merges the given segment delete bitmap into *this
      *
      * @param bmk
@@ -537,6 +546,7 @@ public:
      * @return shared_ptr to a bitmap, which may be empty
      */
     std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
+    std::shared_ptr<roaring::Roaring> get_agg_without_cache(const BitmapKey& bmk) const;
 
     void remove_sentinel_marks();
 
@@ -546,6 +556,13 @@ public:
     void remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector);
 
     uint64_t get_delete_bitmap_count();
+
+    bool has_calculated_for_multi_segments(const RowsetId& rowset_id) const;
+
+    // return the size of the map
+    size_t remove_rowset_cache_version(const RowsetId& rowset_id);
+
+    void clear_rowset_cache_version();
 
     class AggCachePolicy : public LRUCachePolicy {
     public:
@@ -578,8 +595,12 @@ public:
     };
 
 private:
+    DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;
+
     mutable std::shared_ptr<AggCache> _agg_cache;
     int64_t _tablet_id;
+    mutable std::shared_mutex _rowset_cache_version_lock;
+    mutable std::map<RowsetId, std::map<SegmentId, Version>> _rowset_cache_version;
     // <version, <tablet_id, BitmapKeyStart, BitmapKeyEnd>>
     std::map<std::string,
              std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>>
@@ -614,7 +635,7 @@ inline int32_t TabletMeta::schema_hash() const {
     return _schema_hash;
 }
 
-inline int16_t TabletMeta::shard_id() const {
+inline int32_t TabletMeta::shard_id() const {
     return _shard_id;
 }
 
@@ -778,4 +799,5 @@ std::string tablet_state_name(TabletState state);
 bool operator==(const TabletMeta& a, const TabletMeta& b);
 bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
+#include "common/compile_check_end.h"
 } // namespace doris

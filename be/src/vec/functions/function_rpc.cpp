@@ -33,7 +33,7 @@
 #include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 RPCFnImpl::RPCFnImpl(const TFunction& fn) : _fn(fn) {
     _function_name = _fn.scalar_fn.symbol;
     _server_addr = _fn.hdfs_location;

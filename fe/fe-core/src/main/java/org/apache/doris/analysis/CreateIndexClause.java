@@ -44,6 +44,15 @@ public class CreateIndexClause extends AlterTableClause {
         this.alter = alter;
     }
 
+    // for nereids
+    public CreateIndexClause(TableName tableName, IndexDef indexDef, Index index, boolean alter) {
+        super(AlterOpType.SCHEMA_CHANGE);
+        this.tableName = tableName;
+        this.indexDef = indexDef;
+        this.index = index;
+        this.alter = alter;
+    }
+
     @Override
     public Map<String, String> getProperties() {
         return Maps.newHashMap();
@@ -73,7 +82,7 @@ public class CreateIndexClause extends AlterTableClause {
         indexDef.analyze();
         this.index = new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(),
                 indexDef.getColumns(), indexDef.getIndexType(),
-                indexDef.getProperties(), indexDef.getComment(), indexDef.getColumnUniqueIds());
+                indexDef.getProperties(), indexDef.getComment());
     }
 
     @Override

@@ -34,6 +34,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class BufferReadable;
@@ -75,11 +76,12 @@ struct BaseData {
         if (count == 1) {
             return 0.0;
         }
-        return sum_xy / count - sum_x * sum_y / (count * count);
+        return sum_xy / (double)count - sum_x * sum_y / ((double)count * (double)count);
     }
 
     double get_samp_result() const {
-        return sum_xy / (count - 1) - sum_x * sum_y / (count * (count - 1));
+        return sum_xy / double(count - 1) -
+               sum_x * sum_y / ((double)(count) * ((double)(count - 1)));
     }
 
     void merge(const BaseData& rhs) {
@@ -95,10 +97,10 @@ struct BaseData {
     void add(const IColumn* column_x, const IColumn* column_y, size_t row_num) {
         const auto& sources_x =
                 assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_x);
-        double source_data_x = sources_x.get_data()[row_num];
+        double source_data_x = double(sources_x.get_data()[row_num]);
         const auto& sources_y =
                 assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_y);
-        double source_data_y = sources_y.get_data()[row_num];
+        double source_data_y = double(sources_y.get_data()[row_num]);
 
         sum_x += source_data_x;
         sum_y += source_data_y;
@@ -174,4 +176,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

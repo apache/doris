@@ -73,6 +73,14 @@ public:
         return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE;
     }
 
+    // For HASH_SHUFFLE, BUCKET_HASH_SHUFFLE, and ADAPTIVE_PASSTHROUGH,
+    // data is processed and shuffled on the sink.
+    // Compared to PASSTHROUGH, this is a relatively heavy operation.
+    static bool heavy_operations_on_the_sink(ExchangeType idx) {
+        return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE ||
+               idx == ExchangeType::ADAPTIVE_PASSTHROUGH;
+    }
+
     bool need_to_local_exchange(const DataDistribution target_data_distribution,
                                 const int idx) const;
     void init_data_distribution() {
@@ -140,7 +148,6 @@ private:
     std::vector<std::shared_ptr<Pipeline>> _children;
 
     PipelineId _pipeline_id;
-    int _previous_schedule_id = -1;
 
     // pipline id + operator names. init when:
     //  build_operators(), if pipeline;

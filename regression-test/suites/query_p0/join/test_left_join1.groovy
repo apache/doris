@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_left_join1", "query,p0") {
+suite("test_left_join1", "query,p0,arrow_flight_sql") {
 
     def tableName = "test_left_join1"
     sql """drop table if exists ${tableName}"""

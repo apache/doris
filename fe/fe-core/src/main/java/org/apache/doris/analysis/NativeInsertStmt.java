@@ -154,7 +154,6 @@ public class NativeInsertStmt extends InsertStmt {
 
     // Used for group commit insert
     private boolean isGroupCommit = false;
-    private int baseSchemaVersion = -1;
     private TUniqueId loadId = null;
     private long tableId = -1;
     public boolean isGroupCommitStreamLoadSql = false;
@@ -1304,7 +1303,8 @@ public class NativeInsertStmt extends InsertStmt {
         OlapTable olapTable = (OlapTable) getTargetTable();
         olapTable.readLock();
         try {
-            if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
+            if (groupCommitPlanner != null
+                    && olapTable.getBaseSchemaVersion() == groupCommitPlanner.baseSchemaVersion) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("reuse group commit plan, table={}", olapTable);
                 }
@@ -1322,7 +1322,6 @@ public class NativeInsertStmt extends InsertStmt {
                     targetColumnNames, queryId, ConnectContext.get().getSessionVariable().getGroupCommit());
             // save plan message to be reused for prepare stmt
             loadId = queryId;
-            baseSchemaVersion = olapTable.getBaseSchemaVersion();
             return groupCommitPlanner;
         } finally {
             olapTable.readUnlock();
@@ -1334,7 +1333,7 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     public int getBaseSchemaVersion() {
-        return baseSchemaVersion;
+        return groupCommitPlanner.baseSchemaVersion;
     }
 
     public void setIsFromDeleteOrUpdateStmt(boolean isFromDeleteOrUpdateStmt) {

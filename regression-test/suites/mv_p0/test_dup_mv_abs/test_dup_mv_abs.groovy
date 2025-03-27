@@ -42,6 +42,7 @@ suite ("test_dup_mv_abs") {
     sql "insert into d_table select -4,-4,-4,'d';"
 
     sql """analyze table d_table with sync;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
     sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
@@ -65,7 +66,6 @@ suite ("test_dup_mv_abs") {
     qt_select_group_mv_not "select sum(abs(k2)) from d_table group by k3 order by k3;"
 
     sql """set enable_stats=true;"""
-    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1,abs(k2) from d_table order by k1;", "k12a")
 
     mv_rewrite_success("select abs(k2) from d_table order by k1;", "k12a")

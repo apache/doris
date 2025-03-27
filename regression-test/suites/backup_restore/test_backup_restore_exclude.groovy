@@ -18,7 +18,7 @@
 suite("test_backup_restore_exclude", "backup_restore") {
     String dbName = "backup_restore_exclude"
     String suiteName = "test_backup_restore_exclude"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot"
     String tableNamePrefix = "${suiteName}_tables"
 
@@ -88,7 +88,7 @@ suite("test_backup_restore_exclude", "backup_restore") {
 
     qt_select "SELECT * FROM ${dbName}.${backupExcludeTable} ORDER BY id"
     for (def tableName in tables) {
-        result = sql "SELECT * FROM ${dbName}.${tableName}"
+        def result = sql "SELECT * FROM ${dbName}.${tableName}"
         assertEquals(result.size(), numRows);
         sql "DROP TABLE ${dbName}.${tableName} FORCE"
     }

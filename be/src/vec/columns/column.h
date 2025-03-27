@@ -37,6 +37,7 @@
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
@@ -126,7 +127,7 @@ public:
     // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
     virtual void shrink_padding_chars() {}
 
-    /// Some columns may require finalization before using of other operations.
+    // Only used in ColumnObject to handle lifecycle of variant. Other columns would do nothing.
     virtual void finalize() {}
 
     // Only used on ColumnDictionary
@@ -149,7 +150,12 @@ public:
 
     /// If possible, returns pointer to memory chunk which contains n-th element (if it isn't possible, throws an exception)
     /// Is used to optimize some computations (in aggregation, for example).
-    virtual StringRef get_data_at(size_t n) const = 0;
+    /// this function is used in ColumnString, ColumnFixedString, ColumnVector, not support in ColumnArray|ColumnMap...
+    /// and should be pair with insert_data
+    virtual StringRef get_data_at(size_t n) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method get_data_at is not supported for " + get_name());
+    }
 
     virtual Int64 get_int(size_t /*n*/) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -196,7 +202,6 @@ public:
 
     /// Appends range of elements from other column with the same type.
     /// Could be used to concatenate columns.
-    /// TODO: we need `insert_range_from_const` for every column type.
     virtual void insert_range_from(const IColumn& src, size_t start, size_t length) = 0;
 
     /// Appends range of elements from other column with the same type.
@@ -221,15 +226,20 @@ public:
                                           const std::vector<size_t>& positions) = 0;
 
     /// Appends a batch elements from other column with the same type
+    /// Also here should make sure indices_end is bigger than indices_begin
     /// indices_begin + indices_end represent the row indices of column src
     virtual void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                      const uint32_t* indices_end) = 0;
 
     /// Appends data located in specified memory chunk if it is possible (throws an exception if it cannot be implemented).
+    /// used in ColumnString, ColumnFixedString, ColumnVector, not support in ColumnArray|ColumnMap...
     /// Is used to optimize some computations (in aggregation, for example).
     /// Parameter length could be ignored if column values have fixed size.
     /// All data will be inserted as single element
-    virtual void insert_data(const char* pos, size_t length) = 0;
+    virtual void insert_data(const char* pos, size_t length) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method insert_data is not supported for " + get_name());
+    }
 
     virtual void insert_many_fix_len_data(const char* pos, size_t num) {
         throw doris::Exception(
@@ -319,35 +329,30 @@ public:
         return 0;
     }
 
-    virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                               size_t max_row_byte_size) const {
+    virtual void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method serialize_vec is not supported for " + get_name());
-        __builtin_unreachable();
     }
 
-    virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+    virtual void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                              const uint8_t* null_map) const {
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
                 "Method serialize_vec_with_null_map is not supported for " + get_name());
-        __builtin_unreachable();
     }
 
     // This function deserializes group-by keys into column in the vectorized way.
-    virtual void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+    virtual void deserialize_vec(StringRef* keys, const size_t num_rows) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method deserialize_vec is not supported for " + get_name());
-        __builtin_unreachable();
     }
 
     // Used in ColumnNullable::deserialize_vec
-    virtual void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+    virtual void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
                                                const uint8_t* null_map) {
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
                 "Method deserialize_vec_with_null_map is not supported for " + get_name());
-        __builtin_unreachable();
     }
 
     /// TODO: SipHash is slower than city or xx hash, rethink we should have a new interface
@@ -424,7 +429,6 @@ public:
                                "Method filter_by_selector is not supported for {}, only "
                                "column_nullable, column_dictionary and predict_column support",
                                get_name());
-        __builtin_unreachable();
     }
 
     /// Permutes elements using specified permutation. Is used in sortings.
@@ -460,7 +464,7 @@ public:
 
     /** Returns a permutation that sorts elements of this column,
       *  i.e. perm[i]-th element of source column should be i-th element of sorted column.
-      * reverse - reverse ordering (ascending).
+      * reverse - true: descending order, false: ascending order.
       * limit - if isn't 0, then only first limit elements of the result column could be sorted.
       * nan_direction_hint - see above.
       */
@@ -475,13 +479,6 @@ public:
       * It is necessary in ARRAY JOIN operation.
       */
     virtual Ptr replicate(const Offsets& offsets) const = 0;
-
-    /// Appends one field multiple times. Can be optimized in inherited classes.
-    virtual void insert_many(const Field& field, size_t length) {
-        for (size_t i = 0; i < length; ++i) {
-            insert(field);
-        }
-    }
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
@@ -511,10 +508,22 @@ public:
 
     /// Resize memory for specified amount of elements. If reservation isn't possible, does nothing.
     /// It affects performance only (not correctness).
+    /// Note. resize means not only change column self but also sub-columns if have.
     virtual void resize(size_t /*n*/) {}
 
     /// Size of column data in memory (may be approximate) - for profiling. Zero, if could not be determined.
     virtual size_t byte_size() const = 0;
+
+    /**
+    * @brief Checks whether the current column has enough capacity to accommodate the given source column.
+    * 
+    * This pure virtual function should be implemented by derived classes to determine whether the 
+    * current column has enough reserved memory to hold the data of the specified `src` column.
+    * 
+    * @param src The source column whose data needs to be checked for fitting into the current column.
+    * @return true if the current column has enough capacity to hold the `src` data, false otherwise.
+    */
+    virtual bool has_enough_capacity(const IColumn& src) const = 0;
 
     /// Size of memory, allocated for column.
     /// This is greater or equals to byte_size due to memory reservation in containers.
@@ -612,12 +621,6 @@ public:
 
     virtual bool is_column_dictionary() const { return false; }
 
-    virtual bool is_column_array() const { return false; }
-
-    virtual bool is_column_map() const { return false; }
-
-    virtual bool is_column_struct() const { return false; }
-
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
 
@@ -647,8 +650,7 @@ public:
       */
     String dump_structure() const;
 
-    // only used in agg value replace
-    // ColumnString should replace according to 0,1,2... ,size,0,1,2...
+    // only used in agg value replace for column which is not variable length, eg.BlockReader::_copy_value_data
     // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
     // replace data to default value if null, used to avoid null data output decimal check failure
@@ -719,13 +721,24 @@ const Type* check_and_get_column(const IColumn* column) {
 }
 
 template <typename Type>
-bool check_column(const IColumn& column) {
+bool is_column(const IColumn& column) {
     return check_and_get_column<Type>(&column);
 }
 
 template <typename Type>
-bool check_column(const IColumn* column) {
+bool is_column(const IColumn* column) {
     return check_and_get_column<Type>(column);
+}
+
+// check_and_get_column_ptr is used to return a ColumnPtr of a specific column type,
+// which will hold ownership. This prevents the occurrence of dangling pointers due to certain situations.
+template <typename ColumnType>
+ColumnType::Ptr check_and_get_column_ptr(const ColumnPtr& column) {
+    const ColumnType* raw_type_ptr = check_and_get_column<ColumnType>(column.get());
+    if (raw_type_ptr == nullptr) {
+        return nullptr;
+    }
+    return typename ColumnType::Ptr(const_cast<ColumnType*>(raw_type_ptr));
 }
 
 /// True if column's an ColumnConst instance. It's just a syntax sugar for type check.

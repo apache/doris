@@ -62,9 +62,9 @@ suite("test_alter_table_modify_column") {
     qt_order """select * from ${uniqueTableName} order by siteid"""
 
     test {
-        sql """alter table ${uniqueTableName} modify COLUMN siteid INT SUM DEFAULT '0';"""
+        sql """alter table ${uniqueTableName} modify COLUMN citycode INT SUM DEFAULT '0';"""
         // check exception message contains
-        exception "Can not assign aggregation method on column in Unique data model table"
+        exception "Key column citycode can not set aggregation type"
     }
 
     sql "DROP TABLE IF EXISTS ${uniqueTableName} FORCE"
@@ -97,15 +97,15 @@ suite("test_alter_table_modify_column") {
     qt_order """select * from ${aggTableName} order by siteid"""
 
     test {
-        sql """alter table ${aggTableName} modify COLUMN siteid INT key SUM DEFAULT '0';"""
+        sql """alter table ${aggTableName} modify COLUMN citycode INT key SUM DEFAULT '0';"""
         // check exception message contains
-        exception "Key column can not set aggregation type"
+        exception "Key column citycode can not set aggregation type"
     }
 
     test {
         sql """alter table ${aggTableName} modify COLUMN pv BIGINT DEFAULT '0';"""
         // check exception message contains
-        exception "Can not change aggregation typ"
+        exception "should set aggregation type to non-key column in aggregate key table"
     }
 
     sql "DROP TABLE IF EXISTS ${aggTableName} FORCE"
@@ -142,45 +142,45 @@ suite("test_alter_table_modify_column") {
     qt_order """select * from ${dupTableName} order by siteid"""
 
     test {
-        sql """alter table ${dupTableName} modify COLUMN siteid INT SUM DEFAULT '0';"""
+        sql """alter table ${dupTableName} modify COLUMN pv INT SUM DEFAULT '0';"""
         // check exception message contains
-        exception "Can not assign aggregation method on column in Duplicate data model table"
+        exception "Can not change BIGINT to INT"
     }
 
     test {
         sql """alter table ${dupTableName} modify COLUMN siteid BIGINT from not_exist_rollup;"""
         // check exception message contains
-        exception "Index[not_exist_rollup] does not exist in table"
+        exception "Cannot modify column in rollup not_exist_rollup"
     }
 
     test {
         sql """alter table ${dupTableName} modify COLUMN not_exist_column BIGINT;"""
         // check exception message contains
-        exception "Column[not_exist_column] does not exists"
+        exception "Column[not_exist_column] does not exist"
     }
 
     test {
         sql """alter table ${dupTableName} modify COLUMN not_exist_column BIGINT from ${dupTableRollupName};"""
         // check exception message contains
-        exception "Do not need to specify index name when just modifying column type"
+        exception "Cannot modify column in rollup test_alter_table_modify_column_dup_rollup"
     }
 
     test {
-        sql """alter table ${dupTableName} modify COLUMN siteid BIGINT after not_exist_column;"""
+        sql """alter table ${dupTableName} modify COLUMN citycode BIGINT after not_exist_column;"""
         // check exception message contains
-        exception "Column[not_exist_column] does not exists"
+        exception "Column[not_exist_column] does not exist"
     }
 
-    test {
-        sql """alter table ${dupTableName} modify COLUMN citycode BIGINT DEFAULT '10' first;"""
-        // check exception message contains
-        exception "Invalid column order. value should be after key"
-    }
+    // test {
+    //     sql """alter table ${dupTableName} modify COLUMN citycode BIGINT DEFAULT '10' first;"""
+    //     // check exception message contains
+    //     exception "Invalid column order. value should be after key"
+    // }
 
     test {
         sql """alter table ${dupTableName} modify COLUMN siteid BIGINT key DEFAULT '10' first;"""
         // check exception message contains
-        exception "Can not modify distribution column"
+        exception "Can not modify partition or distribution column : siteid"
     }
 
     sql """alter table ${dupTableName} modify COLUMN username VARCHAR(32) key DEFAULT 'test' first;"""

@@ -166,11 +166,7 @@ cp -R "${ORI_OUTPUT}"/apache_hdfs_broker "${OUTPUT_EXT}"/apache_hdfs_broker
 cp -R "${ORI_OUTPUT}"/be/* "${OUTPUT_BE}"/
 
 # CLOUD
-if [[ "${ARCH}" == "arm64" ]]; then
-    echo "WARNING: Cloud module is not supported on ARM platform, will skip building it."
-else
-    cp -R "${ORI_OUTPUT}"/ms/* "${OUTPUT_CLOUD}"/
-fi
+cp -R "${ORI_OUTPUT}"/ms/* "${OUTPUT_CLOUD}"/
 
 if [[ "${TAR}" -eq 1 ]]; then
     echo "Begin to compress"

@@ -38,12 +38,7 @@ bvar::Adder<uint64_t> base_output_size("base_compaction", "output_size");
 
 CloudBaseCompaction::CloudBaseCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet)
         : CloudCompactionMixin(engine, tablet,
-                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
-    auto uuid = UUIDGenerator::instance()->next_uuid();
-    std::stringstream ss;
-    ss << uuid;
-    _uuid = ss.str();
-}
+                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CloudBaseCompaction::~CloudBaseCompaction() = default;
 
@@ -268,8 +263,9 @@ Status CloudBaseCompaction::execute_compact() {
                      << ", output_version=" << _output_version;
         return res;
     }
-    LOG_INFO("finish CloudBaseCompaction, tablet_id={}, cost={}ms", _tablet->tablet_id(),
-             duration_cast<milliseconds>(steady_clock::now() - start).count())
+    LOG_INFO("finish CloudBaseCompaction, tablet_id={}, cost={}ms range=[{}-{}]",
+             _tablet->tablet_id(), duration_cast<milliseconds>(steady_clock::now() - start).count(),
+             _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
             .tag("job_id", _uuid)
             .tag("input_rowsets", _input_rowsets.size())
             .tag("input_rows", _input_row_num)
@@ -329,8 +325,7 @@ Status CloudBaseCompaction::modify_rowsets() {
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator = HashUtil::hash64(_uuid.data(), _uuid.size(), 0) &
-                            std::numeric_limits<int64_t>::max();
+        int64_t initiator = this->initiator();
         RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaction(
                 _input_rowsets, _output_rowset, *_rowid_conversion, compaction_type(),
                 _stats.merged_rows, _stats.filtered_rows, initiator, output_rowset_delete_bitmap,
@@ -343,7 +338,7 @@ Status CloudBaseCompaction::modify_rowsets() {
                 .tag("input_rowsets", _input_rowsets.size())
                 .tag("input_rows", _input_row_num)
                 .tag("input_segments", _input_segments)
-                .tag("update_bitmap_size", output_rowset_delete_bitmap->delete_bitmap.size());
+                .tag("num_output_delete_bitmap", output_rowset_delete_bitmap->delete_bitmap.size());
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
     }
 
@@ -402,8 +397,8 @@ Status CloudBaseCompaction::modify_rowsets() {
     return Status::OK();
 }
 
-void CloudBaseCompaction::garbage_collection() {
-    CloudCompactionMixin::garbage_collection();
+Status CloudBaseCompaction::garbage_collection() {
+    RETURN_IF_ERROR(CloudCompactionMixin::garbage_collection());
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
     idx->set_tablet_id(_tablet->tablet_id());
@@ -417,9 +412,7 @@ void CloudBaseCompaction::garbage_collection() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::BASE);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator = HashUtil::hash64(_uuid.data(), _uuid.size(), 0) &
-                            std::numeric_limits<int64_t>::max();
-        compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
     }
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {
@@ -428,6 +421,7 @@ void CloudBaseCompaction::garbage_collection() {
                 .tag("tablet_id", _tablet->tablet_id())
                 .error(st);
     }
+    return st;
 }
 
 void CloudBaseCompaction::do_lease() {

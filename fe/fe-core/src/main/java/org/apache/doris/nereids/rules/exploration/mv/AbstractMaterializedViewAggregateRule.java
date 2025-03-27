@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
@@ -126,7 +127,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     queryTopPlan,
                     materializationContext.getShuttledExprToScanExprMapping(),
                     viewToQuerySlotMapping,
-                    queryStructInfo.getTableBitSet());
+                    queryStructInfo.getTableBitSet(),
+                    ImmutableMap.of(), cascadesContext);
             boolean isRewrittenQueryExpressionValid = true;
             if (!rewrittenQueryExpressions.isEmpty()) {
                 List<NamedExpression> projects = new ArrayList<>();

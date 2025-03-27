@@ -149,7 +149,7 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     if (is_const_and_have_executed()) { // const have executed in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
-    if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
+    if (fast_execute(context, block, result_column_id)) {
         return Status::OK();
     }
     DBUG_EXECUTE_IF("VectorizedFnCall.must_in_slow_path", {
@@ -188,6 +188,24 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
     return Status::OK();
+}
+
+size_t VectorizedFnCall::estimate_memory(const size_t rows) {
+    if (is_const_and_have_executed()) { // const have execute in open function
+        return 0;
+    }
+
+    size_t estimate_size = 0;
+    for (auto& child : _children) {
+        estimate_size += child->estimate_memory(rows);
+    }
+
+    if (_data_type->have_maximum_size_of_value()) {
+        estimate_size += rows * _data_type->get_size_of_value_in_memory();
+    } else {
+        estimate_size += rows * 512; /// FIXME: estimated value...
+    }
+    return estimate_size;
 }
 
 Status VectorizedFnCall::execute_runtime_fitler(doris::vectorized::VExprContext* context,

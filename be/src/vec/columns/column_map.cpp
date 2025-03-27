@@ -137,6 +137,7 @@ void ColumnMap::insert_data(const char*, size_t) {
 }
 
 void ColumnMap::insert(const Field& x) {
+    DCHECK_EQ(x.get_type(), Field::Types::Map);
     const auto& map = doris::vectorized::get<const Map&>(x);
     CHECK_EQ(map.size(), 2);
     const auto& k_f = doris::vectorized::get<const Array&>(map[0]);
@@ -529,6 +530,13 @@ size_t ColumnMap::byte_size() const {
 size_t ColumnMap::allocated_bytes() const {
     return keys_column->allocated_bytes() + values_column->allocated_bytes() +
            get_offsets().allocated_bytes();
+}
+
+bool ColumnMap::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnMap&>(src);
+    return keys_column->has_enough_capacity(*src_concrete.keys_column) &&
+           values_column->has_enough_capacity(*src_concrete.values_column) &&
+           offsets_column->has_enough_capacity(*src_concrete.offsets_column);
 }
 
 ColumnPtr ColumnMap::convert_to_full_column_if_const() const {

@@ -25,6 +25,7 @@
 #include <unistd.h>
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <filesystem>
 
 #include "gtest/gtest_pred_impl.h"
 #include "http/ev_http_server.h"
@@ -102,14 +103,32 @@ public:
     }
 };
 
+class HttpBatchDownloadFileHandler : public HttpHandler {
+public:
+    void handle(HttpRequest* req) override {
+        if (req->param("check") == "true") {
+            HttpChannel::send_reply(req, "OK");
+        } else if (req->param("list") == "true") {
+            do_dir_response(req->param("dir"), req, true);
+        } else {
+            std::vector<std::string> acquire_files =
+                    strings::Split(req->get_request_body(), "\n", strings::SkipWhitespace());
+            HttpChannel::send_files(req, req->param("dir"), acquire_files);
+        }
+    }
+};
+
 static EvHttpServer* s_server = nullptr;
 static int real_port = 0;
 static std::string hostname = "";
+static std::string address = "";
+constexpr std::string_view TMP_DIR = "./http_test_tmp";
 
 static HttpClientTestSimpleGetHandler s_simple_get_handler;
 static HttpClientTestSimplePostHandler s_simple_post_handler;
 static HttpNotFoundHandler s_not_found_handler;
 static HttpDownloadFileHandler s_download_file_handler;
+static HttpBatchDownloadFileHandler s_batch_download_file_handler;
 
 class HttpClientTest : public testing::Test {
 public:
@@ -123,10 +142,17 @@ public:
         s_server->register_handler(POST, "/simple_post", &s_simple_post_handler);
         s_server->register_handler(GET, "/not_found", &s_not_found_handler);
         s_server->register_handler(HEAD, "/download_file", &s_download_file_handler);
+        s_server->register_handler(HEAD, "/api/_tablet/_batch_download",
+                                   &s_batch_download_file_handler);
+        s_server->register_handler(GET, "/api/_tablet/_batch_download",
+                                   &s_batch_download_file_handler);
+        s_server->register_handler(POST, "/api/_tablet/_batch_download",
+                                   &s_batch_download_file_handler);
         static_cast<void>(s_server->start());
         real_port = s_server->get_real_port();
         EXPECT_NE(0, real_port);
-        hostname = "http://127.0.0.1:" + std::to_string(real_port);
+        address = "127.0.0.1:" + std::to_string(real_port);
+        hostname = "http://" + address;
     }
 
     static void TearDownTestCase() { delete s_server; }
@@ -413,7 +439,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(!st.ok());
         std::cout << "response = " << response << "\n";
         std::cout << "st.msg() = " << st.msg() << "\n";
-        EXPECT_TRUE(st.msg().find("Operation timed out after") != std::string::npos);
+        EXPECT_TRUE(st.msg().find("403") != std::string::npos);
     }
 
     {
@@ -474,7 +500,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(!st.ok());
         std::cout << "response = " << response << "\n";
         std::cout << "st.msg() = " << st.msg() << "\n";
-        EXPECT_TRUE(st.msg().find("Operation timed out after") != std::string::npos);
+        EXPECT_TRUE(st.msg().find("403") != std::string::npos);
     }
 
     // valid token
@@ -521,7 +547,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(!st.ok());
         std::cout << "response = " << response << "\n";
         std::cout << "st.msg() = " << st.msg() << "\n";
-        EXPECT_TRUE(st.msg().find("Operation timed out after") != std::string::npos);
+        EXPECT_TRUE(st.msg().find("403") != std::string::npos);
     }
 
     std::vector<std::string> check_get_list = {"/api/clear_cache/aa",
@@ -566,9 +592,79 @@ TEST_F(HttpClientTest, enable_http_auth) {
             EXPECT_TRUE(!st.ok());
             std::cout << "response = " << response << "\n";
             std::cout << "st.msg() = " << st.msg() << "\n";
-            EXPECT_TRUE(st.msg().find("Operation timed out after") != std::string::npos);
+            EXPECT_TRUE(st.msg().find("403") != std::string::npos);
         }
     }
+}
+
+TEST_F(HttpClientTest, batch_download) {
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(TMP_DIR).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(TMP_DIR).ok());
+
+    std::string root_dir(TMP_DIR);
+    std::string remote_related_dir = root_dir + "/source";
+    std::string local_dir = root_dir + "/target";
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(remote_related_dir).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(local_dir).ok());
+
+    std::string remote_dir;
+    EXPECT_TRUE(io::global_local_filesystem()->canonicalize(remote_related_dir, &remote_dir).ok());
+
+    // 0. create dir source and prepare a large file exceeds 1MB
+    {
+        std::string large_file = remote_dir + "/a_large_file";
+        int fd = open(large_file.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+        ASSERT_TRUE(fd >= 0);
+        std::string buf = "0123456789";
+        for (int i = 0; i < 10; i++) {
+            buf += buf;
+        }
+        for (int i = 0; i < 1024; i++) {
+            ASSERT_TRUE(write(fd, buf.c_str(), buf.size()) > 0);
+        }
+        close(fd);
+
+        // create some small files.
+        for (int i = 0; i < 32; i++) {
+            std::string small_file = remote_dir + "/small_file_" + std::to_string(i);
+            fd = open(small_file.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+            ASSERT_TRUE(fd >= 0);
+            ASSERT_TRUE(write(fd, buf.c_str(), buf.size()) > 0);
+            close(fd);
+        }
+
+        // create a empty file
+        std::string empty_file = remote_dir + "/empty_file";
+        fd = open(empty_file.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+        ASSERT_TRUE(fd >= 0);
+        close(fd);
+
+        empty_file = remote_dir + "/zzzz";
+        fd = open(empty_file.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+        ASSERT_TRUE(fd >= 0);
+        close(fd);
+    }
+
+    // 1. check remote support batch download
+    Status st = is_support_batch_download(address);
+    EXPECT_TRUE(st.ok());
+
+    // 2. list remote files
+    std::vector<std::pair<std::string, size_t>> file_info_list;
+    st = list_remote_files_v2(address, "token", remote_dir, &file_info_list);
+    EXPECT_TRUE(st.ok());
+
+    // 3. download files
+    if (file_info_list.size() > 64) {
+        file_info_list.resize(64);
+    }
+
+    // sort file info list by file name
+    std::sort(file_info_list.begin(), file_info_list.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+
+    st = download_files_v2(address, "token", remote_dir, local_dir, file_info_list);
+    EXPECT_TRUE(st.ok());
 }
 
 } // namespace doris

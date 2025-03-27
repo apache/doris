@@ -61,7 +61,7 @@ using namespace ErrorCode;
 
 void TabletReader::ReaderParams::check_validation() const {
     if (UNLIKELY(version.first == -1 && is_segcompaction == false)) {
-        LOG(FATAL) << "version is not set. tablet=" << tablet->tablet_id();
+        throw Exception(Status::FatalError("version is not set. tablet={}", tablet->tablet_id()));
     }
 }
 
@@ -80,7 +80,7 @@ std::string TabletReader::ReaderParams::to_string() const {
     }
 
     for (auto& condition : conditions) {
-        ss << " conditions=" << apache::thrift::ThriftDebugString(condition);
+        ss << " conditions=" << apache::thrift::ThriftDebugString(condition.filter);
     }
 
     return ss.str();
@@ -120,6 +120,7 @@ TabletReader::~TabletReader() {
 }
 
 Status TabletReader::init(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
     _predicate_arena = std::make_unique<vectorized::Arena>();
 
     Status res = _init_params(read_params);
@@ -159,6 +160,7 @@ bool TabletReader::_optimize_for_single_rowset(
 }
 
 Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_capture_rs_readers_timer_ns);
     if (read_params.rs_splits.empty()) {
         return Status::InternalError("fail to acquire data sources. tablet={}",
                                      _tablet->tablet_id());
@@ -331,6 +333,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_return_columns_timer_ns);
     if (read_params.reader_type == ReaderType::READER_QUERY) {
         _return_columns = read_params.return_columns;
         _tablet_columns_convert_to_null_set = read_params.tablet_columns_convert_to_null_set;
@@ -387,6 +390,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_keys_param_timer_ns);
     if (read_params.start_key.empty()) {
         return Status::OK();
     }
@@ -461,16 +465,43 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_orderby_keys_param_timer_ns);
     // UNIQUE_KEYS will compare all keys as before
     if (_tablet_schema->keys_type() == DUP_KEYS || (_tablet_schema->keys_type() == UNIQUE_KEYS &&
                                                     _tablet->enable_unique_key_merge_on_write())) {
-        // find index in vector _return_columns
-        //   for the read_orderby_key_num_prefix_columns orderby keys
-        for (uint32_t i = 0; i < read_params.read_orderby_key_num_prefix_columns; i++) {
-            for (uint32_t idx = 0; idx < _return_columns.size(); idx++) {
-                if (_return_columns[idx] == i) {
-                    _orderby_key_columns.push_back(idx);
-                    break;
+        if (!_tablet_schema->cluster_key_uids().empty()) {
+            if (read_params.read_orderby_key_num_prefix_columns >
+                _tablet_schema->cluster_key_uids().size()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "read_orderby_key_num_prefix_columns={} > cluster_keys.size()={}",
+                        read_params.read_orderby_key_num_prefix_columns,
+                        _tablet_schema->cluster_key_uids().size());
+            }
+            for (uint32_t i = 0; i < read_params.read_orderby_key_num_prefix_columns; i++) {
+                auto cid = _tablet_schema->cluster_key_uids()[i];
+                auto index = _tablet_schema->field_index(cid);
+                if (index < 0) {
+                    return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                            "could not find cluster key column with unique_id=" +
+                            std::to_string(cid) +
+                            " in tablet schema, tablet_id=" + std::to_string(_tablet->tablet_id()));
+                }
+                for (uint32_t idx = 0; idx < _return_columns.size(); idx++) {
+                    if (_return_columns[idx] == index) {
+                        _orderby_key_columns.push_back(idx);
+                        break;
+                    }
+                }
+            }
+        } else {
+            // find index in vector _return_columns
+            //   for the read_orderby_key_num_prefix_columns orderby keys
+            for (uint32_t i = 0; i < read_params.read_orderby_key_num_prefix_columns; i++) {
+                for (uint32_t idx = 0; idx < _return_columns.size(); idx++) {
+                    if (_return_columns[idx] == i) {
+                        _orderby_key_columns.push_back(idx);
+                        break;
+                    }
                 }
             }
         }
@@ -487,9 +518,22 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_conditions_param_timer_ns);
     std::vector<ColumnPredicate*> predicates;
-    for (const auto& condition : read_params.conditions) {
-        TCondition tmp_cond = condition;
+    auto emplace_predicate = [&predicates](auto& param, ColumnPredicate* predicate) {
+        predicate->set_runtime_filter_id(param.runtime_filter_id);
+        predicates.emplace_back(predicate);
+    };
+
+    auto parse_and_emplace_predicates = [this, &emplace_predicate](auto& params) {
+        for (const auto& param : params) {
+            ColumnPredicate* predicate = _parse_to_predicate({param.column_name, param.filter});
+            emplace_predicate(param, predicate);
+        }
+    };
+
+    for (const auto& param : read_params.conditions) {
+        TCondition tmp_cond = param.filter;
         RETURN_IF_ERROR(_tablet_schema->have_column(tmp_cond.column_name));
         // The "column" parameter might represent a column resulting from the decomposition of a variant column.
         // Instead of using a "unique_id" for identification, we are utilizing a "path" to denote this column.
@@ -500,30 +544,11 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
                 parse_to_predicate(mcolumn, index, tmp_cond, _predicate_arena.get());
         // record condition value into predicate_params in order to pushdown segment_iterator,
         // _gen_predicate_result_sign will build predicate result unique sign with condition value
-        auto predicate_params = predicate->predicate_params();
-        predicate_params->values = condition.condition_values;
-        predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
-        predicates.push_back(predicate);
+        emplace_predicate(param, predicate);
     }
-
-    // Only key column bloom filter will push down to storage engine
-    for (const auto& filter : read_params.bloom_filters) {
-        ColumnPredicate* predicate = _parse_to_predicate(filter);
-        predicate->predicate_params()->marked_by_runtime_filter = true;
-        predicates.emplace_back(predicate);
-    }
-
-    for (const auto& filter : read_params.bitmap_filters) {
-        ColumnPredicate* predicate = _parse_to_predicate(filter);
-        predicate->predicate_params()->marked_by_runtime_filter = true;
-        predicates.emplace_back(predicate);
-    }
-
-    for (const auto& filter : read_params.in_filters) {
-        ColumnPredicate* predicate = _parse_to_predicate(filter);
-        predicate->predicate_params()->marked_by_runtime_filter = true;
-        predicates.emplace_back(predicate);
-    }
+    parse_and_emplace_predicates(read_params.bloom_filters);
+    parse_and_emplace_predicates(read_params.bitmap_filters);
+    parse_and_emplace_predicates(read_params.in_filters);
 
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {
@@ -579,8 +604,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
         return nullptr;
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
-    return create_column_predicate(index, bloom_filter.second, column.type(),
-                                   _reader_context.runtime_state->be_exec_version(), &column);
+    return create_column_predicate(index, bloom_filter.second, column.type(), &column);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(
@@ -590,8 +614,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
         return nullptr;
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
-    return create_column_predicate(index, in_filter.second, column.type(),
-                                   _reader_context.runtime_state->be_exec_version(), &column);
+    return create_column_predicate(index, in_filter.second, column.type(), &column);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(
@@ -601,8 +624,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
         return nullptr;
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
-    return create_column_predicate(index, bitmap_filter.second, column.type(),
-                                   _reader_context.runtime_state->be_exec_version(), &column);
+    return create_column_predicate(index, bitmap_filter.second, column.type(), &column);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& function_filter) {
@@ -612,11 +634,11 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     }
     const TabletColumn& column = materialize_column(_tablet_schema->column(index));
     return create_column_predicate(index, std::make_shared<FunctionFilter>(function_filter),
-                                   column.type(), _reader_context.runtime_state->be_exec_version(),
-                                   &column);
+                                   column.type(), &column);
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.tablet_reader_init_delete_condition_param_timer_ns);
     // If it's cumu and not allow do delete when cumu
     if (read_params.reader_type == ReaderType::READER_SEGMENT_COMPACTION ||
         (read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
@@ -628,7 +650,8 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     // Delete sign could not be applied when delete on cumu compaction is enabled, bucause it is meant for delete with predicates.
     // If delete design is applied on cumu compaction, it will lose effect when doing base compaction.
     // `_delete_sign_available` indicates the condition where we could apply delete signs to data.
-    _delete_sign_available = (read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
+    _delete_sign_available = ((read_params.reader_type == ReaderType::READER_BASE_COMPACTION &&
+                               config::enable_prune_delete_sign_when_base_compaction) ||
                               read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
                               read_params.reader_type == ReaderType::READER_CHECKSUM);
 

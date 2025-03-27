@@ -129,6 +129,8 @@ public:
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                     uint32_t segment_num_rows);
 
+    virtual size_t estimate_memory(const size_t rows);
+
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
     virtual Status execute_runtime_fitler(VExprContext* context, Block* block,
@@ -148,6 +150,9 @@ public:
     TypeDescriptor type() { return _type; }
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
+
+    bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
+
     virtual bool is_literal() const { return false; }
 
     TExprNodeType::type node_type() const { return _node_type; }
@@ -234,18 +239,18 @@ public:
 
     // If this expr is a BloomPredicate, this method will return a BloomFilterFunc
     virtual std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const {
-        LOG(FATAL) << "Method 'get_bloom_filter_func()' is not supported in expression: "
-                   << this->debug_string();
-        return nullptr;
+        throw Exception(Status::FatalError(
+                "Method 'get_bloom_filter_func()' is not supported in expression: {}",
+                this->debug_string()));
     }
 
     virtual std::shared_ptr<HybridSetBase> get_set_func() const { return nullptr; }
 
     // If this expr is a BitmapPredicate, this method will return a BitmapFilterFunc
     virtual std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter_func() const {
-        LOG(FATAL) << "Method 'get_bitmap_filter_func()' is not supported in expression: "
-                   << this->debug_string();
-        return nullptr;
+        throw Exception(Status::FatalError(
+                "Method 'get_bitmap_filter_func()' is not supported in expression: {}",
+                this->debug_string()));
     }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
@@ -256,6 +261,12 @@ public:
     virtual bool equals(const VExpr& other);
     void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
     uint32_t index_unique_id() const { return _index_unique_id; }
+
+    virtual void collect_slot_column_ids(std::set<int>& column_ids) const {
+        for (auto child : _children) {
+            child->collect_slot_column_ids(column_ids);
+        }
+    }
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information
@@ -325,7 +336,6 @@ protected:
 
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
-    bool _can_fast_execute = false;
     bool _enable_inverted_index_query = true;
 };
 

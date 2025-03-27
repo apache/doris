@@ -419,7 +419,7 @@ public class QueryProfileAction extends RestBaseController {
 
     private void checkAuthByUserAndQueryId(String queryId) throws AuthenticationException {
         String user = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
-        if (!user.equalsIgnoreCase(Auth.ADMIN_USER) && !user.equalsIgnoreCase(Auth.ROOT_USER)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ProfileManager.getInstance().checkAuthByUserAndQueryId(user, queryId);
         }
     }

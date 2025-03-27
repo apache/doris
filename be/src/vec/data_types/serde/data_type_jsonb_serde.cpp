@@ -102,7 +102,7 @@ Status DataTypeJsonbSerDe::serialize_one_cell_to_json(const IColumn& column, int
 
 Status DataTypeJsonbSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
-                                                               int* num_deserialized,
+                                                               uint64_t* num_deserialized,
                                                                const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -212,9 +212,9 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
         }
         target.Reserve(array.numElem(), allocator);
         for (auto it = array.begin(); it != array.end(); ++it) {
-            rapidjson::Value val;
-            convert_jsonb_to_rapidjson(*static_cast<const JsonbValue*>(it), val, allocator);
-            target.PushBack(val, allocator);
+            rapidjson::Value array_val;
+            convert_jsonb_to_rapidjson(*static_cast<const JsonbValue*>(it), array_val, allocator);
+            target.PushBack(array_val, allocator);
         }
         break;
     }
@@ -222,9 +222,9 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
         target.SetObject();
         const ObjectVal& obj = static_cast<const ObjectVal&>(val);
         for (auto it = obj.begin(); it != obj.end(); ++it) {
-            rapidjson::Value val;
-            convert_jsonb_to_rapidjson(*it->value(), val, allocator);
-            target.AddMember(rapidjson::GenericStringRef(it->getKeyStr(), it->klen()), val,
+            rapidjson::Value obj_val;
+            convert_jsonb_to_rapidjson(*it->value(), obj_val, allocator);
+            target.AddMember(rapidjson::GenericStringRef(it->getKeyStr(), it->klen()), obj_val,
                              allocator);
         }
         break;

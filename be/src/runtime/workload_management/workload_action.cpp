@@ -21,18 +21,19 @@
 
 namespace doris {
 
-void WorkloadActionCancelQuery::exec(WorkloadQueryInfo* query_info) {
+void WorkloadActionCancelQuery::exec(WorkloadAction::RuntimeContext* action_runtime_ctx) {
     std::stringstream msg;
-    msg << "query " << query_info->query_id
-        << " cancelled by workload policy: " << query_info->policy_name
-        << ", id:" << query_info->policy_id << ", " << query_info->cond_eval_msg;
+    msg << "Query " << print_id(action_runtime_ctx->resource_ctx->task_controller()->task_id())
+        << " cancelled by workload policy: " << action_runtime_ctx->policy_name
+        << ", id:" << action_runtime_ctx->policy_id << ", " << action_runtime_ctx->cond_eval_msg;
     std::string msg_str = msg.str();
     LOG(INFO) << "[workload_schedule]" << msg_str;
-    ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_info->tquery_id,
-                                                         Status::InternalError<false>(msg_str));
+    ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
+            action_runtime_ctx->resource_ctx->task_controller()->task_id(),
+            Status::InternalError<false>(msg_str));
 }
 
-void WorkloadActionMoveQuery::exec(WorkloadQueryInfo* query_info) {
+void WorkloadActionMoveQuery::exec(WorkloadAction::RuntimeContext* action_runtime_ctx) {
     LOG(INFO) << "[workload_schedule]move query action run group=" << _wg_name;
 };
 

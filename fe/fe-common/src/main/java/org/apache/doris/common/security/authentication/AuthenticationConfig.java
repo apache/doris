@@ -23,6 +23,8 @@ import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Map;
+
 public abstract class AuthenticationConfig {
     private static final Logger LOG = LogManager.getLogger(AuthenticationConfig.class);
     public static String HADOOP_USER_NAME = "hadoop.username";
@@ -31,11 +33,23 @@ public abstract class AuthenticationConfig {
     public static String HIVE_KERBEROS_PRINCIPAL = "hive.metastore.kerberos.principal";
     public static String HIVE_KERBEROS_KEYTAB = "hive.metastore.kerberos.keytab.file";
     public static String DORIS_KRB5_DEBUG = "doris.krb5.debug";
+    private static final String DEFAULT_HADOOP_USERNAME = "hadoop";
 
     /**
      * @return true if the config is valid, otherwise false.
      */
     public abstract boolean isValid();
+
+    protected static String generalAuthenticationConfigKey(Map<String, String> conf) {
+        String authentication = conf.getOrDefault(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
+                null);
+        if (AuthType.KERBEROS.getDesc().equals(authentication)) {
+            return conf.get(HADOOP_KERBEROS_PRINCIPAL) + "-" + conf.get(HADOOP_KERBEROS_KEYTAB) + "-"
+                    + conf.getOrDefault(DORIS_KRB5_DEBUG, "false");
+        } else {
+            return conf.getOrDefault(HADOOP_USER_NAME, DEFAULT_HADOOP_USERNAME);
+        }
+    }
 
     /**
      * get kerberos config from hadoop conf
@@ -90,7 +104,8 @@ public abstract class AuthenticationConfig {
     private static AuthenticationConfig createSimpleAuthenticationConfig(Configuration conf) {
         // AuthType.SIMPLE
         SimpleAuthenticationConfig simpleAuthenticationConfig = new SimpleAuthenticationConfig();
-        simpleAuthenticationConfig.setUsername(conf.get(HADOOP_USER_NAME));
+        String hadoopUserName = conf.get(HADOOP_USER_NAME, DEFAULT_HADOOP_USERNAME);
+        simpleAuthenticationConfig.setUsername(hadoopUserName);
         return simpleAuthenticationConfig;
     }
 }

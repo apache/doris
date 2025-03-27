@@ -125,8 +125,7 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
             return doris::FieldType::OLAP_FIELD_TYPE_DOUBLE;
         }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("__builtin_unreachable"));
     }
 
     Field get_default() const override;
@@ -145,8 +144,6 @@ public:
     bool text_can_contain_only_valid_utf8() const override { return true; }
     bool is_comparable() const override { return true; }
     bool is_value_represented_by_number() const override { return true; }
-    bool is_value_represented_by_integer() const override;
-    bool is_value_represented_by_unsigned_integer() const override;
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return true;
     }

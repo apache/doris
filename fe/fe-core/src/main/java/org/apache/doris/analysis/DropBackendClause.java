@@ -17,6 +17,9 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.system.SystemInfoService.HostInfo;
+
+import com.google.common.collect.ImmutableList;
 import lombok.Getter;
 
 import java.util.List;
@@ -32,6 +35,13 @@ public class DropBackendClause extends BackendClause {
 
     public DropBackendClause(List<String> params, boolean force) {
         super(params);
+        this.force = force;
+    }
+
+    public DropBackendClause(List<String> ids, List<HostInfo> hostPorts, boolean force) {
+        super(ImmutableList.of());
+        this.ids = ids;
+        this.hostInfos = hostPorts;
         this.force = force;
     }
 

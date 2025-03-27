@@ -79,7 +79,8 @@ public:
             seed = assert_cast<const ColumnInt64*>(seed_column.get())->get_element(0);
         }
 
-        std::mt19937 g(seed);
+        // time() and seed will not exceed the range of uint32.
+        std::mt19937 g(cast_set<uint32>(seed));
         auto dest_column_ptr = _execute(src_column_array, g);
         if (!dest_column_ptr) {
             return Status::RuntimeError(

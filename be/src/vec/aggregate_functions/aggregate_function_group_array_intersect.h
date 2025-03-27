@@ -37,6 +37,7 @@
 #include "vec/io/var_int.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -76,9 +77,12 @@ class NullableNumericOrDateSet : public HybridSet<type_to_primitive_type<T>(),
                                                   DynamicContainer<typename PrimitiveTypeTraits<
                                                           type_to_primitive_type<T>()>::CppType>> {
 public:
-    NullableNumericOrDateSet() { this->_null_aware = true; }
+    NullableNumericOrDateSet()
+            : HybridSet<type_to_primitive_type<T>(),
+                        DynamicContainer<typename PrimitiveTypeTraits<
+                                type_to_primitive_type<T>()>::CppType>>(true) {}
 
-    void change_contains_null_value(bool target_value) { this->_contains_null = target_value; }
+    void change_contain_null_value(bool target_value) { this->_contain_null = target_value; }
 };
 
 template <typename T>
@@ -98,7 +102,7 @@ struct AggregateFunctionGroupArrayIntersectData {
         value = std::make_unique<NullableNumericOrDateSetType>();
     }
 
-    void process_col_data(auto& column_data, size_t offset, size_t arr_size, bool& init, Set& set) {
+    void process_col_data(auto& column_data, size_t offset, size_t arr_size, Set& set) {
         const bool is_column_data_nullable = column_data.is_nullable();
 
         const ColumnNullable* col_null = nullptr;
@@ -123,7 +127,7 @@ struct AggregateFunctionGroupArrayIntersectData {
                 set->insert(src_data);
             }
             init = true;
-        } else if (set->size() != 0 || set->contain_null()) {
+        } else if (!set->empty()) {
             Set new_set = std::make_unique<NullableNumericOrDateSetType>();
 
             for (size_t i = 0; i < arr_size; ++i) {
@@ -174,7 +178,6 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         auto& data = this->data(place);
-        auto& init = data.init;
         auto& set = data.value;
 
         const bool col_is_nullable = (*columns[0]).is_nullable();
@@ -191,7 +194,7 @@ public:
         const auto arr_size = offsets[row_num] - offset;
         const auto& column_data = column.get_data();
 
-        data.process_col_data(column_data, offset, arr_size, init, set);
+        data.process_col_data(column_data, offset, arr_size, set);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -206,7 +209,7 @@ public:
 
         auto& init = data.init;
         if (!init) {
-            set->change_contains_null_value(rhs_set->contain_null());
+            set->change_contain_null_value(rhs_set->contain_null());
             HybridSetBase::IteratorBase* it = rhs_set->begin();
             while (it->has_next()) {
                 const void* value = it->get_value();
@@ -214,10 +217,7 @@ public:
                 it->next();
             }
             init = true;
-            return;
-        }
-
-        if (set->size() != 0) {
+        } else if (!set->empty()) {
             auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
                 typename State::Set new_set =
                         std::make_unique<typename State::NullableNumericOrDateSetType>();
@@ -229,8 +229,8 @@ public:
                     }
                     it->next();
                 }
-                new_set->change_contains_null_value(lhs_val->contain_null() &&
-                                                    rhs_val->contain_null());
+                new_set->change_contain_null_value(lhs_val->contain_null() &&
+                                                   rhs_val->contain_null());
                 return new_set;
             };
             auto new_set = rhs_set->size() < set->size() ? create_new_set(rhs_set, set)
@@ -243,9 +243,9 @@ public:
         auto& data = this->data(place);
         auto& set = data.value;
         auto& init = data.init;
-        const bool is_set_contains_null = set->contain_null();
+        const bool is_set_contain_null = set->contain_null();
 
-        write_pod_binary(is_set_contains_null, buf);
+        write_pod_binary(is_set_contain_null, buf);
         write_pod_binary(init, buf);
         write_var_uint(set->size(), buf);
         HybridSetBase::IteratorBase* it = set->begin();
@@ -260,10 +260,10 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
         auto& data = this->data(place);
-        bool is_set_contains_null;
+        bool is_set_contain_null;
 
-        read_pod_binary(is_set_contains_null, buf);
-        data.value->change_contains_null_value(is_set_contains_null);
+        read_pod_binary(is_set_contain_null, buf);
+        data.value->change_contain_null_value(is_set_contain_null);
         read_pod_binary(data.init, buf);
         UInt64 size;
         read_var_uint(size, buf);
@@ -325,9 +325,9 @@ public:
 /// Generic implementation, it uses serialized representation as object descriptor.
 class NullableStringSet : public StringValueSet<DynamicContainer<StringRef>> {
 public:
-    NullableStringSet() { this->_null_aware = true; }
+    NullableStringSet() : StringValueSet<DynamicContainer<StringRef>>(true) {}
 
-    void change_contains_null_value(bool target_value) { this->_contains_null = target_value; }
+    void change_contain_null_value(bool target_value) { this->_contain_null = target_value; }
 };
 
 struct AggregateFunctionGroupArrayIntersectGenericData {
@@ -420,7 +420,7 @@ public:
                 set->insert((void*)src.data, src.size);
             }
             init = true;
-        } else if (set->size() != 0 || set->contain_null()) {
+        } else if (!set->empty()) {
             typename State::Set new_set = std::make_unique<NullableStringSet>();
 
             for (size_t i = 0; i < arr_size; ++i) {
@@ -446,7 +446,7 @@ public:
 
         auto& init = data.init;
         if (!init) {
-            set->change_contains_null_value(rhs_set->contain_null());
+            set->change_contain_null_value(rhs_set->contain_null());
             HybridSetBase::IteratorBase* it = rhs_set->begin();
             while (it->has_next()) {
                 const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
@@ -454,7 +454,7 @@ public:
                 it->next();
             }
             init = true;
-        } else if (set->size() != 0) {
+        } else if (!set->empty()) {
             auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
                 typename State::Set new_set = std::make_unique<NullableStringSet>();
                 HybridSetBase::IteratorBase* it = lhs_val->begin();
@@ -465,8 +465,8 @@ public:
                     }
                     it->next();
                 }
-                new_set->change_contains_null_value(lhs_val->contain_null() &&
-                                                    rhs_val->contain_null());
+                new_set->change_contain_null_value(lhs_val->contain_null() &&
+                                                   rhs_val->contain_null());
                 return new_set;
             };
             auto new_set = rhs_set->size() < set->size() ? create_new_set(rhs_set, set)
@@ -479,9 +479,9 @@ public:
         auto& data = this->data(place);
         auto& set = data.value;
         auto& init = data.init;
-        const bool is_set_contains_null = set->contain_null();
+        const bool is_set_contain_null = set->contain_null();
 
-        write_pod_binary(is_set_contains_null, buf);
+        write_pod_binary(is_set_contain_null, buf);
         write_pod_binary(init, buf);
         write_var_uint(set->size(), buf);
 
@@ -496,10 +496,10 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena* arena) const override {
         auto& data = this->data(place);
-        bool is_set_contains_null;
+        bool is_set_contain_null;
 
-        read_pod_binary(is_set_contains_null, buf);
-        data.value->change_contains_null_value(is_set_contains_null);
+        read_pod_binary(is_set_contain_null, buf);
+        data.value->change_contain_null_value(is_set_contain_null);
         read_pod_binary(data.init, buf);
         UInt64 size;
         read_var_uint(size, buf);
@@ -541,3 +541,5 @@ public:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

@@ -78,20 +78,25 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             ctx->txn_id = state->wal_id();
         }
         ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
-        ctx->commit_infos = std::move(state->tablet_commit_infos());
+        ctx->commit_infos = state->tablet_commit_infos();
         ctx->number_total_rows = state->num_rows_load_total();
         ctx->number_loaded_rows = state->num_rows_load_success();
         ctx->number_filtered_rows = state->num_rows_load_filtered();
         ctx->number_unselected_rows = state->num_rows_load_unselected();
         ctx->loaded_bytes = state->num_bytes_load_total();
         int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
+        ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
         if (!ctx->group_commit && num_selected_rows > 0 &&
             (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
             // NOTE: Do not modify the error message here, for historical reasons,
             // some users may rely on this error message.
-            *status = Status::DataQualityError("too many filtered rows");
+            if (ctx->need_commit_self) {
+                *status =
+                        Status::DataQualityError("too many filtered rows, url: " + ctx->error_url);
+            } else {
+                *status = Status::DataQualityError("too many filtered rows");
+            }
         }
-        ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
 
         if (status->ok()) {
             DorisMetrics::instance()->stream_receive_bytes_total->increment(ctx->receive_bytes);
@@ -136,10 +141,6 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             }
         }
     };
-
-    // Reset thread memory tracker, otherwise SCOPED_ATTACH_TASK will be called nested, nesting is
-    // not allowed, first time in on_chunk_data, second time in StreamLoadExecutor::execute_plan_fragment.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
 
     if (ctx->put_result.__isset.params) {
         st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.params,
@@ -385,8 +386,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
     }
     switch (ctx->load_type) {
     case TLoadType::MINI_LOAD: {
-        LOG(FATAL) << "mini load is not supported any more";
-        break;
+        throw Exception(Status::FatalError("mini load is not supported any more"));
     }
     case TLoadType::ROUTINE_LOAD: {
         attach->loadType = TLoadType::ROUTINE_LOAD;

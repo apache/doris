@@ -94,7 +94,7 @@ if [ "${ans}" = "y" ]; then
     echo
     echo "step6: create pr using gh cli"
     title=$(gh pr view "${pr}" --repo "${doris_repo}" --json title -t '{{.title}}')
-    newpr_url=$(gh pr create --repo "${doris_repo}" --base "${branch_to_name}" --head "${push_id}:${branch_pick}" --title "${title} #${pr}" --body "cherry pick from #${pr}")
+    newpr_url=$(gh pr create --repo "${doris_repo}" --base "${branch_to_name}" --head "${push_id}:${branch_pick}" --title "${branch_to_name}: ${title} #${pr}" --body "cherry pick from #${pr}")
     echo "new pr url: ${newpr_url}"
 
     echo

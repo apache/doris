@@ -66,6 +66,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
@@ -140,6 +141,8 @@ public abstract class TestWithFeService {
     protected ConnectContext connectContext;
     protected boolean needCleanDir = true;
     protected int lastFeRpcPort = 0;
+    // make it default to enable_advance_next_id
+    protected boolean enableAdvanceNextId = Config.enable_advance_next_id;
 
     protected static final String DEFAULT_CLUSTER_PREFIX = "";
 
@@ -152,6 +155,8 @@ public abstract class TestWithFeService {
 
     @BeforeAll
     public final void beforeAll() throws Exception {
+        // this.enableAdvanceNextId may be reset by children classes
+        Config.enable_advance_next_id = this.enableAdvanceNextId;
         FeConstants.enableInternalSchemaDb = false;
         FeConstants.shouldCreateInternalWorkloadGroup = false;
         beforeCreatingConnectContext();
@@ -611,10 +616,25 @@ public abstract class TestWithFeService {
         }
     }
 
+    public void executeSql(String queryStr) throws Exception {
+        connectContext.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
+        stmtExecutor.execute();
+        if (connectContext.getState().getStateType() == QueryState.MysqlStateType.ERR
+                || connectContext.getState().getErrorCode() != null) {
+            throw new IllegalStateException(connectContext.getState().getErrorMessage());
+        }
+    }
+
     public void createDatabase(String db) throws Exception {
         String createDbStmtStr = "CREATE DATABASE " + db;
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
         Env.getCurrentEnv().createDb(createDbStmt);
+    }
+
+    public void createDatabaseAndUse(String db) throws Exception {
+        createDatabase(db);
+        useDatabase(db);
     }
 
     public void createDatabaseWithSql(String createDbSql) throws Exception {
@@ -840,6 +860,19 @@ public abstract class TestWithFeService {
         // waiting table state to normal
         Thread.sleep(100);
     }
+
+    protected void alterMv(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterMTMVCommand) {
+            ((AlterMTMVCommand) parsed).run(connectContext, stmtExecutor);
+        }
+        checkAlterJob();
+        // waiting table state to normal
+        Thread.sleep(1000);
+    }
+
 
     protected void createMvByNereids(String sql) throws Exception {
         new MockUp<EditLog>() {

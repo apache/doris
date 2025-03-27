@@ -28,6 +28,7 @@
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
+#include "exec/schema_scanner/schema_backend_kerberos_ticket_cache.h"
 #include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
@@ -39,6 +40,7 @@
 #include "exec/schema_scanner/schema_partitions_scanner.h"
 #include "exec/schema_scanner/schema_processlist_scanner.h"
 #include "exec/schema_scanner/schema_profiling_scanner.h"
+#include "exec/schema_scanner/schema_routine_load_job_scanner.h"
 #include "exec/schema_scanner/schema_routine_scanner.h"
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
@@ -116,15 +118,13 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
     auto task_ctx = state->get_task_execution_context();
     RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
             [this, task_ctx, state]() {
-                DCHECK(_async_thread_running == false);
                 auto task_lock = task_ctx.lock();
                 if (task_lock == nullptr) {
-                    _scanner_status.update(Status::InternalError("Task context not exists!"));
                     return;
                 }
+                DCHECK(_async_thread_running == false);
                 SCOPED_ATTACH_TASK(state);
                 _async_thread_running = true;
-                _finish_dependency->block();
                 if (!_opened) {
                     _data_block = vectorized::Block::create_unique();
                     _init_block(_data_block.get());
@@ -140,14 +140,11 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
                 _eos = eos;
                 _async_thread_running = false;
                 _dependency->set_ready();
-                if (eos) {
-                    _finish_dependency->set_ready();
-                }
             }));
     return Status::OK();
 }
 
-Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
+Status SchemaScanner::init(RuntimeState* state, SchemaScannerParam* param, ObjectPool* pool) {
     if (_is_init) {
         return Status::OK();
     }
@@ -156,6 +153,7 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
     }
 
     _param = param;
+    _timezone_obj = state->timezone_obj();
     _is_init = true;
 
     if (_param->profile) {
@@ -229,6 +227,10 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaFileCacheStatisticsScanner::create_unique();
     case TSchemaTableType::SCH_CATALOG_META_CACHE_STATISTICS:
         return SchemaCatalogMetaCacheStatsScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_KERBEROS_TICKET_CACHE:
+        return SchemaBackendKerberosTicketCacheScanner::create_unique();
+    case TSchemaTableType::SCH_ROUTINE_LOAD_JOBS:
+        return SchemaRoutineLoadJobScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

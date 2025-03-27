@@ -36,7 +36,9 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "io/io_common.h"
+#include "olap/inverted_index_stats.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "util/hash_util.hpp"
@@ -73,7 +75,7 @@ struct DataDirInfo {
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
     DataDirType data_dir_type = DataDirType::OLAP_DATA_DIR;
-    std::string bvar_name;
+    std::string metric_name;
 };
 struct PredicateFilterInfo {
     int type = 0;
@@ -326,8 +328,10 @@ struct OlapReaderStatistics {
 
     int64_t rows_vec_cond_filtered = 0;
     int64_t rows_short_circuit_cond_filtered = 0;
+    int64_t rows_expr_cond_filtered = 0;
     int64_t vec_cond_input_rows = 0;
     int64_t short_circuit_cond_input_rows = 0;
+    int64_t expr_cond_input_rows = 0;
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
     int64_t short_cond_ns = 0;
@@ -350,7 +354,8 @@ struct OlapReaderStatistics {
     int64_t rows_del_by_bitmap = 0;
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
-    int64_t generate_row_ranges_ns = 0;
+    int64_t generate_row_ranges_by_keys_ns = 0;
+    int64_t generate_row_ranges_by_column_conditions_ns = 0;
     int64_t generate_row_ranges_by_bf_ns = 0;
     int64_t generate_row_ranges_by_zonemap_ns = 0;
     int64_t generate_row_ranges_by_dict_ns = 0;
@@ -375,6 +380,7 @@ struct OlapReaderStatistics {
     int64_t inverted_index_searcher_cache_hit = 0;
     int64_t inverted_index_searcher_cache_miss = 0;
     int64_t inverted_index_downgrade_count = 0;
+    InvertedIndexStatistics inverted_index_stats;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
@@ -388,6 +394,30 @@ struct OlapReaderStatistics {
     int64_t collect_iterator_merge_next_timer = 0;
     int64_t collect_iterator_normal_next_timer = 0;
     int64_t delete_bitmap_get_agg_ns = 0;
+
+    int64_t tablet_reader_init_timer_ns = 0;
+    int64_t tablet_reader_capture_rs_readers_timer_ns = 0;
+    int64_t tablet_reader_init_return_columns_timer_ns = 0;
+    int64_t tablet_reader_init_keys_param_timer_ns = 0;
+    int64_t tablet_reader_init_orderby_keys_param_timer_ns = 0;
+    int64_t tablet_reader_init_conditions_param_timer_ns = 0;
+    int64_t tablet_reader_init_delete_condition_param_timer_ns = 0;
+    int64_t block_reader_vcollect_iter_init_timer_ns = 0;
+    int64_t block_reader_rs_readers_init_timer_ns = 0;
+    int64_t block_reader_build_heap_init_timer_ns = 0;
+
+    int64_t rowset_reader_get_segment_iterators_timer_ns = 0;
+    int64_t rowset_reader_create_iterators_timer_ns = 0;
+    int64_t rowset_reader_init_iterators_timer_ns = 0;
+    int64_t rowset_reader_load_segments_timer_ns = 0;
+
+    int64_t segment_iterator_init_timer_ns = 0;
+    int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_bitmap_index_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_inverted_index_iterators_timer_ns = 0;
+
+    int64_t segment_create_column_readers_timer_ns = 0;
+    int64_t segment_load_index_timer_ns = 0;
 };
 
 using ColumnId = uint32_t;
@@ -395,8 +425,6 @@ using ColumnId = uint32_t;
 using UniqueIdSet = std::set<uint32_t>;
 // Column unique Id -> column id map
 using UniqueIdToColumnIdMap = std::map<ColumnId, ColumnId>;
-struct RowsetId;
-RowsetId next_rowset_id();
 
 // 8 bit rowset id version
 // 56 bit, inc number from 1
@@ -417,9 +445,10 @@ struct RowsetId {
             if (ec != std::errc {}) [[unlikely]] {
                 if (config::force_regenerate_rowsetid_on_start_error) {
                     LOG(WARNING) << "failed to init rowset id: " << rowset_id_str;
-                    high = next_rowset_id().hi;
+                    high = MAX_ROWSET_ID - 1;
                 } else {
-                    LOG(FATAL) << "failed to init rowset id: " << rowset_id_str;
+                    throw Exception(
+                            Status::FatalError("failed to init rowset id: {}", rowset_id_str));
                 }
             }
             init(1, high, 0, 0);
@@ -440,7 +469,7 @@ struct RowsetId {
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
         version = id_version;
         if (UNLIKELY(high >= MAX_ROWSET_ID)) {
-            LOG(FATAL) << "inc rowsetid is too large:" << high;
+            throw Exception(Status::FatalError("inc rowsetid is too large:{}", high));
         }
         hi = (id_version << 56) + (high & LOW_56_BITS);
         mi = middle;

@@ -34,7 +34,7 @@ import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.util.EntityUtils
 
 suite("test_schema_change_unique", "p0") {
-    def tableName3 = "test_all_unique"
+    def tableName3 = "test_all_unique_ck"
 
     def getJobState = { tableName ->
         def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """

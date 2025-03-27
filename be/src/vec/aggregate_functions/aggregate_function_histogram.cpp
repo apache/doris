@@ -28,6 +28,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 AggregateFunctionPtr create_agg_function_histogram(const DataTypes& argument_types,

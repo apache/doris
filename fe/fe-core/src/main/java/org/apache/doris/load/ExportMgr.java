@@ -54,6 +54,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -108,26 +109,32 @@ public class ExportMgr {
                 }
             }
             unprotectAddJob(job);
-            // delete existing files
-            if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
-                if (job.getBrokerDesc() == null) {
-                    throw new AnalysisException("Local file system does not support delete existing files");
-                }
-                String fullPath = job.getExportPath();
-                BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
-                        job.getBrokerDesc());
-            }
             Env.getCurrentEnv().getEditLog().logExportCreate(job);
-            // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
-            job.getCopiedTaskExecutors().forEach(executor -> {
-                Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
-            });
-            LOG.info("add export job. {}", job);
-
         } finally {
             writeUnlock();
         }
-
+        // delete existing files
+        if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
+            if (job.getBrokerDesc() == null) {
+                throw new AnalysisException("Local file system does not support delete existing files");
+            }
+            String fullPath = job.getExportPath();
+            BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
+                    job.getBrokerDesc());
+        }
+        // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
+        try {
+            for (int i = 0; i < job.getCopiedTaskExecutors().size(); i++) {
+                Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(job.getCopiedTaskExecutors().get(i));
+            }
+        } catch (Exception e) {
+            // If there happens exceptions in `addMemoryTask`
+            // we must update the state of export job to `CANCELLED`
+            // because we have added this export in `ExportMgr`
+            job.updateExportJobState(ExportJobState.CANCELLED, 0L, null,
+                    ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
+        }
+        LOG.info("add export job. {}", job);
     }
 
     public void cancelExportJob(CancelExportStmt stmt) throws DdlException, AnalysisException {
@@ -533,6 +540,23 @@ public class ExportMgr {
                         labelJobs.remove(job.getLabel());
                         if (labelJobs.isEmpty()) {
                             dbTolabelToExportJobId.remove(job.getDbId());
+                        }
+                    }
+                }
+            }
+
+            if (exportIdToJob.size() > Config.max_export_history_job_num) {
+                List<Map.Entry<Long, ExportJob>> jobList = new ArrayList<>(exportIdToJob.entrySet());
+                jobList.sort(Comparator.comparingLong(entry -> entry.getValue().getCreateTimeMs()));
+                while (exportIdToJob.size() > Config.max_export_history_job_num) {
+                    // Remove the oldest job
+                    Map.Entry<Long, ExportJob> oldestEntry = jobList.remove(0);
+                    exportIdToJob.remove(oldestEntry.getKey());
+                    Map<String, Long> labelJobs = dbTolabelToExportJobId.get(oldestEntry.getValue().getDbId());
+                    if (labelJobs != null) {
+                        labelJobs.remove(oldestEntry.getValue().getLabel());
+                        if (labelJobs.isEmpty()) {
+                            dbTolabelToExportJobId.remove(oldestEntry.getValue().getDbId());
                         }
                     }
                 }

@@ -26,6 +26,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T, template <typename> class StatFunctionTemplate>
 AggregateFunctionPtr type_dispatch_for_aggregate_function_regr(const DataTypes& argument_types,

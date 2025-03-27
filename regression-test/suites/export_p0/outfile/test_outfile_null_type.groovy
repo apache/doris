@@ -84,18 +84,17 @@ suite("test_outfile_null_type", "p0") {
             );
             """
 
-    // TODO(ftw): orc supports to export data of NULL type.
     // orc file foramt
-    // format = "orc"
-    // outfile_url = outfile_to_S3("${format}")
-    // qt_select_load_orc """ SELECT * FROM S3 (
-    //             "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
-    //             "ACCESS_KEY"= "${ak}",
-    //             "SECRET_KEY" = "${sk}",
-    //             "format" = "${format}",
-    //             "region" = "${region}"
-    //         );
-    //         """
+    format = "orc"
+    outfile_url = outfile_to_S3("${format}")
+    order_qt_select_load_orc """ SELECT * FROM S3 (
+                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
+                "ACCESS_KEY"= "${ak}",
+                "SECRET_KEY" = "${sk}",
+                "format" = "${format}",
+                "region" = "${region}"
+            );
+            """
 
     // csv file foramt
     format = "csv"
