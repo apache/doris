@@ -700,7 +700,7 @@ bool GeoLine::touches(const GeoShape* rhs) const {
             count++;
         }
         // Two intersections are allowed when there is only one intersection, or when the intersection is an endpoint
-        if(count == 1 || (count == 2 && ((p1 == p3 || p1 == p4) + (p2 == p3 || p2 == p4)) == 1)) {
+        if (count == 1 || (count == 2 && ((p1 == p3 || p1 == p4) + (p2 == p3 || p2 == p4)) == 1)) {
             return true;
         }
         return false;

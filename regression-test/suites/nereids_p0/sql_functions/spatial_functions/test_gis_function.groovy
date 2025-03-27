@@ -31,10 +31,15 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_Intersects(ST_Point(0, 0), ST_Point(5, 5));"
 
     qt_sql "SELECT ST_Intersects(ST_LineFromText(\"LINESTRING (-2 0, 2 0)\"), ST_Point(0, 0));"
+    qt_sql "SELECT ST_Intersects(ST_LineFromText(\"LINESTRING (-2 0, 2 0)\"), ST_Point(1.99, 0));"
+    qt_sql "SELECT ST_Intersects(ST_LineFromText(\"LINESTRING (-2 0, 2 0)\"), ST_Point(2.01, 0));"
     qt_sql "SELECT ST_Intersects(ST_LineFromText(\"LINESTRING (-2 0, 2 0)\"), ST_Point(2, 0));"
     qt_sql "SELECT ST_Intersects(ST_LineFromText(\"LINESTRING (-2 0, 2 0)\"), ST_Point(0, 1));"
 
     qt_sql "SELECT ST_Intersects(ST_LineFromText(\"LINESTRING (-2 0, 2 0)\"), ST_LineFromText(\"LINESTRING (2 0, 3 0)\"));"
+    qt_sql "SELECT ST_Intersects(ST_LineFromText(\"LINESTRING (-2 0, 2 0)\"), ST_LineFromText(\"LINESTRING (2.1 0, 3 0)\"));"
+    qt_sql "SELECT ST_Intersects(ST_LineFromText(\"LINESTRING (-2 0, 2 0)\"), ST_LineFromText(\"LINESTRING (1.99 0, 3 0)\"));"
+    qt_sql "SELECT ST_Intersects(ST_LineFromText(\"LINESTRING (-2 0, 2 0)\"), ST_LineFromText(\"LINESTRING (-2 0.01, 3 0.01)\"));"
     qt_sql "SELECT ST_Intersects(ST_LineFromText(\"LINESTRING (-2 0, 2 0)\"), ST_LineFromText(\"LINESTRING (3 0, 4 0)\"));"
     qt_sql "SELECT ST_Intersects(ST_LineFromText(\"LINESTRING (-2 0, 2 0)\"), ST_LineFromText(\"LINESTRING (1 0, 4 0)\"));"
 
@@ -45,6 +50,8 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_Intersects(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_LineFromText(\"LINESTRING (20 0, 0 20)\"));"
     qt_sql "SELECT ST_Intersects(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_LineFromText(\"LINESTRING (-20 0, 20 0)\"));"
     qt_sql "SELECT ST_Intersects(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_LineFromText(\"LINESTRING (3 5, 8 5)\"));"
+    qt_sql "SELECT ST_Intersects(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_LineFromText(\"LINESTRING (0 0.01, 10 0.01)\"));"
+    qt_sql "SELECT ST_Intersects(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_LineFromText(\"LINESTRING (0 -0.01, 10 -0.01)\"));"
 
     qt_sql "SELECT ST_Intersects(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Polygon(\"POLYGON ((5 0, 15 0, 15 10, 5 10, 5 0))\"));"
     qt_sql "SELECT ST_Intersects(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Polygon(\"POLYGON ((10 0, 10 10, 20 10, 20 0, 10 0))\"));"
