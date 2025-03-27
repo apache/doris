@@ -221,7 +221,11 @@ public:
     TxnState get_txn_state(TPartitionId partition_id, TTransactionId transaction_id,
                            TTabletId tablet_id, TabletUid tablet_uid);
 
-    void check_txn_finish(TTransactionId transaction_id, std::vector<TTransactionId> req_partition_ids);
+    void check_txn_finish(TTransactionId transaction_id,
+                          std::vector<TTransactionId> req_partition_ids);
+
+    void remove_txn_tablet_info(TPartitionId partition_id, TTransactionId transaction_id,
+                                TTabletId tablet_id, TabletUid tablet_uid);
 
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
@@ -265,6 +269,11 @@ private:
     // get _txn_map_lock before calling.
     void _insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
     void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
+
+    void _remove_txn_tablet_info_unlocked(TPartitionId partition_id, TTransactionId transaction_id,
+                                          TTabletId tablet_id, TabletUid tablet_uid,
+                                          std::lock_guard<std::shared_mutex>& txn_lock,
+                                          std::lock_guard<std::shared_mutex>& wrlock);
 
     class TabletVersionCache : public LRUCachePolicyTrackingManual {
     public:
