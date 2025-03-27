@@ -195,11 +195,9 @@ public class MaterializedViewUtils {
                             && !materializedViewTableSet.equals(queryTableSet)) {
                         continue;
                     }
-                    StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext,
+                    Collection<StructInfo> structInfo = structInfoMap.getStructInfo(cascadesContext,
                             queryTableSet, ownerGroup, originalPlan);
-                    if (structInfo != null) {
-                        structInfosBuilder.add(structInfo);
-                    }
+                    structInfosBuilder.addAll(structInfo);
                 }
             }
             return structInfosBuilder.build();
