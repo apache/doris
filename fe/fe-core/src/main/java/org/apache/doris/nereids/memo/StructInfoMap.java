@@ -23,6 +23,9 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
 import com.google.common.collect.Sets;
 
@@ -42,6 +45,7 @@ import javax.annotation.Nullable;
  * Representation for group in cascades optimizer.
  */
 public class StructInfoMap {
+    private static final ReserveNecessaryNode RESERVE_NECESSARY_NODE = new ReserveNecessaryNode();
     private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMap = new HashMap<>();
     private final Map<BitSet, StructInfo> infoMap = new HashMap<>();
     private long refreshVersion = 0;
@@ -124,7 +128,8 @@ public class StructInfoMap {
             return;
         }
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
-            List<Set<BitSet>> childrenTableMap = new LinkedList<>();
+            // Record each group bit set, Set<BitSet> is belonged to one group
+            List<Set<BitSet>> childrenGroupTableMap = new LinkedList<>();
             if (groupExpression.children().isEmpty()) {
                 BitSet leaf = constructLeaf(groupExpression, cascadesContext);
                 if (leaf.isEmpty()) {
@@ -139,11 +144,11 @@ public class StructInfoMap {
                     childStructInfoMap.refresh(child, cascadesContext, refreshedGroup);
                     childStructInfoMap.setRefreshVersion(memoVersion);
                 }
-                childrenTableMap.add(child.getstructInfoMap().getTableMaps());
+                childrenGroupTableMap.add(child.getstructInfoMap().getTableMaps());
             }
             // if one same groupExpression have refreshed, continue
             BitSet oneOfGroupExpressionTableSet = new BitSet();
-            for (Set<BitSet> groupExpressionBitSet : childrenTableMap) {
+            for (Set<BitSet> groupExpressionBitSet : childrenGroupTableMap) {
                 Iterator<BitSet> iterator = groupExpressionBitSet.iterator();
                 if (iterator.hasNext()) {
                     oneOfGroupExpressionTableSet.or(iterator.next());
@@ -154,7 +159,7 @@ public class StructInfoMap {
             }
             // if cumulative child table map is different from current
             // or current group expression map is empty, should update the groupExpressionMap currently
-            Collection<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenTableMap);
+            Collection<Pair<BitSet, List<BitSet>>> bitSetWithChildren = cartesianProduct(childrenGroupTableMap);
             for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
                 groupExpressionMap.putIfAbsent(bitSetWithChild.first,
                         Pair.of(groupExpression, bitSetWithChild.second));
@@ -200,5 +205,21 @@ public class StructInfoMap {
     @Override
     public String toString() {
         return "StructInfoMap{ groupExpressionMap = " + groupExpressionMap + ", infoMap = " + infoMap + '}';
+    }
+
+    public boolean isStructInfoLogicalEquals(Plan source, Plan target) {
+        source = source.accept(RESERVE_NECESSARY_NODE, null);
+        target = target.accept(RESERVE_NECESSARY_NODE, null);
+        return source.getClass().equals(target.getClass());
+    }
+
+    private static class ReserveNecessaryNode extends DefaultPlanRewriter<Void> {
+        @Override
+        public Plan visit(Plan plan, Void context) {
+            if (plan instanceof LogicalProject || plan instanceof LogicalFilter) {
+                return super.visit(plan, context);
+            }
+            return plan;
+        }
     }
 }
