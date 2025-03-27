@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -128,4 +129,20 @@ public class RuntimeFilterV2 {
         this.legacyTargetExpr = legacyTargetExpr;
     }
 
+    /**
+     * used for explain shape plan
+     */
+    public String shapeInfo() {
+        String ignore = "";
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable()
+                .getIgnoredRuntimeFilterIds().contains(id.asInt())) {
+            ignore = "(ignored)";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(ignore).append(" RF").append(id.asInt())
+                .append("[").append(sourceExpression.toSql()).append("->").append(
+                        targetExpression.toSql()).append("]");
+        return sb.toString();
+    }
 }

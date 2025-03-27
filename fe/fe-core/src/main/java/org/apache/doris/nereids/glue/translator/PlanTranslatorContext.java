@@ -45,6 +45,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -129,7 +130,8 @@ public class PlanTranslatorContext {
         this.connectContext = null;
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
-        this.runtimeFilterV2Context = null;
+        IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
+        this.runtimeFilterV2Context = new RuntimeFilterContextV2(runtimeFilterIdGen);
     }
 
     /**

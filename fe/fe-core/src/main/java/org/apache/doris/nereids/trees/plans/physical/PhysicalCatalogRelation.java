@@ -26,6 +26,7 @@ import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -153,7 +154,10 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
                     .stream().forEach(rf -> shapeBuilder.append(" RF").append(rf.getId().asInt()));
         }
         if (!runtimeFiltersV2.isEmpty()) {
-            shapeBuilder.append("RFV2: ").append(runtimeFiltersV2);
+            shapeBuilder.append(" RFV2:");
+            for (RuntimeFilterV2 rfv2 : runtimeFiltersV2) {
+                shapeBuilder.append(" RF").append(rfv2.getId().asInt());
+            }
         }
         return shapeBuilder.toString();
     }
