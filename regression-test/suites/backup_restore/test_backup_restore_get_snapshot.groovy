@@ -20,20 +20,13 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.suite.client.FrontendClientImpl
 
 suite("test_backup_restore_get_snapshot", "backup_restore,docker") {
-    if (context.config.excludeDockerTest) {
-        logger.Info("the excludeDockerTest config is enabled")
-        return
-    }
-
     def options = new ClusterOptions()
     options.beConfigs += ["enable_java_support=false"]
     options.feNum = 3
     options.beNum = 3
     options.beDisks = ['HDD=1', 'SSD=1']
 
-    logger.info("run test_backup_restore_get_snapshot")
     docker(options) {
-        logger.info("run test_backup_restore_get_snapshot in docker")
         def syncer = getSyncer()
 
         sql """
