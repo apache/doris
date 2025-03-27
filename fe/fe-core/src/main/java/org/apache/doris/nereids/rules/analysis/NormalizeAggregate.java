@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -50,6 +54,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -111,14 +116,25 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalHaving(logicalAggregate().whenNot(LogicalAggregate::isNormalized))
-                        .then(having -> normalizeAgg(having.child(), Optional.of(having)))
+                        .thenApply(ctx -> normalize2(ctx, Optional.of(ctx.root)))
                         .toRule(RuleType.NORMALIZE_AGGREGATE),
                 logicalAggregate().whenNot(LogicalAggregate::isNormalized)
-                        .then(aggregate -> normalizeAgg(aggregate, Optional.empty()))
+                        .thenApply(aggregate -> normalize(aggregate, Optional.empty()))
                         .toRule(RuleType.NORMALIZE_AGGREGATE));
     }
 
-    private LogicalPlan normalizeAgg(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having) {
+    private LogicalPlan normalize2(MatchingContext<LogicalHaving<LogicalAggregate<Plan>>> ctx,
+            Optional<LogicalHaving<?>> having) {
+        return normalizeAgg(ctx.root.child(), having, ctx.cascadesContext);
+    }
+
+    private LogicalPlan normalize(MatchingContext<LogicalAggregate<Plan>> ctx, Optional<LogicalHaving<?>> having) {
+        return normalizeAgg(ctx.root, having, ctx.cascadesContext);
+    }
+
+    @SuppressWarnings("checkstyle:UnusedLocalVariable")
+    private LogicalPlan normalizeAgg(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having,
+            CascadesContext ctx) {
         // The LogicalAggregate node may contain window agg functions and usual agg functions
         // we call window agg functions as window-agg and usual agg functions as trivial-agg for short
         // This rule simplify LogicalAggregate node by:
@@ -278,6 +294,72 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // After the above two rewrites are completed, use aggregate output agg functions to rewrite.
         List<NamedExpression> upperProjects = normalizeOutput(aggregateOutput,
                 groupByExprContext, argsOfAggFuncNeedPushDownContext, normalizedAggFuncsToSlotContext);
+
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx);
+        // 1.找到group by 里面的可以被折叠成常量的表达式，构建一个map(slot, literal)
+        Map<Expression, NormalizeToSlotTriplet> replaceMap = groupByExprContext.getNormalizeToSlotMap();
+        if (!replaceMap.isEmpty()) {
+            Map<Slot, Expression> slotToLiteral = new HashMap<>();
+            for (Map.Entry<Expression, NormalizeToSlotTriplet> replacement : replaceMap.entrySet()) {
+                Expression foldExpression = FoldConstantRuleOnFE.evaluate(replacement.getKey(), rewriteContext);
+                if (foldExpression.isConstant()) {
+                    slotToLiteral.put(replacement.getValue().remainExpr, foldExpression);
+                }
+            }
+
+            // 1.5 重新生成一个group by list
+            Set<Slot> literalSlots = slotToLiteral.keySet();
+            // 计算normalizedGroupExprs-literalSlots
+            List<Expression> newNormalizedGroupExprs = new ArrayList<>();
+            for (Expression normalizedGroupExpr : normalizedGroupExprs) {
+                if (!literalSlots.contains((Slot) normalizedGroupExpr)) {
+                    newNormalizedGroupExprs.add(normalizedGroupExpr);
+                }
+            }
+            // 2.对agg output expression进行替换
+            List<NamedExpression> nonConstantNamedExpressions = new ArrayList<>();
+            for (NamedExpression ne : normalizedAggOutput) {
+                if (ne instanceof Alias) {
+                    nonConstantNamedExpressions.add(ExpressionUtils.replaceNameExpression(ne, slotToLiteral));
+                    continue;
+                } else if (ne instanceof Slot) {
+                    if (!slotToLiteral.containsKey(ne)) {
+                        nonConstantNamedExpressions.add(ne);
+                    }
+                    continue;
+                }
+                nonConstantNamedExpressions.add(ne);
+            }
+
+            // bottom projects需要删除掉
+            if (!bottomProjects.isEmpty()) {
+                List<NamedExpression> newBottomProjects = bottomProjects.stream()
+                        .filter(expr -> !slotToLiteral.containsKey(expr.toSlot()))
+                        .collect(Collectors.toList());
+                bottomPlan = new LogicalProject<>(newBottomProjects, aggregate.child());
+            }
+
+            // 3.重新生成一个agg
+            newAggregate = newAggregate.withNormalized(newNormalizedGroupExprs, nonConstantNamedExpressions,
+                    bottomPlan);
+            // 这个upperProjects需要删除一下
+            List<NamedExpression> newUpperProjects = new ArrayList<>();
+            for (NamedExpression upperProject : upperProjects) {
+                if (upperProject instanceof Alias) {
+                    newUpperProjects.add(ExpressionUtils.replaceNameExpression(upperProject, slotToLiteral));
+                    continue;
+                } else if (upperProject instanceof Slot) {
+                    if (slotToLiteral.containsKey(upperProject)) {
+                        Alias newLiteral = new Alias(upperProject.getExprId(), slotToLiteral.get(upperProject),
+                                upperProject.getName());
+                        newUpperProjects.add(newLiteral);
+                        continue;
+                    }
+                }
+                newUpperProjects.add(upperProject);
+            }
+            upperProjects = newUpperProjects;
+        }
 
         // create a parent project node
         LogicalProject<Plan> project = new LogicalProject<>(upperProjects, newAggregate);
