@@ -30,6 +30,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "file_scanner.h"
 #include "olap/tablet.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
@@ -42,11 +43,10 @@
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
-#include "vec/exec/scan/new_olap_scanner.h" // IWYU pragma: keep
+#include "vec/exec/scan/olap_scanner.h" // IWYU pragma: keep
+#include "vec/exec/scan/scan_node.h"
+#include "vec/exec/scan/scanner.h"
 #include "vec/exec/scan/scanner_context.h"
-#include "vec/exec/scan/vscan_node.h"
-#include "vec/exec/scan/vscanner.h"
-#include "vfile_scanner.h"
 
 namespace doris::vectorized {
 
@@ -180,19 +180,16 @@ std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
 void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerContext> ctx,
                                    const Status& st, size_t reserve_size) {
     ctx->clear_free_blocks();
-    auto* pipeline_task = state->get_task();
     auto* local_state = ctx->local_state();
 
-    pipeline_task->inc_memory_reserve_failed_times();
     auto debug_msg = fmt::format(
             "Query: {} , scanner try to reserve: {}, operator name {}, "
             "operator "
             "id: {}, "
             "task id: "
-            "{}, revocable mem size: {}, failed: {}",
+            "{}, failed: {}",
             print_id(state->query_id()), PrettyPrinter::print_bytes(reserve_size),
             local_state->get_name(), local_state->parent()->node_id(), state->task_id(),
-            PrettyPrinter::print_bytes(pipeline_task->sink()->revocable_mem_size(state)),
             st.to_string());
     // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
     if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
@@ -218,7 +215,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         return;
     }
 
-    VScannerSPtr& scanner = scanner_delegate->_scanner;
+    ScannerSPtr& scanner = scanner_delegate->_scanner;
     SCOPED_ATTACH_TASK(scanner->runtime_state());
     // for cpu hard limit, thread name should not be reset
     if (ctx->_should_reset_thread_name) {
@@ -228,7 +225,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 #ifndef __APPLE__
     // The configuration item is used to lower the priority of the scanner thread,
     // typically employed to ensure CPU scheduling for write operations.
-    if (config::scan_thread_nice_value != 0 && scanner->get_name() != VFileScanner::NAME) {
+    if (config::scan_thread_nice_value != 0 && scanner->get_name() != FileScanner::NAME) {
         Thread::set_thread_nice_value();
     }
 #endif
@@ -281,8 +278,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             // During low memory mode, every scan task will return at most 2 block to reduce memory usage.
             while (!eos && raw_bytes_read < raw_bytes_threshold &&
                    !(ctx->low_memory_mode() && has_first_full_block) &&
-                   !(has_first_full_block &&
-                     doris::thread_context()->thread_mem_tracker()->limit_exceeded())) {
+                   !(has_first_full_block && doris::thread_context()
+                                                     ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                                     ->limit_exceeded())) {
                 if (UNLIKELY(ctx->done())) {
                     eos = true;
                     break;
@@ -298,7 +296,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 } else {
                     if (state->get_query_ctx()->enable_reserve_memory()) {
                         size_t block_avg_bytes = scanner->get_block_avg_bytes();
-                        auto st = thread_context()->try_reserve_memory(block_avg_bytes);
+                        auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(
+                                block_avg_bytes);
                         if (!st.ok()) {
                             handle_reserve_memory_failure(state, ctx, st, block_avg_bytes);
                             break;
@@ -313,7 +312,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 status = scanner->get_block_after_projects(state, free_block.get(), &eos);
                 first_read = false;
                 if (!status.ok()) {
-                    LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
+                    LOG(WARNING) << "Scan thread read Scanner failed: " << status.to_string();
                     break;
                 }
                 // Projection will truncate useless columns, makes block size change.

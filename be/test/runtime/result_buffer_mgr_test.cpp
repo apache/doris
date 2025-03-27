@@ -46,6 +46,11 @@ TEST_F(ResultBufferMgrTest, create_normal) {
 
     std::shared_ptr<ResultBlockBufferBase> control_block1;
     EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, &_state, false).ok());
+    EXPECT_NE(control_block1, nullptr);
+    control_block1.reset();
+
+    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, &_state, false).ok());
+    EXPECT_NE(control_block1, nullptr);
 }
 
 TEST_F(ResultBufferMgrTest, create_arrow) {

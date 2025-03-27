@@ -54,7 +54,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    return _schema_scanner->init(&_scanner_param, state->obj_pool());
+    return _schema_scanner->init(state, &_scanner_param, state->obj_pool());
 }
 
 Status SchemaScanLocalState::open(RuntimeState* state) {
@@ -155,13 +155,14 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
     }
 
     // new one scanner
-    _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
+    auto temp_schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
-    if (nullptr == _schema_scanner) {
+    if (nullptr == temp_schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    const std::vector<SchemaScanner::ColumnDesc>& columns_desc(_schema_scanner->get_column_desc());
+    const std::vector<SchemaScanner::ColumnDesc>& columns_desc(
+            temp_schema_scanner->get_column_desc());
 
     // if src columns size is zero, it's the dummy slots.
     if (columns_desc.empty()) {
@@ -225,7 +226,7 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         while (true) {
             RETURN_IF_CANCELLED(state);
 
-            if (local_state._data_dependency->is_blocked_by() != nullptr) {
+            if (local_state._data_dependency->is_blocked_by()) {
                 break;
             }
             // get all slots from schema table.

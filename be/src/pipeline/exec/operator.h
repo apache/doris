@@ -196,6 +196,7 @@ public:
 
     // override in Scan
     virtual Dependency* finishdependency() { return nullptr; }
+    virtual Dependency* spill_dependency() const { return nullptr; }
     //  override in Scan  MultiCastSink
     virtual std::vector<Dependency*> filter_dependencies() { return {}; }
 
@@ -267,9 +268,11 @@ public:
     std::vector<Dependency*> dependencies() const override {
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
+    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
 protected:
     Dependency* _dependency = nullptr;
+    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateArg* _shared_state = nullptr;
 };
 
@@ -284,7 +287,6 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override {
         RETURN_IF_ERROR(PipelineXLocalState<SharedStateArg>::init(state, info));
 
-        _spill_total_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTotalTime", 1);
         init_spill_read_counters();
 
         return Status::OK();
@@ -317,6 +319,8 @@ public:
     }
 
     void init_spill_read_counters() {
+        _spill_total_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTotalTime", 1);
+
         // Spill read counters
         _spill_recover_time = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillRecoverTime", 1);
 
@@ -465,6 +469,7 @@ public:
 
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
+    virtual Dependency* spill_dependency() const { return nullptr; }
 
     bool low_memory_mode() { return _state->low_memory_mode(); }
 
@@ -514,6 +519,7 @@ public:
     std::vector<Dependency*> dependencies() const override {
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
+    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
 protected:
     Dependency* _dependency = nullptr;
@@ -669,7 +675,11 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
         RETURN_IF_ERROR(Base::init(state, info));
+        init_spill_counters();
+        return Status::OK();
+    }
 
+    void init_spill_counters() {
         _spill_total_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillTotalTime", 1);
 
         _spill_write_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteTime", 1);
@@ -696,7 +706,6 @@ public:
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMaxRowsOfPartition", TUnit::UNIT, 1);
         _spill_min_rows_of_partition =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMinRowsOfPartition", TUnit::UNIT, 1);
-        return Status::OK();
     }
 
     std::vector<Dependency*> dependencies() const override {
@@ -903,7 +912,7 @@ protected:
     template <typename Dependency>
     friend class PipelineXLocalState;
     friend class PipelineXLocalStateBase;
-    friend class VScanner;
+    friend class Scanner;
     const int _operator_id;
     const int _node_id; // unique w/in single plan tree
     int _nereids_id = -1;
@@ -1020,6 +1029,9 @@ public:
     StatefulOperatorX(ObjectPool* pool, const TPlanNode& tnode, const int operator_id,
                       const DescriptorTbl& descs)
             : OperatorX<LocalStateType>(pool, tnode, operator_id, descs) {}
+#ifdef BE_TEST
+    StatefulOperatorX() = default;
+#endif
     virtual ~StatefulOperatorX() = default;
 
     using OperatorX<LocalStateType>::get_local_state;

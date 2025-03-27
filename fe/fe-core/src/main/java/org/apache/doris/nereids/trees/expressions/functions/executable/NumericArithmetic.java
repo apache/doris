@@ -36,6 +36,8 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 
+import org.apache.commons.math3.util.FastMath;
+
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -642,11 +644,12 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "divide")
     public static Expression divideDecimalV3(DecimalV3Literal first, DecimalV3Literal second) {
-        if (second.getValue().compareTo(BigDecimal.ZERO) == 0) {
-            return new NullLiteral(first.getDataType());
-        }
         DecimalV3Type t1 = (DecimalV3Type) first.getDataType();
         DecimalV3Type t2 = (DecimalV3Type) second.getDataType();
+        if (second.getValue().compareTo(BigDecimal.ZERO) == 0) {
+            return new NullLiteral(DecimalV3Type.createDecimalV3TypeLooseCheck(
+                    t1.getPrecision(), t1.getScale() - t2.getScale()));
+        }
         BigDecimal result = first.getValue().divide(second.getValue());
         return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(
                 t1.getPrecision(), t1.getScale() - t2.getScale()), result);
@@ -893,6 +896,17 @@ public class NumericArithmetic {
     }
 
     /**
+     * sinh
+     */
+    @ExecFunction(name = "sinh")
+    public static Expression sinh(DoubleLiteral first) {
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(Math.sinh(first.getValue())));
+    }
+
+    /**
      * cos
      */
     @ExecFunction(name = "cos")
@@ -941,7 +955,44 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "atan")
     public static Expression atan(DoubleLiteral first) {
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return checkOutputBoundary(new DoubleLiteral(Math.atan(first.getValue())));
+    }
+
+    /**
+     * asinh
+     */
+    @ExecFunction(name = "asinh")
+    public static Expression asinh(DoubleLiteral first) {
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(FastMath.asinh(first.getValue())));
+    }
+
+    /**
+     * acosh
+     */
+    @ExecFunction(name = "acosh")
+    public static Expression acosh(DoubleLiteral first) {
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, 1.0, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(FastMath.acosh(first.getValue())));
+    }
+
+    /**
+     * atanh
+     */
+    @ExecFunction(name = "atanh")
+    public static Expression atanh(DoubleLiteral first) {
+        if (inputOutOfBound(first, 1.0, Double.POSITIVE_INFINITY, true, false)
+                || inputOutOfBound(first, Double.NEGATIVE_INFINITY, -1.0, false, true)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(FastMath.atanh(first.getValue())));
     }
 
     /**
@@ -1061,17 +1112,6 @@ public class NumericArithmetic {
     public static Expression dexp(DoubleLiteral first) {
         double exp = Math.exp(first.getValue());
         return checkOutputBoundary(new DoubleLiteral(exp));
-    }
-
-    /**
-     * dlog1
-     */
-    @ExecFunction(name = "dlog1")
-    public static Expression dlog1(DoubleLiteral first) {
-        if (inputOutOfBound(first, 0.0d, Double.MAX_VALUE, false, true)) {
-            return new NullLiteral(DoubleType.INSTANCE);
-        }
-        return checkOutputBoundary(new DoubleLiteral(Math.log1p(first.getValue())));
     }
 
     /**

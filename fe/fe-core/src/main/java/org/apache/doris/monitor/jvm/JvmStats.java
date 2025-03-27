@@ -17,8 +17,12 @@
 
 package org.apache.doris.monitor.jvm;
 
+import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.monitor.unit.ByteSizeValue;
 import org.apache.doris.monitor.unit.TimeValue;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.lang.management.BufferPoolMXBean;
 import java.lang.management.ClassLoadingMXBean;
@@ -30,6 +34,7 @@ import java.lang.management.MemoryUsage;
 import java.lang.management.RuntimeMXBean;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -38,17 +43,35 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class JvmStats {
-
+    private static final Logger LOG = LogManager.getLogger(JvmStats.class);
     private static final RuntimeMXBean runtimeMXBean;
     private static final MemoryMXBean memoryMXBean;
     private static final ThreadMXBean threadMXBean;
     private static final ClassLoadingMXBean classLoadingMXBean;
+
+    private static final Method dumpThreadInfos;
 
     static {
         runtimeMXBean = ManagementFactory.getRuntimeMXBean();
         memoryMXBean = ManagementFactory.getMemoryMXBean();
         threadMXBean = ManagementFactory.getThreadMXBean();
         classLoadingMXBean = ManagementFactory.getClassLoadingMXBean();
+        dumpThreadInfos = getDumpThreadInfosMethod();
+    }
+
+    private static Method getDumpThreadInfosMethod() {
+        try {
+            String javaRuntimeVersionStr = System.getProperty("java.version");
+            int javaVersionAsInteger = JdkUtils.getJavaVersionAsInteger(javaRuntimeVersionStr);
+            if (javaVersionAsInteger >= 10) {
+                return ThreadMXBean.class.getDeclaredMethod(
+                        "dumpAllThreads", boolean.class, boolean.class, int.class
+                );
+            }
+        } catch (Throwable t) {
+            LOG.warn("failed to get jdk version, ignore it", t);
+        }
+        return null;
     }
 
     public static JvmStats jvmStats() {
@@ -90,8 +113,8 @@ public class JvmStats {
         int threadsWaiting = 0;
         int threadsTimedWaiting = 0;
         int threadsTerminated = 0;
-        long[] threadIds = threadMXBean.getAllThreadIds();
-        for (ThreadInfo threadInfo : threadMXBean.getThreadInfo(threadIds, 0)) {
+
+        for (ThreadInfo threadInfo : getThreadInfos()) {
             if (threadInfo == null) {
                 continue; // race protection
             }
@@ -250,6 +273,19 @@ public class JvmStats {
         static final String CURRENT_LOADED_COUNT = "current_loaded_count";
         static final String TOTAL_LOADED_COUNT = "total_loaded_count";
         static final String TOTAL_UNLOADED_COUNT = "total_unloaded_count";
+    }
+
+
+    private static ThreadInfo[] getThreadInfos() {
+        if (dumpThreadInfos != null) {
+            try {
+                return (ThreadInfo[]) dumpThreadInfos.invoke(threadMXBean, false, false, 0);
+            } catch (Throwable t) {
+                return threadMXBean.dumpAllThreads(false, false);
+            }
+        } else {
+            return threadMXBean.dumpAllThreads(false, false);
+        }
     }
 
     public static class GarbageCollectors implements Iterable<GarbageCollector> {

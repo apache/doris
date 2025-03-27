@@ -77,4 +77,9 @@ suite("test_str_to_date") {
     check_fold_consistency "STR_TO_DATE('2019-12-01', null)"
     check_fold_consistency "STR_TO_DATE(null, null)"
     check_fold_consistency "STR_TO_DATE('无效日期', 'yyyy-MM-dd')"
+
+
+    qt_select_all_space """
+        SELECT STR_TO_DATE('  ', '%Y-%m-%d %H:%i:%s');
+    """
 }

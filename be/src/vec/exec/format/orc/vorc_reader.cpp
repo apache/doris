@@ -54,6 +54,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/primitive_type.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
@@ -72,6 +73,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/exec/format/orc/orc_file_reader.h"
 #include "vec/exec/format/table/transactional_hive_common.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
@@ -125,6 +127,34 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
         size_t loop_read;
         Slice result(out + has_read, length - has_read);
         Status st = _file_reader->read_at(offset + has_read, result, &loop_read, _io_ctx);
+        if (!st.ok()) {
+            throw orc::ParseError(
+                    strings::Substitute("Failed to read $0: $1", _file_name, st.to_string()));
+        }
+        if (loop_read == 0) {
+            break;
+        }
+        has_read += loop_read;
+    }
+    if (has_read != length) {
+        throw orc::ParseError(strings::Substitute("Try to read $0 bytes from $1, actually read $2",
+                                                  length, has_read, _file_name));
+    }
+}
+
+void StripeStreamInputStream::read(void* buf, uint64_t length, uint64_t offset) {
+    _statistics->fs_read_calls++;
+    _statistics->fs_read_bytes += length;
+    SCOPED_RAW_TIMER(&_statistics->fs_read_time);
+    uint64_t has_read = 0;
+    char* out = reinterpret_cast<char*>(buf);
+    while (has_read < length) {
+        if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
+            throw orc::ParseError("stop");
+        }
+        size_t loop_read;
+        Slice result(out + has_read, length - has_read);
+        Status st = _inner_reader->read_at(offset + has_read, result, &loop_read, _io_ctx);
         if (!st.ok()) {
             throw orc::ParseError(
                     strings::Substitute("Failed to read $0: $1", _file_name, st.to_string()));
@@ -252,7 +282,8 @@ Status OrcReader::_create_file_reader() {
                 _profile, _system_properties, _file_description, reader_options,
                 io::DelegateReader::AccessMode::RANDOM, _io_ctx));
         _file_input_stream = std::make_unique<ORCFileInputStream>(
-                _scan_range.path, std::move(inner_reader), &_statistics, _io_ctx, _profile);
+                _scan_range.path, std::move(inner_reader), &_statistics, _io_ctx, _profile,
+                _orc_once_max_read_bytes, _orc_max_merge_distance_bytes);
     }
     if (_file_input_stream->getLength() == 0) {
         return Status::EndOfFile("empty orc file: " + _scan_range.path);
@@ -283,6 +314,7 @@ Status OrcReader::_create_file_reader() {
 
 Status OrcReader::init_reader(
         const std::vector<std::string>* column_names,
+        const std::vector<std::string>& missing_column_names,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const VExprContextSPtrs& conjuncts, bool is_acid, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
@@ -290,6 +322,7 @@ Status OrcReader::init_reader(
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
         const bool hive_use_column_names) {
     _column_names = column_names;
+    _missing_column_names_set.insert(missing_column_names.begin(), missing_column_names.end());
     _colname_to_value_range = colname_to_value_range;
     _lazy_read_ctx.conjuncts = conjuncts;
     _is_acid = is_acid;
@@ -303,6 +336,13 @@ Status OrcReader::init_reader(
     }
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     _obj_pool = std::make_shared<ObjectPool>();
+
+    if (_state != nullptr) {
+        _orc_tiny_stripe_threshold_bytes = _state->query_options().orc_tiny_stripe_threshold_bytes;
+        _orc_once_max_read_bytes = _state->query_options().orc_once_max_read_bytes;
+        _orc_max_merge_distance_bytes = _state->query_options().orc_max_merge_distance_bytes;
+    }
+
     {
         SCOPED_RAW_TIMER(&_statistics.create_reader_time);
         RETURN_IF_ERROR(_create_file_reader());
@@ -326,14 +366,21 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
 }
 
 Status OrcReader::get_schema_col_name_attribute(std::vector<std::string>* col_names,
-                                                std::vector<uint64_t>* col_attributes,
-                                                std::string attribute) {
+                                                std::vector<int32_t>* col_attributes,
+                                                const std::string& attribute,
+                                                bool* exist_attribute) {
     RETURN_IF_ERROR(_create_file_reader());
-    const auto& root_type = _is_acid ? _remove_acid(_reader->getType()) : _reader->getType();
+    *exist_attribute = true;
+    const auto& root_type = _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
         col_names->emplace_back(get_field_name_lower_case(&root_type, i));
+
+        if (!root_type.getSubtype(i)->hasAttributeKey(attribute)) {
+            *exist_attribute = false;
+            return Status::OK();
+        }
         col_attributes->emplace_back(
-                std::stol(root_type.getSubtype(i)->getAttributeValue(attribute)));
+                std::stoi(root_type.getSubtype(i)->getAttributeValue(attribute)));
     }
     return Status::OK();
 }
@@ -351,6 +398,11 @@ Status OrcReader::_init_read_columns() {
                                _scan_params.__isset.slot_name_to_schema_pos;
     for (size_t i = 0; i < _column_names->size(); ++i) {
         const auto& col_name = (*_column_names)[i];
+        if (_missing_column_names_set.contains(col_name)) {
+            _missing_cols.emplace_back(col_name);
+            continue;
+        }
+
         if (_is_hive1_orc_or_use_idx) {
             auto iter = _scan_params.slot_name_to_schema_pos.find(col_name);
             if (iter != _scan_params.slot_name_to_schema_pos.end()) {
@@ -1084,18 +1136,6 @@ Status OrcReader::set_fill_columns(
 
         int64_t range_end_offset = _range_start_offset + _range_size;
 
-        // If you set "orc_tiny_stripe_threshold_bytes" = 0, the use tiny stripes merge io optimization will not be used.
-        int64_t orc_tiny_stripe_threshold_bytes = 8L * 1024L * 1024L;
-        int64_t orc_once_max_read_bytes = 8L * 1024L * 1024L;
-        int64_t orc_max_merge_distance_bytes = 1L * 1024L * 1024L;
-
-        if (_state != nullptr) {
-            orc_tiny_stripe_threshold_bytes =
-                    _state->query_options().orc_tiny_stripe_threshold_bytes;
-            orc_once_max_read_bytes = _state->query_options().orc_once_max_read_bytes;
-            orc_max_merge_distance_bytes = _state->query_options().orc_max_merge_distance_bytes;
-        }
-
         bool all_tiny_stripes = true;
         std::vector<io::PrefetchRange> tiny_stripe_ranges;
 
@@ -1108,7 +1148,7 @@ Status OrcReader::set_fill_columns(
                 !all_stripes_needed[i]) {
                 continue;
             }
-            if (strip_info->getLength() > orc_tiny_stripe_threshold_bytes) {
+            if (strip_info->getLength() > _orc_tiny_stripe_threshold_bytes) {
                 all_tiny_stripes = false;
                 break;
             }
@@ -1118,8 +1158,8 @@ Status OrcReader::set_fill_columns(
         if (all_tiny_stripes && number_of_stripes > 0) {
             std::vector<io::PrefetchRange> prefetch_merge_ranges =
                     io::PrefetchRange::merge_adjacent_seq_ranges(tiny_stripe_ranges,
-                                                                 orc_max_merge_distance_bytes,
-                                                                 orc_once_max_read_bytes);
+                                                                 _orc_max_merge_distance_bytes,
+                                                                 _orc_once_max_read_bytes);
             auto range_finder =
                     std::make_shared<io::LinearProbeRangeFinder>(std::move(prefetch_merge_ranges));
 
@@ -2509,7 +2549,7 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             node.__set_is_nullable(false);
 
             std::shared_ptr<HybridSetBase> hybrid_set(
-                    create_set(PrimitiveType::TYPE_INT, dict_codes.size()));
+                    create_set(PrimitiveType::TYPE_INT, dict_codes.size(), false));
             for (int& dict_code : dict_codes) {
                 hybrid_set->insert(&dict_code);
             }
@@ -2682,17 +2722,23 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
 
 void ORCFileInputStream::beforeReadStripe(
         std::unique_ptr<orc::StripeInformation> current_strip_information,
-        std::vector<bool> selected_columns) {
+        const std::vector<bool>& selected_columns,
+        std::unordered_map<orc::StreamId, std::shared_ptr<InputStream>>& streams) {
     if (_is_all_tiny_stripes) {
         return;
     }
     if (_file_reader != nullptr) {
         _file_reader->collect_profile_before_close();
     }
-    // Generate prefetch ranges, build stripe file reader.
+    for (const auto& stripe_stream : _stripe_streams) {
+        if (stripe_stream != nullptr) {
+            stripe_stream->collect_profile_before_close();
+        }
+    }
+    _stripe_streams.clear();
+
     uint64_t offset = current_strip_information->getOffset();
-    std::vector<io::PrefetchRange> prefetch_ranges;
-    size_t total_io_size = 0;
+    std::unordered_map<orc::StreamId, io::PrefetchRange> prefetch_ranges;
     for (uint64_t stream_id = 0; stream_id < current_strip_information->getNumberOfStreams();
          ++stream_id) {
         std::unique_ptr<orc::StreamInformation> stream =
@@ -2700,19 +2746,89 @@ void ORCFileInputStream::beforeReadStripe(
         uint64_t columnId = stream->getColumnId();
         uint64_t length = stream->getLength();
         if (selected_columns[columnId]) {
-            total_io_size += length;
             doris::io::PrefetchRange prefetch_range = {offset, offset + length};
-            prefetch_ranges.emplace_back(prefetch_range);
+            orc::StreamId streamId(stream->getColumnId(), stream->getKind());
+            prefetch_ranges.emplace(std::move(streamId), std::move(prefetch_range));
         }
         offset += length;
     }
-    size_t num_columns = std::count_if(selected_columns.begin(), selected_columns.end(),
-                                       [](bool selected) { return selected; });
-    if (total_io_size / num_columns < io::MergeRangeFileReader::SMALL_IO) {
-        // The underlying page reader will prefetch data in column.
-        _file_reader.reset(new io::MergeRangeFileReader(_profile, _inner_reader, prefetch_ranges));
-    } else {
-        _file_reader = _inner_reader;
+    _build_input_stripe_streams(prefetch_ranges, streams);
+}
+
+void ORCFileInputStream::_build_input_stripe_streams(
+        const std::unordered_map<orc::StreamId, io::PrefetchRange>& ranges,
+        std::unordered_map<orc::StreamId, std::shared_ptr<InputStream>>& streams) {
+    if (ranges.empty()) {
+        return;
+    }
+
+    std::unordered_map<orc::StreamId, io::PrefetchRange> small_ranges;
+    std::unordered_map<orc::StreamId, io::PrefetchRange> large_ranges;
+
+    for (const auto& range : ranges) {
+        if (range.second.end_offset - range.second.start_offset <= _orc_once_max_read_bytes) {
+            small_ranges.emplace(range.first, range.second);
+        } else {
+            large_ranges.emplace(range.first, range.second);
+        }
+    }
+
+    _build_small_ranges_input_stripe_streams(small_ranges, streams);
+    _build_large_ranges_input_stripe_streams(large_ranges, streams);
+}
+
+void ORCFileInputStream::_build_small_ranges_input_stripe_streams(
+        const std::unordered_map<orc::StreamId, io::PrefetchRange>& ranges,
+        std::unordered_map<orc::StreamId, std::shared_ptr<InputStream>>& streams) {
+    std::vector<io::PrefetchRange> all_ranges;
+    all_ranges.reserve(ranges.size());
+    std::transform(ranges.begin(), ranges.end(), std::back_inserter(all_ranges),
+                   [](const auto& pair) { return pair.second; });
+
+    auto merged_ranges = io::PrefetchRange::merge_adjacent_seq_ranges(
+            all_ranges, _orc_max_merge_distance_bytes, _orc_once_max_read_bytes);
+
+    // Sort ranges by start_offset for efficient searching
+    std::vector<std::pair<orc::StreamId, io::PrefetchRange>> sorted_ranges(ranges.begin(),
+                                                                           ranges.end());
+    std::sort(sorted_ranges.begin(), sorted_ranges.end(), [](const auto& a, const auto& b) {
+        return a.second.start_offset < b.second.start_offset;
+    });
+
+    for (const auto& merged_range : merged_ranges) {
+        auto merge_range_file_reader =
+                std::make_shared<OrcMergeRangeFileReader>(_profile, _file_reader, merged_range);
+
+        // Use binary search to find the starting point in sorted_ranges
+        auto it =
+                std::lower_bound(sorted_ranges.begin(), sorted_ranges.end(),
+                                 merged_range.start_offset, [](const auto& pair, uint64_t offset) {
+                                     return pair.second.start_offset < offset;
+                                 });
+
+        // Iterate from the found starting point
+        for (; it != sorted_ranges.end() && it->second.start_offset < merged_range.end_offset;
+             ++it) {
+            if (it->second.end_offset <= merged_range.end_offset) {
+                auto stripe_stream_input_stream = std::make_shared<StripeStreamInputStream>(
+                        getName(), merge_range_file_reader, _statistics, _io_ctx, _profile);
+                streams.emplace(it->first, stripe_stream_input_stream);
+                _stripe_streams.emplace_back(stripe_stream_input_stream);
+            }
+        }
+    }
+}
+
+void ORCFileInputStream::_build_large_ranges_input_stripe_streams(
+        const std::unordered_map<orc::StreamId, io::PrefetchRange>& ranges,
+        std::unordered_map<orc::StreamId, std::shared_ptr<InputStream>>& streams) {
+    for (const auto& range : ranges) {
+        auto stripe_stream_input_stream = std::make_shared<StripeStreamInputStream>(
+                getName(), _file_reader, _statistics, _io_ctx, _profile);
+        streams.emplace(range.first,
+                        std::make_shared<StripeStreamInputStream>(getName(), _file_reader,
+                                                                  _statistics, _io_ctx, _profile));
+        _stripe_streams.emplace_back(stripe_stream_input_stream);
     }
 }
 
@@ -2720,7 +2836,13 @@ void ORCFileInputStream::_collect_profile_before_close() {
     if (_file_reader != nullptr) {
         _file_reader->collect_profile_before_close();
     }
+    for (const auto& stripe_stream : _stripe_streams) {
+        if (stripe_stream != nullptr) {
+            stripe_stream->collect_profile_before_close();
+        }
+    }
 }
+
 void OrcReader::_execute_filter_position_delete_rowids(IColumn::Filter& filter) {
     if (_position_delete_ordered_rowids == nullptr) {
         return;
