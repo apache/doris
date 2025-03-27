@@ -671,7 +671,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             if (this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
-            Plan originalPlan = cache.getOriginalPlan();
+            Plan originalPlan = cache.getOriginalFinalPlan();
             builder.addUniqueSlot(originalPlan.getLogicalProperties().getTrait());
             builder.replaceUniqueBy(constructReplaceMap(mtmv));
         } else if (getTable().getKeysType().isAggregationFamily() && !getTable().isRandomDistribution()) {
@@ -710,7 +710,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             if (this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
-            Plan originalPlan = cache.getOriginalPlan();
+            Plan originalPlan = cache.getOriginalFinalPlan();
             builder.addUniformSlot(originalPlan.getLogicalProperties().getTrait());
             builder.replaceUniformBy(constructReplaceMap(mtmv));
         }
@@ -731,7 +731,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             if (this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
-            Plan originalPlan = cache.getOriginalPlan();
+            Plan originalPlan = cache.getOriginalFinalPlan();
             builder.addEqualSet(originalPlan.getLogicalProperties().getTrait());
             builder.replaceEqualSetBy(constructReplaceMap(mtmv));
         }
@@ -752,7 +752,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             if (this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
-            Plan originalPlan = cache.getOriginalPlan();
+            Plan originalPlan = cache.getOriginalFinalPlan();
             builder.addFuncDepsDG(originalPlan.getLogicalProperties().getTrait());
             builder.replaceFuncDepsBy(constructReplaceMap(mtmv));
         }
@@ -779,7 +779,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             LOG.warn(String.format("LogicalOlapScan constructReplaceMap fail, mv name is %s", mtmv.getName()), e);
             return replaceMap;
         }
-        for (Slot originSlot : cache.getOriginalPlan().getOutput()) {
+        for (Slot originSlot : cache.getOriginalFinalPlan().getOutput()) {
             if (!(originSlot instanceof SlotReference) || (((SlotReference) originSlot).isVisible())) {
                 originOutputs.add(originSlot);
             }

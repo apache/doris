@@ -244,10 +244,10 @@ b
 b
 
 -- !query1_8_before --
-b	6
+b	7
 
 -- !query1_8_after --
-b	6
+b	7
 
 -- !query1_9_before --
 b	6
@@ -472,22 +472,23 @@ b
 b
 
 -- !query1_14_before --
-b	28
+b	29
 d	4
 
 -- !query1_14_after --
-b	28
+b	29
 d	4
 
 -- !query1_15_before --
-b	28
+b	29
 d	4
 
 -- !query1_15_after --
-b	28
+b	29
 d	4
 
 -- !query1_15_0_before --
+b
 b
 b
 b
@@ -550,12 +551,14 @@ b
 b
 b
 b
+b
 d
 d
 d
 d
 
 -- !query1_15_1_before --
+b
 b
 b
 b
@@ -618,6 +621,7 @@ b
 b
 b
 b
+b
 d
 d
 d
@@ -630,8 +634,10 @@ b	6
 b	6
 
 -- !query2_1_before --
+b	1
 
 -- !query2_1_after --
+b	1
 
 -- !query2_2_before --
 b	21
@@ -695,6 +701,7 @@ d	4
 
 -- !query4_0_after --
 b	2023-01-01	6
+b	2023-01-16	1
 b	2023-04-01	3
 
 -- !query4_1_after --
@@ -704,6 +711,7 @@ b	2023-01-01
 b	2023-01-01
 b	2023-01-01
 b	2023-01-01
+b	2023-01-16
 b	2023-04-01
 b	2023-04-01
 b	2023-04-01

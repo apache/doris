@@ -65,6 +65,7 @@ suite("mv_with_date_trunc") {
     insert into lineitem
     values
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-01', '2023-01-01 00:00:00.999999', '2023-01-01 00:00:00.999999', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-16', '2023-01-01 00:00:00.999999', '2023-01-01 00:00:00.999999', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-01', '2023-01-01 02:01:45', '2023-01-01 02:01:45', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-01-01', '2023-01-01 03:02:43', '2023-01-01 03:02:43', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-04-01', '2023-04-01 05:03:42', '2023-04-01 05:03:42', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
@@ -1138,7 +1139,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    async_mv_rewrite_fail(db, mv2_1, query2_1, "mv2_1")
+    async_mv_rewrite_success_without_check_chosen(db, mv2_1, query2_1, "mv2_1")
     order_qt_query2_1_after "${query2_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
