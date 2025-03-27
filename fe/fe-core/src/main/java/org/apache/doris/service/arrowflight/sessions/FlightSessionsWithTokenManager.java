@@ -68,14 +68,15 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
                 flightTokenDetails.getUserIdentity(), flightTokenDetails.getRemoteIp());
         ConnectScheduler connectScheduler = ExecuteEnv.getInstance().getScheduler();
         connectScheduler.submit(connectContext);
-        if (!connectScheduler.registerConnection(connectContext)) {
+        int res = connectScheduler.registerConnection(connectContext);
+        if (res >= 0) {
             long userConnLimit = connectContext.getEnv().getAuth().getMaxConn(connectContext.getQualifiedUser());
             String errMsg = String.format(
-                    "Reach limit of connections. Total: %d, User: %d. "
+                    "Reach limit of connections. Total: %d, User: %d, Current: %d. "
                             + "Increase `qe_max_connection` in fe.conf or user's `max_user_connections`,"
                             + " or decrease `arrow_flight_token_cache_size` "
                             + "to evict unused bearer tokens and it connections faster",
-                    connectScheduler.getMaxConnections(), userConnLimit);
+                    connectScheduler.getMaxConnections(), userConnLimit, res);
             connectContext.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, errMsg);
             throw new IllegalArgumentException(errMsg);
         }
