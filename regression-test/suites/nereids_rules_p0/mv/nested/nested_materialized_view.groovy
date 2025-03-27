@@ -17,8 +17,6 @@
 
 suite("nested_materialized_view") {
 
-    sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
-
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt

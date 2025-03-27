@@ -21,7 +21,6 @@ suite("agg_optimize_when_uniform") {
 
     sql """
         set enable_agg_state=true;
-        set disable_nereids_rules='ELIMINATE_CONST_JOIN_CONDITION';
         SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject';
         set runtime_filter_mode=OFF;
         """
