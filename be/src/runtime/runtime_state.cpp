@@ -211,6 +211,8 @@ RuntimeState::~RuntimeState() {
         _error_log_file->close();
     }
 
+    _op_id_to_local_state.clear();
+    _sink_local_state.reset();
     _obj_pool->clear();
 }
 

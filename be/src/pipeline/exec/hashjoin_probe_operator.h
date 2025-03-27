@@ -100,6 +100,7 @@ private:
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::vector<uint16_t> _probe_column_disguise_null;
     std::vector<uint16_t> _probe_column_convert_to_null;
+    int _task_idx;
 
     bool _need_null_map_for_probe = false;
     bool _has_set_need_null_map_for_probe = false;
@@ -151,6 +152,7 @@ public:
         return _join_distribution != TJoinDistributionType::BROADCAST &&
                _join_distribution != TJoinDistributionType::NONE;
     }
+    bool is_broadcast_join() const { return _is_broadcast_join; }
 
     bool need_finalize_variant_column() const { return _need_finalize_variant_column; }
 
@@ -176,6 +178,8 @@ private:
 
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
+    // mark the build hash table whether it needs to store null value
+    std::vector<bool> _serialize_null_into_key;
 
     vectorized::DataTypes _right_table_data_types;
     vectorized::DataTypes _left_table_data_types;

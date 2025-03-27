@@ -58,8 +58,6 @@ protected:
     std::future<Status> _spill_merge_future;
     bool _current_partition_eos = true;
     bool _need_to_merge_data_for_current_partition = true;
-
-    std::shared_ptr<Dependency> _spill_dependency;
     std::vector<vectorized::Block> _blocks;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;

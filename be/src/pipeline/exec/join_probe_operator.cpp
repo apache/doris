@@ -79,6 +79,34 @@ Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
     return Status::OK();
 }
 
+#define APPLY_FOR_JOINOP_VARIANTS(M) \
+    M(INNER_JOIN)                    \
+    M(LEFT_SEMI_JOIN)                \
+    M(LEFT_ANTI_JOIN)                \
+    M(LEFT_OUTER_JOIN)               \
+    M(FULL_OUTER_JOIN)               \
+    M(RIGHT_OUTER_JOIN)              \
+    M(CROSS_JOIN)                    \
+    M(RIGHT_SEMI_JOIN)               \
+    M(RIGHT_ANTI_JOIN)               \
+    M(NULL_AWARE_LEFT_ANTI_JOIN)     \
+    M(NULL_AWARE_LEFT_SEMI_JOIN)
+
+template <typename LocalStateType>
+void JoinProbeOperatorX<LocalStateType>::_init_join_op() {
+    switch (_join_op) {
+#define M(NAME)                                                                            \
+    case TJoinOp::NAME:                                                                    \
+        _join_op_variants.emplace<std::integral_constant<TJoinOp::type, TJoinOp::NAME>>(); \
+        break;
+        APPLY_FOR_JOINOP_VARIANTS(M);
+#undef M
+    default:
+        //do nothing
+        break;
+    }
+}
+
 template <typename LocalStateType>
 JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                        int operator_id, const DescriptorTbl& descs)
@@ -127,6 +155,7 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
         // Iff BE has been upgraded and FE has not yet, we should keep origin logics for CROSS JOIN.
         DCHECK_EQ(_join_op, TJoinOp::CROSS_JOIN);
     }
+    _init_join_op();
 }
 
 template class JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>;

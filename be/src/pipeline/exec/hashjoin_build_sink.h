@@ -41,14 +41,6 @@ public:
     void init_short_circuit_for_probe();
 
     bool build_unique() const;
-    std::shared_ptr<vectorized::Arena> arena() { return _shared_state->arena; }
-
-    void add_hash_buckets_info(const std::string& info) const {
-        _profile->add_info_string("HashTableBuckets", info);
-    }
-    void add_hash_buckets_filled_info(const std::string& info) const {
-        _profile->add_info_string("HashTableFilledBuckets", info);
-    }
 
     Dependency* finishdependency() override { return _finish_dependency.get(); }
 
@@ -82,6 +74,7 @@ protected:
 
     size_t _evaluate_mem_usage = 0;
     size_t _build_side_rows = 0;
+    int _task_idx;
 
     vectorized::MutableBlock _build_side_mutable_block;
     std::shared_ptr<RuntimeFilterProducerHelper> _runtime_filter_producer_helper;
@@ -157,6 +150,8 @@ public:
 
 private:
     friend class HashJoinBuildSinkLocalState;
+    template <class HashTableContext>
+    friend struct ProcessHashTableBuild;
 
     const TJoinDistributionType::type _join_distribution;
     // build expr
@@ -168,9 +163,6 @@ private:
     std::vector<bool> _is_null_safe_eq_join;
 
     bool _is_broadcast_join = false;
-    std::shared_ptr<vectorized::SharedHashTableController> _shared_hashtable_controller;
-
-    vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     const std::vector<TExpr> _partition_exprs;
 
     std::vector<SlotId> _hash_output_slot_ids;
@@ -179,6 +171,8 @@ private:
     // if build side has variant column and need output variant column
     // need to finalize variant column to speed up the join op
     bool _need_finalize_variant_column = false;
+    // `_use_shared_hash_table` is true iff this is a broadcast join and shared hash table is enabled.
+    bool _use_shared_hash_table = false;
 };
 
 template <class HashTableContext>
@@ -226,8 +220,12 @@ struct ProcessHashTableBuild {
             with_other_conjuncts) {
             // null aware join with other conjuncts
             keep_null_key = true;
-        } else if (_parent->_shared_state->is_null_safe_eq_join.size() == 1 &&
-                   _parent->_shared_state->is_null_safe_eq_join[0]) {
+        } else if (_parent->parent()
+                                   ->template cast<HashJoinBuildSinkOperatorX>()
+                                   ._is_null_safe_eq_join.size() == 1 &&
+                   _parent->parent()
+                           ->template cast<HashJoinBuildSinkOperatorX>()
+                           ._is_null_safe_eq_join[0]) {
             // single null safe eq
             keep_null_key = true;
         }
