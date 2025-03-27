@@ -485,8 +485,6 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
             // For UnionSourceOperator without children, there is no shared state.
             _shared_state = info.shared_state->template cast<SharedStateArg>();
 
-            _shared_state->create_source_dependencies(1, _parent->operator_id(), _parent->node_id(),
-                                                      _parent->get_name());
             _dependency = _shared_state->create_source_dependency(
                     _parent->operator_id(), _parent->node_id(), _parent->get_name());
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
