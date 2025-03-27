@@ -1077,8 +1077,9 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 if (compaction->compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
                     std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
                     _cumu_compaction_thread_pool_used_threads++;
-                    if (_cumu_compaction_thread_pool->max_threads() >=
-                        config::min_threads_for_cumu_delay_strategy) {
+                    if (config::min_threads_for_cumu_delay_strategy > 1 &&
+                        _cumu_compaction_thread_pool->max_threads() >=
+                                config::min_threads_for_cumu_delay_strategy) {
                         // Calculate the total size and row count of the compaction task
                         int input_rowsets_total_size = 0;
                         int input_row_num = 0;

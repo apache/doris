@@ -485,7 +485,8 @@ DEFINE_Validator(low_priority_compaction_task_num_per_disk,
 DEFINE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
 // Minimum number of threads required in the thread pool to activate the delay strategy.
 // The delay strategy is only applied when the thread pool has at least this many threads.
-DEFINE_mInt32(min_threads_for_cumu_delay_strategy, "3");
+// Default -1 means disable.
+DEFINE_mInt32(min_threads_for_cumu_delay_strategy, "-1");
 // Maximum size threshold (in bytes) for input rowsets. Compaction tasks with input size
 // exceeding this threshold will be delayed when thread pool is near capacity. Default 512MB.
 DEFINE_mInt32(cumu_delay_strategy_size, "536870912");

@@ -713,8 +713,9 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         do {
             std::lock_guard lock(_cumu_compaction_delay_mtx);
             _cumu_compaction_thread_pool_used_threads++;
-            if (_cumu_compaction_thread_pool->max_threads() >=
-                config::min_threads_for_cumu_delay_strategy) {
+            if (config::min_threads_for_cumu_delay_strategy > 1 &&
+                _cumu_compaction_thread_pool->max_threads() >=
+                        config::min_threads_for_cumu_delay_strategy) {
                 // Determine if this is a small task based on configured thresholds
                 is_big_task =
                         (compaction->get_input_rowsets_bytes() > config::cumu_delay_strategy_size ||
