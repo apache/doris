@@ -18,7 +18,7 @@
 #pragma once
 
 #include "keyword_tokenizer.h"
-#include "olap/rowset/segment_v2/inverted_index/analyzer/setting.h"
+#include "olap/rowset/segment_v2/inverted_index/setting.h"
 
 namespace doris::segment_v2::inverted_index {
 

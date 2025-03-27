@@ -20,7 +20,7 @@
 #include "char_matcher.h"
 #include "edge_ngram_tokenizer.h"
 #include "ngram_tokenizer_factory.h"
-#include "olap/rowset/segment_v2/inverted_index/analyzer/setting.h"
+#include "olap/rowset/segment_v2/inverted_index/setting.h"
 
 namespace doris::segment_v2::inverted_index {
 

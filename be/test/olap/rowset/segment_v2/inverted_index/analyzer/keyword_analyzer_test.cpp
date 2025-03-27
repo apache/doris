@@ -1,8 +1,8 @@
 
 #include <gtest/gtest.h>
 
+#include "olap/rowset/segment_v2/inverted_index/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/keyword/keyword_tokenizer_factory.h"
-#include "olap/rowset/segment_v2/inverted_index/analyzer/setting.h"
 
 namespace doris::segment_v2 {
 
