@@ -1540,6 +1540,9 @@ DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
 
 DECLARE_mBool(enable_mow_verbose_log);
 
+DECLARE_mBool(enable_segment_partial_column_cache);
+DECLARE_mInt32(max_segment_partial_column_cache_size);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

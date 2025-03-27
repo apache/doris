@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <utility>
 
 #include "io/io_common.h"
 #include "olap/field.h"
@@ -44,18 +45,21 @@
 #include "vec/json/path_in_data.h"
 
 namespace doris::segment_v2 {
-
+class Segment;
+using SegmentSharedPtr = std::shared_ptr<Segment>;
 // Reader for hierarchical data for variant, merge with root(sparse encoded columns)
 class HierarchicalDataReader : public ColumnIterator {
 public:
     // Currently two types of read, merge sparse columns with root columns, or read directly
     enum class ReadType { MERGE_SPARSE, READ_DIRECT };
 
-    HierarchicalDataReader(const vectorized::PathInData& path) : _path(path) {}
+    HierarchicalDataReader(const vectorized::PathInData& path, SegmentSharedPtr segment)
+            : _segment(std::move(segment)), _path(path) {}
 
     static Status create(std::unique_ptr<ColumnIterator>* reader, vectorized::PathInData path,
-                         const SubcolumnColumnReaders::Node* target_node,
-                         const SubcolumnColumnReaders::Node* root, ReadType read_type);
+                         uint32_t parent_unique_id, const SubcolumnColumnReaders::Node* target_node,
+                         const SubcolumnColumnReaders::Node* root, ReadType read_type,
+                         SegmentSharedPtr segment = nullptr);
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -70,11 +74,12 @@ public:
 
     ordinal_t get_current_ordinal() const override;
 
-    Status add_stream(const SubcolumnColumnReaders::Node* node);
+    Status add_stream(const SubcolumnColumnReaders::Node* node, int32_t column_id);
 
     void set_root(std::unique_ptr<SubstreamIterator>&& root) { _root_reader = std::move(root); }
 
 private:
+    SegmentSharedPtr _segment;
     SubstreamReaderTree _substream_reader;
     std::unique_ptr<SubstreamIterator> _root_reader;
     size_t _rows_read = 0;
