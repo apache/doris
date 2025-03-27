@@ -37,7 +37,8 @@ protected:
 
 std::unique_ptr<orc::EncodedStringVectorBatch> create_encoded_string_batch(
         const std::vector<std::string>& dict_values) {
-    auto batch = std::make_unique<orc::EncodedStringVectorBatch>(1024, *orc::getDefaultPool());
+    auto batch =
+            std::make_unique<orc::EncodedStringVectorBatch>(1024 * 1024, *orc::getDefaultPool());
     batch->dictionary = std::make_unique<orc::StringDictionary>(*orc::getDefaultPool());
 
     // Fill dictionary data
@@ -46,8 +47,8 @@ std::unique_ptr<orc::EncodedStringVectorBatch> create_encoded_string_batch(
         sz += value.length();
     }
 
-    batch->dictionary->dictionaryBlob.resize(sz);
-    batch->dictionary->dictionaryOffset.resize(dict_values.size() + 1);
+    batch->dictionary->dictionaryBlob.resize(sz + 1024);
+    batch->dictionary->dictionaryOffset.resize(dict_values.size() + 10);
     int x = 0;
     for (const auto& value : dict_values) {
         batch->dictionary->dictionaryOffset[x + 1] =

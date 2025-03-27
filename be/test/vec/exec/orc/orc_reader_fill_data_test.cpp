@@ -333,7 +333,8 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
                 std::vector<DataTypePtr> {std::make_shared<DataTypeDecimal<Decimal64>>(18, 5)},
                 std::vector<std::string> {"col1"});
         MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
-
+        reader->_decimal_scale_params.resize(0);
+        reader->_decimal_scale_params_index = 0;
         Status status = reader->_fill_doris_data_column<false>(
                 "test", doris_column, doris_struct_type, type.get(), structBatch, rowCount);
 

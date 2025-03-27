@@ -343,6 +343,31 @@ private:
         return Status::OK();
     }
 
+    template <typename DecimalPrimitiveType>
+    void _init_decimal_converter(const DataTypePtr& data_type, DecimalScaleParams& scale_params,
+                                 const int32_t orc_decimal_scale) {
+        if (scale_params.scale_type != DecimalScaleParams::NOT_INIT) {
+            return;
+        }
+        auto* decimal_type = reinterpret_cast<DataTypeDecimal<DecimalPrimitiveType>*>(
+                const_cast<IDataType*>(remove_nullable(data_type).get()));
+        auto dest_scale = decimal_type->get_scale();
+        if (dest_scale > orc_decimal_scale) {
+            scale_params.scale_type = DecimalScaleParams::SCALE_UP;
+            scale_params.scale_factor =
+                    cast_set<int64_t>(DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(
+                            dest_scale - orc_decimal_scale));
+        } else if (dest_scale < orc_decimal_scale) {
+            scale_params.scale_type = DecimalScaleParams::SCALE_DOWN;
+            scale_params.scale_factor =
+                    cast_set<int64_t>(DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(
+                            orc_decimal_scale - dest_scale));
+        } else {
+            scale_params.scale_type = DecimalScaleParams::NO_SCALE;
+            scale_params.scale_factor = 1;
+        }
+    }
+
     template <typename DecimalPrimitiveType, typename OrcColumnType, bool is_filter>
     Status _decode_explicit_decimal_column(const std::string& col_name,
                                            const MutableColumnPtr& data_column,
@@ -353,6 +378,14 @@ private:
             return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
                                          cvb->toString());
         }
+        if (_decimal_scale_params_index >= _decimal_scale_params.size()) {
+            DecimalScaleParams temp_scale_params;
+            _init_decimal_converter<DecimalPrimitiveType>(data_type, temp_scale_params,
+                                                          data->scale);
+            _decimal_scale_params.emplace_back(temp_scale_params);
+        }
+        DecimalScaleParams& scale_params = _decimal_scale_params[_decimal_scale_params_index];
+        ++_decimal_scale_params_index;
 
         auto* cvb_data = data->values.data();
         auto& column_data =
@@ -360,21 +393,54 @@ private:
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
 
-        for (int i = 0; i < num_values; ++i) {
-            int128_t value;
-            if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
-                value = static_cast<int128_t>(cvb_data[i]);
-            } else {
-                // cast data to non const
-                auto* non_const_data = const_cast<OrcColumnType*>(data);
-                uint64_t hi = non_const_data->values[i].getHighBits();
-                uint64_t lo = non_const_data->values[i].getLowBits();
-                value = (((int128_t)hi) << 64) | (int128_t)lo;
+        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+            for (int i = 0; i < num_values; ++i) {
+                int128_t value;
+                if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
+                    value = static_cast<int128_t>(cvb_data[i]);
+                } else {
+                    // cast data to non const
+                    auto* non_const_data = const_cast<OrcColumnType*>(data);
+                    uint64_t hi = non_const_data->values[i].getHighBits();
+                    uint64_t lo = non_const_data->values[i].getLowBits();
+                    value = (((int128_t)hi) << 64) | (int128_t)lo;
+                }
+                value *= scale_params.scale_factor;
+                auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
+                v = (DecimalPrimitiveType)value;
             }
-            auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
-            v = (DecimalPrimitiveType)value;
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
+            for (int i = 0; i < num_values; ++i) {
+                int128_t value;
+                if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
+                    value = static_cast<int128_t>(cvb_data[i]);
+                } else {
+                    // cast data to non const
+                    auto* non_const_data = const_cast<OrcColumnType*>(data);
+                    uint64_t hi = non_const_data->values[i].getHighBits();
+                    uint64_t lo = non_const_data->values[i].getLowBits();
+                    value = (((int128_t)hi) << 64) | (int128_t)lo;
+                }
+                value /= scale_params.scale_factor;
+                auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
+                v = (DecimalPrimitiveType)value;
+            }
+        } else {
+            for (int i = 0; i < num_values; ++i) {
+                int128_t value;
+                if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
+                    value = static_cast<int128_t>(cvb_data[i]);
+                } else {
+                    // cast data to non const
+                    auto* non_const_data = const_cast<OrcColumnType*>(data);
+                    uint64_t hi = non_const_data->values[i].getHighBits();
+                    uint64_t lo = non_const_data->values[i].getLowBits();
+                    value = (((int128_t)hi) << 64) | (int128_t)lo;
+                }
+                auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
+                v = (DecimalPrimitiveType)value;
+            }
         }
-
         return Status::OK();
     }
 
@@ -557,6 +623,9 @@ private:
     io::IOContext* _io_ctx = nullptr;
     bool _enable_lazy_mat = true;
     bool _enable_filter_by_min_max = true;
+
+    std::vector<DecimalScaleParams> _decimal_scale_params;
+    size_t _decimal_scale_params_index;
 
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     bool _is_acid = false;

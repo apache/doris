@@ -1908,6 +1908,8 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
         {
             SCOPED_RAW_TIMER(&_statistics.get_batch_time);
+            // reset decimal_scale_params_index;
+            _decimal_scale_params_index = 0;
             try {
                 rr = _row_reader->nextBatch(*_batch, block);
                 if (rr == 0 || _batch->numElements == 0) {
@@ -1976,6 +1978,8 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
         {
             SCOPED_RAW_TIMER(&_statistics.get_batch_time);
+            // reset decimal_scale_params_index;
+            _decimal_scale_params_index = 0;
             try {
                 rr = _row_reader->nextBatch(*_batch, block);
                 if (rr == 0 || _batch->numElements == 0) {
