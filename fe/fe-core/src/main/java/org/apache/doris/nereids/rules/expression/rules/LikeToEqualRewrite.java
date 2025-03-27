@@ -55,6 +55,12 @@ public class LikeToEqualRewrite implements ExpressionPatternRuleFactory {
         StringBuilder sb = new StringBuilder();
         int len = str.length();
         char escapeChar = escape.isPresent() ? ((VarcharLiteral) escape.get()).value.charAt(0) : '\\';
+        if (escapeChar != '\\') {
+            //replace escapeChar with '\' inside like expression
+            like = replaceEscapeCharInLike(like, escapeChar, '\\');
+            escapeChar = '\\';
+        }
+
         for (int i = 0; i < len;) {
             char c = str.charAt(i);
             if (c == escapeChar && (i + 1) < len
@@ -70,5 +76,19 @@ public class LikeToEqualRewrite implements ExpressionPatternRuleFactory {
             }
         }
         return new EqualTo(left, new VarcharLiteral(sb.toString()));
+    }
+
+    private static Like replaceEscapeCharInLike(Like oldLike, char escapeChar, char replaceChar) {
+        Expression left = oldLike.getLeft();
+        Expression right = oldLike.getRight();
+        Expression escape = oldLike.getEscape().get();
+
+        if (right instanceof VarcharLiteral && escape instanceof VarcharLiteral) {
+            String rightValue = ((VarcharLiteral) right).value.replace(escapeChar, replaceChar);
+            right = new VarcharLiteral(rightValue);
+            String escapeValue = ((VarcharLiteral) escape).value.replace(escapeChar, replaceChar);
+            escape = new VarcharLiteral(escapeValue);
+        }
+        return new Like(left, right, escape);
     }
 }

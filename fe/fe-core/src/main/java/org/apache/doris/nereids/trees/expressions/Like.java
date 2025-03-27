@@ -52,6 +52,14 @@ public class Like extends StringRegexPredicate {
         return new Like(children);
     }
 
+    public Expression getLeft() {
+        return left();
+    }
+
+    public Expression getRight() {
+        return right();
+    }
+
     public Optional<Expression> getEscape() {
         List<Expression> children = super.children;
         if (children.size() == 3) {
@@ -78,5 +86,14 @@ public class Like extends StringRegexPredicate {
     @Override
     public Expression withInferred(boolean inferred) {
         return new Like(this.children, inferred);
+    }
+
+    @Override
+    public String toString() {
+        if (getEscape().isPresent()) {
+            return "(" + left() + " " + getName() + " " + right() + " escape " + getEscape().get() + ")";
+        } else {
+            return super.toString();
+        }
     }
 }
