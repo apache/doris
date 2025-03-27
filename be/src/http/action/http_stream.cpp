@@ -248,7 +248,6 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
 
     int64_t start_read_data_time = MonotonicNanos();
     Status st = ctx->allocate_schema_buffer();
-
     if (!st.ok()) {
         ctx->status = st;
         return;
