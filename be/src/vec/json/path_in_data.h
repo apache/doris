@@ -29,7 +29,6 @@
 #include <vector>
 
 #include "gen_cpp/segment_v2.pb.h"
-#include "vec/columns/column.h"
 #include "vec/common/uint128.h"
 
 namespace doris::vectorized {
@@ -137,13 +136,5 @@ struct PathInDataRef {
     PathInDataRef(const PathInData* ptr) : ref(ptr) {}
     bool operator==(const PathInDataRef& other) const { return *this->ref == *other.ref; }
 };
-
-struct PathWithColumnAndType {
-    PathInData path;
-    ColumnPtr column;
-    DataTypePtr type;
-};
-
-using PathsWithColumnAndType = std::vector<PathWithColumnAndType>;
 
 } // namespace doris::vectorized
