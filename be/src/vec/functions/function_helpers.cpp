@@ -97,14 +97,6 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& b
         }
     }
 
-    // TODO: only support match function, rethink the logic
-    for (const auto& ctn : block) {
-        if (ctn.name.size() > BeConsts::BLOCK_TEMP_COLUMN_PREFIX.size() &&
-            starts_with(ctn.name, BeConsts::BLOCK_TEMP_COLUMN_PREFIX)) {
-            res.insert(ctn);
-        }
-    }
-
     return {std::move(res), std::move(res_args)};
 }
 
