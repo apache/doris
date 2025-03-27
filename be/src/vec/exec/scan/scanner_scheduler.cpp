@@ -281,8 +281,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             // During low memory mode, every scan task will return at most 2 block to reduce memory usage.
             while (!eos && raw_bytes_read < raw_bytes_threshold &&
                    !(ctx->low_memory_mode() && has_first_full_block) &&
-                   !(has_first_full_block &&
-                     doris::thread_context()->thread_mem_tracker()->limit_exceeded())) {
+                   !(has_first_full_block && doris::thread_context()
+                                                     ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                                     ->limit_exceeded())) {
                 if (UNLIKELY(ctx->done())) {
                     eos = true;
                     break;
@@ -298,7 +299,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 } else {
                     if (state->get_query_ctx()->enable_reserve_memory()) {
                         size_t block_avg_bytes = scanner->get_block_avg_bytes();
-                        auto st = thread_context()->try_reserve_memory(block_avg_bytes);
+                        auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(
+                                block_avg_bytes);
                         if (!st.ok()) {
                             handle_reserve_memory_failure(state, ctx, st, block_avg_bytes);
                             break;

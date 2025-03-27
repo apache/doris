@@ -17,6 +17,7 @@
 
 #include "spill_sort_sink_operator.h"
 
+#include "common/status.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/spill_utils.h"
 #include "pipeline/pipeline_task.h"
@@ -112,7 +113,6 @@ SpillSortSinkOperatorX::SpillSortSinkOperatorX(ObjectPool* pool, int operator_id
 Status SpillSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
     _name = "SPILL_SORT_SINK_OPERATOR";
-    RETURN_IF_ERROR(_sort_sink_operator->set_child(DataSinkOperatorX<LocalStateType>::_child));
     return _sort_sink_operator->init(tnode, state);
 }
 
@@ -193,11 +193,6 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
     _shared_state->sorted_streams.emplace_back(_spilling_stream);
 
     auto& parent = Base::_parent->template cast<Parent>();
-
-    // TODO: spill thread may set_ready before the task::execute thread put the task to blocked state
-    if (!_eos) {
-        Base::_spill_dependency->Dependency::block();
-    }
     auto query_id = state->query_id();
 
     auto spill_func = [this, state, query_id, &parent] {
@@ -270,20 +265,15 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
                 "fault_inject spill_sort_sink "
                 "revoke_memory submit_func failed");
     });
-    if (status.ok()) {
-        state->get_query_ctx()->increase_revoking_tasks_count();
 
-        status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-                std::make_shared<SpillSinkRunnable>(state, spill_context, _spill_dependency,
-                                                    _profile, _shared_state->shared_from_this(),
-                                                    exception_catch_func));
-    }
-    if (!status.ok()) {
-        if (!_eos) {
-            Base::_spill_dependency->Dependency::set_ready();
-        }
-    }
-    return status;
+    RETURN_IF_ERROR(status);
+    state->get_query_ctx()->increase_revoking_tasks_count();
+
+    _spill_dependency->block();
+    return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
+            std::make_shared<SpillSinkRunnable>(state, spill_context, _spill_dependency, _profile,
+                                                _shared_state->shared_from_this(),
+                                                exception_catch_func));
 }
 
 } // namespace doris::pipeline

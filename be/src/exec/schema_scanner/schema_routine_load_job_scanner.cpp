@@ -59,7 +59,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaRoutineLoadJobScanner::_s_tbls_colu
 };
 
 SchemaRoutineLoadJobScanner::SchemaRoutineLoadJobScanner()
-        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_ROUTINE_LOAD_JOB) {}
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_ROUTINE_LOAD_JOBS) {}
 
 SchemaRoutineLoadJobScanner::~SchemaRoutineLoadJobScanner() {}
 

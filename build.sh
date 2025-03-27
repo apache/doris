@@ -36,6 +36,10 @@ fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 
+TARGET_SYSTEM="$(uname -s)"
+TARGET_ARCH="$(uname -m)"
+echo "Target system: ${TARGET_SYSTEM}; Target arch: ${TARGET_ARCH}"
+
 . "${DORIS_HOME}/env.sh"
 
 # Check args
@@ -296,7 +300,7 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 # build thirdparty libraries if necessary. check last thirdparty lib installation
-if [[ "$(uname -s)" == 'Darwin' ]]; then
+if [[ "${TARGET_SYSTEM}" == 'Darwin' ]]; then
     LAST_THIRDPARTY_LIB='libbrotlienc.a'
 else
     LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
@@ -360,7 +364,7 @@ if [[ -z "${WITH_MYSQL}" ]]; then
     WITH_MYSQL='OFF'
 fi
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
+    if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
         GLIBC_COMPATIBILITY='ON'
     else
         GLIBC_COMPATIBILITY='OFF'
@@ -370,7 +374,7 @@ if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
 fi
 if [[ -z "${USE_LIBCPP}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
+    if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
         USE_LIBCPP='OFF'
     else
         USE_LIBCPP='ON'
@@ -380,7 +384,7 @@ if [[ -z "${STRIP_DEBUG_INFO}" ]]; then
     STRIP_DEBUG_INFO='OFF'
 fi
 if [[ -z "${USE_MEM_TRACKER}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
+    if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
         USE_MEM_TRACKER='ON'
     else
         USE_MEM_TRACKER='OFF'
@@ -390,7 +394,7 @@ BUILD_TYPE_LOWWER=$(echo "${BUILD_TYPE}" | tr '[:upper:]' '[:lower:]')
 if [[ "${BUILD_TYPE_LOWWER}" == "asan" ]]; then
     USE_JEMALLOC='OFF'
 elif [[ -z "${USE_JEMALLOC}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
+    if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
         USE_JEMALLOC='ON'
     else
         USE_JEMALLOC='OFF'
@@ -419,7 +423,7 @@ if [[ -z "${USE_DWARF}" ]]; then
 fi
 
 if [[ -z "${USE_UNWIND}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
+    if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
         USE_UNWIND='ON'
     else
         USE_UNWIND='OFF'
@@ -484,7 +488,7 @@ if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
     RECORD_COMPILER_SWITCHES='OFF'
 fi
 
-if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
+if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "${TARGET_SYSTEM}" == 'Darwin' ]]; then
     if [[ -z "${JAVA_HOME}" ]]; then
         CAUSE='the environment variable JAVA_HOME is not set'
     else
@@ -761,6 +765,16 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
+
+    # copy jindofs jars, only support for Linux x64 or arm
+    if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'x86_64' ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-6.3.4.jar" "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-sdk-6.3.4.jar" "${DORIS_OUTPUT}/fe/lib"/
+    elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'aarch64' ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-linux-el7-aarch64-6.3.4.jar" "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-sdk-6.3.4.jar" "${DORIS_OUTPUT}/fe/lib"/
+    fi
+
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
 
@@ -898,6 +912,15 @@ EOF
             cp "${module_proj_jar}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
         fi
     done
+
+    # copy jindofs jars, only support for Linux x64 or arm
+    if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'x86_64' ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-sdk-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+    elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'aarch64' ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-linux-el7-aarch64-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-sdk-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+    fi
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"

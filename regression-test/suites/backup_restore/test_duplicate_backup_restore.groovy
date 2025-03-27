@@ -16,7 +16,8 @@
 // under the License.
 
 suite("test_duplicate_backup_restore", "backup_restore") {
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String suiteName = "test_duplicate_backup_restore"
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "duplicate_backup_restore_db"
     String tableName = "test_duplicate_backup_restore_table"
 
@@ -81,7 +82,7 @@ suite("test_duplicate_backup_restore", "backup_restore") {
     sql "DELETE FROM ${dbName}.${tableName} WHERE id = 1"
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size() + 5 - 3)
-    repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    repoName = "${suiteName}_delete_repo_" + UUID.randomUUID().toString().replace("-", "")
     syncer.createS3Repository(repoName)
     snapshotName = "test_duplicate_delete_backup_restore_snapshot"
     sql """

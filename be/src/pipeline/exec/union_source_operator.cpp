@@ -128,7 +128,7 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
             return Status::OK();
         }
         block->swap(*output_block);
-        output_block->clear_column_data(_row_descriptor.num_materialized_slots());
+        output_block->clear_column_data(row_descriptor().num_materialized_slots());
         local_state._shared_state->data_queue.push_free_block(std::move(output_block), child_idx);
     }
     local_state.reached_limit(block, eos);
@@ -144,7 +144,7 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
 
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
     vectorized::MutableBlock mblock =
-            vectorized::VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
+            vectorized::VectorizedUtils::build_mutable_mem_reuse_block(block, row_descriptor());
     for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() < state->batch_size();
          ++_const_expr_list_idx) {
         vectorized::Block tmp_block;
