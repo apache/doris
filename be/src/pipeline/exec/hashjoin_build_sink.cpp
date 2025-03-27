@@ -67,6 +67,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             std::lock_guard<std::mutex> guard(p._mutex);
             p._finish_dependencies.push_back(_finish_dependency);
         }
+    } else {
+        _dependency->set_ready();
     }
 
     _build_blocks_memory_usage =
@@ -224,12 +226,10 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         return Base::close(state, exec_status);
     }
 
-    if (p._use_shared_hash_table) {
-        _runtime_filter_producer_helper->share_filters(state, p._runtime_filters);
-    }
     try {
-        RETURN_IF_ERROR(
-                _runtime_filter_producer_helper->process(state, _shared_state->build_block.get()));
+        RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
+                state, _shared_state->build_block.get(), p._use_shared_hash_table,
+                p._runtime_filters));
     } catch (Exception& e) {
         bool blocked_by_shared_hash_table_signal =
                 !_should_build_hash_table && p._use_shared_hash_table && !p._signaled;

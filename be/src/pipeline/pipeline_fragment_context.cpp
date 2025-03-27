@@ -1444,7 +1444,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                     HashJoinSharedState::create_shared(_num_instances);
             for (int i = 0; i < _num_instances; i++) {
                 auto sink_dep = std::make_shared<Dependency>(op->operator_id(), op->node_id(),
-                                                             "HASH_JOIN_BUILD_DEPENDENCY", i == 0);
+                                                             "HASH_JOIN_BUILD_DEPENDENCY");
                 sink_dep->set_shared_state(shared_state.get());
                 shared_state->sink_deps.push_back(sink_dep);
             }

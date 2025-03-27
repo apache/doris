@@ -84,25 +84,9 @@ Status RuntimeFilterProducerHelper::_publish(RuntimeState* state) {
     return Status::OK();
 }
 
-void RuntimeFilterProducerHelper::share_filters(
-        RuntimeState* state,
+Status RuntimeFilterProducerHelper::process(
+        RuntimeState* state, const vectorized::Block* block, bool use_shared_table,
         std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters) {
-    bool wake_up_early = state->get_task()->wake_up_early();
-    for (const auto& filter : _producers) {
-        if (!wake_up_early) {
-            DCHECK(_is_broadcast_join);
-            if (_should_build_hash_table) {
-                DCHECK(!runtime_filters.contains(filter->wrapper()->filter_id()));
-                runtime_filters[filter->wrapper()->filter_id()] = filter->wrapper();
-            } else {
-                DCHECK(runtime_filters.contains(filter->wrapper()->filter_id()));
-                filter->set_wrapper(runtime_filters[filter->wrapper()->filter_id()]);
-            }
-        }
-    }
-}
-
-Status RuntimeFilterProducerHelper::process(RuntimeState* state, const vectorized::Block* block) {
     if (_skip_runtime_filters_process) {
         return Status::OK();
     }
@@ -122,6 +106,16 @@ Status RuntimeFilterProducerHelper::process(RuntimeState* state, const vectorize
     }
 
     for (const auto& filter : _producers) {
+        if (use_shared_table && !wake_up_early) {
+            DCHECK(_is_broadcast_join);
+            if (_should_build_hash_table) {
+                DCHECK(!runtime_filters.contains(filter->wrapper()->filter_id()));
+                runtime_filters[filter->wrapper()->filter_id()] = filter->wrapper();
+            } else {
+                DCHECK(runtime_filters.contains(filter->wrapper()->filter_id()));
+                filter->set_wrapper(runtime_filters[filter->wrapper()->filter_id()]);
+            }
+        }
         filter->set_wrapper_state_and_ready_to_publish(wrapper_state);
     }
 

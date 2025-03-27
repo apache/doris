@@ -62,11 +62,9 @@ public:
     // skip all runtime filter process, send size and rf to remote imeediately, mainly used to make join spill instance do not block other instance
     MOCK_FUNCTION Status skip_process(RuntimeState* state);
 
-    // Used by share hash table
-    void share_filters(RuntimeState* state,
-                       std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters);
     // build rf's predicate and publish rf
-    Status process(RuntimeState* state, const vectorized::Block* block);
+    Status process(RuntimeState* state, const vectorized::Block* block, bool use_shared_table,
+                   std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters);
 
 protected:
     virtual void _init_expr(const vectorized::VExprContextSPtrs& build_expr_ctxs,
