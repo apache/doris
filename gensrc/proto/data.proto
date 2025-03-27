@@ -66,6 +66,7 @@ message PColumnMeta {
     optional string function_name = 7;
     optional int32 be_exec_version = 8;
     optional int32 variant_max_subcolumns_count = 9 [default = 0];
+    optional segment_v2.ColumnPathInfo column_path = 10;
 }
 
 message PBlock {

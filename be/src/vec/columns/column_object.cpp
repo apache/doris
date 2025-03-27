@@ -770,11 +770,7 @@ void ColumnObject::try_insert(const Field& field) {
         root->insert(field);
     } else {
         const auto& object = field.get<const VariantMap&>();
-        for (const auto& [key_str, value] : object) {
-            PathInData key;
-            if (!key_str.empty()) {
-                key = PathInData(key_str);
-            }
+        for (const auto& [key, value] : object) {
             if (!has_subcolumn(key)) {
                 bool succ = add_sub_column(key, old_size);
                 if (!succ) {
@@ -1036,7 +1032,7 @@ void ColumnObject::get(size_t n, Field& res) const {
         entry->data.get(n, field);
         // Notice: we treat null as empty field, since we do not distinguish null and empty for Variant type.
         if (field.get_type() != Field::Types::Null) {
-            object.try_emplace(entry->path.get_path(), field);
+            object.try_emplace(entry->path, field);
         }
     }
 
@@ -1048,7 +1044,7 @@ void ColumnObject::get(size_t n, Field& res) const {
     for (size_t i = offset; i != end; ++i) {
         const StringRef path_data = path->get_data_at(i);
         const auto& data = ColumnObject::deserialize_from_sparse_column(value, i);
-        object.try_emplace(std::string(path_data.data, path_data.size), data.first);
+        object.try_emplace(PathInData(path_data), data.first);
     }
 
     if (object.empty()) {

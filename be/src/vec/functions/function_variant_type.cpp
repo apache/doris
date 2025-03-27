@@ -52,7 +52,7 @@ public:
             }
             FieldInfo info;
             schema_util::get_field_info(value, &info);
-            result[key] = getTypeName(info.scalar_type_id);
+            result[key.get_path()] = getTypeName(info.scalar_type_id);
         }
         return result;
     }
