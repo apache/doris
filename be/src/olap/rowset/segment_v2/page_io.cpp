@@ -246,9 +246,8 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     return Status::OK();
 }
 
-Status PageIO::read_and_decompress_page_with_file_cache_retry(const PageReadOptions& opts,
-                                                              PageHandle* handle, Slice* body,
-                                                              PageFooterPB* footer) {
+Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
+                                        Slice* body, PageFooterPB* footer) {
     // First try to read with file cache
     Status st = do_read_and_decompress_page(opts, handle, body, footer);
     if (!st.is<ErrorCode::CORRUPTION>() || !config::is_cloud_mode()) {
