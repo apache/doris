@@ -110,11 +110,11 @@ public:
 
     std::string debug_string() const;
 
-    void set_state(const FilterState& state) {
+    void set_state(const FilterState state) {
         if (!_state->is_valid()) {
             return;
         }
-        _state = std::make_unique<FilterState>(state);
+        _state = std::make_unique<FilterState>(std::move(state));
     }
     void set_state(State state, std::string reason = "") { set_state(FilterState(state, reason)); }
     State get_state() const { return _state->state(); }
