@@ -151,11 +151,6 @@ public class DateTrunc extends ScalarFunction
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
-    }
-
-    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitDateTrunc(this, context);
     }
