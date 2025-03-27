@@ -205,8 +205,6 @@ public:
 
     bool wake_up_early() const { return _wake_up_early; }
 
-    void inc_memory_reserve_failed_times() { COUNTER_UPDATE(_memory_reserve_failed_times, 1); }
-
     Status blocked(Dependency* dependency) {
         DCHECK_EQ(_blocked_dep, nullptr) << "task: " << debug_string();
         _blocked_dep = dependency;
