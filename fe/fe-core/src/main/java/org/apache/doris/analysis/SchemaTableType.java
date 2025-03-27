@@ -89,8 +89,8 @@ public enum SchemaTableType {
             TSchemaTableType.SCH_FILE_CACHE_STATISTICS),
     SCH_CATALOG_META_CACHE_STATISTICS("CATALOG_META_CACHE_STATISTICS", "CATALOG_META_CACHE_STATISTICS",
             TSchemaTableType.SCH_CATALOG_META_CACHE_STATISTICS),
-    SCH_ROUTINE_LOAD_JOB("ROUTINE_LOAD_JOB", "ROUTINE_LOAD_JOB",
-            TSchemaTableType.SCH_ROUTINE_LOAD_JOB);
+    SCH_ROUTINE_LOAD_JOBS("ROUTINE_LOAD_JOBS", "ROUTINE_LOAD_JOBS",
+            TSchemaTableType.SCH_ROUTINE_LOAD_JOBS);
 
     private static final String dbName = "INFORMATION_SCHEMA";
     private static SelectList fullSelectLists;
