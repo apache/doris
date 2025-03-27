@@ -54,8 +54,8 @@ suite("like_to_equal_to_rewrite") {
 
 	//test when escape is not null
     sql """drop database if exists test_like_escape"""
-    sql """create database test_like_escap"""
-	sql """use test_like_escap"""
+    sql """create database test_like_escape"""
+	sql """use test_like_escape"""
 	sql """
 		CREATE TABLE `employees` (
 		`id` tinyint NULL,
