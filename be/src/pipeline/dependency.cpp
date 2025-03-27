@@ -40,6 +40,14 @@ Dependency* BasicSharedState::create_source_dependency(int operator_id, int node
     return source_deps.back().get();
 }
 
+void BasicSharedState::create_source_dependencies(int operator_id, int node_id,
+                                                  const std::string& name) {
+    for (auto& source_dep : source_deps) {
+        source_dep = std::make_shared<Dependency>(operator_id, node_id, name);
+        source_dep->set_shared_state(this);
+    }
+}
+
 Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id,
                                                      const std::string& name) {
     sink_deps.push_back(std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true));

@@ -86,7 +86,7 @@ Status RuntimeFilterProducerHelper::_publish(RuntimeState* state) {
 
 Status RuntimeFilterProducerHelper::process(
         RuntimeState* state, const vectorized::Block* block,
-        const vectorized::SharedHashTableContextPtr& shared_hash_table_ctx) {
+        const vectorized::SharedHashTableContextPtr shared_hash_table_ctx) {
     if (_skip_runtime_filters_process) {
         return Status::OK();
     }

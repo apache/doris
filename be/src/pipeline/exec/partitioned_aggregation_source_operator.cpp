@@ -46,8 +46,6 @@ Status PartitionedAggLocalState::init(RuntimeState* state, LocalStateInfo& info)
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
     _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                   "AggSourceSpillDependency", true);
-    state->get_task()->add_spill_dependency(_spill_dependency.get());
-
     return Status::OK();
 }
 
@@ -63,7 +61,7 @@ Status PartitionedAggLocalState::open(RuntimeState* state) {
 }
 
 #define UPDATE_COUNTER_FROM_INNER(name) \
-    update_profile_from_inner_profile<spilled>(name, _runtime_profile.get(), child_profile)
+    update_profile_from_inner_profile<spilled>(name, _runtime_profile, child_profile)
 
 template <bool spilled>
 void PartitionedAggLocalState::update_profile(RuntimeProfile* child_profile) {
@@ -327,7 +325,7 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
             print_id(query_id), _parent->node_id(), state->task_id(),
             _shared_state->spill_partitions.size(), (void*)(_spill_dependency.get()));
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-            std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, _runtime_profile.get(),
+            std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, _runtime_profile,
                                                    _shared_state->shared_from_this(),
                                                    exception_catch_func));
 }

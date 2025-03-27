@@ -157,6 +157,7 @@ public:
         }
         return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
     }
+    uint64_t elapsed_time() const { return _query_watcher.elapsed_time(); }
 
     void set_thread_token(int concurrency, bool is_serial) {
         _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
@@ -173,6 +174,7 @@ public:
 
     void cancel_all_pipeline_context(const Status& reason, int fragment_id = -1);
     std::string print_all_pipeline_context();
+    void clear_finished_tasks();
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
     void cancel(Status new_status, int fragment_id = -1);
@@ -260,7 +262,7 @@ public:
         return _memory_sufficient_dependency.get();
     }
 
-    std::vector<pipeline::PipelineTask*> get_revocable_tasks() const;
+    std::vector<std::shared_ptr<pipeline::PipelineTask>> get_revocable_tasks() const;
 
     Status revoke_memory();
 
@@ -415,6 +417,7 @@ private:
     void _init_query_mem_tracker();
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
+
     std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;

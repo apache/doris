@@ -39,8 +39,6 @@ Status SpillSortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
     _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                   "SortSourceSpillDependency", true);
-    state->get_task()->add_spill_dependency(_spill_dependency.get());
-
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
     _spill_merge_sort_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillMergeSortTime", 1);
     return Status::OK();
@@ -173,7 +171,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
     });
 
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-            std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, _runtime_profile.get(),
+            std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, _runtime_profile,
                                                    _shared_state->shared_from_this(),
                                                    exception_catch_func));
 }

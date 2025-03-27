@@ -366,6 +366,15 @@ void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragmen
     }
 }
 
+void QueryContext::clear_finished_tasks() {
+    std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+    for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
+        if (auto pipeline_ctx = f_context.lock()) {
+            pipeline_ctx->clear_finished_tasks();
+        }
+    }
+}
+
 std::string QueryContext::print_all_pipeline_context() {
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_print;
     fmt::memory_buffer debug_string_buffer;
@@ -382,9 +391,9 @@ std::string QueryContext::print_all_pipeline_context() {
         }
         for (auto& f_context : ctx_to_print) {
             if (auto pipeline_ctx = f_context.lock()) {
-                auto elapsed = pipeline_ctx->elapsed_time() / 1000000000.0;
+                auto elapsed = pipeline_ctx->elapsed_time() / NANOS_PER_SEC;
                 fmt::format_to(debug_string_buffer,
-                               "No.{} (elapse_second={}s, fragment_id={}) : {}\n", i, elapsed,
+                               "Fragment.{} (elapse_second={}s, fragment_id={}) : {}\n", i, elapsed,
                                pipeline_ctx->get_fragment_id(), pipeline_ctx->debug_string());
                 i++;
             }
@@ -504,7 +513,7 @@ size_t QueryContext::get_revocable_size() const {
 }
 
 Status QueryContext::revoke_memory() {
-    std::vector<std::pair<size_t, pipeline::PipelineTask*>> tasks;
+    std::vector<std::pair<size_t, std::shared_ptr<pipeline::PipelineTask>>> tasks;
     std::vector<std::shared_ptr<pipeline::PipelineFragmentContext>> fragments;
     for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
         auto fragment_ctx = fragment_wptr.lock();
@@ -513,7 +522,7 @@ Status QueryContext::revoke_memory() {
         }
 
         auto tasks_of_fragment = fragment_ctx->get_revocable_tasks();
-        for (auto* task : tasks_of_fragment) {
+        for (auto task : tasks_of_fragment) {
             tasks.emplace_back(task->get_revocable_size(), task);
         }
         fragments.emplace_back(std::move(fragment_ctx));
@@ -528,7 +537,7 @@ Status QueryContext::revoke_memory() {
     size_t revoked_size = 0;
     size_t total_revokable_size = 0;
 
-    std::vector<pipeline::PipelineTask*> chosen_tasks;
+    std::vector<std::shared_ptr<pipeline::PipelineTask>> chosen_tasks;
     for (auto&& [revocable_size, task] : tasks) {
         // Only revoke the largest task to ensure memory is used as much as possible
         // break;
@@ -557,7 +566,7 @@ Status QueryContext::revoke_memory() {
             ((void*)spill_context.get()), PrettyPrinter::print_bytes(revoked_size),
             PrettyPrinter::print_bytes(total_revokable_size), chosen_tasks.size(), tasks.size());
 
-    for (auto* task : chosen_tasks) {
+    for (auto task : chosen_tasks) {
         RETURN_IF_ERROR(task->revoke_memory(spill_context));
     }
     return Status::OK();
@@ -567,8 +576,8 @@ void QueryContext::decrease_revoking_tasks_count() {
     _revoking_tasks_count.fetch_sub(1);
 }
 
-std::vector<pipeline::PipelineTask*> QueryContext::get_revocable_tasks() const {
-    std::vector<pipeline::PipelineTask*> tasks;
+std::vector<std::shared_ptr<pipeline::PipelineTask>> QueryContext::get_revocable_tasks() const {
+    std::vector<std::shared_ptr<pipeline::PipelineTask>> tasks;
     for (auto&& [fragment_id, fragment_wptr] : _fragment_id_to_pipeline_ctx) {
         auto fragment_ctx = fragment_wptr.lock();
         if (!fragment_ctx) {
