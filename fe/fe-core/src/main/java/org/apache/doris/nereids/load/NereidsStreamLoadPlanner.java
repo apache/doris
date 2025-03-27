@@ -18,55 +18,24 @@
 package org.apache.doris.nereids.load;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
-import org.apache.doris.nereids.jobs.executor.Rewriter;
-import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.analysis.BindExpression;
-import org.apache.doris.nereids.rules.analysis.BindSink;
-import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
-import org.apache.doris.nereids.rules.rewrite.MergeProjects;
-import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnullErrorToInvalid;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToNull;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLoadProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPreFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -82,19 +51,15 @@ import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
 
 /**
  * NereidsStreamLoadPlanner
@@ -272,11 +237,11 @@ public class NereidsStreamLoadPlanner {
         NereidsLoadScanProvider loadScanProvider = new NereidsLoadScanProvider(fileGroupInfo,
                 partialUpdateInputColumns);
         NereidsParamCreateContext context = loadScanProvider.createLoadContext();
-        LogicalPlan streamLoadPlan = (LogicalPlan) createStreamLoadPlan(fileGroupInfo, dataDescription, context,
-                hasMissingColExceptAutoIncKey);
-        NereidsLoadPlanTranslator loadPlanTranslator = new NereidsLoadPlanTranslator(destTable, taskInfo, loadId,
+        LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, dataDescription.getPartitionNames(),
+                context, hasMissingColExceptAutoIncKey);
+        NereidsLoadPlanInfoCollector loadPlanTranslator = new NereidsLoadPlanInfoCollector(destTable, taskInfo, loadId,
                 db.getId(), uniquekeyUpdateMode, partialUpdateInputColumns, context.exprMap);
-        NereidsLoadPlanTranslator.LoadPlanInfo loadPlanInfo = loadPlanTranslator.translatePlan(streamLoadPlan);
+        NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = loadPlanTranslator.translatePlan(streamLoadPlan);
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());
         fileScanNode.finalizeForNereids(loadId, Lists.newArrayList(fileGroupInfo), Lists.newArrayList(context),
                 loadPlanInfo);
@@ -348,148 +313,5 @@ public class NereidsStreamLoadPlanner {
         params.setTableName(destTable.getName());
         params.setIsMowTable(destTable.getEnableUniqueKeyMergeOnWrite());
         return params;
-    }
-
-    private Plan createStreamLoadPlan(NereidsFileGroupInfo fileGroupInfo, NereidsDataDescription dataDescription,
-            NereidsParamCreateContext context, boolean isPartialUpdate) throws UserException {
-        List<NamedExpression> projects = new ArrayList<>(context.exprMap.size());
-        List<String> colNames = new ArrayList<>(context.exprMap.size());
-        Set<String> uniqueColNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        for (Map.Entry<String, Expression> entry : context.exprMap.entrySet()) {
-            projects.add(new Alias(entry.getValue(), entry.getKey()));
-            colNames.add(entry.getKey());
-            uniqueColNames.add(entry.getKey());
-        }
-        Table targetTable = fileGroupInfo.getTargetTable();
-        for (SlotReference slotReference : context.scanSlots) {
-            String colName = slotReference.getName();
-            if (targetTable.getColumn(colName) != null && !uniqueColNames.contains(colName)) {
-                projects.add(slotReference);
-                colNames.add(colName);
-                uniqueColNames.add(colName);
-            }
-        }
-
-        LogicalPlan currentRootPlan = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
-                Lists.newArrayList(context.scanSlots));
-        if (context.fileGroup.getPrecedingFilterExpr() != null) {
-            Set<Expression> conjuncts = new HashSet<>();
-            conjuncts.add(context.fileGroup.getPrecedingFilterExpr());
-            currentRootPlan = new LogicalPreFilter<>(conjuncts, currentRootPlan);
-        }
-        if (!projects.isEmpty()) {
-            currentRootPlan = new LogicalLoadProject(projects, currentRootPlan);
-        }
-        if (context.fileGroup.getWhereExpr() != null) {
-            Set<Expression> conjuncts = new HashSet<>();
-            conjuncts.add(context.fileGroup.getWhereExpr());
-            currentRootPlan = new LogicalFilter<>(conjuncts, currentRootPlan);
-        }
-        PartitionNames partitionNames = dataDescription.getPartitionNames();
-        currentRootPlan = UnboundTableSinkCreator.createUnboundTableSink(targetTable.getFullQualifiers(), colNames,
-                ImmutableList.of(),
-                partitionNames != null && partitionNames.isTemp(),
-                partitionNames != null ? partitionNames.getPartitionNames() : ImmutableList.of(), isPartialUpdate,
-                DMLCommandType.LOAD, currentRootPlan);
-
-        CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(), currentRootPlan,
-                PhysicalProperties.ANY);
-        ConnectContext ctx = cascadesContext.getConnectContext();
-        try {
-            ctx.getSessionVariable().setDebugSkipFoldConstant(true);
-            Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                    ImmutableList.of(Rewriter.bottomUp(new BindExpression(),
-                            new LoadProjectRewrite(fileGroupInfo.getTargetTable()),
-                            new BindSink(), new PushDownProjectThroughFilter(), new MergeProjects(),
-                            new ExpressionNormalization())))
-                    .execute();
-        } catch (Exception exception) {
-            throw new UserException(exception.getMessage());
-        } finally {
-            ctx.getSessionVariable().setDebugSkipFoldConstant(false);
-        }
-
-        Plan boundPlan = cascadesContext.getRewritePlan();
-        return boundPlan;
-    }
-
-    /** LoadProjectExpressionRewrite */
-    private class LoadProjectRewrite extends OneRewriteRuleFactory {
-        private Table tbl;
-
-        public LoadProjectRewrite(Table tbl) {
-            this.tbl = tbl;
-        }
-
-        @Override
-        public Rule build() {
-            return logicalLoadProject().thenApply(ctx -> {
-                LogicalLoadProject<Plan> project = ctx.root;
-                List<NamedExpression> projects = project.getProjects();
-                List<NamedExpression> newProjects = new ArrayList<>(projects.size());
-                for (NamedExpression expression : projects) {
-                    Column column = tbl.getColumn(expression.getName());
-                    if (column != null) {
-                        if (column.getAggregationType() != null) {
-                            if (column.getAggregationType() == AggregateType.BITMAP_UNION
-                                    && !expression.getDataType().isBitmapType()) {
-                                throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                                        String.format("bitmap column %s require the function return type is BITMAP",
-                                                column.getName()));
-                            }
-                            if (column.getAggregationType() == AggregateType.QUANTILE_UNION
-                                    && !expression.getDataType().isQuantileStateType()) {
-                                throw new org.apache.doris.nereids.exceptions.AnalysisException(String.format(
-                                        "quantile_state column %s require the function return type is QUANTILE_STATE",
-                                        column.getName()));
-                            }
-                        }
-                        if (column.getType().isJsonbType() && expression.getDataType().isStringLikeType()) {
-                            Expression realExpr = expression instanceof Alias ? ((Alias) expression).child()
-                                    : expression;
-                            if (column.isAllowNull() || expression.nullable()) {
-                                newProjects.add(
-                                        new Alias(new JsonbParseNullableErrorToNull(realExpr), expression.getName()));
-                            } else {
-                                newProjects.add(
-                                        new Alias(new JsonbParseNotnullErrorToInvalid(realExpr), expression.getName()));
-                            }
-                        } else {
-                            newProjects.add(expression);
-                        }
-                    } else {
-                        throw new org.apache.doris.nereids.exceptions.AnalysisException(String
-                                .format("can not find column %s in table %s", expression.getName(), tbl.getName()));
-                    }
-                }
-                return new LogicalProject(newProjects, project.child());
-            }).toRule(RuleType.REWRITE_LOAD_PROJECT_FOR_STREAM_LOAD);
-        }
-    }
-
-    private class PushDownProjectThroughFilter extends OneRewriteRuleFactory {
-        @Override
-        public Rule build() {
-            return logicalProject(logicalFilter()).thenApply(ctx -> {
-                LogicalProject<LogicalFilter<Plan>> project = ctx.root;
-                Map<Slot, Expression> replaceMap = Maps.newHashMap();
-                for (NamedExpression output : project.getOutputs()) {
-                    if (output instanceof Alias) {
-                        Set<Slot> inputSlots = output.getInputSlots();
-                        int size = inputSlots.size();
-                        if (size == 1) {
-                            replaceMap.put(inputSlots.iterator().next(), output.toSlot());
-                        } else if (size > 1) {
-                            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                                    String.format("expression %s is not supported", output));
-                        }
-                    }
-                }
-                LogicalFilter<Plan> filter = project.child();
-                Plan filterChild = filter.child();
-                return filter.withConjunctsAndChild(ExpressionUtils.replace(filter.getConjuncts(), replaceMap),
-                        project.withChildren(filterChild));
-            }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_FILTER);
-        }
     }
 }
