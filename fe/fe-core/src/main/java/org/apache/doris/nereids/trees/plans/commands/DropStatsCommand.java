@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -29,11 +28,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -49,19 +50,24 @@ public class DropStatsCommand extends DropCommand {
     public static final int MAX_IN_ELEMENT_TO_DELETE = 100;
     private final TableNameInfo tableNameInfo;
     private final Set<String> columnNames;
-    private final PartitionNames opPartitionNames;
+    private final PartitionNamesInfo opPartitionNamesInfo;
     private boolean isAllColumns;
     private long catalogId;
     private long dbId;
     private long tblId;
 
+    /**
+     * DropStatsCommand
+     */
     public DropStatsCommand(TableNameInfo tableNameInfo,
                             Set<String> columnNames,
-                            PartitionNames opPartitionNames) {
+                            PartitionNamesInfo opPartitionNamesInfo) {
         super(PlanType.DROP_STATS_COMMAND);
+        Objects.requireNonNull(tableNameInfo, "tableNameInfo is null");
+        Objects.requireNonNull(columnNames, "columnNames is null");
         this.tableNameInfo = tableNameInfo;
         this.columnNames = columnNames;
-        this.opPartitionNames = opPartitionNames;
+        this.opPartitionNamesInfo = opPartitionNamesInfo;
     }
 
     public long getCatalogId() {
@@ -76,8 +82,8 @@ public class DropStatsCommand extends DropCommand {
         return tblId;
     }
 
-    public PartitionNames getOpPartitionNames() {
-        return opPartitionNames;
+    public PartitionNamesInfo getOpPartitionNamesInfo() {
+        return opPartitionNamesInfo;
     }
 
     public Set<String> getColumnNames() {
@@ -94,15 +100,15 @@ public class DropStatsCommand extends DropCommand {
         ctx.getEnv().getAnalysisManager().dropStats(this);
     }
 
-    private void validate(ConnectContext ctx) throws UserException {
+    /**
+     * validate
+     */
+    public void validate(ConnectContext ctx) throws UserException {
         if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
-                + "in your FE conf file");
+                + " in your FE conf file");
         }
 
-        if (tableNameInfo == null) {
-            throw new UserException("Should specify a valid table name.");
-        }
         tableNameInfo.analyze(ctx);
         String catalogName = tableNameInfo.getCtl();
         String dbName = tableNameInfo.getDb();
@@ -114,9 +120,9 @@ public class DropStatsCommand extends DropCommand {
         dbId = db.getId();
         catalogId = catalog.getId();
         // check permission
-        checkAnalyzePriv(catalogName, db.getFullName(), table.getName());
+        checkAnalyzePriv(catalogName, dbName, tblName);
         // check columnNames
-        if (columnNames != null) {
+        if (!columnNames.isEmpty()) {
             if (columnNames.size() > MAX_IN_ELEMENT_TO_DELETE) {
                 throw new UserException("Can't delete more that " + MAX_IN_ELEMENT_TO_DELETE + " columns at one time.");
             }
@@ -134,8 +140,8 @@ public class DropStatsCommand extends DropCommand {
         } else {
             isAllColumns = true;
         }
-        if (opPartitionNames != null && opPartitionNames.getPartitionNames() != null
-                && opPartitionNames.getPartitionNames().size() > MAX_IN_ELEMENT_TO_DELETE) {
+        if (opPartitionNamesInfo != null && opPartitionNamesInfo.getPartitionNames() != null
+                && opPartitionNamesInfo.getPartitionNames().size() > MAX_IN_ELEMENT_TO_DELETE) {
             throw new UserException("Can't delete more that " + MAX_IN_ELEMENT_TO_DELETE + " partitions at one time");
         }
     }
