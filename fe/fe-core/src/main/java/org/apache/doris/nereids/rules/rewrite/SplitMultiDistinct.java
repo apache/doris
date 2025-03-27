@@ -213,9 +213,9 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
 
     private static boolean needTransform(LogicalAggregate<Plan> agg, List<Alias> aliases, List<Alias> otherAggFuncs) {
         // TODO with source repeat aggregate need to be supported in future
-        // if (agg.getSourceRepeat().isPresent()) {
-        //     return false;
-        // }
+        if (agg.getSourceRepeat().isPresent()) {
+            return false;
+        }
         Set<Expression> distinctFunc = new HashSet<>();
         boolean distinctMultiColumns = false;
         for (NamedExpression namedExpression : agg.getOutputExpressions()) {
