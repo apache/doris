@@ -80,7 +80,7 @@ std::string TabletReader::ReaderParams::to_string() const {
     }
 
     for (auto& condition : conditions) {
-        ss << " conditions=" << apache::thrift::ThriftDebugString(condition.filter);
+        ss << " conditions=" << apache::thrift::ThriftDebugString(condition);
     }
 
     return ss.str();
@@ -520,20 +520,8 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
 Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_conditions_param_timer_ns);
     std::vector<ColumnPredicate*> predicates;
-    auto emplace_predicate = [&predicates](auto& param, ColumnPredicate* predicate) {
-        predicate->set_runtime_filter_id(param.runtime_filter_id);
-        predicates.emplace_back(predicate);
-    };
-
-    auto parse_and_emplace_predicates = [this, &emplace_predicate](auto& params) {
-        for (const auto& param : params) {
-            ColumnPredicate* predicate = _parse_to_predicate({param.column_name, param.filter});
-            emplace_predicate(param, predicate);
-        }
-    };
-
-    for (const auto& param : read_params.conditions) {
-        TCondition tmp_cond = param.filter;
+    for (const auto& condition : read_params.conditions) {
+        TCondition tmp_cond = condition;
         RETURN_IF_ERROR(_tablet_schema->have_column(tmp_cond.column_name));
         // The "column" parameter might represent a column resulting from the decomposition of a variant column.
         // Instead of using a "unique_id" for identification, we are utilizing a "path" to denote this column.
@@ -544,11 +532,30 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
                 parse_to_predicate(mcolumn, index, tmp_cond, _predicate_arena.get());
         // record condition value into predicate_params in order to pushdown segment_iterator,
         // _gen_predicate_result_sign will build predicate result unique sign with condition value
-        emplace_predicate(param, predicate);
+        auto predicate_params = predicate->predicate_params();
+        predicate_params->values = condition.condition_values;
+        predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
+        predicates.push_back(predicate);
     }
-    parse_and_emplace_predicates(read_params.bloom_filters);
-    parse_and_emplace_predicates(read_params.bitmap_filters);
-    parse_and_emplace_predicates(read_params.in_filters);
+
+    // Only key column bloom filter will push down to storage engine
+    for (const auto& filter : read_params.bloom_filters) {
+        ColumnPredicate* predicate = _parse_to_predicate(filter);
+        predicate->predicate_params()->marked_by_runtime_filter = true;
+        predicates.emplace_back(predicate);
+    }
+
+    for (const auto& filter : read_params.bitmap_filters) {
+        ColumnPredicate* predicate = _parse_to_predicate(filter);
+        predicate->predicate_params()->marked_by_runtime_filter = true;
+        predicates.emplace_back(predicate);
+    }
+
+    for (const auto& filter : read_params.in_filters) {
+        ColumnPredicate* predicate = _parse_to_predicate(filter);
+        predicate->predicate_params()->marked_by_runtime_filter = true;
+        predicates.emplace_back(predicate);
+    }
 
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {

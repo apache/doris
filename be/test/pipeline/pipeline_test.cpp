@@ -25,15 +25,14 @@
 #include "dummy_task_queue.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/pipeline_fragment_context.h"
-#include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime_filter/runtime_filter_definitions.h"
 #include "thrift_builder.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
@@ -773,10 +772,33 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                                                     .set_slot_ref(TSlotRefBuilder(1, 1).build())
                                                     .build())
                                     .build())
-                    .append_runtime_filters(TRuntimeFilterDescBuilder()
-                                                    .set_bloom_filter_size_bytes(1048576)
-                                                    .set_build_bf_by_runtime_size(false)
-                                                    .build())
+                    .append_runtime_filters(
+                            TRuntimeFilterDescBuilder(
+                                    0,
+                                    TExprBuilder()
+                                            .append_nodes(
+                                                    TExprNodeBuilder(
+                                                            TExprNodeType::SLOT_REF,
+                                                            TTypeDescBuilder()
+                                                                    .set_types(
+                                                                            TTypeNodeBuilder()
+                                                                                    .set_type(
+                                                                                            TTypeNodeType::
+                                                                                                    SCALAR)
+                                                                                    .set_scalar_type(
+                                                                                            TPrimitiveType::
+                                                                                                    INT)
+                                                                                    .build())
+                                                                    .build(),
+                                                            0)
+                                                            .set_slot_ref(
+                                                                    TSlotRefBuilder(1, 1).build())
+                                                            .build())
+                                            .build(),
+                                    0, std::map<TPlanNodeId, TExpr> {})
+                                    .set_bloom_filter_size_bytes(1048576)
+                                    .set_build_bf_exactly(false)
+                                    .build())
                     .build();
 
     {
@@ -982,7 +1004,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                 auto& local_state = _runtime_states[i][j]
                                             ->get_sink_local_state()
                                             ->cast<HashJoinBuildSinkLocalState>();
-                EXPECT_EQ(local_state._runtime_filter_producer_helper->_producers.size(), 1);
+                EXPECT_EQ(local_state._runtime_filters.size(), 1);
                 EXPECT_EQ(local_state._should_build_hash_table, true);
             }
         }
@@ -1092,38 +1114,36 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
             auto& sink_local_state = _runtime_states[1][j]
                                              ->get_sink_local_state()
                                              ->cast<HashJoinBuildSinkLocalState>();
-            EXPECT_EQ(
-                    sink_local_state._runtime_filter_producer_helper->_skip_runtime_filters_process,
-                    false);
-            EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers.size(), 1);
-            EXPECT_TRUE(
-                    sink_local_state._runtime_filter_producer_helper->_producers[0]->_rf_state ==
-                    RuntimeFilterProducer::State::WAITING_FOR_DATA);
-            EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]
+            EXPECT_EQ(sink_local_state._runtime_filters_disabled, false);
+            EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters.size(), 1);
+            EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                              ->need_sync_filter_size(),
+                      false);
+            EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
                               ->_runtime_filter_type,
                       RuntimeFilterType::IN_OR_BLOOM_FILTER);
             EXPECT_EQ(_pipeline_tasks[1][j]->_is_pending_finish(), false);
             EXPECT_EQ(_pipeline_tasks[1][j]->close(Status::OK()), Status::OK());
-            EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                              ->_wrapper->get_real_type(),
+            EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]->get_real_type(),
                       j == 0 ? RuntimeFilterType::IN_FILTER : RuntimeFilterType::BLOOM_FILTER)
                     << "  " << j << " "
-                    << sink_local_state._runtime_filter_producer_helper->_producers[0]
-                               ->debug_string();
-            EXPECT_TRUE(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                                ->_wrapper->_state == RuntimeFilterWrapper::State::READY);
-
+                    << IRuntimeFilter::to_string(
+                               sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                                       ->get_real_type());
+            EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                              ->_wrapper->is_ignored(),
+                      false);
             if (j == 0) {
-                EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                                  ->_wrapper->_hybrid_set->size(),
+                EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                                  ->_wrapper->_context->hybrid_set->size(),
                           1);
             } else {
-                EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                                  ->_wrapper->_bloom_filter_func->build_bf_by_runtime_size(),
+                EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                                  ->_wrapper->_context->bloom_filter_func->_build_bf_exactly,
                           false);
 
-                EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                                  ->_wrapper->_bloom_filter_func->_bloom_filter_length,
+                EXPECT_EQ(sink_local_state._runtime_filter_slots->_runtime_filters[0]
+                                  ->_wrapper->_context->bloom_filter_func->_bloom_filter_length,
                           1048576);
             }
         }

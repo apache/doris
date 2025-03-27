@@ -1270,8 +1270,6 @@ struct TRuntimeFilterDesc {
 
   // Indicates if there is at least one target scan node that is in the
   // same fragment as the broadcast join that produced the runtime filter
-  // Now only use has_remote_targets to judge how to publish,
-  // the values ​​of has_local_targets and has_remote_targets must be different
   6: required bool has_local_targets
 
   // Indicates if there is at least one target scan node that is not in the same
@@ -1306,7 +1304,7 @@ struct TRuntimeFilterDesc {
 
   16: optional bool sync_filter_size; // Deprecated
   
-  17: optional bool build_bf_by_runtime_size;
+  17: optional bool build_bf_exactly;
 }
 
 
