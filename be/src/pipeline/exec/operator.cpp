@@ -487,7 +487,8 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
 
             _shared_state->create_source_dependencies(1, _parent->operator_id(), _parent->node_id(),
                                                       _parent->get_name());
-            _dependency = _shared_state->source_deps.front().get();
+            _dependency = _shared_state->create_source_dependency(
+                    _parent->operator_id(), _parent->node_id(), _parent->get_name());
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         } else {

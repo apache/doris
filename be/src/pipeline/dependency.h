@@ -83,6 +83,7 @@ struct BasicSharedState {
 
     virtual ~BasicSharedState() = default;
 
+    Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
     void create_source_dependencies(int num_sources, int operator_id, int node_id,
                                     const std::string& name);
     Dependency* create_sink_dependency(int dest_id, int node_id, const std::string& name);
