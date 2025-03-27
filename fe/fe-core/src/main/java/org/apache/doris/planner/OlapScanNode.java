@@ -190,7 +190,7 @@ public class OlapScanNode extends ScanNode {
 
     private ArrayList<Long> scanReplicaIds = Lists.newArrayList();
 
-    // private Set<Long> sampleTabletIds = Sets.newHashSet();
+    private Set<Long> sampleTabletIds = Sets.newHashSet();
     private TableSample tableSample;
 
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
@@ -250,18 +250,18 @@ public class OlapScanNode extends ScanNode {
         return canTurnOnPreAggr;
     }
 
-    // public Set<Long> getSampleTabletIds() {
-    //     return sampleTabletIds;
-    // }
+    public Set<Long> getSampleTabletIds() {
+        return sampleTabletIds;
+    }
 
     public HashSet<Long> getScanBackendIds() {
         return scanBackendIds;
     }
 
     public void setSampleTabletIds(List<Long> sampleTablets) {
-        // if (sampleTablets != null) {
-        //     this.sampleTabletIds.addAll(sampleTablets);
-        // }
+        if (sampleTablets != null) {
+            this.sampleTabletIds.addAll(sampleTablets);
+        }
     }
 
     public void setRewrittenProjectList(List<Expr> rewrittenProjectList) {
@@ -749,59 +749,62 @@ public class OlapScanNode extends ScanNode {
 
     private void addScanRangeLocations(Partition partition,
             List<Tablet> tablets, Map<Long, Set<Long>> backendAlivePathHashs) throws UserException {
-        long visibleVersion; // = Partition.PARTITION_INIT_VERSION;
-        // String visibleVersionStr = "1";
+        long visibleVersion = Partition.PARTITION_INIT_VERSION;
 
         // For cloud mode, set scan range visible version in Coordinator.exec so that we could
         // assign a snapshot version of all partitions.
-        // if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
+        if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
             visibleVersion = partition.getVisibleVersion();
-            // visibleVersionStr = String.valueOf(visibleVersion);
-        // }
+        }
 
-        // Set<Tag> allowedTags = Sets.newHashSet();
-        // int useFixReplica = -1;
-        // boolean needCheckTags = false;O
+        Set<Tag> allowedTags = Sets.newHashSet();
+        int useFixReplica = -1;
+        boolean needCheckTags = false;
         boolean skipMissingVersion = false;
-        // ConnectContext context = ConnectContext.get();
-        // if (context != null) {
-        //     // allowedTags = context.getResourceTags();
-        //     // needCheckTags = context.isResourceTagsSet();
-        //     useFixReplica = context.getSessionVariable().useFixReplica;
-        //     if (useFixReplica == -1
-        //             && context.getState().isNereids() && context.getSessionVariable().getEnableQueryCache()) {
-        //         useFixReplica = 0;
-        //     }
-        //     // if use_fix_replica is set to true, set skip_missing_version to false
-        //     skipMissingVersion = useFixReplica == -1 && context.getSessionVariable().skipMissingVersion;
-        //     if (LOG.isDebugEnabled()) {
-        //         LOG.debug("query id: {}, partition id:{} visibleVersion: {}",
-        //                 DebugUtil.printId(context.queryId()), partition.getId(), visibleVersion);
-        //     }
-        // }
+        ConnectContext context = ConnectContext.get();
+        if (context != null) {
+            allowedTags = context.getResourceTags();
+            needCheckTags = context.isResourceTagsSet();
+            useFixReplica = context.getSessionVariable().useFixReplica;
+            if (useFixReplica == -1
+                    && context.getState().isNereids() && context.getSessionVariable().getEnableQueryCache()) {
+                useFixReplica = 0;
+            }
+            // if use_fix_replica is set to true, set skip_missing_version to false
+            skipMissingVersion = useFixReplica == -1 && context.getSessionVariable().skipMissingVersion;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("query id: {}, partition id:{} visibleVersion: {}",
+                        DebugUtil.printId(context.queryId()), partition.getId(), visibleVersion);
+            }
+        }
         ImmutableMap<Long, Backend> allBackends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
-        String visibleVersionStr = fastToString(visibleVersion);
+        long partitionVisibleVersion = visibleVersion;
+        String partitionVisibleVersionStr = fastToString(visibleVersion);
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
-            // if (skipMissingVersion) {
-            //     long tabletVersion = -1L;
-            //     for (Replica replica : tablet.getReplicas()) {
-            //         if (replica.getVersion() > tabletVersion) {
-            //             tabletVersion = replica.getVersion();
-            //         }
-            //     }
-            //     if (tabletVersion != visibleVersion) {
-            //         LOG.warn("tablet {} version {} is not equal to partition {} version {}",
-            //                 tabletId, tabletVersion, partition.getId(), visibleVersion);
-            //         visibleVersion = tabletVersion;
-            //         // visibleVersionStr = String.valueOf(visibleVersion);
-            //     }
-            // }
+            long tabletVisibleVersion = partitionVisibleVersion;
+            if (skipMissingVersion) {
+                long tabletVersion = -1L;
+                for (Replica replica : tablet.getReplicas()) {
+                    if (replica.getVersion() > tabletVersion) {
+                        tabletVersion = replica.getVersion();
+                    }
+                }
+                if (tabletVersion != visibleVersion) {
+                    LOG.warn("tablet {} version {} is not equal to partition {} version {}",
+                            tabletId, tabletVersion, partition.getId(), visibleVersion);
+                    tabletVisibleVersion = tabletVersion;
+                }
+            }
             TScanRangeLocations locations = new TScanRangeLocations();
             TPaloScanRange paloRange = new TPaloScanRange();
             paloRange.setDbName("");
             paloRange.setSchemaHash("0");
-            paloRange.setVersion(visibleVersionStr);
+            paloRange.setVersion(
+                    tabletVisibleVersion == partitionVisibleVersion
+                            ? partitionVisibleVersionStr
+                            : fastToString(tabletVisibleVersion)
+            );
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
 
@@ -809,90 +812,90 @@ public class OlapScanNode extends ScanNode {
             //
             // ATTN: visibleVersion is not used in cloud mode, see CloudReplica.checkVersionCatchup
             // for details.
-            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion,
-                    backendAlivePathHashs, skipMissingVersion);
+            List<Replica> replicas = tablet.getQueryableReplicas(
+                    visibleVersion, backendAlivePathHashs, skipMissingVersion);
             locations.setLocations(new ArrayList<>(replicas.size()));
             paloRange.setHosts(new ArrayList<>(replicas.size()));
-            // if (replicas.isEmpty()) {
-            //     if (context.getSessionVariable().skipBadTablet) {
-            //         continue;
-            //     }
-            //     LOG.warn("no queryable replica found in tablet {}. visible version {}", tabletId, visibleVersion);
-            //     StringBuilder sb = new StringBuilder(
-            //             "Failed to get scan range, no queryable replica found in tablet: " + tabletId);
-            //     if (Config.show_details_for_unaccessible_tablet) {
-            //         sb.append(". Reason: ").append(tablet.getDetailsStatusForQuery(visibleVersion));
-            //     }
-            //     if (LOG.isDebugEnabled()) {
-            //         LOG.debug(sb.toString());
-            //     }
-            //     throw new UserException(sb.toString());
-            // }
+            if (replicas.isEmpty()) {
+                if (context.getSessionVariable().skipBadTablet) {
+                    continue;
+                }
+                LOG.warn("no queryable replica found in tablet {}. visible version {}", tabletId, visibleVersion);
+                StringBuilder sb = new StringBuilder(
+                        "Failed to get scan range, no queryable replica found in tablet: " + tabletId);
+                if (Config.show_details_for_unaccessible_tablet) {
+                    sb.append(". Reason: ").append(tablet.getDetailsStatusForQuery(visibleVersion));
+                }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(sb.toString());
+                }
+                throw new UserException(sb.toString());
+            }
 
-            // if (useFixReplica <= -1) {
-            //     if (skipMissingVersion) {
-            //         // sort by replica's last success version, higher success version in the front.
-            //         replicas.sort(Replica.LAST_SUCCESS_VERSION_COMPARATOR);
-            //     } else if (replicas.size() > 1) {
-            //         Collections.shuffle(replicas);
-            //     }
-            // } else {
-            //     if (LOG.isDebugEnabled()) {
-            //         LOG.debug("use fix replica, value: {}, replica count: {}", useFixReplica, replicas.size());
-            //     }
-            //     // sort by replica id
-            //     replicas.sort(Replica.ID_COMPARATOR);
-            //     Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
-            //     if (context.getSessionVariable().fallbackOtherReplicaWhenFixedCorrupt) {
-            //         Backend backend = allBackends.get(replica.getBackendId());
-            //         // If the fixed replica is bad, then not clear the replicas using random replica
-            //         if (backend == null || !backend.isAlive()) {
-            //             if (LOG.isDebugEnabled()) {
-            //                 LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
-            //                         replica.getId());
-            //             }
-            //             Collections.shuffle(replicas);
-            //         } else {
-            //             replicas.clear();
-            //             replicas.add(replica);
-            //         }
-            //     } else {
-            //         replicas.clear();
-            //         replicas.add(replica);
-            //     }
-            // }
+            if (useFixReplica <= -1) {
+                if (skipMissingVersion) {
+                    // sort by replica's last success version, higher success version in the front.
+                    replicas.sort(Replica.LAST_SUCCESS_VERSION_COMPARATOR);
+                } else if (replicas.size() > 1) {
+                    Collections.shuffle(replicas);
+                }
+            } else {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("use fix replica, value: {}, replica count: {}", useFixReplica, replicas.size());
+                }
+                // sort by replica id
+                replicas.sort(Replica.ID_COMPARATOR);
+                Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
+                if (context.getSessionVariable().fallbackOtherReplicaWhenFixedCorrupt) {
+                    Backend backend = allBackends.get(replica.getBackendId());
+                    // If the fixed replica is bad, then not clear the replicas using random replica
+                    if (backend == null || !backend.isAlive()) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
+                                    replica.getId());
+                        }
+                        Collections.shuffle(replicas);
+                    } else {
+                        replicas.clear();
+                        replicas.add(replica);
+                    }
+                } else {
+                    replicas.clear();
+                    replicas.add(replica);
+                }
+            }
 
-            // if (isEnableCooldownReplicaAffinity()) {
-            //     final long coolDownReplicaId = tablet.getCooldownReplicaId();
-            //     // we prefer to query using cooldown replica to make sure the cache is fully utilized
-            //     // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
-            //     // is now under cooldown
-            //     // first time we choose BE A, and A will download data into cache while the other two's cache is empty
-            //     // second time we choose BE B, this time B will be cached, C is still empty
-            //     // third time we choose BE C, after this time all replica is cached
-            //     // but it means we will do 3 S3 IO to get the data which will bring 3 slow query
-            //     if (-1L != coolDownReplicaId) {
-            //         final Optional<Replica> replicaOptional = replicas.stream()
-            //                 .filter(r -> r.getId() == coolDownReplicaId).findAny();
-            //         replicaOptional.ifPresent(
-            //                 r -> {
-            //                     Backend backend = allBackends.get(r.getBackendIdWithoutException());
-            //                     if (backend != null && backend.isAlive()) {
-            //                         replicas.clear();
-            //                         replicas.add(r);
-            //                     }
-            //                 }
-            //         );
-            //     }
-            // }
+            if (isEnableCooldownReplicaAffinity(context)) {
+                final long coolDownReplicaId = tablet.getCooldownReplicaId();
+                // we prefer to query using cooldown replica to make sure the cache is fully utilized
+                // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
+                // is now under cooldown
+                // first time we choose BE A, and A will download data into cache while the other two's cache is empty
+                // second time we choose BE B, this time B will be cached, C is still empty
+                // third time we choose BE C, after this time all replica is cached
+                // but it means we will do 3 S3 IO to get the data which will bring 3 slow query
+                if (-1L != coolDownReplicaId) {
+                    final Optional<Replica> replicaOptional = replicas.stream()
+                            .filter(r -> r.getId() == coolDownReplicaId).findAny();
+                    replicaOptional.ifPresent(
+                            r -> {
+                                Backend backend = allBackends.get(r.getBackendIdWithoutException());
+                                if (backend != null && backend.isAlive()) {
+                                    replicas.clear();
+                                    replicas.add(r);
+                                }
+                            }
+                    );
+                }
+            }
 
-            // boolean tabletIsNull = true;
-            // boolean collectedStat = false;
-            // boolean clusterException = false;
-            // List<String> errs = Lists.newArrayList();
+            boolean tabletIsNull = true;
+            boolean collectedStat = false;
+            boolean clusterException = false;
+            List<String> errs = Lists.newArrayList();
 
-            // int replicaInTablet = 0;
-            // long oneReplicaBytes = 0;
+            int replicaInTablet = 0;
+            long oneReplicaBytes = 0;
             for (Replica replica : replicas) {
                 Backend backend = null;
                 long backendId = -1;
@@ -901,35 +904,35 @@ public class OlapScanNode extends ScanNode {
                     backend = allBackends.get(backendId);
                 } catch (ComputeGroupException e) {
                     LOG.warn("failed to get backend {} for replica {}", backendId, replica.getId(), e);
-                    // errs.add(e.toString());
-                    // clusterException = true;
+                    errs.add(e.toString());
+                    clusterException = true;
                     continue;
                 }
-                // if (backend == null || !backend.isAlive()) {
-                //     if (LOG.isDebugEnabled()) {
-                //         LOG.debug("backend {} not exists or is not alive for replica {}", backendId,
-                //                 replica.getId());
-                //     }
-                //     String err = "replica " + replica.getId() + "'s backend " + backendId
-                //             + (backend != null ? " with tag " + backend.getLocationTag() : "")
-                //             + " does not exist or not alive";
-                //     // errs.add(err);
-                //     continue;
-                // }
-                // if (!backend.isMixNode()) {
-                //     continue;
-                // }
-                // if (needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(backend.getLocationTag())) {
-                //     String err = String.format(
-                //             "Replica on backend %d with tag %s," + " which is not in user's resource tags: %s",
-                //             backend.getId(), backend.getLocationTag(), allowedTags);
-                //     if (LOG.isDebugEnabled()) {
-                //         LOG.debug(err);
-                //     }
-                //     errs.add(err);
-                //     continue;
-                // }
-                // scanReplicaIds.add(replica.getId());
+                if (backend == null || !backend.isAlive()) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("backend {} not exists or is not alive for replica {}", backendId,
+                                replica.getId());
+                    }
+                    String err = "replica " + replica.getId() + "'s backend " + backendId
+                            + (backend != null ? " with tag " + backend.getLocationTag() : "")
+                            + " does not exist or not alive";
+                    errs.add(err);
+                    continue;
+                }
+                if (!backend.isMixNode()) {
+                    continue;
+                }
+                if (needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(backend.getLocationTag())) {
+                    String err = String.format(
+                            "Replica on backend %d with tag %s," + " which is not in user's resource tags: %s",
+                            backend.getId(), backend.getLocationTag(), allowedTags);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug(err);
+                    }
+                    errs.add(err);
+                    continue;
+                }
+                scanReplicaIds.add(replica.getId());
                 String ip = backend.getHost();
                 int port = backend.getBePort();
                 TNetworkAddress networkAddress = new TNetworkAddress(ip, port);
@@ -937,50 +940,48 @@ public class OlapScanNode extends ScanNode {
                 scanRangeLocation.setBackendId(replica.getBackendId());
                 locations.addToLocations(scanRangeLocation);
                 paloRange.addToHosts(networkAddress);
-                // tabletIsNull = false;
+                tabletIsNull = false;
 
                 // for CBO
-                // if (!collectedStat && replica.getRowCount() != -1) {
-                //     long dataSize = replica.getDataSize();
-                //     // if (replicaInTablet == 0) {
-                //     //     oneReplicaBytes = dataSize;
-                //     //     tabletBytes.put(tabletId, dataSize);
-                //     // }
-                //     // replicaInTablet++;
-                //     totalBytes += dataSize;
-                //     collectedStat = true;
-                // }
+                if (!collectedStat && replica.getRowCount() != -1) {
+                    long dataSize = replica.getDataSize();
+                    if (replicaInTablet == 0) {
+                        oneReplicaBytes = dataSize;
+                        tabletBytes.put(tabletId, dataSize);
+                    }
+                    replicaInTablet++;
+                    totalBytes += dataSize;
+                    collectedStat = true;
+                }
                 scanBackendIds.add(backend.getId());
                 // For skipping missing version of tablet, we only select the backend with the highest last
                 // success version replica to save as much data as possible.
-                // if (skipMissingVersion) {
-                //     break;
-                // }
+                if (skipMissingVersion) {
+                    break;
+                }
             }
-            // if (clusterException) {
-            //     throw new UserException("tablet " + tabletId + " err: ");
-            //     // throw new UserException("tablet " + tabletId + " err: " + Joiner.on(", ").join(errs));
-            // }
-            // if (tabletIsNull) {
-            //     throw new UserException("tablet " + tabletId + " has no queryable replicas. err: ");
-            //     // throw new UserException("tablet " + tabletId + " has no queryable replicas. err: "
-            //     //         + Joiner.on(", ").join(errs));
-            // }
+            if (clusterException) {
+                throw new UserException("tablet " + tabletId + " err: " + Joiner.on(", ").join(errs));
+            }
+            if (tabletIsNull) {
+                throw new UserException("tablet " + tabletId + " has no queryable replicas. err: "
+                        + Joiner.on(", ").join(errs));
+            }
             TScanRange scanRange = new TScanRange();
             scanRange.setPaloScanRange(paloRange);
             locations.setScanRange(scanRange);
 
-            // Integer bucketSeq = tabletId2BucketSeq.get(tabletId);
-            // bucketSeq2locations.put(bucketSeq, locations);
-            // bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
+            Integer bucketSeq = tabletId2BucketSeq.get(tabletId);
+            bucketSeq2locations.put(bucketSeq, locations);
+            bucketSeq2Bytes.merge(bucketSeq, oneReplicaBytes, Long::sum);
             scanRangeLocations.add(locations);
         }
 
-        // if (tablets.size() == 0) {
-        //     desc.setCardinality(0);
-        // } else {
-        //     desc.setCardinality(cardinality);
-        // }
+        if (tablets.isEmpty()) {
+            desc.setCardinality(0);
+        } else {
+            desc.setCardinality(cardinality);
+        }
     }
 
     private String fastToString(long version) {
@@ -997,8 +998,7 @@ public class OlapScanNode extends ScanNode {
         return new String(chars, index + 1, 23 - index);
     }
 
-    private boolean isEnableCooldownReplicaAffinity() {
-        ConnectContext connectContext = ConnectContext.get();
+    private boolean isEnableCooldownReplicaAffinity(ConnectContext connectContext) {
         if (connectContext != null) {
             return connectContext.getSessionVariable().isEnableCooldownReplicaAffinity();
         }
@@ -1058,14 +1058,14 @@ public class OlapScanNode extends ScanNode {
     @Override
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList();
-        if (selectedPartitionIds.size() == 0) {
+        if (selectedPartitionIds.isEmpty()) {
             desc.setCardinality(0);
             return;
         }
         Preconditions.checkState(selectedIndexId != -1);
         // compute tablet info by selected index id and selected partition ids
         long start = System.currentTimeMillis();
-        // computeSampleTabletIds();
+        computeSampleTabletIds();
         computeTabletInfo();
         if (LOG.isDebugEnabled()) {
             LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
@@ -1145,13 +1145,13 @@ public class OlapScanNode extends ScanNode {
             for (int j = 0; j < tablets.size(); j++) {
                 int seekTid = (int) ((j + tabletSeek) % tablets.size());
                 Tablet tablet = tablets.get(seekTid);
-                // if (sampleTabletIds.size() != 0 && !sampleTabletIds.contains(tablet.getId())) {
-                //     // After PruneOlapScanTablet, sampleTabletIds.size() != 0,
-                //     // continue sampling only in sampleTabletIds.
-                //     // If it is percentage sample, the number of sampled rows is a percentage of the
-                //     // total number of rows, and It is not related to sampleTabletI after PruneOlapScanTablet.
-                //     continue;
-                // }
+                if (!sampleTabletIds.isEmpty() && !sampleTabletIds.contains(tablet.getId())) {
+                    // After PruneOlapScanTablet, sampleTabletIds.size() != 0,
+                    // continue sampling only in sampleTabletIds.
+                    // If it is percentage sample, the number of sampled rows is a percentage of the
+                    // total number of rows, and It is not related to sampleTabletI after PruneOlapScanTablet.
+                    continue;
+                }
                 long tabletRowCount;
                 if (!FeConstants.runningUnitTest) {
                     tabletRowCount = tablet.getRowCount(true);
@@ -1172,19 +1172,19 @@ public class OlapScanNode extends ScanNode {
                 break;
             }
         }
-        // if (sampleTabletIds.size() != 0) {
-        //     sampleTabletIds.retainAll(hitTabletIds);
-        //     if (LOG.isDebugEnabled()) {
-        //         LOG.debug("after computeSampleTabletIds, hitRows {}, totalRows {}, selectedTablets {}, sampleRows {}",
-        //                 hitRows, selectedRows, sampleTabletIds.size(), totalSampleRows);
-        //     }
-        // } else {
-        //     sampleTabletIds = hitTabletIds;
-        //     if (LOG.isDebugEnabled()) {
-        //         LOG.debug("after computeSampleTabletIds, hitRows {}, selectedRows {}, sampleRows {}",
-        //                 hitRows, selectedRows, totalSampleRows);
-        //     }
-        // }
+        if (!sampleTabletIds.isEmpty()) {
+            sampleTabletIds.retainAll(hitTabletIds);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("after computeSampleTabletIds, hitRows {}, totalRows {}, selectedTablets {}, sampleRows {}",
+                        hitRows, selectedRows, sampleTabletIds.size(), totalSampleRows);
+            }
+        } else {
+            sampleTabletIds = hitTabletIds;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("after computeSampleTabletIds, hitRows {}, selectedRows {}, sampleRows {}",
+                        hitRows, selectedRows, totalSampleRows);
+            }
+        }
     }
 
     public boolean isPointQuery() {
@@ -1196,8 +1196,8 @@ public class OlapScanNode extends ScanNode {
          * The tablet info could be computed only once.
          * So the scanBackendIds should be empty in the beginning.
          */
-        Preconditions.checkState(scanBackendIds.size() == 0);
-        Preconditions.checkState(scanTabletIds.size() == 0);
+        Preconditions.checkState(scanBackendIds.isEmpty());
+        Preconditions.checkState(scanTabletIds.isEmpty());
         Map<Long, Set<Long>> backendAlivePathHashs = Maps.newHashMap();
         for (Backend backend : Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values()) {
             Set<Long> hashSet = Sets.newLinkedHashSet();
@@ -1217,16 +1217,16 @@ public class OlapScanNode extends ScanNode {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("distribution prune tablets: {}", tabletIds);
             }
-            // if (sampleTabletIds.size() != 0) {
-            //     if (tabletIds != null) {
-            //         tabletIds.retainAll(sampleTabletIds);
-            //     } else {
-            //         tabletIds = sampleTabletIds;
-            //     }
-            //     if (LOG.isDebugEnabled()) {
-            //         LOG.debug("after sample tablets: {}", tabletIds);
-            //     }
-            // }
+            if (!sampleTabletIds.isEmpty()) {
+                if (tabletIds != null) {
+                    tabletIds.retainAll(sampleTabletIds);
+                } else {
+                    tabletIds = sampleTabletIds;
+                }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("after sample tablets: {}", tabletIds);
+                }
+            }
 
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             if (tabletIds != null) {
@@ -1236,7 +1236,7 @@ public class OlapScanNode extends ScanNode {
                         scanTabletIds.add(id);
                     } else {
                         // The tabletID specified in query does not exist in this partition, skip scan partition.
-                        // Preconditions.checkState(sampleTabletIds.size() != 0);
+                        Preconditions.checkState(!sampleTabletIds.isEmpty());
                     }
                 }
             } else {
@@ -1327,7 +1327,7 @@ public class OlapScanNode extends ScanNode {
         scanTabletIds.clear();
         bucketSeq2locations.clear();
         scanReplicaIds.clear();
-        // sampleTabletIds.clear();
+        sampleTabletIds.clear();
         try {
             createScanRangeLocations();
         } catch (AnalysisException e) {
