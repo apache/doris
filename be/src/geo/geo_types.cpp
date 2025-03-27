@@ -646,26 +646,8 @@ bool GeoLine::intersects(const GeoShape* rhs) const {
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = assert_cast<const GeoLine*>(rhs);
-        if (!_polyline->Intersects(*line->polyline())) {
-            // s2geometry may return an incorrect result when the two lines overlap at only one point
-            for (int i = 0; i < _polyline->num_vertices(); i++) {
-                const S2Point& p = _polyline->vertex(i);
-                double distance = compute_distance_to_line(p, line->polyline());
-                if (distance < TOLERANCE) {
-                    return true;
-                }
-            }
-
-            for (int i = 0; i < line->polyline()->num_vertices(); i++) {
-                const S2Point& p = line->polyline()->vertex(i);
-                double distance = compute_distance_to_line(p, _polyline.get());
-                if (distance < TOLERANCE) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        return true;
+        return is_segments_intersect(_polyline->vertex(0), _polyline->vertex(1),
+                                     line->polyline()->vertex(0), line->polyline()->vertex(1));
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
@@ -684,37 +666,6 @@ bool GeoLine::disjoint(const GeoShape* rhs) const {
     return !intersects(rhs);
 }
 
-bool line_touches_line(const S2Polyline* line1, const S2Polyline* line2) {
-    std::vector<S2Point> cross_points;
-    // If two lines intersect, add their intersection points to the array
-    // When two lines intersect only at boundary points, s2geometry does not determine the intersection
-    // and needs to be added to the array manually.
-    for (int i = 1; i < line1->num_vertices(); ++i) {
-        S2EdgeCrosser crosser(&line1->vertex(i - 1), &line1->vertex(i), &line2->vertex(0));
-        for (int j = 1; j < line2->num_vertices(); ++j) {
-            if (crosser.CrossingSign(&line2->vertex(j)) > 0) {
-                S2Point cross_point = S2::GetIntersection(line1->vertex(i - 1), line1->vertex(i),
-                                                          line2->vertex(0), line2->vertex(j));
-                cross_points.push_back(cross_point);
-            } else if (line1->vertex(i - 1) == line2->vertex(0) ||
-                       line1->vertex(i - 1) == line2->vertex(j)) {
-                cross_points.push_back(line1->vertex(i - 1));
-            } else if (line1->vertex(i) == line2->vertex(0) ||
-                       line1->vertex(i) == line2->vertex(j)) {
-                cross_points.push_back(line1->vertex(i));
-            }
-        }
-    }
-    // The intersection is judged to satisfy the touch condition
-    // if and only if the intersecting points lie on the boundary
-    for (const S2Point& point : cross_points) {
-        if (!(point == line1->vertex(0) || point == line1->vertex(line1->num_vertices() - 1))) {
-            return false;
-        }
-    }
-    return !cross_points.empty();
-}
-
 bool GeoLine::touches(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
@@ -729,7 +680,30 @@ bool GeoLine::touches(const GeoShape* rhs) const {
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* other = assert_cast<const GeoLine*>(rhs);
-        return line_touches_line(_polyline.get(), other->polyline());
+
+        const S2Point& p1 = _polyline->vertex(0);
+        const S2Point& p2 = _polyline->vertex(1);
+
+        const S2Point& p3 = other->polyline()->vertex(0);
+        const S2Point& p4 = other->polyline()->vertex(1);
+        int count = 0;
+        if (compute_distance_to_line(p1, p3, p4) < TOLERANCE) {
+            count++;
+        }
+        if (compute_distance_to_line(p2, p3, p4) < TOLERANCE) {
+            count++;
+        }
+        if (compute_distance_to_line(p3, p1, p2) < TOLERANCE) {
+            count++;
+        }
+        if (compute_distance_to_line(p4, p1, p2) < TOLERANCE) {
+            count++;
+        }
+        // Two intersections are allowed when there is only one intersection, or when the intersection is an endpoint
+        if(count == 1 || (count == 2 && ((p1 == p3 || p1 == p4) + (p2 == p3 || p2 == p4)) == 1)) {
+            return true;
+        }
+        return false;
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);

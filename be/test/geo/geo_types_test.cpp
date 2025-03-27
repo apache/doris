@@ -229,6 +229,13 @@ TEST_F(GeoTypesTest, linestring_intersects) {
         EXPECT_TRUE(base_line_shape->intersects(touch_line.get()));
     }
     {
+        // end contact line
+        const char* wkt_string = "LINESTRING(9 0,12 0)";
+        std::unique_ptr<GeoShape> touch_line(
+                GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
+        EXPECT_TRUE(base_line_shape->intersects(touch_line.get()));
+    }
+    {
         // fully separated lines
         const char* wkt_string = "LINESTRING(0 5,10 5)";
         std::unique_ptr<GeoShape> separate_line(
@@ -669,14 +676,21 @@ TEST_F(GeoTypesTest, linestring_touches) {
     }
     {
         // end contact line
-        const char* wkt_string = "LINESTRING(10 0, 10 10)";
+        const char* wkt_string = "LINESTRING(10 0, 12 0)";
         std::unique_ptr<GeoShape> touch_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_TRUE(base_line_shape->touches(touch_line.get()));
     }
     {
         // end intersect line
-        const char* wkt_string = "LINESTRING(9 0, 10 10)";
+        const char* wkt_string = "LINESTRING(9 0, 10 0)";
+        std::unique_ptr<GeoShape> touch_line(
+                GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
+        EXPECT_FALSE(base_line_shape->touches(touch_line.get()));
+    }
+    {
+        // end intersect line
+        const char* wkt_string = "LINESTRING(-10 0, 10 0)";
         std::unique_ptr<GeoShape> touch_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_FALSE(base_line_shape->touches(touch_line.get()));
