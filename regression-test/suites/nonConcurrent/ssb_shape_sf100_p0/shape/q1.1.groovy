@@ -18,7 +18,12 @@
  */
 
 suite("q1.1") {
-    String db = context.config.getDbNameByFile(new File(context.file.parent))
+    File file = new File(context.file.parent)
+    String pDir = file.parent
+    String ppDir = new File(file.parent).parent
+    log.info("pDir: ${pDir}")
+    log.info("ppDir: ${ppDir}")
+    String db = context.config.getDbNameByFile(new File(ppDir))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
