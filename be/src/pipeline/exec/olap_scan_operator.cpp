@@ -445,8 +445,11 @@ Status OlapScanLocalState::hold_tablets() {
             tasks.reserve(_scan_ranges.size());
             for (auto&& [cur_tablet, cur_version] : _tablets) {
                 tasks.emplace_back([cur_tablet, cur_version]() {
+                    SyncOptions options;
+                    options.query_version = cur_version;
+                    options.merge_schema = true;
                     return std::dynamic_pointer_cast<CloudTablet>(cur_tablet)
-                            ->sync_rowsets(cur_version);
+                            ->sync_rowsets(options);
                 });
             }
             RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
