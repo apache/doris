@@ -47,3 +47,14 @@ UPPER CASE	lower case
 "ooaoaaaaaaa"
 "xmxxmmmmmm"
 
+-- !sql_cnt_1 --
+128
+
+-- !sql_cnt_2 --
+128
+
+-- !sql_cnt_3 --
+128
+
+-- !sql_cnt_4 --
+128
