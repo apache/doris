@@ -47,8 +47,8 @@ public class Optimizer {
         // init memo
         cascadesContext.toMemo();
         // stats derive
-        cascadesContext.pushJob(new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
-                cascadesContext.getCurrentJobContext()));
+        cascadesContext.getMemo().getRoot().getLogicalExpressions().forEach(groupExpression ->
+                cascadesContext.pushJob(new DeriveStatsJob(groupExpression, cascadesContext.getCurrentJobContext())));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         boolean optimizeWithUnknownColStats = false;
         if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {

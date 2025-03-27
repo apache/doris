@@ -136,6 +136,7 @@ import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.RecordPlanForMvLaterRewrite;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
@@ -422,6 +423,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new PushDownFilterIntoSchemaScan()
                         )
                 ),
+                    topic("Record plan for later mv rewrite",
+                            topDown(new AdjustPreAggStatus()),
+                            custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new),
+                            custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
+                            custom(RuleType.RECORD_PLAN_FOR_LATER_MV_REWRITE, RecordPlanForMvLaterRewrite::new)
+                    ),
                 topic("MV optimization",
                         topDown(
                                 new SelectMaterializedIndexWithAggregate(),
