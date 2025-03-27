@@ -946,19 +946,20 @@ void TabletSchema::clear_index() {
 
 void TabletSchema::remove_index(int64_t index_id) {
     std::vector<TabletIndexPtr> indexes;
-    _col_id_suffix_to_index.clear();
+    std::unordered_map<IndexKey, int32_t, IndexKeyHash> col_id_suffix_to_index;
     for (auto index : _indexes) {
         if (index->index_id() == index_id) {
             continue;
         }
         for (int32_t col_uid : index->col_unique_ids()) {
-            _col_id_suffix_to_index.emplace(
+            col_id_suffix_to_index.emplace(
                     std::make_tuple(index->index_type(), col_uid, index->get_index_suffix()),
                     indexes.size());
         }
         indexes.emplace_back(std::move(index));
     }
     _indexes = std::move(indexes);
+    _col_id_suffix_to_index = std::move(col_id_suffix_to_index);
 }
 
 void TabletSchema::clear_columns() {
@@ -1393,14 +1394,15 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
         indexes.emplace_back(std::make_shared<TabletIndex>(std::move(index)));
     }
     _indexes = std::move(indexes);
-    _col_id_suffix_to_index.clear();
+    std::unordered_map<IndexKey, int32_t, IndexKeyHash> col_id_suffix_to_index;
     for (size_t i = 0; i < _indexes.size(); i++) {
         for (int32_t col_uid : _indexes[i]->col_unique_ids()) {
-            _col_id_suffix_to_index.emplace(std::make_tuple(_indexes[i]->index_type(), col_uid,
-                                                            _indexes[i]->get_index_suffix()),
-                                            i);
+            col_id_suffix_to_index.emplace(std::make_tuple(_indexes[i]->index_type(), col_uid,
+                                                           _indexes[i]->get_index_suffix()),
+                                           i);
         }
     }
+    _col_id_suffix_to_index = std::move(col_id_suffix_to_index);
 }
 
 bool TabletSchema::exist_column(const std::string& field_name) const {
