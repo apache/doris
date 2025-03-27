@@ -80,8 +80,6 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
         }
     }
 
-    // LOG(INFO) << "after load header: " << *input_bytes_read;
-
     // read compressed block
     // compressed-block ::=
     //   <uncompressed-size>
@@ -144,7 +142,7 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
             return Status::OK();
         }
 
-        ptr = get_uint32(ptr, &out_checksum);
+        ptr = get_uint32(ptr, &in_checksum);
         left_input_len -= sizeof(uint32_t);
     } else {
         // If the compressed data size is equal to the uncompressed data size, then
