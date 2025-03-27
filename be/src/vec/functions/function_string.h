@@ -4593,12 +4593,6 @@ private:
 
 // printf(format_str, arg1, arg2, ...) -> String
 // Returns a string formatted according to the format string and arguments.
-// The format string supports the following format specifiers:
-//   %d - integer
-//   %ld - long integer
-//   %f - floating-point number
-//   %lf - double-precision floating-point number
-//   %s - string
 class FunctionPrintf : public IFunction {
 public:
     static constexpr auto name = "printf";
@@ -4611,13 +4605,18 @@ public:
     bool is_variadic() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return remove_nullable(std::make_shared<DataTypeString>());
+        return std::make_shared<DataTypeString>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         size_t num_element = arguments.size();
-        auto result_col = block.get_by_position(result).type->create_column();
+        Columns cols(num_element);
+        auto cols_const = std::make_unique_for_overwrite<bool[]>(num_element);
+        for (size_t i = 0; i < num_element; ++i) {
+            std::tie(cols[i], cols_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
 
         // First arg is format string, so it should be string type
         auto format_str_type = block.get_by_position(arguments[0]).type;
@@ -4626,26 +4625,20 @@ public:
                     "The first argument of function {} must be string, but {} was found.", name,
                     format_str_type->get_name());
         }
+        const auto& format_str_column = *assert_cast<const ColumnString*>(cols[0].get());
 
-        // We don't need const optimization for printf function since in most cases
-        // only the format string is const, while the arguments are dynamic values
-        // that need to be formatted at runtime
-        const auto* format_str_column =
-                assert_cast<const ColumnString*>(block.get_by_position(arguments[0]).column.get());
-        std::vector<ColumnWithTypeAndName> format_arg_columns(num_element);
-
-        for (size_t i = 0; i < num_element; ++i) {
-            format_arg_columns[i] = block.get_by_position(arguments[i]);
-        }
-
+        auto result_col = ColumnString::create();
         for (size_t i = 0; i < input_rows_count; ++i) {
+            auto format_str = format_str_column.get_data_at(index_check_const(i, cols_const[0]))
+                                      .to_string_view();
+            // Store the format arguments
             fmt::dynamic_format_arg_store<fmt::printf_context> store;
             for (int j = 1; j < num_element; ++j) {
-                auto data = format_arg_columns[j].column->get_data_at(i);
-                auto type = format_arg_columns[j].type;
+                auto data = cols[j]->get_data_at(index_check_const(i, cols_const[j]));
+                auto type = block.get_by_position(arguments[j]).type;
                 RETURN_IF_ERROR(handle_format_arg(data, type, store));
             }
-            auto format_str = format_str_column->get_data_at(i).to_string_view();
+            // Format the string
             try {
                 auto formatted = fmt::vsprintf(format_str, store);
                 result_col->insert_data(formatted.data(), formatted.size());

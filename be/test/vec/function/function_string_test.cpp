@@ -3399,6 +3399,24 @@ TEST(function_string_test, function_printf_test) {
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
 
+    // Test different integer formats
+    {
+        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32, TypeIndex::Int32,
+                                        TypeIndex::Int32, TypeIndex::Int32};
+        DataSet data_set = {{{std::string("%d %o %x %X"), std::int32_t(123), std::int32_t(123),
+                              std::int32_t(123), std::int32_t(123)},
+                             std::string("123 173 7b 7B")}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // Test same argument multiple times
+    {
+        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
+        DataSet data_set = {
+                {{std::string("%1$d %1$d %1$d"), std::int32_t(123)}, std::string("123 123 123")}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
     // Test floating point types and precision
     {
         BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Float32, TypeIndex::Float64};
