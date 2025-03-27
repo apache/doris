@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("multi_slot6") {
+    // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
+    sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS multi_slot6; """
 
     sql """

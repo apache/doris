@@ -70,5 +70,8 @@ suite ("test_upper_alias") {
     mv_rewrite_any_success("SELECT upper(d_b) AS d_bb FROM test_0401 GROUP BY upper(d_b) order by 1;",
             ["test_0401_mv", "test_0401_mv2"])
 
-    mv_rewrite_success("SELECT d_a AS d_b FROM test_0401 where d_a = 'xx' order by 1;", "test_0401_mv2")
+    mv_rewrite_success("SELECT d_a AS d_b FROM test_0401 where d_a = 'xx' order by 1;", "test_0401_mv2",
+            enable_sync_mv_cost_based_rewrite(), true, [TRY_IN_RBO, NOT_IN_RBO])
+    mv_rewrite_success_without_check_chosen("SELECT d_a AS d_b FROM test_0401 where d_a = 'xx' order by 1;",
+            "test_0401_mv2", enable_sync_mv_cost_based_rewrite(), [FORCE_IN_RBO])
 }
