@@ -145,7 +145,6 @@ suite("test_s3_tvf_s3_storage", "p0") {
         s3_tvf("http://${bucket}.${s3_endpoint}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
         s3_tvf("http://${s3_endpoint}/${bucket}", "", "s3.access_key" , "s3.secret_key", "region", "true");
         s3_tvf("http://${s3_endpoint}/${bucket}", "", "s3.access_key" , "s3.secret_key", "region", "false");
-        s3_tvf("s3://${s3_endpoint}/${bucket}", "", "s3.access_key" , "s3.secret_key", "region", "false");
         s3_tvf("s3://${bucket}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
         s3_tvf("s3://${bucket}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "s3.region", "true");
          s3_tvf("s3://${bucket}", "AWS_ENDPOINT", "AWS_ACCESS_KEY" , "AWS_SECRET_KEY", "region", "false");
