@@ -3399,16 +3399,6 @@ TEST(function_string_test, function_printf_test) {
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
 
-    // Test unsigned integer types
-    {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::UInt8, TypeIndex::UInt16,
-                                        TypeIndex::UInt32, TypeIndex::UInt64};
-        DataSet data_set = {{{std::string("%u %u %u %lu"), std::uint8_t(8), std::uint16_t(16),
-                              std::uint32_t(32), std::uint64_t(64)},
-                             std::string("8 16 32 64")}};
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
-    }
-
     // Test floating point types and precision
     {
         BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Float32, TypeIndex::Float64};
@@ -3435,10 +3425,10 @@ TEST(function_string_test, function_printf_test) {
     // Test mixed types
     {
         BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32, TypeIndex::Float64,
-                                        TypeIndex::String, TypeIndex::UInt64};
-        DataSet data_set = {{{std::string("int:%d float:%.1f str:%s uint:%lu"), std::int32_t(-123),
-                              std::double_t(45.67), std::string("hello"), std::uint64_t(89)},
-                             std::string("int:-123 float:45.7 str:hello uint:89")}};
+                                        TypeIndex::String, TypeIndex::Int64};
+        DataSet data_set = {{{std::string("int:%d float:%.1f str:%s int:%ld"), std::int32_t(-123),
+                              std::double_t(45.67), std::string("hello"), std::int64_t(89)},
+                             std::string("int:-123 float:45.7 str:hello int:89")}};
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
 

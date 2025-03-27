@@ -4596,8 +4596,6 @@ private:
 // The format string supports the following format specifiers:
 //   %d - integer
 //   %ld - long integer
-//   %u - unsigned integer
-//   %lu - unsigned long integer
 //   %f - floating-point number
 //   %lf - double-precision floating-point number
 //   %s - string
@@ -4675,18 +4673,6 @@ private:
             return Status::OK();
         case TypeIndex::Int8:
             store.push_back(get_value_from_data<int8_t>(data));
-            return Status::OK();
-        case TypeIndex::UInt64:
-            store.push_back(get_value_from_data<uint64_t>(data));
-            return Status::OK();
-        case TypeIndex::UInt32:
-            store.push_back(get_value_from_data<uint32_t>(data));
-            return Status::OK();
-        case TypeIndex::UInt16:
-            store.push_back(get_value_from_data<uint16_t>(data));
-            return Status::OK();
-        case TypeIndex::UInt8:
-            store.push_back(get_value_from_data<uint8_t>(data));
             return Status::OK();
         case TypeIndex::Float64:
             store.push_back(get_value_from_data<double>(data));
