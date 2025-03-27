@@ -558,6 +558,23 @@ private:
     std::unordered_map<int32_t, int32_t> _field_id_to_index;
     std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
             _field_path_to_index;
+
+    // index_type/col_unique_id/suffix -> idx in _indexes
+    using IndexKey = std::tuple<IndexType, int32_t, std::string>;
+    struct IndexKeyHash {
+        size_t operator()(const IndexKey& t) const {
+            std::size_t seed = 0;
+            seed = doris::HashUtil::hash((const char*)&std::get<0>(t), sizeof(std::get<0>(t)),
+                                         seed);
+            seed = doris::HashUtil::hash((const char*)&std::get<1>(t), sizeof(std::get<1>(t)),
+                                         seed);
+            seed = doris::HashUtil::hash((const char*)std::get<2>(t).c_str(), std::get<2>(t).size(),
+                                         seed);
+            return seed;
+        }
+    };
+    std::unordered_map<IndexKey, int32_t, IndexKeyHash> _col_id_suffix_to_index;
+
     size_t _num_columns = 0;
     size_t _num_variant_columns = 0;
     size_t _num_key_columns = 0;
