@@ -22,7 +22,10 @@ It mainly tests the left join and filter positions.
 suite("partition_mv_rewrite_dimension_2_1") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
+
+    if (preStrategyIsIn([NOT_IN_RBO])) {
+        sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
+    }
 
     sql """
     drop table if exists orders_2_1
