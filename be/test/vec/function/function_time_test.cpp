@@ -1883,31 +1883,31 @@ TEST(VTimestampFunctionsTest, next_day_test) {
                                                                             data_set));
     }
     {
-        DataSet data_set = {// 跨月份的日期
+        DataSet data_set = {// date over month
                             {{std::string("2020-01-28"), std::string("MON")},
                              str_to_date_v2("2020-02-03", "%Y-%m-%d")},
                             {{std::string("2020-01-31"), std::string("SAT")},
                              str_to_date_v2("2020-02-01", "%Y-%m-%d")},
 
-                            // 跨年的日期
+                            // date over year
                             {{std::string("2020-12-28"), std::string("FRI")},
                              str_to_date_v2("2021-01-01", "%Y-%m-%d")},
                             {{std::string("2020-12-31"), std::string("THU")},
                              str_to_date_v2("2021-01-07", "%Y-%m-%d")},
 
-                            // 闰年(2月29日)的处理
+                            // leap year(29 Feb)
                             {{std::string("2020-02-27"), std::string("SAT")},
                              str_to_date_v2("2020-02-29", "%Y-%m-%d")},
                             {{std::string("2020-02-29"), std::string("MON")},
                              str_to_date_v2("2020-03-02", "%Y-%m-%d")},
 
-                            // 非闰年(2月底)的处理
+                            // non leap year(28 Feb)
                             {{std::string("2019-02-26"), std::string("THU")},
                              str_to_date_v2("2019-02-28", "%Y-%m-%d")},
                             {{std::string("2019-02-28"), std::string("SUN")},
                              str_to_date_v2("2019-03-03", "%Y-%m-%d")},
 
-                            // 大月与小月的切换
+                            // date over month
                             {{std::string("2020-04-29"), std::string("FRI")},
                              str_to_date_v2("2020-05-01", "%Y-%m-%d")},
                             {{std::string("2020-05-31"), std::string("MON")},
