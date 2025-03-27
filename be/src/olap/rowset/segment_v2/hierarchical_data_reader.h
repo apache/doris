@@ -61,6 +61,14 @@ struct SubcolumnReader {
 };
 using SubcolumnColumnReaders = vectorized::SubcolumnsTree<SubcolumnReader>;
 
+struct PathWithColumnAndType {
+    vectorized::PathInData path;
+    vectorized::ColumnPtr column;
+    vectorized::DataTypePtr type;
+};
+
+using PathsWithColumnAndType = std::vector<PathWithColumnAndType>;
+
 // Reader for hierarchical data for variant, merge with root(sparse encoded columns)
 class HierarchicalDataReader : public ColumnIterator {
 public:
