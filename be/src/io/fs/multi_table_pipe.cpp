@@ -312,8 +312,7 @@ Status MultiTablePipe::request_and_exec_plans() {
     return Status::OK();
 }
 
-template <typename ExecParam>
-Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> params) {
+Status MultiTablePipe::exec_plans(ExecEnv* exec_env, const std::vector<TPipelineFragmentParams>& params) {
     return Status::OK();
 }
 
