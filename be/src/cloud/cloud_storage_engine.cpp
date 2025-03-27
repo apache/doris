@@ -906,7 +906,7 @@ Status CloudStorageEngine::register_compaction_stop_token(CloudTabletSPtr tablet
     return st;
 }
 
-Status CloudStorageEngine::unregister_compaction_stop_token(CloudTabletSPtr tablet) {
+Status CloudStorageEngine::unregister_compaction_stop_token(CloudTabletSPtr tablet, bool clear_ms) {
     std::shared_ptr<CloudCompactionStopToken> stop_token;
     {
         std::lock_guard lock(_compaction_mtx);
@@ -918,12 +918,14 @@ Status CloudStorageEngine::unregister_compaction_stop_token(CloudTabletSPtr tabl
         }
         _active_compaction_stop_tokens.erase(tablet->tablet_id());
     }
-    // stop token will be removed when SC commit or abort
-    // RETURN_IF_ERROR(stop_token->do_unregister());
-    LOG_INFO(
-            "successfully unregister compaction stop token for tablet_id={}, "
-            "delete_bitmap_lock_initiator={}",
-            tablet->tablet_id(), stop_token->initiator());
+    LOG_INFO("successfully unregister compaction stop token for tablet_id={}", tablet->tablet_id());
+    if (stop_token && clear_ms) {
+        RETURN_IF_ERROR(stop_token->do_unregister());
+        LOG_INFO(
+                "successfully remove compaction stop token from MS for tablet_id={}, "
+                "delete_bitmap_lock_initiator={}",
+                tablet->tablet_id(), stop_token->initiator());
+    }
     return Status::OK();
 }
 

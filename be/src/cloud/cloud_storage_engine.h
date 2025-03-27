@@ -150,7 +150,7 @@ public:
 
     Status register_compaction_stop_token(CloudTabletSPtr tablet, int64_t initiator);
 
-    Status unregister_compaction_stop_token(CloudTabletSPtr tablet);
+    Status unregister_compaction_stop_token(CloudTabletSPtr tablet, bool clear_ms);
 
 private:
     void _refresh_storage_vault_info_thread_callback();
