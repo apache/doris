@@ -258,7 +258,8 @@ public class RangerDorisAccessController extends RangerAccessController {
                 || checkComputeGroupPrivInternal(currentUser, cloudName, wanted, checkedPrivs);
     }
 
-    private boolean checkComputeGroupPrivInternal(UserIdentity currentUser, String computeGroupName, PrivPredicate wanted,
+    private boolean checkComputeGroupPrivInternal(UserIdentity currentUser, String computeGroupName,
+            PrivPredicate wanted,
             PrivBitSet checkedPrivs) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.COMPUTE_GROUP, computeGroupName);
         return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
@@ -271,7 +272,8 @@ public class RangerDorisAccessController extends RangerAccessController {
                 || checkStorageVaultPrivInternal(currentUser, storageVaultName, wanted, checkedPrivs);
     }
 
-    private boolean checkStorageVaultPrivInternal(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted,
+    private boolean checkStorageVaultPrivInternal(UserIdentity currentUser, String storageVaultName,
+            PrivPredicate wanted,
             PrivBitSet checkedPrivs) {
         RangerDorisResource resource = new RangerDorisResource(DorisObjectType.STORAGE_VAULT, storageVaultName);
         return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
