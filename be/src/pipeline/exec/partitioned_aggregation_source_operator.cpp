@@ -46,8 +46,6 @@ Status PartitionedAggLocalState::init(RuntimeState* state, LocalStateInfo& info)
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
     _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                   "AggSourceSpillDependency", true);
-    state->get_task()->add_spill_dependency(_spill_dependency.get());
-
     return Status::OK();
 }
 
