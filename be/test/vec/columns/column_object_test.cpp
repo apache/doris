@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include "vec/columns/common_column_test.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris::vectorized {
 
