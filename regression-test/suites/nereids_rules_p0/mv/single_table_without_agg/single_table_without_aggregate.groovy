@@ -53,11 +53,16 @@ suite("single_table_without_aggregate") {
 
     sql """
     INSERT INTO orders VALUES
-    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def")
+    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def"),
+    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def"),
+    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def"),
+    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def"),
+    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def"),
+    (1, 1, 'F', 34.22, '2023-01-01', 'a', 'b', 100, "abc"),(2, 1, 'T', 66.22, '2023-01-02', 'c', 'd', 200, "def");
     """
 
     sql "analyze table orders with sync;"
-    sql """alter table orders modify column O_COMMENT set stats ('row_count'='2');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='6');"""
     sql """set enable_stats=false;"""
 
     def check_rewrite = { mv_sql, query_sql, mv_name ->

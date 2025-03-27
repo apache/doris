@@ -21,6 +21,8 @@ suite("agg_sync_mv") {
     sql """ SET enable_fallback_to_original_planner=false """
     sql """ analyze table agg_mv_test with sync"""
     sql """ set enable_stats=false"""
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     qt_select_any_value """select id, any_value(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync1 on agg_mv_test;"""
@@ -107,7 +109,7 @@ suite("agg_sync_mv") {
     qt_select_bitmap_union_count """select id, bitmap_union_count(bitmap_hash(kbint)) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync14 on agg_mv_test;"""
     createMV("""create materialized view mv_sync14 as select id as c6, bitmap_union_count(bitmap_hash(kbint)) from agg_mv_test group by id order by id;""")
-    mv_rewrite_success("select id, bitmap_union_count(bitmap_hash(kbint)) from agg_mv_test group by id order by id;", "mv_sync14")
+    mv_rewrite_any_success("select id, bitmap_union_count(bitmap_hash(kbint)) from agg_mv_test group by id order by id;", ["mv_sync14", "mv_sync13"])
     qt_select_bitmap_union_count_mv """select id, bitmap_union_count(bitmap_hash(kbint)) from agg_mv_test group by id order by id;"""
 
     qt_select_bitmap_union_int """select id, bitmap_union_int(kint) from agg_mv_test group by id order by id;"""

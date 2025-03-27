@@ -19,6 +19,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("case_ignore") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """

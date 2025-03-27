@@ -19,7 +19,6 @@ suite("inner_join") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF"
-    sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
 
     sql """
     drop table if exists orders
@@ -272,7 +271,8 @@ suite("inner_join") {
             "and lineitem.L_SUPPKEY = partsupp.PS_SUPPKEY " +
             "where lineitem.L_LINENUMBER > 1 and l_suppkey = 3 "
     order_qt_query2_3_before "${query2_3}"
-    async_mv_rewrite_success(db, mv2_3, query2_3, "mv2_3")
+    async_mv_rewrite_success(db, mv2_3, query2_3, "mv2_3", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv2_3, query2_3, "mv2_3", [NOT_IN_RBO])
     order_qt_query2_3_after "${query2_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_3"""
 
@@ -401,7 +401,8 @@ suite("inner_join") {
             "inner join (select * from orders where o_orderdate = '2023-12-08') t2 " +
             "on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate "
     order_qt_query6_0_before "${query6_0}"
-    async_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0")
+    async_mv_rewrite_success(db, mv6_0, query6_0, "mv6_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv6_0, query6_0, "mv6_0", [NOT_IN_RBO])
     order_qt_query6_0_after "${query6_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
 
@@ -418,7 +419,8 @@ suite("inner_join") {
             "on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate " +
             "where l_partkey = 2"
     order_qt_query7_0_before "${query7_0}"
-    async_mv_rewrite_success(db, mv7_0, query7_0, "mv7_0")
+    async_mv_rewrite_success(db, mv7_0, query7_0, "mv7_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv7_0, query7_0, "mv7_0", [NOT_IN_RBO])
     order_qt_query7_0_after "${query7_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_0"""
 
