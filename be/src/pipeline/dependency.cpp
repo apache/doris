@@ -43,13 +43,11 @@ void BasicSharedState::create_source_dependencies(int num_sources, int operator_
     }
 }
 
-void BasicSharedState::create_sink_dependencies(int num_sink, int dest_id, int node_id,
-                                                const std::string& name) {
-    sink_deps.resize(num_sink, nullptr);
-    for (auto& sink_dep : sink_deps) {
-        sink_dep = std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true);
-        sink_dep->set_shared_state(this);
-    }
+Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id,
+                                                     const std::string& name) {
+    sink_deps.push_back(std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true));
+    sink_deps.back()->set_shared_state(this);
+    return sink_deps.back().get();
 }
 
 void Dependency::_add_block_task(PipelineTask* task) {

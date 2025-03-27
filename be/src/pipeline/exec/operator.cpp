@@ -568,9 +568,8 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
                 DCHECK(false);
             }
             _shared_state = info.shared_state->template cast<SharedState>();
-            _shared_state->create_sink_dependencies(1, _parent->dests_id().front(),
-                                                    _parent->node_id(), _parent->get_name());
-            _dependency = _shared_state->sink_deps.front().get();
+            _dependency = _shared_state->create_sink_dependency(
+                    _parent->dests_id().front(), _parent->node_id(), _parent->get_name());
         }
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                 _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);

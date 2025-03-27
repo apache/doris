@@ -85,7 +85,7 @@ struct BasicSharedState {
 
     void create_source_dependencies(int num_sources, int operator_id, int node_id,
                                     const std::string& name);
-    void create_sink_dependencies(int num_sink, int dest_id, int node_id, const std::string& name);
+    Dependency* create_sink_dependency(int dest_id, int node_id, const std::string& name);
     std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
         DCHECK_LT(channel_id, source_deps.size());
         return {source_deps[channel_id]};
