@@ -116,7 +116,12 @@ public:
         }
         _state = std::make_unique<FilterState>(std::move(state));
     }
-    void set_state(State state, std::string reason = "") { set_state(FilterState(state, reason)); }
+    void set_state(State state, std::string reason = "") {
+        if (!_state->is_valid()) {
+            return;
+        }
+        _state = std::make_unique<FilterState>(state, reason);
+    }
     State get_state() const { return _state->state(); }
     void check_state(std::vector<State> assumed_states) const {
         if (!check_state_impl<RuntimeFilterWrapper>(_state->state(), assumed_states)) {
