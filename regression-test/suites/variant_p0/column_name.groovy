@@ -61,7 +61,7 @@ suite("regression_test_variant_column_name", "variant_type"){
     sql """insert into var_column_name values (7, '{"": 1234566}')"""
     sql """insert into var_column_name values (7, '{"": 8888888}')"""
 
-    qt_sql "select Tags[''] from var_column_name order by cast(Tags[''] as string)"
+    qt_sql "select cast(Tags[''] as text) from var_column_name order by cast(Tags[''] as string)"
 
     // name with `.`
     sql "truncate table var_column_name"
