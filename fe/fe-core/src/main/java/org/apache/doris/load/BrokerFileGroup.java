@@ -33,9 +33,14 @@ import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
+import org.apache.doris.nereids.load.NereidsImportColumnDesc;
+import org.apache.doris.nereids.load.NereidsLoadUtils;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.thrift.TFileCompressType;
 
 import com.google.common.base.Strings;
@@ -47,6 +52,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -564,5 +570,32 @@ public class BrokerFileGroup implements Writable {
         BrokerFileGroup fileGroup = new BrokerFileGroup();
         fileGroup.readFields(in);
         return fileGroup;
+    }
+
+    public NereidsBrokerFileGroup toNereidsBrokerFileGroup() throws UserException {
+        Expression deleteCondition = getDeleteCondition() != null
+                ? NereidsLoadUtils.parseExpressionSeq(getDeleteCondition().toSql()).get(0)
+                : null;
+        Expression precedingFilter = getPrecedingFilterExpr() != null
+                ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilterExpr().toSql()).get(0)
+                : null;
+        Expression whereExpr = getWhereExpr() != null
+                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSql()).get(0)
+                : null;
+        List<NereidsImportColumnDesc> importColumnDescs = null;
+        if (columnExprList != null && !columnExprList.isEmpty()) {
+            importColumnDescs = new ArrayList<>(columnExprList.size());
+            for (ImportColumnDesc desc : columnExprList) {
+                Expression expression = desc.getExpr() != null
+                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().toSql()).get(0)
+                        : null;
+                importColumnDescs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
+            }
+        }
+        return new NereidsBrokerFileGroup(tableId, columnSeparator, lineDelimiter, fileFormat, compressType,
+                isNegative, partitionIds, filePaths, fileSize, fileFieldNames, columnNamesFromPath, importColumnDescs,
+                columnToHadoopFunction, precedingFilter, whereExpr, deleteCondition, mergeType, sequenceCol,
+                srcTableId, isLoadFromTable, stripOuterArray, jsonPaths, jsonRoot, fuzzyParse, readJsonByLine,
+                numAsString, trimDoubleQuotes, skipLines, ignoreCsvRedundantCol, enclose, escape);
     }
 }
