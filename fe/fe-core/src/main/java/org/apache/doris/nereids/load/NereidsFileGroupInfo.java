@@ -64,7 +64,7 @@ import java.util.stream.IntStream;
  * NereidsFileGroupInfo
  */
 public class NereidsFileGroupInfo {
-    private static final Logger LOG = LogManager.getLogger(FileGroupInfo.class);
+    private static final Logger LOG = LogManager.getLogger(NereidsFileGroupInfo.class);
 
     private static final String HIVE_DEFAULT_COLUMN_SEPARATOR = "\001";
     private static final String HIVE_DEFAULT_LINE_DELIMITER = "\n";

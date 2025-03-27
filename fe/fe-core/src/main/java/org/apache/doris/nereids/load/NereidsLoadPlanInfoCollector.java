@@ -91,7 +91,7 @@ import java.util.stream.Collectors;
 /**
  * visit logical plan tree and store required information in LoadPlanInfo
  */
-public class NereidsLoadPlanTranslator extends DefaultPlanVisitor<Void, PlanTranslatorContext> {
+public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanTranslatorContext> {
 
     /**
      * store OlapTableSink and required information for FileLoadScanNode
@@ -265,7 +265,7 @@ public class NereidsLoadPlanTranslator extends DefaultPlanVisitor<Void, PlanTran
     /**
      * NereidsLoadPlanTranslator
      */
-    public NereidsLoadPlanTranslator(OlapTable destTable, NereidsLoadTaskInfo taskInfo, TUniqueId loadId, long dbId,
+    public NereidsLoadPlanInfoCollector(OlapTable destTable, NereidsLoadTaskInfo taskInfo, TUniqueId loadId, long dbId,
             TUniqueKeyUpdateMode uniquekeyUpdateMode,
             HashSet<String> partialUpdateInputColumns,
             Map<String, Expression> exprMap) {
