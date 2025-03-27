@@ -64,8 +64,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         _dependency->block();
         _finish_dependency->block();
         {
-            std::lock_guard<std::mutex> guard(p._shared_hash_table_context->mutex);
-            p._shared_hash_table_context->finish_dependencies.push_back(_finish_dependency);
+            std::lock_guard<std::mutex> guard(p._mutex);
+            p._finish_dependencies.push_back(_finish_dependency);
         }
     }
 
@@ -190,7 +190,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     if (_closed) {
         return Status::OK();
     }
-    auto p = _parent->cast<HashJoinBuildSinkOperatorX>();
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     Defer defer {[&]() {
         if (!_should_build_hash_table) {
             return;
@@ -209,12 +209,12 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
 
         if (p._use_shared_hash_table) {
-            std::unique_lock(p._shared_hash_table_context->mutex);
-            p._shared_hash_table_context->signaled = true;
+            std::unique_lock(p._mutex);
+            p._signaled = true;
             for (auto& dep : _shared_state->sink_deps) {
                 dep->set_ready();
             }
-            for (auto& dep : p._shared_hash_table_context->finish_dependencies) {
+            for (auto& dep : p._finish_dependencies) {
                 dep->set_ready();
             }
         }
@@ -224,14 +224,15 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         return Base::close(state, exec_status);
     }
 
+    if (p._use_shared_hash_table) {
+        _runtime_filter_producer_helper->share_filters(state, p._runtime_filters);
+    }
     try {
-        RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
-                state, _shared_state->build_block.get(),
-                p._use_shared_hash_table ? p._shared_hash_table_context : nullptr));
+        RETURN_IF_ERROR(
+                _runtime_filter_producer_helper->process(state, _shared_state->build_block.get()));
     } catch (Exception& e) {
-        bool blocked_by_shared_hash_table_signal = !_should_build_hash_table &&
-                                                   p._use_shared_hash_table &&
-                                                   !p._shared_hash_table_context->signaled;
+        bool blocked_by_shared_hash_table_signal =
+                !_should_build_hash_table && p._use_shared_hash_table && !p._signaled;
 
         return Status::InternalError(
                 "rf process meet error: {}, wake_up_early: {}, should_build_hash_table: "
@@ -603,7 +604,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit
         // return eof will make task marked as wake_up_early
         // todo: remove signaled after we can guarantee that wake up eraly is always set accurately
-        if (!_shared_hash_table_context->signaled || state->get_task()->wake_up_early()) {
+        if (!_signaled || state->get_task()->wake_up_early()) {
             return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
         }
 

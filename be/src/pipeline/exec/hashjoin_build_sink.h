@@ -54,8 +54,6 @@ public:
 
     Status close(RuntimeState* state, Status exec_status) override;
 
-    Status disable_runtime_filters(RuntimeState* state);
-
     [[nodiscard]] MOCK_FUNCTION size_t get_reserve_mem_size(RuntimeState* state, bool eos);
 
 protected:
@@ -180,10 +178,10 @@ private:
     bool _need_finalize_variant_column = false;
 
     bool _use_shared_hash_table = false;
-    std::shared_ptr<vectorized::SharedHashTableContext> shared_hash_table_context =
-            std::make_shared<vectorized::SharedHashTableContext>();
-    vectorized::SharedHashTableContextPtr _shared_hash_table_context =
-            std::make_shared<vectorized::SharedHashTableContext>();
+    std::atomic<bool> _signaled = false;
+    std::mutex _mutex;
+    std::vector<std::shared_ptr<pipeline::Dependency>> _finish_dependencies;
+    std::map<int, std::shared_ptr<RuntimeFilterWrapper>> _runtime_filters;
 };
 
 template <class HashTableContext>

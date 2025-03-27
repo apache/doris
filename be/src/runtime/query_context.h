@@ -41,7 +41,6 @@
 #include "util/hash_util.hpp"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/runtime/shared_hash_table_controller.h"
 #include "workload_group/workload_group.h"
 
 namespace doris {

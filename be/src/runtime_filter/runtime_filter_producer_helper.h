@@ -25,13 +25,12 @@
 #include "runtime_filter/runtime_filter_producer.h"
 #include "vec/core/block.h" // IWYU pragma: keep
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 // this class used in hash join node
 /**
- * init -> (skip_runtime_filters ->) send_filter_size -> process
+ * init -> (skip_process ->) send_filter_size -> (share_filters ->) process
  */
 class RuntimeFilterProducerHelper {
 public:
@@ -63,9 +62,11 @@ public:
     // skip all runtime filter process, send size and rf to remote imeediately, mainly used to make join spill instance do not block other instance
     MOCK_FUNCTION Status skip_process(RuntimeState* state);
 
+    // Used by share hash table
+    void share_filters(RuntimeState* state,
+                       std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters);
     // build rf's predicate and publish rf
-    Status process(RuntimeState* state, const vectorized::Block* block,
-                   const vectorized::SharedHashTableContextPtr& shared_hash_table_ctx);
+    Status process(RuntimeState* state, const vectorized::Block* block);
 
 protected:
     virtual void _init_expr(const vectorized::VExprContextSPtrs& build_expr_ctxs,
