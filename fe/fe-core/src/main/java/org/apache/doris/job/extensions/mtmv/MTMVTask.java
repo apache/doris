@@ -328,37 +328,47 @@ public class MTMVTask extends AbstractTask {
     }
 
     @Override
-    public synchronized void onFail() throws JobException {
+    public synchronized boolean onFail() throws JobException {
         LOG.info("mtmv task onFail, taskId: {}", super.getTaskId());
-        super.onFail();
-        if (super.getStatus() != TaskStatus.FAILED) {
-            return;
+        boolean res = super.onFail();
+        if (!res) {
+            return false;
         }
         after();
+        return true;
     }
 
     @Override
-    public synchronized void onSuccess() throws JobException {
+    public synchronized boolean onSuccess() throws JobException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("mtmv task onSuccess, taskId: {}", super.getTaskId());
         }
-        super.onSuccess();
-        if (super.getStatus() != TaskStatus.SUCCESS) {
-            return;
+        boolean res = super.onSuccess();
+        if (!res) {
+            return false;
         }
         after();
+        return true;
     }
 
     @Override
-    protected synchronized void executeCancelLogic(boolean needWaitCancelComplete) {
-        LOG.info("mtmv task cancel, taskId: {}", super.getTaskId());
-        if (super.getStatus() != TaskStatus.CANCELED) {
-            return;
+    public synchronized boolean cancel(boolean needWaitCancelComplete) throws JobException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmv task cancel, taskId: {}", super.getTaskId());
         }
+        boolean res = super.cancel(needWaitCancelComplete);
+        if (!res) {
+            return false;
+        }
+        after();
+        return true;
+    }
+
+    @Override
+    protected void executeCancelLogic(boolean needWaitCancelComplete) {
         if (executor != null) {
             executor.cancel(new Status(TStatusCode.CANCELLED, "mtmv task cancelled"), needWaitCancelComplete);
         }
-        after();
     }
 
     @Override
