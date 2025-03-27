@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
-suite("test_base_compaction", "p2") {
+suite("test_base_compaction") {
     def tableName = "base_compaction_uniq_keys"
 
     String backend_id;
