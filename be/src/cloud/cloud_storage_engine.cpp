@@ -721,6 +721,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                          compaction->get_input_num_rows() > config::cumu_delay_strategy_row_num);
                 // Small task. No delay needed
                 if (!is_big_task) {
+                    _cumu_compaction_thread_pool_small_tasks_running++;
                     break;
                 }
                 // Deal with big task
