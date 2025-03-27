@@ -342,6 +342,8 @@ supportedShowStatement
     | SHOW FULL? VIEWS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showViews
     | SHOW TABLE STATUS ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTableStatus
     | SHOW (DATABASES | SCHEMAS) (FROM catalog=identifier)? wildWhere?              #showDatabases
+    | SHOW TABLETS FROM tableName=multipartIdentifier partitionSpec?
+        wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
     ;
 
 supportedLoadStatement
@@ -400,8 +402,6 @@ unsupportedShowStatement
         sortClause? limitClause?                                                    #showAlterTable
     | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
         wildWhere? sortClause? limitClause?                                         #showPartitions
-    | SHOW TABLETS FROM tableName=multipartIdentifier partitionSpec?
-        wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
     | SHOW FULL? BUILTIN? FUNCTIONS
@@ -745,15 +745,15 @@ supportedStatsStatement
         columns=identifierList? partitionSpec?                                  #dropStats
     | DROP CACHED STATS tableName=multipartIdentifier                           #dropCachedStats
     | DROP EXPIRED STATS                                                        #dropExpiredStats
+    | KILL ANALYZE jobId=INTEGER_VALUE                                          #killAnalyzeJob
+    | DROP ANALYZE JOB INTEGER_VALUE                                            #dropAnalyzeJob
     | SHOW TABLE STATS tableName=multipartIdentifier
         partitionSpec? columnList=identifierList?                               #showTableStats
     | SHOW TABLE STATS tableId=INTEGER_VALUE                                    #showTableStats
     ;
 
 unsupportedStatsStatement
-    : DROP ANALYZE JOB INTEGER_VALUE                                            #dropAanalyzeJob
-    | KILL ANALYZE jobId=INTEGER_VALUE                                          #killAnalyzeJob
-    | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
+    : SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
         columnList=identifierList? partitionSpec?                               #showColumnStats
     | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;

@@ -132,6 +132,7 @@ Status PipelineTask::_extract_dependencies() {
     std::vector<std::vector<Dependency*>> read_dependencies;
     std::vector<Dependency*> write_dependencies;
     std::vector<Dependency*> finish_dependencies;
+    std::vector<Dependency*> spill_dependencies;
     read_dependencies.resize(_operators.size());
     size_t i = 0;
     for (auto& op : _operators) {
@@ -144,6 +145,9 @@ Status PipelineTask::_extract_dependencies() {
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             finish_dependencies.push_back(fin_dep);
+        }
+        if (auto* spill_dependency = local_state->spill_dependency()) {
+            spill_dependencies.push_back(spill_dependency);
         }
         i++;
     }
@@ -159,12 +163,16 @@ Status PipelineTask::_extract_dependencies() {
         if (fin_dep) {
             finish_dependencies.push_back(fin_dep);
         }
+        if (auto* spill_dependency = local_state->spill_dependency()) {
+            spill_dependencies.push_back(spill_dependency);
+        }
     }
     {
         std::unique_lock<std::mutex> lc(_dependency_lock);
         read_dependencies.swap(_read_dependencies);
         write_dependencies.swap(_write_dependencies);
         finish_dependencies.swap(_finish_dependencies);
+        spill_dependencies.swap(_spill_dependencies);
     }
     return Status::OK();
 }
@@ -238,6 +246,12 @@ bool PipelineTask::_wait_to_start() {
 }
 
 bool PipelineTask::_is_pending_finish() {
+    // Spilling may be in progress if eos is true.
+    for (auto* dep : _spill_dependencies) {
+        if (dep->is_blocked_by(this)) {
+            return true;
+        }
+    }
     for (auto* dep : _finish_dependencies) {
         if (dep->is_blocked_by(this)) {
             return true;
@@ -455,7 +469,7 @@ Status PipelineTask::execute(bool* done) {
 
             if (workload_group && _state->get_query_ctx()->enable_reserve_memory() &&
                 reserve_size > 0) {
-                auto st = thread_context()->try_reserve_memory(reserve_size);
+                auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(reserve_size);
 
                 COUNTER_UPDATE(_memory_reserve_times, 1);
                 if (!st.ok() && !_state->enable_force_spill()) {
@@ -509,7 +523,8 @@ Status PipelineTask::execute(bool* done) {
                 !(wake_up_early() || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
                 status = sink_reserve_size != 0
-                                 ? thread_context()->try_reserve_memory(sink_reserve_size)
+                                 ? thread_context()->thread_mem_tracker_mgr->try_reserve(
+                                           sink_reserve_size)
                                  : Status::OK();
 
                 auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
@@ -681,6 +696,12 @@ std::string PipelineTask::debug_string() {
     for (size_t j = 0; j < _filter_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
                        _filter_dependencies[j]->debug_string(i + 1));
+    }
+
+    fmt::format_to(debug_string_buffer, "\nSpill Dependency Information: \n");
+    for (size_t j = 0; j < _spill_dependencies.size(); j++, i++) {
+        fmt::format_to(debug_string_buffer, "{}. {}\n", i,
+                       _spill_dependencies[j]->debug_string(i + 1));
     }
 
     fmt::format_to(debug_string_buffer, "Finish Dependency Information: \n");

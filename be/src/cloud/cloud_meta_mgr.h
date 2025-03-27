@@ -24,6 +24,7 @@
 #include <variant>
 #include <vector>
 
+#include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "olap/rowset/rowset_meta.h"
 #include "util/s3_util.h"
@@ -62,8 +63,7 @@ public:
 
     Status get_schema_dict(int64_t index_id, std::shared_ptr<SchemaCloudDictionary>* schema_dict);
 
-    Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false,
-                               bool sync_delete_bitmap = true, bool full_sync = false);
+    Status sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions& options = {});
 
     Status prepare_rowset(const RowsetMeta& rs_meta,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
