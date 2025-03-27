@@ -61,6 +61,11 @@ public class DropPolicyLog implements Writable {
     @SerializedName(value = "roleName")
     private String roleName;
 
+    public DropPolicyLog(PolicyTypeEnum type, String policyName) {
+        this.type = type;
+        this.policyName = policyName;
+    }
+
     /**
      * Generate delete logs through stmt.
      **/
