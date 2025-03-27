@@ -832,11 +832,10 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)data_distribution.distribution_type));
     }
-    auto sink_dep = std::make_shared<Dependency>(sink_id, local_exchange_id,
-                                                 "LOCAL_EXCHANGE_SINK_DEPENDENCY", true);
-    sink_dep->set_shared_state(shared_state.get());
-    shared_state->sink_deps.push_back(sink_dep);
-    _op_id_to_shared_state.insert({local_exchange_id, {shared_state, {sink_dep}}});
+    shared_state->create_source_dependencies(_num_instances, local_exchange_id, local_exchange_id,
+                                             "LOCAL_EXCHANGE_OPERATOR");
+    shared_state->create_sink_dependencies(1, sink_id, local_exchange_id, "LOCAL_EXCHANGE_SINK");
+    _op_id_to_shared_state.insert({local_exchange_id, {shared_state, shared_state->sink_deps}});
 
     // 3. Set two pipelines' operator list. For example, split pipeline [Scan - AggSink] to
     // pipeline1 [Scan - LocalExchangeSink] and pipeline2 [LocalExchangeSource - AggSink].
@@ -858,9 +857,6 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
         RETURN_IF_ERROR(operators.front()->set_child(source_op));
     }
     operators.insert(operators.begin(), source_op);
-
-    shared_state->create_source_dependencies(local_exchange_id, local_exchange_id,
-                                             "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
 
     // 5. Set children for two pipelines separately.
     std::vector<std::shared_ptr<Pipeline>> new_children;
@@ -1446,15 +1442,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         if (is_broadcast_join && _runtime_state->enable_share_hash_table_for_broadcast_join()) {
             std::shared_ptr<HashJoinSharedState> shared_state =
                     HashJoinSharedState::create_shared(_num_instances);
-            for (int i = 0; i < _num_instances; i++) {
-                auto sink_dep = std::make_shared<Dependency>(op->operator_id(), op->node_id(),
-                                                             "HASH_JOIN_BUILD_DEPENDENCY", i == 0);
-                sink_dep->set_shared_state(shared_state.get());
-                shared_state->sink_deps.push_back(sink_dep);
-            }
-
-            shared_state->create_source_dependencies(op->operator_id(), op->node_id(),
-                                                     "HASH_JOIN_PROBE_DEPENDENCY");
+            shared_state->create_sink_dependencies(_num_instances, op->operator_id(), op->node_id(),
+                                                   "HASH_JOIN_BUILD");
+            shared_state->create_source_dependencies(_num_instances, op->operator_id(),
+                                                     op->node_id(), "HASH_JOIN_PROBE");
             _op_id_to_shared_state.insert(
                     {op->operator_id(), {shared_state, shared_state->sink_deps}});
         }

@@ -33,26 +33,23 @@
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
-Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
-                                                       const std::string& name) {
-    source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
-    source_deps.back()->set_shared_state(this);
-    return source_deps.back().get();
-}
 
-void BasicSharedState::create_source_dependencies(int operator_id, int node_id,
+void BasicSharedState::create_source_dependencies(int num_sources, int operator_id, int node_id,
                                                   const std::string& name) {
+    source_deps.resize(num_sources, nullptr);
     for (auto& source_dep : source_deps) {
-        source_dep = std::make_shared<Dependency>(operator_id, node_id, name);
+        source_dep = std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY");
         source_dep->set_shared_state(this);
     }
 }
 
-Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id,
-                                                     const std::string& name) {
-    sink_deps.push_back(std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true));
-    sink_deps.back()->set_shared_state(this);
-    return sink_deps.back().get();
+void BasicSharedState::create_sink_dependencies(int num_sink, int dest_id, int node_id,
+                                                const std::string& name) {
+    sink_deps.resize(num_sink, nullptr);
+    for (auto& sink_dep : sink_deps) {
+        sink_dep = std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true);
+        sink_dep->set_shared_state(this);
+    }
 }
 
 void Dependency::_add_block_task(PipelineTask* task) {

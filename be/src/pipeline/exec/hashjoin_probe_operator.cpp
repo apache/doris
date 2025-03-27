@@ -119,7 +119,8 @@ bool HashJoinProbeLocalState::_need_probe_null_map(vectorized::Block& block,
                                                    const std::vector<int>& res_col_ids) {
     for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
         const auto* column = block.get_by_position(res_col_ids[i]).column.get();
-        if (column->is_nullable() && !_shared_state->serialize_null_into_key[i]) {
+        if (column->is_nullable() &&
+            !_parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i]) {
             return true;
         }
     }
@@ -315,12 +316,14 @@ Status HashJoinProbeLocalState::_extract_join_column(vectorized::Block& block,
     auto& shared_state = *_shared_state;
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
         const auto* column = block.get_by_position(res_col_ids[i]).column.get();
-        if (!column->is_nullable() && shared_state.serialize_null_into_key[i]) {
+        if (!column->is_nullable() &&
+            _parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i]) {
             _key_columns_holder.emplace_back(
                     vectorized::make_nullable(block.get_by_position(res_col_ids[i]).column));
             _probe_columns[i] = _key_columns_holder.back().get();
         } else if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column);
-                   nullable && !shared_state.serialize_null_into_key[i]) {
+                   nullable &&
+                   !_parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i]) {
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
@@ -433,6 +436,27 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
         vectorized::VExprContextSPtr ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.left, ctx));
         _probe_expr_ctxs.push_back(ctx);
+
+        /// null safe equal means null = null is true, the operator in SQL should be: <=>.
+        const bool is_null_safe_equal =
+                eq_join_conjunct.__isset.opcode &&
+                (eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL) &&
+                // For a null safe equal join, FE may generate a plan that
+                // both sides of the conjuct are not nullable, we just treat it
+                // as a normal equal join conjunct.
+                (eq_join_conjunct.right.nodes[0].is_nullable ||
+                 eq_join_conjunct.left.nodes[0].is_nullable);
+
+        if (eq_join_conjuncts.size() == 1) {
+            // single column key serialize method must use nullmap for represent null to instead serialize null into key
+            _serialize_null_into_key.emplace_back(false);
+        } else if (is_null_safe_equal) {
+            // use serialize null into key to represent multi column null value
+            _serialize_null_into_key.emplace_back(true);
+        } else {
+            // on normal conditions, because null!=null, it can be expressed directly with nullmap.
+            _serialize_null_into_key.emplace_back(false);
+        }
     }
 
     if (tnode.hash_join_node.__isset.other_join_conjuncts &&

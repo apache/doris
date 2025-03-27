@@ -47,17 +47,8 @@ namespace vectorized {
 class Arena;
 
 struct SharedHashTableContext {
-    SharedHashTableContext()
-            : hash_table_variants(nullptr), block(std::make_shared<vectorized::Block>()) {}
-
-    Status status;
-    std::shared_ptr<Arena> arena;
-    std::shared_ptr<void> hash_table_variants;
-    std::shared_ptr<Block> block;
-    std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
     std::atomic<bool> signaled = false;
-    bool short_circuit_for_null_in_probe_side = false;
 
     std::mutex mutex;
     std::vector<std::shared_ptr<pipeline::Dependency>> finish_dependencies;

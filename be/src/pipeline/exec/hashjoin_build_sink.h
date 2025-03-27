@@ -155,6 +155,7 @@ public:
         return _join_distribution != TJoinDistributionType::BROADCAST &&
                _join_distribution != TJoinDistributionType::NONE;
     }
+    std::vector<bool>& is_null_safe_eq_join() { return _is_null_safe_eq_join; }
 
 private:
     friend class HashJoinBuildSinkLocalState;
@@ -230,8 +231,13 @@ struct ProcessHashTableBuild {
             with_other_conjuncts) {
             // null aware join with other conjuncts
             keep_null_key = true;
-        } else if (_parent->_shared_state->is_null_safe_eq_join.size() == 1 &&
-                   _parent->_shared_state->is_null_safe_eq_join[0]) {
+        } else if (_parent->parent()
+                                   ->cast<HashJoinBuildSinkOperatorX>()
+                                   .is_null_safe_eq_join()
+                                   .size() == 1 &&
+                   _parent->parent()
+                           ->cast<HashJoinBuildSinkOperatorX>()
+                           .is_null_safe_eq_join()[0]) {
             // single null safe eq
             keep_null_key = true;
         }

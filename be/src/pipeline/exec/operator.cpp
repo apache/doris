@@ -485,8 +485,9 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
             // For UnionSourceOperator without children, there is no shared state.
             _shared_state = info.shared_state->template cast<SharedStateArg>();
 
-            _dependency = _shared_state->create_source_dependency(
-                    _parent->operator_id(), _parent->node_id(), _parent->get_name());
+            _shared_state->create_source_dependencies(1, _parent->operator_id(), _parent->node_id(),
+                                                      _parent->get_name());
+            _dependency = _shared_state->source_deps.front().get();
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         } else {
@@ -567,8 +568,9 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
                 DCHECK(false);
             }
             _shared_state = info.shared_state->template cast<SharedState>();
-            _dependency = _shared_state->create_sink_dependency(
-                    _parent->dests_id().front(), _parent->node_id(), _parent->get_name());
+            _shared_state->create_sink_dependencies(1, _parent->dests_id().front(),
+                                                    _parent->node_id(), _parent->get_name());
+            _dependency = _shared_state->sink_deps.front().get();
         }
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                 _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);

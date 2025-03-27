@@ -47,8 +47,6 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
 
-    _shared_state->is_null_safe_eq_join = p._is_null_safe_eq_join;
-    _shared_state->serialize_null_into_key = p._serialize_null_into_key;
     _build_expr_ctxs.resize(p._build_expr_ctxs.size());
     for (size_t i = 0; i < _build_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._build_expr_ctxs[i]->clone(state, _build_expr_ctxs[i]));
@@ -316,12 +314,14 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(
     auto& shared_state = *_shared_state;
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
         const auto* column = block.get_by_position(res_col_ids[i]).column.get();
-        if (!column->is_nullable() && shared_state.serialize_null_into_key[i]) {
+        if (!column->is_nullable() &&
+            _parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i]) {
             _key_columns_holder.emplace_back(
                     vectorized::make_nullable(block.get_by_position(res_col_ids[i]).column));
             raw_ptrs[i] = _key_columns_holder.back().get();
         } else if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column);
-                   !shared_state.serialize_null_into_key[i] && nullable) {
+                   !_parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i] &&
+                   nullable) {
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
@@ -421,7 +421,7 @@ void HashJoinBuildSinkLocalState::_set_build_side_has_external_nullmap(
     }
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
         const auto* column = block.get_by_position(res_col_ids[i]).column.get();
-        if (column->is_nullable() && !_shared_state->serialize_null_into_key[i]) {
+        if (column->is_nullable() && !p._serialize_null_into_key[i]) {
             _build_side_has_external_nullmap = true;
             return;
         }
@@ -607,14 +607,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
         }
 
-        if (!_shared_hash_table_context->status.ok()) {
-            return _shared_hash_table_context->status;
-        }
-
         DCHECK_LE(local_state._task_idx,
                   local_state._shared_state->hash_table_variant_vector.size());
-        local_state._shared_state->_has_null_in_build_side =
-                _shared_hash_table_context->short_circuit_for_null_in_probe_side;
         std::visit(
                 [](auto&& dst, auto&& src) {
                     if constexpr (!std::is_same_v<std::monostate, std::decay_t<decltype(dst)>> &&
@@ -626,10 +620,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 local_state._shared_state->hash_table_variant_vector[local_state._task_idx]
                         ->method_variant,
                 local_state._shared_state->hash_table_variant_vector.front()->method_variant);
-
-        local_state._shared_state->build_block = _shared_hash_table_context->block;
-        local_state._shared_state->build_indexes_null =
-                _shared_hash_table_context->build_indexes_null;
     }
 
     if (eos) {

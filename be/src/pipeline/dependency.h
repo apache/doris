@@ -83,9 +83,8 @@ struct BasicSharedState {
 
     virtual ~BasicSharedState() = default;
 
-    Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
-    void create_source_dependencies(int operator_id, int node_id, const std::string& name);
-    Dependency* create_sink_dependency(int dest_id, int node_id, const std::string& name);
+    void create_source_dependencies(int num_sources, int operator_id, int node_id, const std::string& name);
+    void create_sink_dependencies(int num_sink, int dest_id, int node_id, const std::string& name);
     std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
         DCHECK_LT(channel_id, source_deps.size());
         return {source_deps[channel_id]};
@@ -603,11 +602,6 @@ struct HashJoinSharedState : public JoinSharedState {
             hash_table_variant_vector[i] = std::make_shared<JoinDataVariants>();
         }
     }
-    // mark the join column whether support null eq
-    std::vector<bool> is_null_safe_eq_join;
-
-    // mark the build hash table whether it needs to store null value
-    std::vector<bool> serialize_null_into_key;
     std::shared_ptr<vectorized::Arena> arena = std::make_shared<vectorized::Arena>();
 
     const std::vector<TupleDescriptor*> build_side_child_desc;
