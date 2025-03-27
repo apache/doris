@@ -39,8 +39,6 @@ Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
 
     _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                   "SortSinkSpillDependency", true);
-    state->get_task()->add_spill_dependency(_spill_dependency.get());
-
     RETURN_IF_ERROR(setup_in_memory_sort_op(state));
 
     Base::_shared_state->in_mem_shared_state->sorter->set_enable_spill();
