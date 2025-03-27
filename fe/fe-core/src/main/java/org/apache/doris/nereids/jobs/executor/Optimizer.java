@@ -22,9 +22,11 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -47,9 +49,23 @@ public class Optimizer {
         // init memo
         cascadesContext.toMemo();
         // stats derive
-        cascadesContext.pushJob(new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
-                cascadesContext.getCurrentJobContext()));
+        cascadesContext.getMemo().getRoot().getLogicalExpressions().forEach(groupExpression ->
+                cascadesContext.pushJob(new DeriveStatsJob(groupExpression, cascadesContext.getCurrentJobContext())));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        if (isDpHyp(cascadesContext)) {
+            //RightNow, dp hyper can only order 64 join operators
+            dpHypOptimize();
+        }
+        // Cascades optimize
+        cascadesContext.pushJob(
+                new OptimizeGroupJob(cascadesContext.getMemo().getRoot(), cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+    }
+
+    /**
+     * This method calc the result that if use dp hyper or not
+     */
+    public static boolean isDpHyp(CascadesContext cascadesContext) {
         boolean optimizeWithUnknownColStats = false;
         if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
             if (ConnectContext.get().getStatementContext().isHasUnknownColStats()) {
@@ -57,27 +73,22 @@ public class Optimizer {
             }
         }
         // DPHyp optimize
-        int maxTableCount = getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        int maxTableCount = sessionVariable.getMaxTableCountUseCascadesJoinReorder();
         if (optimizeWithUnknownColStats) {
             // if column stats are unknown, 10~20 table-join is optimized by cascading framework
             maxTableCount = 2 * maxTableCount;
         }
-        int maxJoinCount = cascadesContext.getMemo().countMaxContinuousJoin();
-        cascadesContext.getStatementContext().setMaxContinuousJoin(maxJoinCount);
-        boolean isDpHyp = getSessionVariable().enableDPHypOptimizer
-                || maxJoinCount > maxTableCount;
+        List<Object> planJoinList =
+                cascadesContext.getRewritePlan().collectToList(plan -> plan instanceof LogicalJoin);
+        int continuousJoinNum = planJoinList.size();
+        cascadesContext.getStatementContext().setMaxContinuousJoin(continuousJoinNum);
+        boolean isDpHyp = sessionVariable.enableDPHypOptimizer || continuousJoinNum > maxTableCount;
         cascadesContext.getStatementContext().setDpHyp(isDpHyp);
-        if (!getSessionVariable().isDisableJoinReorder() && isDpHyp
+        return !sessionVariable.isDisableJoinReorder()
                 && !cascadesContext.isLeadingDisableJoinReorder()
-                && maxJoinCount <= getSessionVariable().getMaxJoinNumberOfReorder()) {
-            //RightNow, dphyper can only order 64 join operators
-            dpHypOptimize();
-        }
-
-        // Cascades optimize
-        cascadesContext.pushJob(
-                new OptimizeGroupJob(cascadesContext.getMemo().getRoot(), cascadesContext.getCurrentJobContext()));
-        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+                && continuousJoinNum <= sessionVariable.getMaxJoinNumberOfReorder()
+                && isDpHyp;
     }
 
     private void dpHypOptimize() {

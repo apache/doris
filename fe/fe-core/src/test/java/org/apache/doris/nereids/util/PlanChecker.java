@@ -69,6 +69,7 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -114,14 +115,14 @@ public class PlanChecker {
 
     public PlanChecker parse(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
-        this.cascadesContext.toMemo();
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
     public PlanChecker analyze() {
         this.cascadesContext.newAnalyzer().analyze();
-        this.cascadesContext.toMemo();
         InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
@@ -133,15 +134,14 @@ public class PlanChecker {
         connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
         this.cascadesContext.newAnalyzer().analyze();
         connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
-        this.cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
     public PlanChecker analyze(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
         this.cascadesContext.newAnalyzer().analyze();
-        this.cascadesContext.toMemo();
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
@@ -149,8 +149,7 @@ public class PlanChecker {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(Rewriter.custom(RuleType.TEST_REWRITE, () -> customRewriter)))
                 .execute();
-        cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
@@ -186,8 +185,7 @@ public class PlanChecker {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteTopDownJob::new, true)))
                 .execute();
-        cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
@@ -212,8 +210,7 @@ public class PlanChecker {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(Rewriter.bottomUp(rule)))
                 .execute();
-        cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
@@ -221,8 +218,7 @@ public class PlanChecker {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteBottomUpJob::new, true)))
                 .execute();
-        cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
@@ -276,6 +272,7 @@ public class PlanChecker {
     public PlanChecker dpHypOptimize() {
         double now = System.currentTimeMillis();
         cascadesContext.getStatementContext().setDpHyp(true);
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         cascadesContext.getConnectContext().getSessionVariable().enableDPHypOptimizer = true;
         Group root = cascadesContext.getMemo().getRoot();
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
@@ -288,6 +285,7 @@ public class PlanChecker {
     }
 
     public PlanChecker implement() {
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         Plan plan = transformToPhysicalPlan(cascadesContext.getMemo().getRoot());
         Assertions.assertTrue(plan instanceof PhysicalPlan);
         if (plan instanceof PhysicalQuickSort && !((PhysicalQuickSort) plan).getSortPhase().isLocal()) {
@@ -454,9 +452,9 @@ public class PlanChecker {
     }
 
     public PlanChecker deriveStats() {
-        cascadesContext.pushJob(
-                new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
-                        cascadesContext.getCurrentJobContext()));
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        cascadesContext.getMemo().getRoot().getLogicalExpressions().forEach(groupExpression ->
+                cascadesContext.pushJob(new DeriveStatsJob(groupExpression, cascadesContext.getCurrentJobContext())));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         return this;
     }
@@ -479,6 +477,16 @@ public class PlanChecker {
         Memo memo = cascadesContext.getMemo();
         checkSlotFromChildren(memo);
         assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        return this;
+    }
+
+    public PlanChecker anyMatches(PatternDescriptor<? extends Plan> patternDesc) {
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        Set<Boolean> matchResult = new HashSet<>();
+        Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
+        matchResult.add(MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        assertMatches(memo, () -> matchResult.contains(true));
         return this;
     }
 
