@@ -21,19 +21,19 @@ suite("test_iot_recycle_mtmv","mtmv") {
     String suiteName = "test_iot_recycle_mtmv"
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
+    String value = "${suiteName}_value"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
-
     sql """
         CREATE TABLE ${tableName}
         (
             k2 BIGINT,
-            k3 INT
+            k3 VARCHAR(100)
         )
-        PARTITION BY LIST(`k2`)
+        PARTITION BY LIST(`k3`)
         (
-            PARTITION p1357924687 VALUES IN ('1357924687')
+            PARTITION p1 VALUES IN ('${value}')
         )
         DISTRIBUTED BY HASH(k3) BUCKETS 2
         PROPERTIES (
@@ -41,7 +41,7 @@ suite("test_iot_recycle_mtmv","mtmv") {
         );
         """
      sql """
-        insert into ${tableName} values(1357924687,1);
+        insert into ${tableName} values(${value},1);
         """
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
@@ -54,12 +54,15 @@ suite("test_iot_recycle_mtmv","mtmv") {
         AS
         SELECT * from ${tableName};
         """
-    def recycleResultBefore = sql """SHOW CATALOG RECYCLE BIN where name ='p_1357924687';"""
+    def showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertTrue(showPartitionsResult.toString().contains("p_${value}"))
+    def recycleResultBefore = sql """SHOW CATALOG RECYCLE BIN where name ='p_${value}';"""
     assertEquals(0, recycleResultBefore.size());
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     waitingMTMVTaskFinishedByMvName(mvName)
-    def recycleResultAfter = sql """SHOW CATALOG RECYCLE BIN where name ='p_1357924687';"""
+    def recycleResultAfter = sql """SHOW CATALOG RECYCLE BIN where name ='p_${value}';"""
     assertEquals(0, recycleResultAfter.size());
 }
