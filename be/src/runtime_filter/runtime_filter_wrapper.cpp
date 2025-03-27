@@ -598,8 +598,9 @@ std::string RuntimeFilterWrapper::debug_string() const {
         }
     }
 
-    if (!_reason.empty()) {
-        result += fmt::format(", reason: {}", _reason);
+    auto reason = _reason.load();
+    if (!reason.empty()) {
+        result += fmt::format(", reason: {}", reason);
     }
     return result + "]";
 }

@@ -138,7 +138,7 @@ private:
     std::shared_ptr<HybridSetBase> _hybrid_set;
     std::shared_ptr<BloomFilterFuncBase> _bloom_filter_func;
     std::shared_ptr<BitmapFilterFuncBase> _bitmap_filter_func;
-    std::string _reason;
+    std::atomic<std::string> _reason;
 };
 #include "common/compile_check_end.h"
 } // namespace doris
