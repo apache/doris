@@ -105,7 +105,15 @@ class IndexCompactionUtils {
             EXPECT_TRUE(std::getline(ss, item, ','));
             row.url = item;
             EXPECT_TRUE(std::getline(ss, item, ','));
-            row.num = std::stoi(item);
+            try {
+                row.num = std::stoi(item);
+            } catch (const std::invalid_argument& e) {
+                LOG(WARNING) << "Invalid item format: " << item
+                             << ", using default (0), error: " << e.what();
+            } catch (const std::out_of_range& e) {
+                LOG(WARNING) << "Item value out of range: " << item
+                             << ", using default (0), error: " << e.what();
+            }
             data.emplace_back(std::move(row));
         }
 

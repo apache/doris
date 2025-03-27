@@ -296,9 +296,17 @@ Status CGroupUtil::parse_cpuset_line(std::string cpuset_line, int* cpu_count_ptr
         boost::split(cpu_values, range, boost::is_any_of("-"));
 
         if (cpu_values.size() == 2) {
-            int start = std::stoi(cpu_values[0]);
-            int end = std::stoi(cpu_values[1]);
-            cpu_count += (end - start) + 1;
+            try {
+                int start = std::stoi(cpu_values[0]);
+                int end = std::stoi(cpu_values[1]);
+                cpu_count += (end - start) + 1;
+            } catch (const std::invalid_argument& e) {
+                LOG(WARNING) << "Invalid CPU range format: [" << cpu_values[0] << ", "
+                             << cpu_values[1] << "], skipping, error: " << e.what();
+            } catch (const std::out_of_range& e) {
+                LOG(WARNING) << "CPU range values out of range: [" << cpu_values[0] << ", "
+                             << cpu_values[1] << "], skipping, error: " << e.what();
+            }
         } else {
             cpu_count++;
         }

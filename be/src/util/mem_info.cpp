@@ -272,13 +272,22 @@ void MemInfo::init() {
     if (sys_vm.is_open()) {
         sys_vm.close();
     }
-    if (!vm_overcommit.empty() && std::stoi(vm_overcommit) == 2) {
-        std::cout << "[WARNING!] /proc/sys/vm/overcommit_memory: " << vm_overcommit
-                  << ", expect is 1, memory limit check is handed over to Doris Allocator, "
-                     "otherwise BE may crash even with remaining memory"
-                  << std::endl;
+    if (!vm_overcommit.empty()) {
+        try {
+            if (std::stoi(vm_overcommit) == 2) {
+                std::cout << "[WARNING!] /proc/sys/vm/overcommit_memory: " << vm_overcommit
+                          << ", expect is 1, memory limit check is handed over to Doris Allocator, "
+                             "otherwise BE may crash even with remaining memory"
+                          << std::endl;
+            }
+        } catch (const std::invalid_argument& e) {
+            std::cerr << "[ERROR] Invalid vm_overcommit value: " << vm_overcommit
+                      << ", expected an integer, error: " << e.what() << std::endl;
+        } catch (const std::out_of_range& e) {
+            std::cerr << "[ERROR] vm_overcommit value out of range: " << vm_overcommit
+                      << ", expected a valid integer, error: " << e.what() << std::endl;
+        }
     }
-
     LOG(INFO) << "Physical Memory: " << _mem_info_bytes["MemTotal"]
               << ", BE Available Physical Memory(consider cgroup): "
               << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES) << ", Mem Limit: "

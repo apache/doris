@@ -177,14 +177,36 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
 
         std::smatch match;
         if (std::regex_match(lower_type_string, match, fixed)) {
-            int length = std::stoi(match[1]);
-            return std::make_unique<FixedType>(length);
+            try {
+                int length = std::stoi(match[1]);
+                return std::make_unique<FixedType>(length);
+            } catch (const std::invalid_argument& e) {
+                LOG(WARNING) << "Invalid length format: " << match[1].str()
+                             << ", using default (0), error: " << e.what();
+                return nullptr;
+            } catch (const std::out_of_range& e) {
+                LOG(WARNING) << "Length value out of range: " << match[1].str()
+                             << ", using default (0), error: " << e.what();
+                return nullptr;
+            }
         }
 
         if (std::regex_match(lower_type_string, match, decimal)) {
-            int precision = std::stoi(match[1]);
-            int scale = std::stoi(match[2]);
-            return std::make_unique<DecimalType>(precision, scale);
+            try {
+                int precision = std::stoi(match[1]);
+                int scale = std::stoi(match[2]);
+                return std::make_unique<DecimalType>(precision, scale);
+            } catch (const std::invalid_argument& e) {
+                LOG(WARNING) << "Invalid precision/scale format: precision=" << match[1].str()
+                             << ", scale=" << match[2].str()
+                             << ", using default (0,0), error: " << e.what();
+                return nullptr;
+            } catch (const std::out_of_range& e) {
+                LOG(WARNING) << "Precision/scale value out of range: precision=" << match[1].str()
+                             << ", scale=" << match[2].str()
+                             << ", using default (0,0), error: " << e.what();
+                return nullptr;
+            }
         }
 
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
