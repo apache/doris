@@ -203,10 +203,6 @@ public:
     [[nodiscard]] size_t get_revocable_size() const;
     [[nodiscard]] Status revoke_memory(const std::shared_ptr<SpillContext>& spill_context);
 
-    void add_spill_dependency(Dependency* dependency) {
-        _spill_dependencies.emplace_back(dependency);
-    }
-
     bool wake_up_early() const { return _wake_up_early; }
 
     void inc_memory_reserve_failed_times() { COUNTER_UPDATE(_memory_reserve_failed_times, 1); }
