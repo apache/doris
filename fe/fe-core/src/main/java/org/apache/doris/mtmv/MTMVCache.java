@@ -123,7 +123,12 @@ public class MTMVCache {
                 // No need cost for performance
                 planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
             }
-            originPlan = planner.getCascadesContext().getRewritePlan();
+            if (!planner.getCascadesContext().getStatementContext().getTmpPlanForLaterMvRewrite().isEmpty()) {
+                originPlan = planner.getCascadesContext().getStatementContext().getTmpPlanForLaterMvRewrite().get(0);
+            } else {
+                originPlan = planner.getCascadesContext().getRewritePlan();
+            }
+            // originPlan = planner.getCascadesContext().getRewritePlan();
             // Eliminate result sink because sink operator is useless in query rewrite by materialized view
             // and the top sort can also be removed
             mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {
