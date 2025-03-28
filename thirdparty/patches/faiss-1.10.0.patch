@@ -1,17 +1,6 @@
---- src/faiss-1.10.0/faiss/CMakeLists.txt	2025-03-28 18:11:18.424142640 +0800
-+++ src/faiss-1.10.0/faiss/CMakeLists.txt.new	2025-03-28 17:32:03.922039557 +0800
-@@ -341,10 +341,6 @@
-   target_compile_definitions(faiss_sve PRIVATE FAISS_MAIN_LIB)
- endif()
- 
--if(WIN32)
--  set_target_properties(faiss PROPERTIES LINK_FLAGS "-Wl,--export-all-symbols")
--endif()
--
- string(FIND "${CMAKE_CXX_FLAGS}" "FINTEGER" finteger_idx)
- if (${finteger_idx} EQUAL -1)
-   target_compile_definitions(faiss PRIVATE FINTEGER=int)
-@@ -385,19 +381,51 @@
+--- src/faiss-1.10.0/faiss/CMakeLists.txt	2025-02-01 05:52:00.000000000 +0800
++++ src/faiss-1.10.0/faiss/CMakeLists.txt.new	2025-03-28 19:45:37.513624103 +0800
+@@ -381,19 +381,51 @@
    target_link_libraries(faiss_avx512 PRIVATE ${MKL_LIBRARIES})
    target_link_libraries(faiss_avx512_spr PRIVATE ${MKL_LIBRARIES})
  else()
@@ -21,13 +10,6 @@
 -  target_link_libraries(faiss_avx512 PRIVATE ${BLAS_LIBRARIES})
 -  target_link_libraries(faiss_avx512_spr PRIVATE ${BLAS_LIBRARIES})
 -  target_link_libraries(faiss_sve PRIVATE ${BLAS_LIBRARIES})
--
--  find_package(LAPACK REQUIRED)
--  target_link_libraries(faiss PRIVATE ${LAPACK_LIBRARIES})
--  target_link_libraries(faiss_avx2 PRIVATE ${LAPACK_LIBRARIES})
--  target_link_libraries(faiss_avx512 PRIVATE ${LAPACK_LIBRARIES})
--  target_link_libraries(faiss_avx512_spr PRIVATE ${LAPACK_LIBRARIES})
--  target_link_libraries(faiss_sve PRIVATE ${LAPACK_LIBRARIES})
 +  # If not found through find_package, look in the DORIS_THIRD_LIB_INSTALL_DIR
 +  if(DEFINED DORIS_THIRD_LIB_INSTALL_DIR)
 +    set(OpenBLAS_ROOT ${DORIS_THIRD_LIB_INSTALL_DIR})
@@ -40,7 +22,13 @@
 +    if(NOT OpenBLAS_LIB)
 +      message(WARNING "OpenBLAS not found in DORIS_THIRD_LIB_INSTALL_DIR: ${DORIS_THIRD_LIB_INSTALL_DIR}")
 +    endif() 
-+
+ 
+-  find_package(LAPACK REQUIRED)
+-  target_link_libraries(faiss PRIVATE ${LAPACK_LIBRARIES})
+-  target_link_libraries(faiss_avx2 PRIVATE ${LAPACK_LIBRARIES})
+-  target_link_libraries(faiss_avx512 PRIVATE ${LAPACK_LIBRARIES})
+-  target_link_libraries(faiss_avx512_spr PRIVATE ${LAPACK_LIBRARIES})
+-  target_link_libraries(faiss_sve PRIVATE ${LAPACK_LIBRARIES})
 +    if(OpenBLAS_LIB)
 +      set(OpenBLAS_LIBRARIES ${OpenBLAS_LIB})
 +      set(OpenBLAS_FOUND TRUE)
@@ -76,12 +64,3 @@
  endif()
  
  install(TARGETS faiss
-@@ -422,7 +450,7 @@
-   )
- endif()
- if(FAISS_OPT_LEVEL STREQUAL "avx512_spr")
--  install(TARGETS faiss_avx2 faiss_avx512_spr
-+  install(TARGETS faiss_avx2 faiss_avx512 faiss_avx512_spr
-     EXPORT faiss-targets
-     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

@@ -355,7 +355,7 @@ AWS_SDK_MD5SUM="3cd8bd51d39dc207a243a2074d11f439"
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
 TSAN_HEADER_NAME="tsan_interface_atomic.h"
 TSAN_HEADER_FILE="tsan_interface_atomic.h"
-TSAN_HEADER_MD5SUM="d41d8cd98f00b204e9800998ecf8427e"
+TSAN_HEADER_MD5SUM="d72679bea167d6a513d959f5abd149dc"
 
 # lzma
 LZMA_DOWNLOAD="https://github.com/kobolabs/liblzma/archive/refs/heads/master.zip"
@@ -513,6 +513,12 @@ AZURE_DOWNLOAD="https://github.com/Azure/azure-sdk-for-cpp/archive/azure-core_1.
 AZURE_NAME="azure-core_1.10.3.tar.gz"
 AZURE_SOURCE="azure-sdk-for-cpp-azure-core_1.10.3"
 AZURE_MD5SUM="aa470cfdba93dd69a6f3112a6958c13c"
+
+# libdragonbox for faster double/float to string
+DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
+DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
+DRAGONBOX_SOURCE=dragonbox-1.1.3
+DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
 
 # icu
 ICU_DOWNLOAD="https://github.com/unicode-org/icu/archive/refs/tags/release-69-1.tar.gz"
