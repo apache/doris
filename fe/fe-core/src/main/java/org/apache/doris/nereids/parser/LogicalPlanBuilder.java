@@ -539,6 +539,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelLoadCommand;
@@ -6378,6 +6379,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitKillAnalyzeJob(DorisParser.KillAnalyzeJobContext ctx) {
         long jobId = Long.parseLong(ctx.jobId.getText());
         return new KillAnalyzeJobCommand(jobId);
+    }
+
+    @Override
+    public LogicalPlan visitCancelBackup(DorisParser.CancelBackupContext ctx) {
+        String databaseName = ctx.database.getText();
+        boolean isRestore = false;
+        return new CancelBackupCommand(databaseName, isRestore);
+    }
+
+    @Override
+    public LogicalPlan visitCancelRestore(DorisParser.CancelRestoreContext ctx) {
+        String databaseName = ctx.database.getText();
+        boolean isRestore = true;
+        return new CancelBackupCommand(databaseName, isRestore);
     }
 }
 
