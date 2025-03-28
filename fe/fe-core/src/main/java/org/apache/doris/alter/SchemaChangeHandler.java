@@ -2130,7 +2130,9 @@ public class SchemaChangeHandler extends AlterHandler {
                             break;
                         }
                     }
-                    if (found.isLightIndexChangeSupported()) {
+                    // only inverted index with local mode can do light drop index change
+                    if (found != null && found.getIndexType() == IndexDef.IndexType.INVERTED
+                            && Config.isNotCloudMode()) {
                         alterIndexes.add(found);
                         isDropIndex = true;
                         lightIndexChange = true;
@@ -2931,27 +2933,14 @@ public class SchemaChangeHandler extends AlterHandler {
                 Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
 
                 if (isDropIndex) {
-                    List<Index> invertedIndexes = new ArrayList<>();
-                    List<Index> ngramBfIndexes = new ArrayList<>();
                     // send drop rpc to be
                     Map<Long, Set<String>> invertedIndexOnPartitions = new HashMap<>();
                     for (Index index : alterIndexes) {
-                        if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
-                            invertedIndexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
-                            invertedIndexes.add(index);
-                        } else if (index.getIndexType() == IndexDef.IndexType.NGRAM_BF) {
-                            ngramBfIndexes.add(index);
-                        }
+                        invertedIndexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
                     }
                     try {
-                        if (!invertedIndexes.isEmpty()) {
-                            buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
-                                    invertedIndexes, invertedIndexOnPartitions, true);
-                        }
-                        if (!ngramBfIndexes.isEmpty()) {
-                            createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap,
-                                    olapTable.getCopiedIndexes(), true);
-                        }
+                        buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
+                                alterIndexes, invertedIndexOnPartitions, true);
                     } catch (Exception e) {
                         throw new DdlException(e.getMessage());
                     }
