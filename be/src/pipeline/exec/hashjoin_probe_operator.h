@@ -37,7 +37,6 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN>,
                      ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::CROSS_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
