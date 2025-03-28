@@ -4674,18 +4674,25 @@ private:
         switch (type->get_type_id()) {
         case TypeIndex::Int64:
             store.push_back(get_value_from_data<int64_t>(data));
+            break;
         case TypeIndex::Int32:
             store.push_back(get_value_from_data<int32_t>(data));
+            break;
         case TypeIndex::Int16:
             store.push_back(get_value_from_data<int16_t>(data));
+            break;
         case TypeIndex::Int8:
             store.push_back(get_value_from_data<int8_t>(data));
+            break;
         case TypeIndex::Float64:
             store.push_back(get_value_from_data<double>(data));
+            break;
         case TypeIndex::Float32:
             store.push_back(get_value_from_data<float>(data));
+            break;
         case TypeIndex::String:
             store.push_back(data.to_string());
+            break;
         default:
             __builtin_unreachable();
         }
