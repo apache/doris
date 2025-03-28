@@ -607,7 +607,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
         EXPECT_EQ(value, inserted_jsonstr[i]);
     }
 
-     auto read_to_column_object = [&]() {
+    auto read_to_column_object = [&]() {
         new_column_object = ColumnObject::create(10);
         nrows = 1000;
         st = it->seek_to_ordinal(0);
@@ -641,7 +641,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
         for (int row = 0; row < 1000; ++row) {
             std::string value;
             st = assert_cast<ColumnObject*>(new_column_object.get())
-                        ->serialize_one_row_to_string(row, &value);
+                         ->serialize_one_row_to_string(row, &value);
             EXPECT_TRUE(st.ok()) << st.msg();
             if (value.find("nested" + key_num) != std::string::npos) {
                 key_nested_count++;
