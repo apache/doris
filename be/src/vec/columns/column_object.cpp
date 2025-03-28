@@ -1810,6 +1810,18 @@ bool ColumnObject::is_visible_root_value(size_t nrow) const {
     if (root->data.is_null_at(nrow)) {
         return false;
     }
+    for (const auto& subcolumn : subcolumns) {
+        if (subcolumn->data.is_root) {
+            continue; // Skip the root column
+        }
+
+        // If any non-root subcolumn is NOT null, set serialize_root to false and exit early
+        if (!assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                     *subcolumn->data.get_finalized_column_ptr())
+                     .is_null_at(nrow)) {
+            return false;
+        }
+    }
     if (root->data.least_common_type.get_base_type_id() == TypeIndex::VARIANT) {
         // nested field
         return !root->data.is_empty_nested(nrow);
