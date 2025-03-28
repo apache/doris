@@ -364,6 +364,14 @@ public class MTMVTask extends AbstractTask {
 
     @Override
     protected void executeCancelLogic(boolean needWaitCancelComplete) {
+        try {
+            if (mtmv == null) {
+                mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
+            }
+        } catch (UserException e) {
+            LOG.warn("executeCancelLogic failed:", e);
+            return;
+        }
         if (executor != null) {
             executor.cancel(new Status(TStatusCode.CANCELLED, "mtmv task cancelled"), needWaitCancelComplete);
         }
