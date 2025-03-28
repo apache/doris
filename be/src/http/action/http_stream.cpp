@@ -387,8 +387,8 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
         }
         ctx->put_result.pipeline_params.__set_content_length(content_length);
     }
-
-    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
+    TPipelineFragmentParamsList mocked;
+    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked);
 }
 
 void HttpStreamAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,
