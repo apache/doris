@@ -142,4 +142,13 @@ Status SchemaHelper::show_user(const std::string& ip, const int32_t port,
             });
 }
 
+Status SchemaHelper::fetch_routine_load_job(const std::string& ip, const int32_t port,
+                                            const TFetchRoutineLoadJobRequest& request,
+                                            TFetchRoutineLoadJobResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->fetchRoutineLoadJob(*result, request);
+            });
+}
+
 } // namespace doris
