@@ -67,13 +67,13 @@ suite("like_to_equal_to_rewrite") {
 
     sql """insert into employees values (1, 'A_%'),(2, 'B_%'),(3, 'C_D'),(4, 'E_F'),(5, 'F_%');"""
 
-	sql """select * from employees where name like '%\_\%' escape '\\';"""
+	def result = sql """select * from employees where name like '%\_\%' escape '\\';"""
 	assertEquals(3, result.size())
-	sql """select * from employees where name like '%|_|%' escape '|';"""
+	result = sql """select * from employees where name like '%|_|%' escape '|';"""
 	assertEquals(3, result.size())
-	sql """select * from employees where name like '%@_@%' escape '@';"""
+	result = sql """select * from employees where name like '%@_@%' escape '@';"""
 	assertEquals(3, result.size())
-	sql """select * from employees where name like '%#_#%' escape '#';"""
+	result = sql """select * from employees where name like '%#_#%' escape '#';"""
 	assertEquals(3, result.size())
 
 	sql """drop table if exists employees"""
