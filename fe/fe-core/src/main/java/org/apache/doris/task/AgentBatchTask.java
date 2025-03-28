@@ -22,6 +22,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThriftUtils;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
@@ -234,6 +235,7 @@ public class AgentBatchTask implements Runnable {
                 LOG.debug("submit {} tasks to backend[{}], total size: {}, first task type: {}",
                         agentTaskRequests.size(), backendId, size, firstTaskType);
             }
+            MetricRepo.COUNTER_AGENT_TASK_REQUEST_TOTAL.increase(1L);
             client.submitTasks(agentTaskRequests);
         }
         if (LOG.isDebugEnabled()) {
@@ -251,6 +253,7 @@ public class AgentBatchTask implements Runnable {
 
         TTaskType taskType = task.getTaskType();
         tAgentTaskRequest.setTaskType(taskType);
+        MetricRepo.COUNTER_AGENT_TASK_TOTAL.getOrAdd(taskType.toString()).increase(1L);
         switch (taskType) {
             case CREATE: {
                 CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;
