@@ -727,6 +727,12 @@ public abstract class ExternalCatalog
         if (threadPoolWithPreAuth != null) {
             ThreadPoolManager.shutdownExecutorService(threadPoolWithPreAuth);
         }
+        if (null != preExecutionAuthenticator) {
+            preExecutionAuthenticator = null;
+        }
+        if (null != transactionManager) {
+            transactionManager = null;
+        }
         CatalogIf.super.onClose();
     }
 

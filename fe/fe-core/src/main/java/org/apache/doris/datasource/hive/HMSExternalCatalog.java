@@ -198,6 +198,17 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void onClose() {
+        super.onClose();
+        if (null != fileSystemExecutor) {
+            ThreadPoolManager.shutdownExecutorService(fileSystemExecutor);
+        }
+        if (null != icebergMetadataOps) {
+            icebergMetadataOps.close();
+        }
+    }
+
+    @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
         return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
