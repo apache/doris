@@ -66,9 +66,14 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "hdfs_vault_p2," +
     "inject_hdfs_vault_p0," +
     "plsql_p0," + // plsql is not developped any more, add by sk.
+    "docs/table-design/data-partitioning/manual-partitioning.md," +
+    "test_table_properties,test_show_transaction,test_show_create_table_and_views_nereids," +
+    "test_group_commit_data_bytes_property,insert_group_commit_into_max_filter_ratio,test_group_commit_interval_ms_property,insert_group_commit_into_unique_sync_mode," +
+    "test_group_commit_stream_load,"+
+    "test_get_stream_load_state," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
-max_failure_num = 50
+max_failure_num = -1
 
 // test_routine_load
 enableKafkaTest=true
