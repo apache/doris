@@ -19,10 +19,8 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -79,7 +77,7 @@ import java.util.Optional;
  * such as: cast(c1 as DateV2) >= DateV2Literal --> c1 >= DateLiteral
  *          cast(c1 AS double) > 2.0 --> c1 >= 2 (c1 is integer like type)
  */
-public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule implements ExpressionPatternRuleFactory {
+public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory {
     public static SimplifyComparisonPredicate INSTANCE = new SimplifyComparisonPredicate();
 
     @Override
@@ -88,11 +86,6 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                 matchesType(ComparisonPredicate.class).then(SimplifyComparisonPredicate::simplify)
                         .toRule(ExpressionRuleType.SIMPLIFY_COMPARISON_PREDICATE)
         );
-    }
-
-    @Override
-    public Expression visitComparisonPredicate(ComparisonPredicate cp, ExpressionRewriteContext context) {
-        return simplify(cp);
     }
 
     /** simplify */
