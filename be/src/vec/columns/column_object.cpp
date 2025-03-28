@@ -640,6 +640,17 @@ bool ColumnObject::Subcolumn::is_finalized() const {
            (data.empty() || (data.size() == 1));
 }
 
+void ColumnObject::Subcolumn::resize(size_t n) {
+    if (n == num_rows) {
+        return;
+    }
+    if (n > num_rows) {
+        insert_many_defaults(n - num_rows);
+    } else {
+        pop_back(num_rows - n);
+    }
+}
+
 template <typename Func>
 MutableColumnPtr ColumnObject::apply_for_columns(Func&& func) const {
     if (!is_finalized()) {
@@ -1107,7 +1118,8 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
     row -= num_of_defaults_in_prefix;
     for (size_t i = 0; i < data.size(); ++i) {
         const auto& part = data[i];
-        if (row < part->size()) {
+        size_t current_column_size = part->size();
+        if (row < current_column_size) {
             // no need null in sparse column
             if (!assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*part).is_null_at(
                         row)) {
@@ -1129,7 +1141,7 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
             return;
         }
 
-        row -= part->size();
+        row -= current_column_size;
     }
 
     throw doris::Exception(ErrorCode::OUT_OF_BOUND,

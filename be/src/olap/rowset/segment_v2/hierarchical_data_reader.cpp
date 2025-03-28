@@ -382,7 +382,7 @@ Status HierarchicalDataReader::_process_sparse_column(vectorized::ColumnObject& 
                         // from "" which is empty path and root
                         if (container_variant.is_null_root()) {
                             // root was created with nrows with Nothing type, resize it to fit the size of sparse column
-                            container_variant.get_root()->resize(sparse_data_offsets.size());
+                            container_variant.get_subcolumn({})->resize(sparse_data_offsets.size());
                             // bool added = container_variant.add_sub_column({}, sparse_data_offsets.size());
                             // if (!added) {
                             //     return Status::InternalError("Failed to add subcolumn for sparse column");

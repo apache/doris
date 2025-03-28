@@ -36,8 +36,13 @@ class ColumnWriter;
 class ScalarColumnWriter;
 
 struct VariantStatistics {
-    // If reached the size of this, we should stop writing statistics for sparse data
-    constexpr static size_t MAX_SPARSE_DATA_STATISTICS_SIZE = 10000;
+    // #ifdef BE_TEST
+    //     static constexpr size_t MAX_SPARSE_DATA_STATISTICS_SIZE = 10;
+    // #else
+    //     // If reached the size of this, we should stop writing statistics for sparse data
+    //     static constexpr size_t MAX_SPARSE_DATA_STATISTICS_SIZE = 10000;
+    // #endif
+    static constexpr size_t MAX_SPARSE_DATA_STATISTICS_SIZE = 10000;
     std::map<std::string, size_t> subcolumns_non_null_size;
     std::map<std::string, size_t> sparse_column_non_null_size;
 
@@ -96,5 +101,8 @@ private:
     // hold the references of subcolumns indexes
     std::vector<std::unique_ptr<TabletIndex>> _subcolumns_indexes;
 };
+
+void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
+                       CompressionTypePB compression_type);
 } // namespace segment_v2
 } // namespace doris

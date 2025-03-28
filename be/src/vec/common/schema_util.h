@@ -54,6 +54,8 @@ struct ColumnWithTypeAndName;
 
 const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 namespace doris::vectorized::schema_util {
+using PathToNoneNullValues = std::unordered_map<std::string, size_t>;
+
 /// Returns number of dimensions in Array type. 0 if type is not array.
 size_t get_number_of_dimensions(const IDataType& type);
 
@@ -122,16 +124,20 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
 vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
         const vectorized::ColumnObject::Subcolumns& subcolumns);
 
-// Extract json data from source with path
-Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);
-
-std::string dump_column(DataTypePtr type, const ColumnPtr& col);
-
 bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
                            int32_t new_col_idx, int32_t old_col_idx);
 
 // create ColumnMap<String, String>
 TabletColumn create_sparse_column(const TabletColumn& variant);
+
+// get the subpaths and sparse paths for the variant column
+void get_subpaths(const TabletColumn& variant,
+                  const std::unordered_map<int32_t, PathToNoneNullValues>& path_stats,
+                  std::unordered_map<int32_t, TabletSchema::PathsSetInfo>& uid_to_paths_set_info);
+
+// collect path stats from the rowset
+Status collect_path_stats(const RowsetSharedPtr& rs,
+                          std::unordered_map<int32_t, PathToNoneNullValues>& uid_to_path_stats);
 
 // Build the temporary schema for compaction, this will reduce the memory usage of compacting variant columns
 Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target);
