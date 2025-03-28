@@ -156,8 +156,8 @@ public class NereidsLoadingTaskPlanner {
                 sendBatchParallelism,
                 strictMode, enableMemtableOnSinkNode, partitionNames);
         NereidsLoadPlanInfoCollector loadPlanTranslator = new NereidsLoadPlanInfoCollector(table, nereidsBrokerLoadTask,
-                loadId,
-                dbId, TUniqueKeyUpdateMode.UPSERT, partialUpdateInputColumns, context.exprMap);
+                loadId, dbId, isPartialUpdate ? TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS : TUniqueKeyUpdateMode.UPSERT,
+                partialUpdateInputColumns, context.exprMap);
         NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = loadPlanTranslator.translatePlan(streamLoadPlan);
         descTable = loadPlanInfo.getDescriptorTable();
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());
