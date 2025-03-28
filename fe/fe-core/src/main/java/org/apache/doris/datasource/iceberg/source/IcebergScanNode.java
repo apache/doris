@@ -222,7 +222,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
     }
 
-    public void doStartSplit() throws UserException {
+    public void doStartSplit() {
         TableScan scan = createTableScan();
         CompletableFuture.runAsync(() -> {
             try {
@@ -374,8 +374,13 @@ public class IcebergScanNode extends FileQueryScanNode {
                     return true;
                 }
             }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        } catch (Exception e) {
+            Optional<NotSupportedException> opt = checkNotSupportedException(e);
+            if (opt.isPresent()) {
+                throw opt.get();
+            } else {
+                throw new RuntimeException(e);
+            }
         }
         return false;
     }
