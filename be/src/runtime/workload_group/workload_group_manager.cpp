@@ -600,7 +600,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
         }
     }
 
-    if (!has_query_exceed_process_memlimit) {
+    if (!has_query_exceed_process_memlimit &&
+        doris::GlobalMemoryArbitrator::last_memory_exceeded_cache_capacity_adjust_weighted < 0.05) {
         // No query paused due to process exceed limit, so that enable cache now.
         doris::GlobalMemoryArbitrator::last_memory_exceeded_cache_capacity_adjust_weighted =
                 doris::GlobalMemoryArbitrator::
