@@ -17,19 +17,15 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.hint.OutlineInfo;
 import org.apache.doris.nereids.hint.OutlineMgr;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
-import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -67,7 +63,7 @@ public class CreateOutlineCommand extends Command implements ForwardWithSync {
         executor.setPlanner(planner);
         executor.checkBlockRules();
         OutlineInfo outlineInfo = new OutlineInfo(outlineName, "visibleSignature", "sqlId",
-            "sqlText", "outlineTarget", "outlineData");
+                "sqlText", "outlineTarget", "outlineData");
         OutlineMgr.createOutlineInternal(outlineInfo, ignoreExist, false);
     }
 

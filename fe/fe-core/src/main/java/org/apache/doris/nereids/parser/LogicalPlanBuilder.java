@@ -424,7 +424,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.hint.DistributeHint;
-import org.apache.doris.nereids.hint.OutlineInfo;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
@@ -1976,12 +1975,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.query().size() == 1) {
             // only on query is declared
             LogicalPlan logicalPlan = visitQuery(ctx.query().get(0));
-            return new CreateOutlineCommand(isReplace, logicalPlan);
+            return new CreateOutlineCommand(outlineName, isReplace, logicalPlan);
         } else if (ctx.query().size() == 2) {
             // on query to query
         }
 
-        return new CreateOutlineCommand(isReplace, null);
+        return new CreateOutlineCommand(outlineName, isReplace, null);
     }
 
     @Override
