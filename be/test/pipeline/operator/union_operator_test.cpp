@@ -257,6 +257,7 @@ TEST_F(UnionOperatorTest, test_sink_and_source) {
 
     {
         for (int i = 0; i < child_size; i++) {
+            sink_state[i]->batsh_size = 2;
             Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2}, {3, 4});
             EXPECT_TRUE(sink_ops[i]->sink(sink_state[i].get(), &block, false));
         }

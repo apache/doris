@@ -30,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.LimitUtils;
 import org.apache.doris.qe.ResultReceiver;
+import org.apache.doris.qe.ResultReceiverConsumer;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -44,8 +45,7 @@ import org.apache.thrift.TException;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 
 public class QueryProcessor extends AbstractJobProcessor {
     private static final Logger LOG = LogManager.getLogger(QueryProcessor.class);
@@ -54,15 +54,13 @@ public class QueryProcessor extends AbstractJobProcessor {
     private final long limitRows;
 
     // mutable field
-    private final List<ResultReceiver> runningReceivers;
-    private int receiverOffset;
+    private ResultReceiverConsumer receiverConsumer;
+
     private long numReceivedRows;
 
-    public QueryProcessor(CoordinatorContext coordinatorContext, List<ResultReceiver> runningReceivers) {
+    public QueryProcessor(CoordinatorContext coordinatorContext, ResultReceiverConsumer consumer) {
         super(coordinatorContext);
-        this.runningReceivers = new CopyOnWriteArrayList<>(
-                Objects.requireNonNull(runningReceivers, "runningReceivers can not be null")
-        );
+        receiverConsumer = consumer;
 
         this.limitRows = coordinatorContext.fragments.get(0)
                 .getPlanRoot()
@@ -101,7 +99,9 @@ public class QueryProcessor extends AbstractJobProcessor {
                     )
             );
         }
-        return new QueryProcessor(coordinatorContext, receivers);
+        ResultReceiverConsumer consumer = new ResultReceiverConsumer(receivers,
+                coordinatorContext.timeoutDeadline.get());
+        return new QueryProcessor(coordinatorContext, consumer);
     }
 
     @Override
@@ -110,13 +110,12 @@ public class QueryProcessor extends AbstractJobProcessor {
     }
 
     public boolean isEos() {
-        return runningReceivers.isEmpty();
+        return receiverConsumer.isEos();
     }
 
-    public RowBatch getNext() throws UserException, TException, RpcException {
-        ResultReceiver receiver = runningReceivers.get(receiverOffset);
+    public RowBatch getNext() throws UserException, InterruptedException, TException, RpcException, ExecutionException {
         Status status = new Status();
-        RowBatch resultBatch = receiver.getNext(status);
+        RowBatch resultBatch = receiverConsumer.getNext(status);
         if (!status.ok()) {
             LOG.warn("Query {} coordinator get next fail, {}, need cancel.",
                     DebugUtil.printId(coordinatorContext.queryId), status.getErrorMsg());
@@ -152,35 +151,20 @@ public class QueryProcessor extends AbstractJobProcessor {
         boolean reachedLimit = LimitUtils.cancelIfReachLimit(
                 resultBatch, limitRows, numReceivedRows, coordinatorContext::cancelSchedule);
 
-        if (resultBatch.isEos()) {
-            runningReceivers.remove(receiver);
-            // if reachedLimit is true, which means this query has been cancelled.
-            // so no need to set eos to false again.
-            if (!runningReceivers.isEmpty() && !reachedLimit) {
-                resultBatch.setEos(false);
-            }
-        }
-
-        if (!runningReceivers.isEmpty()) {
-            receiverOffset = (receiverOffset + 1) % runningReceivers.size();
+        if (reachedLimit) {
+            resultBatch.setEos(true);
         }
         return resultBatch;
     }
 
     public void cancel(Status cancelReason) {
-        for (ResultReceiver receiver : runningReceivers) {
-            receiver.cancel(cancelReason);
-        }
+        receiverConsumer.cancel(cancelReason);
 
         this.executionTask.ifPresent(sqlPipelineTask -> {
             for (MultiFragmentsPipelineTask fragmentsTask : sqlPipelineTask.getChildrenTasks().values()) {
                 fragmentsTask.cancelExecute(cancelReason);
             }
         });
-    }
-
-    public int getReceiverOffset() {
-        return receiverOffset;
     }
 
     public long getNumReceivedRows() {

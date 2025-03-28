@@ -49,13 +49,12 @@ public:
                 FunctionContext::FunctionStateScope scope) override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
-    void set_filter(std::shared_ptr<BloomFilterFuncBase>& filter);
+    void set_filter(std::shared_ptr<BloomFilterFuncBase> filter);
 
     std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const override { return _filter; }
 
 private:
     std::shared_ptr<BloomFilterFuncBase> _filter;
     std::string _expr_name;
-    int _be_exec_version;
 };
 } // namespace doris::vectorized
