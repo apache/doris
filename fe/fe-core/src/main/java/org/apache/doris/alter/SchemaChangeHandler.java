@@ -1382,12 +1382,21 @@ public class SchemaChangeHandler extends AlterHandler {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        // check row store column has change
+
         boolean hasRowStoreChanged = false;
-        if (storeRowColumn || (rsColumns != null && !rsColumns.isEmpty())) {
+        if (storeRowColumn || rsColumns != null) {
             List<String> oriRowStoreColumns = olapTable.getTableProperty().getCopiedRowStoreColumns();
-            if ((oriRowStoreColumns != null && !oriRowStoreColumns.equals(rsColumns))
-                    || storeRowColumn != olapTable.storeRowColumn()) {
+            // correct the comparison logic for null and empty list
+            boolean columnsChanged = false;
+            if (rsColumns == null) {
+                columnsChanged = oriRowStoreColumns != null;
+            } else if (oriRowStoreColumns == null) {
+                columnsChanged = true;
+            } else {
+                columnsChanged = !oriRowStoreColumns.equals(rsColumns);
+            }
+            // partial row store columns changed, or store_row_column enabled, not supported to disable at present
+            if (columnsChanged || (!olapTable.storeRowColumn() && storeRowColumn)) {
                 // only support mow and duplicate model
                 if (!(olapTable.getKeysType() == KeysType.DUP_KEYS
                         || olapTable.getEnableUniqueKeyMergeOnWrite())) {
