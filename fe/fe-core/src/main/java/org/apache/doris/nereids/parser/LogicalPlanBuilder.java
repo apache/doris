@@ -6305,19 +6305,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public PasswordOptions visitPasswordOption(DorisParser.PasswordOptionContext ctx) {
-        int passwordHistory;
-        long passwordExpire;
-        int passwordReuse;
-        int failedLoginAttempts;
-        long passwordLockTime;
-        int accountUnlocked;
+        int unset = -2;
+        int passwordHistory = unset;
+        long passwordExpire = unset;
+        int passwordReuse = unset;
+        int failedLoginAttempts = unset;
+        long passwordLockTime = unset;
+        int accountUnlocked = unset;
 
         if (ctx.historyDefault != null) {
             passwordHistory = -1;
         } else if (ctx.historyValue != null) {
             passwordHistory = Integer.parseInt(ctx.historyValue.getText());
-        } else {
-            passwordHistory = -2;
         }
 
         if (ctx.expireDefault != null) {
@@ -6327,22 +6326,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.expireValue != null) {
             long value = Long.parseLong(ctx.expireValue.getText());
             passwordExpire = ParserUtils.convertSecond(value, ctx.expireTimeUnit.getText());
-        } else {
-            passwordExpire = -2;
         }
 
         if (ctx.reuseDefault != null) {
             passwordReuse = -1;
         } else if (ctx.reuseValue != null) {
             passwordReuse = Integer.parseInt(ctx.reuseValue.getText());
-        } else {
-            passwordReuse = -2;
         }
 
         if (ctx.attemptsValue != null) {
             failedLoginAttempts = Integer.parseInt(ctx.attemptsValue.getText());
-        } else {
-            failedLoginAttempts = -2;
         }
 
         if (ctx.lockUnbounded != null) {
@@ -6350,16 +6343,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.lockValue != null) {
             long value = Long.parseLong(ctx.lockValue.getText());
             passwordLockTime = ParserUtils.convertSecond(value, ctx.lockTimeUint.getText());
-        } else {
-            passwordLockTime = -2;
         }
 
         if (ctx.ACCOUNT_LOCK() != null) {
             accountUnlocked = -1;
         } else if (ctx.ACCOUNT_UNLOCK() != null) {
             accountUnlocked = 1;
-        } else {
-            accountUnlocked = -2;
         }
 
         return new PasswordOptions(passwordExpire,
