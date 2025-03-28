@@ -65,6 +65,7 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("percentile",
                                    creator_with_numeric_type::creator<AggregateFunctionPercentile>);
+    factory.register_alias("percentile", "percentile_cont");
     factory.register_function_both(
             "percentile_array",
             creator_with_numeric_type::creator<AggregateFunctionPercentileArray>);

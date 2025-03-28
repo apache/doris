@@ -63,5 +63,15 @@ suite("test_role", "account") {
     def roles_drop = sql """show roles"""
     logger.info("roles_drop: " + roles_drop.toString())
     assertFalse(roles_drop.toString().contains("account_p0_account_role_test_comment_alter"))
+
+    // test IdentifierOrText
+    sql """CREATE ROLE '${role}' comment 'account_p0_account_role_test_comment_create_text'"""
+    def roles_text_create = sql """show roles"""
+    logger.info("roles_text_create: " + roles_text_create.toString())
+    assertTrue(roles_text_create.toString().contains("account_p0_account_role_test_comment_create_text"))
+    sql """DROP ROLE '${role}'"""
+    def roles_text_drop = sql """show roles"""
+    logger.info("roles_text_drop: " + roles_text_drop.toString())
+    assertFalse(roles_text_drop.toString().contains("account_p0_account_role_test_comment_create_text"))
 }
 

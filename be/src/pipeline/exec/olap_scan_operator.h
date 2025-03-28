@@ -94,7 +94,7 @@ private:
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
     std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
-    std::vector<TCondition> _olap_filters;
+    std::vector<FilterOlapParam<TCondition>> _olap_filters;
     // If column id in this set, indicate that we need to read data after index filtering
     std::set<int32_t> _maybe_read_column_ids;
 

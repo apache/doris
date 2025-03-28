@@ -248,7 +248,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
 
         // Test positive cases
         auto test_positive = [&](const std::vector<std::string>& values, bool result) {
-            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATE>>();
+            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATE>>(false);
             for (const auto& value : values) {
                 auto v = timestamp_from_date(value);
                 hybrid_set->insert(&v);
@@ -266,7 +266,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
         test_positive({"2024-11-09"}, true);
 
         auto test_negative = [&](const std::vector<std::string>& values, bool result) {
-            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATE>>();
+            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATE>>(false);
 
             for (const auto& value : values) {
                 auto v = timestamp_from_date(value);
@@ -298,7 +298,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
 
         // Test positive cases
         auto test_positive = [&](const std::vector<std::string>& values, bool result) {
-            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATETIME>>();
+            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATETIME>>(false);
             for (const auto& value : values) {
                 auto v = timestamp_from_datetime(value);
                 hybrid_set->insert(&v);
@@ -317,7 +317,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
 
         // Test negative cases
         auto test_negative = [&](const std::vector<std::string>& values, bool result) {
-            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATETIME>>();
+            auto hybrid_set = std::make_shared<HybridSet<PrimitiveType::TYPE_DATETIME>>(false);
             for (const auto& value : values) {
                 auto v = timestamp_from_datetime(value);
                 hybrid_set->insert(&v);
