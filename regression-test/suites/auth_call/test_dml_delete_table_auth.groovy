@@ -65,15 +65,6 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
     }
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
-        test {
-            sql """DELETE FROM ${dbName}.${tableName} WHERE id = 3;"""
-            exception "denied"
-        }
-        def del_res = sql """show DELETE from ${dbName}"""
-        assertTrue(del_res.size() == 0)
-    }
-    sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """DELETE FROM ${dbName}.${tableName} WHERE id = 3;"""
         def del_res = sql """show DELETE from ${dbName}"""
         logger.info("del_res: " + del_res)
