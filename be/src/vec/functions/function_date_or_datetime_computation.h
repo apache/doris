@@ -66,12 +66,13 @@ namespace doris::vectorized {
 /// because all these functions(xxx_add/xxx_sub) defined in FE use Integer as the second value
 ///  so Int32 as delta is enough. For upstream(FunctionDateOrDateTimeComputation) we also could use Int32.
 
-template <TimeUnit unit, typename ArgType, typename ReturnType,
-          typename InputNativeType = ArgType::FieldType,
-          typename ReturnNativeType = ReturnType::FieldType>
-ReturnNativeType date_time_add(const InputNativeType& t, Int32 delta, bool& is_null) {
+template <TimeUnit unit, typename ArgType, typename ReturnType>
+ReturnType::FieldType date_time_add(const typename ArgType::FieldType& t, Int32 delta,
+                                    bool& is_null) {
     using DateValueType = date_cast::TypeToValueTypeV<ArgType>;
     using ResultDateValueType = date_cast::TypeToValueTypeV<ReturnType>;
+    using InputNativeType = ArgType::FieldType;
+    using ReturnNativeType = ReturnType::FieldType;
     // e.g.: for DatatypeDatetimeV2, cast from u64 to DateV2Value<DateTimeV2ValueType>
     auto ts_value = binary_cast<InputNativeType, DateValueType>(t);
     TimeInterval interval(unit, delta, false);
@@ -449,6 +450,8 @@ public:
         // for all `xxx_add/sub`, the second arg is int32.
         // for `week/yearweek`, if it has the second arg, it's int32.
         // in these situations, the first would be any datelike type.
+        //TODO: now we use switch and if to do check in runtime.
+        // it leads to generation of a lot of useless template. try to use if constexpr to avoid this.
         if (which2.is_int32()) {
             switch (which1.idx) {
             case TypeIndex::Date:

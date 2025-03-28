@@ -613,7 +613,7 @@ suite("load") {
         s_zip char(10),
         s_country varchar(20),
         s_gmt_offset decimalv3(5,2),
-        s_tax_precentage decimalv3(5,2)
+        s_tax_percentage decimalv3(5,2)
     )
     DUPLICATE KEY(s_store_sk)
     DISTRIBUTED BY HASH(s_store_sk) BUCKETS 1
@@ -2139,7 +2139,7 @@ alter table catalog_sales modify column cs_ship_hdemo_sk set stats ('row_count'=
 """
 
 sql """
-alter table store modify column s_tax_precentage set stats ('row_count'='402', 'ndv'='1', 'min_value'='0.00', 'max_value'='0.11', 'avg_size'='1608', 'max_size'='1608' )
+alter table store modify column s_tax_percentage set stats ('row_count'='402', 'ndv'='1', 'min_value'='0.00', 'max_value'='0.11', 'avg_size'='1608', 'max_size'='1608' )
 """
 
 sql """

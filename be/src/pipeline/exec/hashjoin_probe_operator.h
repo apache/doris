@@ -37,7 +37,6 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN>,
                      ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::CROSS_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
@@ -61,14 +60,7 @@ public:
                                         bool* eos, vectorized::Block* temp_block,
                                         bool check_rows_count = true);
 
-    bool have_other_join_conjunct() const;
-    bool is_right_semi_anti() const;
-    bool is_outer_join() const;
-    std::vector<bool>* left_output_slot_flags();
-    std::vector<bool>* right_output_slot_flags();
-    vectorized::DataTypes right_table_data_types();
-    vectorized::DataTypes left_table_data_types();
-    bool* has_null_in_build_side() { return &_shared_state->_has_null_in_build_side; }
+    bool has_null_in_build_side() { return _shared_state->_has_null_in_build_side; }
     const std::shared_ptr<vectorized::Block>& build_block() const {
         return _shared_state->build_block;
     }
@@ -159,11 +151,19 @@ public:
                _join_distribution != TJoinDistributionType::NONE;
     }
 
+    bool need_finalize_variant_column() const { return _need_finalize_variant_column; }
+
+    bool is_lazy_materialized_column(int column_id) const {
+        return _have_other_join_conjunct && !_other_conjunct_refer_column_ids.contains(column_id);
+    }
+
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer,
                         std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
+    template <int JoinOpType>
+    friend struct ProcessHashTableProbe;
 
     const TJoinDistributionType::type _join_distribution;
 
@@ -181,6 +181,8 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
+    bool _need_finalize_variant_column = false;
+    std::set<int> _other_conjunct_refer_column_ids;
     std::vector<std::string> _right_table_column_names;
     const std::vector<TExpr> _partition_exprs;
 };

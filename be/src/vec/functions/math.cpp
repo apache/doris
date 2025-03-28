@@ -60,6 +60,13 @@ struct AcosName {
 using FunctionAcos =
         FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AcosName, std::acos>>;
 
+struct AcoshName {
+    static constexpr auto name = "acosh";
+    static constexpr bool is_invalid_input(Float64 x) { return x < 1; }
+};
+using FunctionAcosh =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AcoshName, std::acosh>>;
+
 struct AsinName {
     static constexpr auto name = "asin";
     // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_asin
@@ -68,10 +75,22 @@ struct AsinName {
 using FunctionAsin =
         FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AsinName, std::asin>>;
 
+struct AsinhName {
+    static constexpr auto name = "asinh";
+};
+using FunctionAsinh = FunctionMathUnary<UnaryFunctionPlain<AsinhName, std::asinh>>;
+
 struct AtanName {
     static constexpr auto name = "atan";
 };
 using FunctionAtan = FunctionMathUnary<UnaryFunctionPlain<AtanName, std::atan>>;
+
+struct AtanhName {
+    static constexpr auto name = "atanh";
+    static constexpr bool is_invalid_input(Float64 x) { return x <= -1 || x >= 1; }
+};
+using FunctionAtanh =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AtanhName, std::atanh>>;
 
 template <typename A, typename B>
 struct Atan2Impl {
@@ -246,6 +265,11 @@ struct UnaryFunctionPlainSin {
 };
 
 using FunctionSin = FunctionMathUnary<UnaryFunctionPlainSin>;
+
+struct SinhName {
+    static constexpr auto name = "sinh";
+};
+using FunctionSinh = FunctionMathUnary<UnaryFunctionPlain<SinhName, std::sinh>>;
 
 struct SqrtName {
     static constexpr auto name = "sqrt";
@@ -427,8 +451,11 @@ public:
 // so mush. Split it to speed up compile time in the future
 void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAcos>();
+    factory.register_function<FunctionAcosh>();
     factory.register_function<FunctionAsin>();
+    factory.register_function<FunctionAsinh>();
     factory.register_function<FunctionAtan>();
+    factory.register_function<FunctionAtanh>();
     factory.register_function<FunctionAtan2>();
     factory.register_function<FunctionCos>();
     factory.register_function<FunctionCosh>();
@@ -445,6 +472,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionNegative>();
     factory.register_function<FunctionPositive>();
     factory.register_function<FunctionSin>();
+    factory.register_function<FunctionSinh>();
     factory.register_function<FunctionSqrt>();
     factory.register_alias("sqrt", "dsqrt");
     factory.register_function<FunctionCbrt>();
