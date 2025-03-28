@@ -24,14 +24,44 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 
 /**
- * executable function: date_add/sub, years/quarters/months/week/days/hours/minutes/seconds_add/sub, datediff
+ * executable function: date_add/sub,
+ * years/quarters/months/week/days/hours/minutes/seconds_add/sub, datediff
  */
 public class DateTimeArithmetic {
+
+    private static final HashMap<String, Integer> DAY_OF_WEEK = new HashMap<>();
+
+    static {
+        DAY_OF_WEEK.put("MO", 1);
+        DAY_OF_WEEK.put("MON", 1);
+        DAY_OF_WEEK.put("MONDAY", 1);
+        DAY_OF_WEEK.put("TU", 2);
+        DAY_OF_WEEK.put("TUE", 2);
+        DAY_OF_WEEK.put("TUESDAY", 2);
+        DAY_OF_WEEK.put("WE", 3);
+        DAY_OF_WEEK.put("WED", 3);
+        DAY_OF_WEEK.put("WEDNESDAY", 3);
+        DAY_OF_WEEK.put("TH", 4);
+        DAY_OF_WEEK.put("THU", 4);
+        DAY_OF_WEEK.put("THURSDAY", 4);
+        DAY_OF_WEEK.put("FR", 5);
+        DAY_OF_WEEK.put("FRI", 5);
+        DAY_OF_WEEK.put("FRIDAY", 5);
+        DAY_OF_WEEK.put("SA", 6);
+        DAY_OF_WEEK.put("SAT", 6);
+        DAY_OF_WEEK.put("SATURDAY", 6);
+        DAY_OF_WEEK.put("SU", 7);
+        DAY_OF_WEEK.put("SUN", 7);
+        DAY_OF_WEEK.put("SUNDAY", 7);
+    }
+
     /**
      * datetime arithmetic function date-add.
      */
@@ -488,5 +518,27 @@ public class DateTimeArithmetic {
     @ExecFunction(name = "to_days")
     public static Expression toDays(DateV2Literal date) {
         return new IntegerLiteral((int) date.getDay());
+    }
+
+    private static int getDayOfWeek(String day) {
+        Integer dayOfWeek = DAY_OF_WEEK.get(day.toUpperCase());
+        if (dayOfWeek == null) {
+            return 0;
+        }
+        return dayOfWeek;
+    }
+
+    /**
+     * date arithmetic function next_day
+     */
+    @ExecFunction(name = "next_day")
+    public static Expression nextDay(DateV2Literal date, StringLiteral day) {
+        int dayOfWeek = getDayOfWeek(day.getValue());
+        if (dayOfWeek == 0) {
+            throw new RuntimeException("Invalid day of week: " + day.getValue());
+        }
+        int daysToAdd = (dayOfWeek - date.getDayOfWeek() + 7) % 7;
+        daysToAdd = daysToAdd == 0 ? 7 : daysToAdd;
+        return date.plusDays(daysToAdd);
     }
 }
