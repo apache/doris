@@ -758,7 +758,7 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
             // When there is only one segment, we can ensure that the size of each path in output stats is accurate
             if (output->num_segments() == 1) {
                 for (const auto& [path, size] : stats) {
-                    if (original_uid_to_path_stats.at(uid).at(path) > size) {
+                    if (original_uid_to_path_stats.at(uid).at(path) >= size) {
                         return Status::InternalError(
                                 "Path stats not smaller for uid {} with path `{}`, input size {}, "
                                 "output "
