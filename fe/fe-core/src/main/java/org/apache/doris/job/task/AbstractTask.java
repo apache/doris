@@ -184,6 +184,9 @@ public abstract class AbstractTask implements Task {
             onFail();
             log.warn("execute task error, job id is {}, task id is {}", jobId, taskId, e);
         } finally {
+            // The cancel logic will call the closeOrReleased Resources method by itself.
+            // If it is also called here,
+            // it may result in the inability to obtain relevant information when canceling the task
             if (!TaskStatus.CANCELED.equals(status)) {
                 closeOrReleaseResources();
             }

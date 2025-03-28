@@ -365,6 +365,9 @@ public class MTMVTask extends AbstractTask {
     @Override
     protected void executeCancelLogic(boolean needWaitCancelComplete) {
         try {
+            // Mtmv is initialized in the before method.
+            // If the task has not yet run, the before method will not be used, so mtmv will be empty,
+            // which prevents the canceled task from being added to the history list
             if (mtmv == null) {
                 mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
             }
