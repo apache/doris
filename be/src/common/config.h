@@ -700,6 +700,9 @@ DECLARE_Int32(load_process_soft_mem_limit_percent);
 // memtable memory limiter will do nothing.
 DECLARE_Int32(load_process_safe_mem_permit_percent);
 
+// If there are a lot of memtable memory, then wait them flush finished.
+DECLARE_mDouble(load_max_wg_active_memtable_percent);
+
 // result buffer cancelled time (unit: second)
 DECLARE_mInt32(result_buffer_cancelled_interval_time);
 
@@ -1102,6 +1105,7 @@ DECLARE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent);
 DECLARE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent);
 DECLARE_mInt32(file_cache_evict_in_advance_interval_ms);
 DECLARE_mInt64(file_cache_evict_in_advance_batch_bytes);
+DECLARE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold);
 DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
 // If true, evict the ttl cache using LRU when full.
@@ -1120,6 +1124,7 @@ DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
 // enable this option; otherwise, it is recommended to leave it disabled.
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
+DECLARE_mInt64(file_cache_background_gc_interval_ms);
 // inverted index searcher cache
 // cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
@@ -1262,6 +1267,10 @@ DECLARE_mInt64(mow_primary_key_index_max_size_in_memory);
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log
 DECLARE_mInt32(publish_version_gap_logging_threshold);
+// get agg by cache for mow table
+DECLARE_mBool(enable_mow_get_agg_by_cache);
+// get agg correctness check for mow table
+DECLARE_mBool(enable_mow_get_agg_correctness_check_core);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
@@ -1327,6 +1336,9 @@ DECLARE_Int32(ingest_binlog_work_pool_size);
 
 // Ingest binlog with persistent connection
 DECLARE_Bool(enable_ingest_binlog_with_persistent_connection);
+
+// Log ingest binlog elapsed threshold, -1 means no log
+DECLARE_mInt64(ingest_binlog_elapsed_threshold_ms);
 
 // Download binlog rate limit, unit is KB/s
 DECLARE_Int32(download_binlog_rate_limit_kbs);
