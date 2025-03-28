@@ -79,10 +79,9 @@ public class HDFSProperties extends StorageProperties {
             return;
         }
         finalHdfsConfig = new HashMap<>();
-        Configuration configuration = new Configuration();
-        origProps.forEach((k, v) -> {
-            if (null != configuration.getTrimmed(k)) {
-                finalHdfsConfig.put(k, v);
+        origProps.forEach((key, value) -> {
+            if (key.startsWith("hadoop.") || key.startsWith("dfs.")) {
+                finalHdfsConfig.put(key, value);
             }
         });
 

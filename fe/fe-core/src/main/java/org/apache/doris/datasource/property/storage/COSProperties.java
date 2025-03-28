@@ -28,15 +28,15 @@ import java.util.regex.Pattern;
 
 public class COSProperties extends AbstractObjectStorageProperties {
 
-    @ConnectorProperty(names = {"cos.endpoint"},
+    @ConnectorProperty(names = {"cos.endpoint", "s3.endpoint"},
             required = false,
             description = "The endpoint of COS.")
-    protected String cosEndpoint = "cos.ap-guangzhou.myqcloud.com";
+    protected String cosEndpoint = "";
 
-    @ConnectorProperty(names = {"cos.region"},
+    @ConnectorProperty(names = {"cos.region", "s3.region"},
             required = false,
             description = "The region of COS.")
-    protected String cosRegion = "";
+    protected String cosRegion = "ap-guangzhou";
 
     @ConnectorProperty(names = {"cos.access_key"},
             description = "The access key of S3.")

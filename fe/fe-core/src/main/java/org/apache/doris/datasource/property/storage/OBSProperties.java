@@ -28,7 +28,7 @@ import java.util.regex.Pattern;
 
 public class OBSProperties extends AbstractObjectStorageProperties {
 
-    @ConnectorProperty(names = {"obs.endpoint"}, required = false, description = "The endpoint of OBS.")
+    @ConnectorProperty(names = {"obs.endpoint", "s3.endpoint"}, required = false, description = "The endpoint of OBS.")
     protected String obsEndpoint = "obs.cn-east-3.myhuaweicloud.com";
 
     @ConnectorProperty(names = {"obs.access_key"}, description = "The access key of OBS.")
@@ -38,7 +38,8 @@ public class OBSProperties extends AbstractObjectStorageProperties {
     protected String obsSecretKey = "";
 
 
-    private String region;
+    @ConnectorProperty(names = {"obs.region", "s3.region"}, required = false, description = "The region of OBS.")
+    protected String region;
 
     public OBSProperties(Map<String, String> origProps) {
         super(Type.OBS, origProps);

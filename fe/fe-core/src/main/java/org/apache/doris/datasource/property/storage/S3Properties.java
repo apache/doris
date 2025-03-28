@@ -21,7 +21,6 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.metastore.AWSGlueProperties;
 import org.apache.doris.datasource.property.metastore.AliyunDLFProperties;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.paimon.options.Options;
@@ -34,14 +33,12 @@ import java.util.Map;
 public class S3Properties extends AbstractObjectStorageProperties {
 
     @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT"},
-            required = false,
             description = "The endpoint of S3.")
     protected String s3Endpoint = "";
 
     @ConnectorProperty(names = {"s3.region", "AWS_REGION"},
-            required = false,
             description = "The region of S3.")
-    protected String s3Region = "";
+    protected String s3Region = "us-east-1";
 
     @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY"},
             description = "The access key of S3.")
@@ -96,11 +93,6 @@ public class S3Properties extends AbstractObjectStorageProperties {
 
     public S3Properties(Map<String, String> origProps) {
         super(Type.S3, origProps);
-        if (Strings.isNullOrEmpty(s3Region)) {
-            // Some object storage services do not have region concept, eg: minio.
-            // Use a default one.
-            s3Endpoint = "us-east-1";
-        }
     }
 
     /**
@@ -110,6 +102,9 @@ public class S3Properties extends AbstractObjectStorageProperties {
      * @return
      */
     public static boolean guessIsMe(Map<String, String> origProps) {
+        if (origProps.containsKey("s3.access_key") || origProps.containsKey("AWS_ACCESS_KEY")) {
+            return true;
+        }
         List<Field> fields = getIdentifyFields();
         return StorageProperties.checkIdentifierKey(origProps, fields);
     }
@@ -118,10 +113,9 @@ public class S3Properties extends AbstractObjectStorageProperties {
         List<Field> fields = Lists.newArrayList();
         try {
             //todo AliyunDlfProperties should in OSS storage type.
-            fields.add(S3Properties.class.getDeclaredField("s3Endpoint"));
-            fields.add(AliyunDLFProperties.class.getDeclaredField("dlfEndpoint"));
-            fields.add(AliyunDLFProperties.class.getDeclaredField("dlfRegion"));
-            fields.add(AWSGlueProperties.class.getDeclaredField("glueEndpoint"));
+            fields.add(S3Properties.class.getDeclaredField("s3AccessKey"));
+            fields.add(AliyunDLFProperties.class.getDeclaredField("dlfAccessKey"));
+            fields.add(AWSGlueProperties.class.getDeclaredField("glueAccessKey"));
             return fields;
         } catch (NoSuchFieldException e) {
             // should not happen
