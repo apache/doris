@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -36,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
@@ -53,24 +51,24 @@ import java.util.Map;
  */
 public class ShowColumnsCommand extends ShowCommand {
     private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
-            .addColumn(new Column("Field", ScalarType.createVarchar(20)))
-            .addColumn(new Column("Type", ScalarType.createVarchar(20)))
-            .addColumn(new Column("Null", ScalarType.createVarchar(20)))
-            .addColumn(new Column("Key", ScalarType.createVarchar(20)))
-            .addColumn(new Column("Default", ScalarType.createVarchar(20)))
-            .addColumn(new Column("Extra", ScalarType.createVarchar(20))).build();
+            .addColumn(new Column("Field", ScalarType.createVarchar(128)))
+            .addColumn(new Column("Type", ScalarType.createVarchar(128)))
+            .addColumn(new Column("Null", ScalarType.createVarchar(128)))
+            .addColumn(new Column("Key", ScalarType.createVarchar(128)))
+            .addColumn(new Column("Default", ScalarType.createVarchar(128)))
+            .addColumn(new Column("Extra", ScalarType.createVarchar(128))).build();
 
     private static final ShowResultSetMetaData META_DATA_VERBOSE =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Field", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Collation", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Null", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Key", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Default", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Extra", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Privileges", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Comment", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Field", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Type", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Collation", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Null", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Key", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Default", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Extra", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Privileges", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("Comment", ScalarType.createVarchar(128)))
                     .build();
 
     private static Map<String, String> ALIAS_COLUMN_MAP = ImmutableMap.<String, String>builder()
@@ -113,22 +111,25 @@ public class ShowColumnsCommand extends ShowCommand {
     }
 
     /**
-     * isShowTablesCaseSensitive
-     */
-    public boolean isShowTablesCaseSensitive() {
-        if (GlobalVariable.lowerCaseTableNames == 0) {
-            return CaseSensibility.TABLE.getCaseSensibility();
-        }
-        return false;
-    }
-
-    /**
      * execute sql and return result
      */
     private ShowResultSet execute(ConnectContext ctx, StmtExecutor executor, String whereClause) {
         List<AliasInfo> selectList = new ArrayList<>();
         ALIAS_COLUMN_MAP.forEach((key, value) -> {
-            selectList.add(AliasInfo.of(value, key));
+            if (!isVerbose && (key.equals("collation") || key.equals("privileges") || key.equals("comment"))) {
+                return;
+            }
+            boolean enableQuota = true;
+            if (key.equals("collation")) {
+                value = "''";
+            } else if (key.equals("privileges")) {
+                value = "''";
+            } else if (key.equals("key")) {
+                value = "CASE WHEN `COLUMN_KEY` = '' THEN 'NO' ELSE 'YES' END";
+            } else {
+                enableQuota = false;
+            }
+            selectList.add(AliasInfo.of(value, key, enableQuota));
         });
 
         TableNameInfo fullTblName = new TableNameInfo(tableNameInfo.getCtl(), InfoSchemaDb.DATABASE_NAME, "columns");
@@ -161,7 +162,7 @@ public class ShowColumnsCommand extends ShowCommand {
                 + "' AND TABLE_NAME = '" + tableNameInfo.getTbl() + "' ";
         if (whereClause != null) {
             Expression rewritten = whereClause.accept(new ReplaceColumnNameVisitor(), null);
-            String whereCondition = " WHERE " + defaultClause + rewritten.toSql();
+            String whereCondition = " WHERE " + defaultClause + " AND " + rewritten.toSql();
             return execute(ctx, executor, whereCondition);
         } else if (likePattern != null) {
             return execute(ctx, executor, " WHERE " + defaultClause
