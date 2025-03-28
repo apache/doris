@@ -512,7 +512,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         String host = backend.getHost();
         for (Replica replica : tablet.getReplicas()) {
             long replicaBeId = replica.getBackendIdWithoutException();
-            Backend be = infoService.getBackend(beId);
+            Backend be = infoService.getBackend(replicaBeId);
             if (be == null) {
                 // BE has been dropped, skip it
                 if (LOG.isDebugEnabled()) {
