@@ -850,6 +850,13 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
             *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
     int64_t t2 = MonotonicMicros();
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
+    DBUG_EXECUTE_IF("CloudTablet.calc_delete_bitmap_for_compaction.sleep", {
+        std::srand(static_cast<unsigned int>(std::time(nullptr)));
+        int random_sleep_time_second = std::rand() % 5;
+        LOG(INFO) << "after sync rowsets for initiator: " << initiator << ", random sleep "
+                  << random_sleep_time_second << " second";
+        std::this_thread::sleep_for(std::chrono::seconds(random_sleep_time_second));
+    })
     int64_t t3 = MonotonicMicros();
 
     calc_compaction_output_rowset_delete_bitmap(
