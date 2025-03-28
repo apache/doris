@@ -154,6 +154,6 @@ public class DateTrunc extends ScalarFunction
     @Override
     public Expression withConstantArgs(Expression literal) {
         return getArgument(0).getDataType().isDateLikeType()
-                ? new DateTrunc(literal, child(1)) : new DateTrunc(child(0), literal)
+                ? new DateTrunc(literal, child(1)) : new DateTrunc(child(0), literal);
     }
 }
