@@ -217,6 +217,7 @@ public:
         return _subcolumns_tree_tracker;
     }
     std::shared_ptr<MemTrackerLimiter> s3_file_buffer_tracker() { return _s3_file_buffer_tracker; }
+    std::shared_ptr<MemTrackerLimiter> parquet_meta_tracker() { return _parquet_meta_tracker; }
 
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* buffered_reader_prefetch_thread_pool() {
@@ -412,6 +413,9 @@ private:
     std::shared_ptr<MemTrackerLimiter> _rowid_storage_reader_tracker;
     std::shared_ptr<MemTrackerLimiter> _subcolumns_tree_tracker;
     std::shared_ptr<MemTrackerLimiter> _s3_file_buffer_tracker;
+
+    // Tracking memory consumption of parquet meta
+    std::shared_ptr<MemTrackerLimiter> _parquet_meta_tracker;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
     // Threadpool used to prefetch remote file for buffered reader
