@@ -401,18 +401,23 @@ Status PipelineTask::execute(bool* done) {
         });
 
         if (_wake_up_early) {
+            RETURN_IF_ERROR(_root->terminate(_state));
+            RETURN_IF_ERROR(_sink->terminate(_state));
             _eos = true;
             return Status::OK();
         }
         RETURN_IF_ERROR(_open());
     }
 
-    auto set_wake_up_and_dep_ready = [&]() {
+    auto set_wake_up_and_dep_ready = [&]() -> Status {
         if (wake_up_early()) {
-            return;
+            return Status::OK();
         }
         set_wake_up_early();
         terminate();
+        RETURN_IF_ERROR(_root->terminate(_state));
+        RETURN_IF_ERROR(_sink->terminate(_state));
+        return Status::OK();
     };
 
     while (!_fragment_context->is_canceled()) {
@@ -447,7 +452,7 @@ Status PipelineTask::execute(bool* done) {
 
         // `_sink->is_finished(_state)` means sink operator should be finished
         if (_sink->is_finished(_state)) {
-            set_wake_up_and_dep_ready();
+            RETURN_IF_ERROR(set_wake_up_and_dep_ready());
         }
 
         // `_dry_run` means sink operator need no more data
@@ -584,7 +589,7 @@ Status PipelineTask::execute(bool* done) {
             status = _sink->sink(_state, block, _eos);
 
             if (status.is<ErrorCode::END_OF_FILE>()) {
-                set_wake_up_and_dep_ready();
+                RETURN_IF_ERROR(set_wake_up_and_dep_ready());
             } else if (!status) {
                 return status;
             }
