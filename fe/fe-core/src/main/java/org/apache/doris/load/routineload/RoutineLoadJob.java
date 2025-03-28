@@ -1023,9 +1023,6 @@ public abstract class RoutineLoadJob
                 ConnectContext ctx = new ConnectContext();
                 ctx.setThreadLocalInfo();
             }
-            if (ConnectContext.get().getEnv() == null) {
-                ConnectContext.get().setEnv(Env.getCurrentEnv());
-            }
             String currentUser = ConnectContext.get().getQualifiedUser();
             if (StringUtils.isEmpty(currentUser)) {
                 currentUser = getUserIdentity().getQualifiedUser();
@@ -1074,6 +1071,9 @@ public abstract class RoutineLoadJob
                 }
             } else {
                 setComputeGroup();
+            }
+            if (ConnectContext.get().getEnv() == null) {
+                ConnectContext.get().setEnv(Env.getCurrentEnv());
             }
 
             TPipelineFragmentParams planParams = planner.plan(loadId);
