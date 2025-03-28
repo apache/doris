@@ -97,7 +97,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                                 ->thread_mem_tracker_mgr->limiter_mem_tracker()
                                 ->consumption()),
                 doris::PrettyPrinter::print_bytes(
-                        doris::thread_context()->thread_mem_tracker()->reserved_consumption()),
+                        doris::thread_context()
+                                ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                ->reserved_consumption()),
                 doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label(),
                 doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
 

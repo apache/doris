@@ -82,7 +82,8 @@ public:
     void consume(int64_t size);
     void flush_untracked_mem();
 
-    doris::Status try_reserve(int64_t size, bool only_check_process_memory);
+    // if only_check_process_memory == true, still reserve query, wg, process memory, only check process memory.
+    doris::Status try_reserve(int64_t size, bool only_check_process_memory = false);
 
     void shrink_reserved();
 
@@ -281,9 +282,9 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
 
 inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size,
                                                       bool only_check_process_memory) {
-    DCHECK(_limiter_tracker);
     DCHECK(size >= 0);
     CHECK(init());
+    DCHECK(_limiter_tracker);
     memory_orphan_check();
     // if _reserved_mem not equal to 0, repeat reserve,
     // _untracked_mem store bytes that not synchronized to process reserved memory.

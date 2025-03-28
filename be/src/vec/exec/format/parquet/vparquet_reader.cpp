@@ -347,6 +347,7 @@ Status ParquetReader::init_reader(
         for (const std::string& name : required_columns) {
             _missing_cols.emplace_back(name);
         }
+
     } else {
         std::unordered_map<std::string, ColumnValueRangeType> new_colname_to_value_range;
         const auto& table_column_idxs = _scan_params.column_idxs;
