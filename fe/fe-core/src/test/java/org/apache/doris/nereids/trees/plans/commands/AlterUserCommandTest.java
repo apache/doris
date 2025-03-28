@@ -30,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import mockit.Expectations;
 import mockit.Mocked;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class AlterUserCommandTest {
@@ -76,7 +77,6 @@ public class AlterUserCommandTest {
         passwordOptions = PasswordOptions.UNSET_OPTION;
         alterUserInfo = new AlterUserInfo(true, userDesc, passwordOptions, "");
         alterUserCommand = new AlterUserCommand(alterUserInfo);
-
-        alterUserCommand.validate();
+        Assertions.assertDoesNotThrow(() -> alterUserCommand.validate());
     }
 }
