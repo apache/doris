@@ -98,6 +98,9 @@ public:
     Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
 
+    static Status new_default_iterator(const TabletColumn& tablet_column,
+                                       std::unique_ptr<ColumnIterator>* iter);
+
     uint32_t id() const { return _segment_id; }
 
     RowsetId rowset_id() const { return _rowset_id; }

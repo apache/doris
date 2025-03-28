@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Acosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
@@ -82,9 +83,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayZip;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Asinh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Atanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
@@ -170,7 +173,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dfloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DigitalMasking;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dlog10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Domain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DomainWithoutWww;
@@ -380,6 +382,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sinh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3sum;
@@ -415,8 +418,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfrom
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
@@ -495,6 +496,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitAcos(Acos acos, C context) {
         return visitScalarFunction(acos, context);
+    }
+
+    default R visitAcosh(Acosh acosh, C context) {
+        return visitScalarFunction(acosh, context);
     }
 
     default R visitAesDecrypt(AesDecrypt aesDecrypt, C context) {
@@ -733,12 +738,20 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(asin, context);
     }
 
+    default R visitAsinh(Asinh asinh, C context) {
+        return visitScalarFunction(asinh, context);
+    }
+
     default R visitAssertTrue(AssertTrue assertTrue, C context) {
         return visitScalarFunction(assertTrue, context);
     }
 
     default R visitAtan(Atan atan, C context) {
         return visitScalarFunction(atan, context);
+    }
+
+    default R visitAtanh(Atanh atanh, C context) {
+        return visitScalarFunction(atanh, context);
     }
 
     default R visitAtan2(Atan2 atan2, C context) {
@@ -1136,10 +1149,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDfloor(Dfloor dfloor, C context) {
         return visitScalarFunction(dfloor, context);
-    }
-
-    default R visitDlog1(Dlog1 dlog1, C context) {
-        return visitScalarFunction(dlog1, context);
     }
 
     default R visitDlog10(Dlog10 dlog10, C context) {
@@ -1898,6 +1907,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(sin, context);
     }
 
+    default R visitSinh(Sinh sinh, C context) {
+        return visitScalarFunction(sinh, context);
+    }
+
     default R visitSleep(Sleep sleep, C context) {
         return visitScalarFunction(sleep, context);
     }
@@ -2036,14 +2049,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStartsWith(StartsWith startsWith, C context) {
         return visitScalarFunction(startsWith, context);
-    }
-
-    default R visitStrLeft(StrLeft strLeft, C context) {
-        return visitScalarFunction(strLeft, context);
-    }
-
-    default R visitStrRight(StrRight strRight, C context) {
-        return visitScalarFunction(strRight, context);
     }
 
     default R visitStrToDate(StrToDate strToDate, C context) {

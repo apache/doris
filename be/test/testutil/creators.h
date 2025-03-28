@@ -55,35 +55,10 @@ inline std::shared_ptr<QueryContext> generate_one_query() {
     return generate_one_query(query_options);
 }
 
-inline TDescriptorTable create_test_table_descriptor(bool nullable = false) {
-    TTupleDescriptorBuilder tuple_builder;
-    tuple_builder.add_slot(TSlotDescriptorBuilder()
-                                   .type(PrimitiveType::TYPE_INT)
-                                   .column_name("col1")
-                                   .column_pos(0)
-                                   .nullable(nullable)
-                                   .build());
-
-    TDescriptorTableBuilder builder;
-
-    tuple_builder.build(&builder);
-
-    TTupleDescriptorBuilder()
-            .add_slot(TSlotDescriptorBuilder()
-                              .type(TYPE_INT)
-                              .column_name("col2")
-                              .column_pos(0)
-                              .nullable(nullable)
-                              .build())
-            .build(&builder);
-
-    return builder.desc_tbl();
-}
-
 inline std::pair<pipeline::PipelinePtr, pipeline::PipelinePtr> generate_hash_join_pipeline(
         std::shared_ptr<OperatorXBase> probe_operator,
-        std::shared_ptr<OperatorXBase> build_side_source,
-        pipeline::DataSinkOperatorPtr probe_side_sink_operator, DataSinkOperatorPtr sink_operator) {
+        pipeline::DataSinkOperatorPtr probe_side_sink_operator, DataSinkOperatorPtr sink_operator,
+        std::shared_ptr<OperatorXBase> build_side_source) {
     auto probe_pipeline = std::make_shared<pipeline::Pipeline>(0, 1, 1);
     auto build_pipeline = std::make_shared<pipeline::Pipeline>(1, 1, 1);
 
@@ -93,6 +68,29 @@ inline std::pair<pipeline::PipelinePtr, pipeline::PipelinePtr> generate_hash_joi
     static_cast<void>(build_pipeline->set_sink(sink_operator));
 
     return {probe_pipeline, build_pipeline};
+}
+
+inline std::pair<pipeline::PipelinePtr, pipeline::PipelinePtr> generate_agg_pipeline(
+        std::shared_ptr<OperatorXBase> source_operator,
+        pipeline::DataSinkOperatorPtr source_side_sink_operator, DataSinkOperatorPtr sink_operator,
+        std::shared_ptr<OperatorXBase> sink_side_source) {
+    auto source_pipeline = std::make_shared<pipeline::Pipeline>(0, 1, 1);
+    auto sink_pipeline = std::make_shared<pipeline::Pipeline>(1, 1, 1);
+
+    static_cast<void>(source_pipeline->add_operator(source_operator, 1));
+    static_cast<void>(source_pipeline->set_sink(source_side_sink_operator));
+    static_cast<void>(sink_pipeline->add_operator(sink_side_source, 1));
+    static_cast<void>(sink_pipeline->set_sink(sink_operator));
+
+    return {source_pipeline, sink_pipeline};
+}
+
+inline std::pair<pipeline::PipelinePtr, pipeline::PipelinePtr> generate_sort_pipeline(
+        std::shared_ptr<OperatorXBase> source_operator,
+        pipeline::DataSinkOperatorPtr source_side_sink_operator, DataSinkOperatorPtr sink_operator,
+        std::shared_ptr<OperatorXBase> sink_side_source) {
+    return generate_agg_pipeline(source_operator, source_side_sink_operator, sink_operator,
+                                 sink_side_source);
 }
 
 inline std::unique_ptr<SpillPartitionerType> create_spill_partitioner(

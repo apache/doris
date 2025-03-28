@@ -67,8 +67,6 @@ Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
 
     _spill_dependency = Dependency::create_shared(parent.operator_id(), parent.node_id(),
                                                   "AggSinkSpillDependency", true);
-    state->get_task()->add_spill_dependency(_spill_dependency.get());
-
     return Status::OK();
 }
 
@@ -130,8 +128,6 @@ Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* s
     RETURN_IF_ERROR(DataSinkOperatorX<PartitionedAggSinkLocalState>::init(tnode, state));
     _name = "PARTITIONED_AGGREGATION_SINK_OPERATOR";
     _spill_partition_count = state->spill_aggregation_partition_count();
-    RETURN_IF_ERROR(
-            _agg_sink_operator->set_child(DataSinkOperatorX<PartitionedAggSinkLocalState>::_child));
     return _agg_sink_operator->init(tnode, state);
 }
 
@@ -255,10 +251,6 @@ Status PartitionedAggSinkLocalState::revoke_memory(
         update_profile<true>(sink_local_state->profile());
     }
 
-    // TODO: spill thread may set_ready before the task::execute thread put the task to blocked state
-    if (!_eos) {
-        Base::_spill_dependency->Dependency::block();
-    }
     auto& parent = Base::_parent->template cast<Parent>();
     Status status;
     Defer defer {[&]() {
@@ -331,6 +323,7 @@ Status PartitionedAggSinkLocalState::revoke_memory(
                 return status;
             });
 
+    Base::_spill_dependency->Dependency::block();
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
             std::move(spill_runnable));
 }

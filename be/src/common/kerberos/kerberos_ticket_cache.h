@@ -104,6 +104,8 @@ public:
     // Get detailed information about all credentials in the current ticket cache
     virtual std::vector<KerberosTicketInfo> get_ticket_info();
 
+    int64_t get_ticket_lifetime_sec() const { return _ticket_lifetime_sec; }
+
 private:
     // Initialize the ticket cache file path using principal and keytab information
     Status _init_ticket_cache_path();
@@ -125,6 +127,8 @@ private:
     krb5_ccache _ccache {nullptr};
     // Principal handle
     krb5_principal _principal {nullptr};
+    // Ticket lifetime in second
+    int64_t _ticket_lifetime_sec;
 
     // Thread for periodic ticket refresh
     std::unique_ptr<std::thread> _refresh_thread;
@@ -133,7 +137,7 @@ private:
     // Flag to control refresh thread execution
     std::atomic<bool> _should_stop_refresh {false};
     // Sleep time between refresh checks (in milliseconds)
-    std::chrono::milliseconds _refresh_thread_sleep_time {10};
+    std::chrono::milliseconds _refresh_thread_sleep_time {5000};
 
     // Interface for KRB5 operations
     std::unique_ptr<Krb5Interface> _krb5_interface;
