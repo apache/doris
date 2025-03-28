@@ -41,12 +41,12 @@ suite("test_iot_recycle_mtmv","mtmv") {
         );
         """
      sql """
-        insert into ${tableName} values(${value},1);
+        insert into ${tableName} values(1,"${value}");
         """
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
-        partition by(`k2`)
+        partition by(`k3`)
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
         'replication_num' = '1'
