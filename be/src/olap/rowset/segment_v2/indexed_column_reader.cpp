@@ -123,19 +123,18 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
                                       OlapReaderStatistics* stats) const {
     OlapReaderStatistics tmp_stats;
     OlapReaderStatistics* stats_ptr = stats != nullptr ? stats : &tmp_stats;
-    PageReadOptions opts {
-            .use_page_cache = _use_page_cache,
-            .kept_in_memory = _kept_in_memory,
-            .pre_decode = pre_decode,
-            .type = type,
-            .file_reader = _file_reader.get(),
-            .page_pointer = pp,
-            .codec = codec,
-            .stats = stats_ptr,
-            .encoding_info = _encoding_info,
-            .io_ctx = io::IOContext {.is_index_data = true,
-                                     .file_cache_stats = &stats_ptr->file_cache_stats},
-    };
+    PageReadOptions opts(io::IOContext {.is_index_data = true,
+                                        .file_cache_stats = &stats_ptr->file_cache_stats});
+    opts.use_page_cache = _use_page_cache;
+    opts.kept_in_memory = _kept_in_memory;
+    opts.pre_decode = pre_decode;
+    opts.type = type;
+    opts.file_reader = _file_reader.get();
+    opts.page_pointer = pp;
+    opts.codec = codec;
+    opts.stats = stats_ptr;
+    opts.encoding_info = _encoding_info;
+
     if (_is_pk_index) {
         opts.type = PRIMARY_KEY_INDEX_PAGE;
     }
