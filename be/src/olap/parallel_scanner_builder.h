@@ -26,7 +26,7 @@
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet.h"
-#include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/exec/scan/olap_scanner.h"
 
 namespace doris {
 
@@ -35,10 +35,10 @@ class OlapScanLocalState;
 }
 
 namespace vectorized {
-class VScanner;
+class Scanner;
 }
 
-using VScannerSPtr = std::shared_ptr<vectorized::VScanner>;
+using ScannerSPtr = std::shared_ptr<vectorized::Scanner>;
 
 class ParallelScannerBuilder {
 public:
@@ -58,7 +58,7 @@ public:
               _key_ranges(key_ranges.cbegin(), key_ranges.cend()),
               _read_sources(read_sources) {}
 
-    Status build_scanners(std::list<VScannerSPtr>& scanners);
+    Status build_scanners(std::list<ScannerSPtr>& scanners);
 
     void set_max_scanners_count(size_t count) { _max_scanners_count = count; }
 
@@ -67,9 +67,9 @@ public:
 private:
     Status _load();
 
-    Status _build_scanners_by_rowid(std::list<VScannerSPtr>& scanners);
+    Status _build_scanners_by_rowid(std::list<ScannerSPtr>& scanners);
 
-    std::shared_ptr<vectorized::NewOlapScanner> _build_scanner(
+    std::shared_ptr<vectorized::OlapScanner> _build_scanner(
             BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
             TabletReader::ReadSource&& read_source);
 

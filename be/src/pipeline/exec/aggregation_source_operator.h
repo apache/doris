@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
 
@@ -28,7 +29,7 @@ namespace pipeline {
 #include "common/compile_check_begin.h"
 class AggSourceOperatorX;
 
-class AggLocalState final : public PipelineXLocalState<AggSharedState> {
+class AggLocalState MOCK_REMOVE(final) : public PipelineXLocalState<AggSharedState> {
 public:
     using Base = PipelineXLocalState<AggSharedState>;
     ENABLE_FACTORY_CREATOR(AggLocalState);

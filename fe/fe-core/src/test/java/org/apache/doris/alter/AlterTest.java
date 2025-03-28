@@ -182,7 +182,8 @@ public class AlterTest {
                         + "PARTITION BY RANGE(k1)\n" + "(\n"
                         + "    PARTITION p1 values less than('2020-02-01 00:00:00'),\n"
                         + "    PARTITION p2 values less than('2020-03-01 00:00:00')\n" + ")\n"
-                        + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" + "PROPERTIES('replication_num' = '1','enable_unique_key_merge_on_write' = 'false');");
+                        + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                        + "PROPERTIES('replication_num' = '1','enable_unique_key_merge_on_write' = 'false');");
 
         createTable("create external table test.odbc_table\n" + "(  `k1` bigint(20) COMMENT \"\",\n"
                 + "  `k2` datetime COMMENT \"\",\n" + "  `k3` varchar(20) COMMENT \"\",\n"
@@ -197,7 +198,8 @@ public class AlterTest {
                         + "   \"AWS_ENDPOINT\" = \"bj\",\n" + "   \"AWS_REGION\" = \"bj\",\n"
                         + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
                         + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
-                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
+                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n"
+                        + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
                         + "   \"AWS_BUCKET\" = \"test-bucket\",  \"s3_validity_check\" = \"false\"\n"
                         + ");");
 
@@ -206,7 +208,8 @@ public class AlterTest {
                         + "   \"AWS_ENDPOINT\" = \"bj\",\n" + "   \"AWS_REGION\" = \"bj\",\n"
                         + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
                         + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
-                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
+                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n"
+                        + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
                         + "   \"AWS_BUCKET\" = \"test-bucket\", \"s3_validity_check\" = \"false\"\n"
                         + ");");
 
@@ -219,7 +222,8 @@ public class AlterTest {
                         + "  \"cooldown_ttl\" = \"1\"\n" + ");");
 
         createRemoteStoragePolicy(
-                "CREATE STORAGE POLICY testPolicyAnotherResource\n" + "PROPERTIES(\n" + "  \"storage_resource\" = \"remote_s3_1\",\n"
+                "CREATE STORAGE POLICY testPolicyAnotherResource\n" + "PROPERTIES(\n"
+                        + "  \"storage_resource\" = \"remote_s3_1\",\n"
                         + "  \"cooldown_ttl\" = \"1\"\n" + ");");
 
         createTable("CREATE TABLE test.tbl_remote1\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n"
@@ -247,7 +251,7 @@ public class AlterTest {
                 + " PROPERTIES (\"replication_num\" = \"1\", \"function_column.sequence_col\" = \"v1\");");
 
         createTable("CREATE TABLE test.tbl_storage(k1 int) ENGINE=OLAP UNIQUE KEY (k1)\n"
-                 + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n"
                 + "PROPERTIES('replication_num' = '1','enable_unique_key_merge_on_write' = 'true');");
     }
 
@@ -1099,9 +1103,12 @@ public class AlterTest {
     @Test
     public void testAlterDateV2Schema() throws Exception {
         createTable("CREATE TABLE test.unique_partition_datev2\n" + "(\n" + "    k1 date,\n" + "    k2 datetime(3),\n"
-                + "    k3 datetime,\n" + "    v1 date,\n" + "    v2 datetime(3),\n" + "    v3 datetime,\n" + "    v4 int\n"
-                + ")\n" + "UNIQUE KEY(k1, k2, k3)\n" + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
-                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n" + "PROPERTIES('replication_num' = '1');");
+                + "    k3 datetime,\n" + "    v1 date,\n" + "    v2 datetime(3),\n" + "    v3 datetime,\n"
+                + "    v4 int\n"
+                + ")\n" + "UNIQUE KEY(k1, k2, k3)\n" + "PARTITION BY RANGE(k1)\n" + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1');");
 
         // partition key can not be changed.
         String changeOrderStmt = "ALTER TABLE test.unique_partition_datev2 modify column k1 int key null";
@@ -1452,5 +1459,39 @@ public class AlterTest {
         List<List<String>> resultRows = executor.execute().getResultRows();
         String createSql = resultRows.get(0).get(1);
         Assert.assertFalse(createSql.contains("storage_policy"));
+    }
+
+    @Test
+    public void alterTableModifyPropertyTrim() throws Exception {
+        createTable("CREATE TABLE test.tbl_trim_property_key (\n"
+                + "`uuid` varchar(255) NULL,\n"
+                + "`action_datetime` date NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "PARTITION BY RANGE(action_datetime)()\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");\n");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl_trim_property_key");
+        Assert.assertEquals(1, tbl.getTableProperty().getReplicaAllocation().getTotalReplicaNum());
+
+        String sql1 = "alter table test.tbl_trim_property_key set (\n"
+                + "' default.replication_num ' = '2'\n"
+                + " );";
+        AlterTableStmt alterTableStmt1 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, connectContext);
+        Env.getCurrentEnv().alterTable(alterTableStmt1);
+        Assert.assertEquals(2, tbl.getDefaultReplicaAllocation().getTotalReplicaNum());
+
+        String sql2 = "alter table test.tbl_trim_property_key set (\n"
+                + "'default.replication_ num' = '1'\n"
+                + " );";
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Unknown table property: [default.replication_ num]",
+                () -> Env.getCurrentEnv()
+                        .alterTable((AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, connectContext)));
     }
 }

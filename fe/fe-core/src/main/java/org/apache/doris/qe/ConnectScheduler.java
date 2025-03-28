@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TimerTask;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -91,10 +92,12 @@ public class ConnectScheduler {
     }
 
     // Register one connection with its connection id.
-    public boolean registerConnection(ConnectContext ctx) {
+    // Return -1 means register OK
+    // Return >=0 means register failed, and return value is current connection num.
+    public int registerConnection(ConnectContext ctx) {
         if (numberConnection.incrementAndGet() > maxConnections) {
             numberConnection.decrementAndGet();
-            return false;
+            return numberConnection.get();
         }
         // Check user
         connByUser.putIfAbsent(ctx.getQualifiedUser(), new AtomicInteger(0));
@@ -102,13 +105,13 @@ public class ConnectScheduler {
         if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
             conns.decrementAndGet();
             numberConnection.decrementAndGet();
-            return false;
+            return numberConnection.get();
         }
         connectionMap.put(ctx.getConnectionId(), ctx);
         if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
             flightToken2ConnectionId.put(ctx.getPeerIdentity(), ctx.getConnectionId());
         }
-        return true;
+        return -1;
     }
 
     public void unregisterConnection(ConnectContext ctx) {
@@ -175,7 +178,8 @@ public class ConnectScheduler {
     }
 
     // used for thrift
-    public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql) {
+    public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql,
+            Optional<String> timeZone) {
         List<List<String>> list = new ArrayList<>();
         long nowMs = System.currentTimeMillis();
         for (ConnectContext ctx : connectionMap.values()) {
@@ -185,7 +189,7 @@ public class ConnectScheduler {
                     .checkGlobalPriv(userIdentity, PrivPredicate.GRANT)) {
                 continue;
             }
-            list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs));
+            list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs, timeZone));
         }
         return list;
     }
@@ -205,5 +209,9 @@ public class ConnectScheduler {
 
     public Map<String, AtomicInteger> getUserConnectionMap() {
         return connByUser;
+    }
+
+    public int getMaxConnections() {
+        return maxConnections;
     }
 }

@@ -247,6 +247,30 @@ bool ValueBuf::to_pb(google::protobuf::Message* pb) const {
     return pb->ParseFromZeroCopyStream(&merge_stream);
 }
 
+std::string ValueBuf::value() const {
+    butil::IOBuf merge;
+    for (auto&& it : iters) {
+        it->reset();
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            merge.append_user_data((void*)v.data(), v.size(), +[](void*) {});
+        }
+    }
+    return merge.to_string();
+}
+
+std::vector<std::string> ValueBuf::keys() const {
+    std::vector<std::string> ret;
+    for (auto&& it : iters) {
+        it->reset();
+        while (it->has_next()) {
+            auto [k, _] = it->next();
+            ret.push_back({k.data(), k.size()});
+        }
+    }
+    return ret;
+}
+
 void ValueBuf::remove(Transaction* txn) const {
     for (auto&& it : iters) {
         it->reset();

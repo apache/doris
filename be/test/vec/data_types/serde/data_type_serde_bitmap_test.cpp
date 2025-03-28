@@ -20,6 +20,8 @@
 
 #include "util/slice.h"
 #include "vec/columns/column_complex.h"
+#include "vec/data_types/common_data_type_serder_test.h"
+#include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/serde/data_type_bitmap_serde.h"
 
 namespace doris::vectorized {
@@ -186,4 +188,26 @@ TEST(BitmapSerdeTest, serializeColumnToJson) {
     }
     std::cout << "test serialize/deserialize_column_from_json_vector" << std::endl;
 }
+
+TEST(BitmapSerdeTest, SerdeArrowTest) {
+    auto bitmap_serde = std::make_shared<vectorized::DataTypeBitMapSerDe>(1);
+    auto column_bitmap = ColumnBitmap::create();
+    column_bitmap->insert_value(BitmapValue::empty_bitmap());
+    column_bitmap->insert_value(BitmapValue(123));
+    ASSERT_EQ(column_bitmap->size(), 2);
+
+    auto block = std::make_shared<Block>();
+    DataTypePtr st = std::make_shared<DataTypeBitMap>();
+    vectorized::ColumnWithTypeAndName type_and_name(column_bitmap->get_ptr(), st, "bitmap");
+    block->insert(type_and_name);
+    std::shared_ptr<arrow::RecordBatch> record_batch =
+            CommonDataTypeSerdeTest::serialize_arrow(block);
+    EXPECT_EQ(record_batch->column(0)->ToString(), "[\n  00,\n  017B000000\n]");
+
+    // TODO, support `DataTypeBitMapSerDe::read_column_from_arrow`
+    // CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
+    // CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+    std::cout << "test write/read_column_to_arrow " << std::endl;
+}
+
 } // namespace doris::vectorized

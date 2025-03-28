@@ -33,6 +33,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -143,26 +144,26 @@ Status CloudTablet::merge_rowsets_schema() {
 
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
 // This function will erase the tablet from `CloudTabletMgr` when it can't find this tablet in MS.
-Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) {
+Status CloudTablet::sync_rowsets(const SyncOptions& options) {
     RETURN_IF_ERROR(sync_if_not_running());
 
-    if (query_version > 0) {
+    if (options.query_version > 0) {
         std::shared_lock rlock(_meta_lock);
-        if (_max_version >= query_version) {
+        if (_max_version >= options.query_version) {
             return Status::OK();
         }
     }
 
     // serially execute sync to reduce unnecessary network overhead
     std::lock_guard lock(_sync_meta_lock);
-    if (query_version > 0) {
+    if (options.query_version > 0) {
         std::shared_lock rlock(_meta_lock);
-        if (_max_version >= query_version) {
+        if (_max_version >= options.query_version) {
             return Status::OK();
         }
     }
 
-    auto st = _engine.meta_mgr().sync_tablet_rowsets(this, warmup_delta_data);
+    auto st = _engine.meta_mgr().sync_tablet_rowsets(this, options);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
@@ -452,27 +453,14 @@ void CloudTablet::clear_cache() {
 }
 
 void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets) {
-    for (auto& rs : rowsets) {
-        // Clear cached opened segments and inverted index cache in memory
-        rs->clear_cache();
-    }
-
-    if (config::enable_file_cache) {
-        for (const auto& rs : rowsets) {
-            // rowsets and tablet._rs_version_map each hold a rowset shared_ptr, so at this point, the reference count of the shared_ptr is at least 2.
-            if (rs.use_count() > 2) {
-                LOG(WARNING) << "Rowset " << rs->rowset_id().to_string() << " has "
-                             << rs.use_count()
-                             << " references. File Cache won't be recycled when query is using it.";
-                continue;
-            }
-            for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
-                // TODO: Segment::file_cache_key
-                auto file_key = Segment::file_cache_key(rs->rowset_id().to_string(), seg_id);
-                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
-                file_cache->remove_if_cached_async(file_key);
-            }
+    for (const auto& rs : rowsets) {
+        // rowsets and tablet._rs_version_map each hold a rowset shared_ptr, so at this point, the reference count of the shared_ptr is at least 2.
+        if (rs.use_count() > 2) {
+            LOG(WARNING) << "Rowset " << rs->rowset_id().to_string() << " has " << rs.use_count()
+                         << " references. File Cache won't be recycled when query is using it.";
+            return;
         }
+        rs->clear_cache();
     }
 }
 
@@ -744,6 +732,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
     DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.injected_error", {
         auto retry = dp->param<bool>("retry", false);
+        auto sleep_sec = dp->param<int>("sleep", 0);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
         if (retry) { // return DELETE_BITMAP_LOCK_ERROR to let it retry
             return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>(
                     "injected DELETE_BITMAP_LOCK_ERROR");
@@ -768,8 +758,10 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
         }
     }
     auto ms_lock_id = lock_id == -1 ? txn_id : lock_id;
+    // lock_id != -1 means this is in an explict txn
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, ms_lock_id, LOAD_INITIATOR_ID,
-                                                            new_delete_bitmap.get()));
+                                                            new_delete_bitmap.get(), txn_id,
+                                                            (lock_id != -1)));
     return Status::OK();
 }
 

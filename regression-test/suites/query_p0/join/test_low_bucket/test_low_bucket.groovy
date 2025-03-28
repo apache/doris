@@ -17,8 +17,10 @@
 
 suite("test_low_bucket") {
     sql "set enable_spill = false" // spill will cause rf not_ready
+    sql "set enable_force_spill = false"
     sql "set runtime_filter_wait_infinitely = true"
     sql "set parallel_pipeline_task_num = 4"
+    sql "set runtime_filter_type='MIN_MAX'"
 
     sql """ DROP TABLE IF EXISTS ads_income_statistics; """
     sql """ DROP TABLE IF EXISTS eq_group; """

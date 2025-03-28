@@ -29,6 +29,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "set_replica_status," + // not a case for cloud mode, no need to run
     "test_be_inject_publish_txn_fail," + // not a case for cloud mode, no need to run
     "test_dump_image," +
+    "test_nereids_show_restore," +
     "test_index_failure_injection," +
     "test_information_schema_external," +
     "test_profile," +
@@ -43,10 +44,12 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_query_sys_rowsets," + // rowsets sys table
     "test_unique_table_debug_data," + // disable auto compaction
     "test_insert," + // txn insert
+    "test_nereids_show_snapshot," +
     "test_full_compaction_run_status," +
     "test_topn_fault_injection," +
     "auto_partition_in_partition_prune," + // inserted data in too many tablets, txn to large. not suitable for cloud.
     "one_col_range_partition," + // inserted data in too many tablets, txn to large. not suitable for cloud.
+    "test_nereids_show_backup," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line

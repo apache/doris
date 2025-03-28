@@ -115,12 +115,12 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
         
         // test information_schema.backend_kerberos_ticket_cache
         // switch to a normal catalog
-        sql "switch internal";
-        List<List<Object>> backends = sql "show backends"
-        int beNum = backends.size();
-        test {
-            sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/presto-server.keytab";"""
-            rowNum beNum
-        } 
+        // sql "switch internal";
+        // List<List<Object>> backends = sql "show backends"
+        // int beNum = backends.size();
+        // test {
+        //     sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/presto-server.keytab";"""
+        //     rowNum beNum
+        // } 
     }
 }

@@ -274,6 +274,8 @@ public:
         DCHECK(size() > self_row);
         data->replace_column_data(rhs, row, self_row);
     }
+
+    void finalize() override { data->finalize(); }
 };
 } // namespace doris::vectorized
 #include "common/compile_check_end.h"

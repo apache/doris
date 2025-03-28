@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
@@ -46,17 +47,17 @@ import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.SortedMap;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 public final class MetricRepo {
@@ -138,11 +139,16 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ROWS;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_RECEIVED_BYTES;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ERROR_ROWS;
+
+    public static GaugeMetric<Long> GAUGE_ROUTINE_LOAD_PROGRESS;
+    public static GaugeMetric<Long> GAUGE_ROUTINE_LOAD_LAG;
+    public static GaugeMetric<Long> GAUGE_ROUTINE_LOAD_ABORT_TASK_NUM;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_GET_META_LANTENCY;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_GET_META_COUNT;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT;
+
     public static LongCounterMetric COUNTER_HIT_SQL_BLOCK_RULE;
 
     public static AutoMappedMetric<LongCounterMetric> THRIFT_COUNTER_RPC_ALL;
@@ -161,6 +167,11 @@ public final class MetricRepo {
     public static GaugeMetric<Integer> GAUGE_CATALOG_NUM;
     public static GaugeMetric<Integer> GAUGE_INTERNAL_DATABASE_NUM;
     public static GaugeMetric<Integer> GAUGE_INTERNAL_TABLE_NUM;
+
+    // Agent task
+    public static LongCounterMetric COUNTER_AGENT_TASK_REQUEST_TOTAL;
+    public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_TOTAL;
+    public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_RESEND_TOTAL;
 
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
@@ -214,25 +225,7 @@ public final class MetricRepo {
             }
         }
 
-        //  routine load jobs
-        RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
-        for (RoutineLoadJob.JobState jobState : RoutineLoadJob.JobState.values()) {
-            GaugeMetric<Long> gauge = new GaugeMetric<Long>("job", MetricUnit.NOUNIT, "routine load job statistics") {
-                @Override
-                public Long getValue() {
-                    if (!Env.getCurrentEnv().isMaster()) {
-                        return 0L;
-                    }
-                    Set<RoutineLoadJob.JobState> states = Sets.newHashSet();
-                    states.add(jobState);
-                    List<RoutineLoadJob> jobs = routineLoadManager.getRoutineLoadJobByState(states);
-                    return Long.valueOf(jobs.size());
-                }
-            };
-            gauge.addLabel(new MetricLabel("job", "load")).addLabel(new MetricLabel("type", "ROUTINE_LOAD"))
-                    .addLabel(new MetricLabel("state", jobState.name()));
-            DORIS_METRIC_REGISTER.addMetrics(gauge);
-        }
+        initRoutineLoadJobMetrics();
 
         // running alter job
         Alter alter = Env.getCurrentEnv().getAlterInstance();
@@ -620,6 +613,14 @@ public final class MetricRepo {
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_INTERNAL_TABLE_NUM);
 
+        COUNTER_AGENT_TASK_REQUEST_TOTAL = new LongCounterMetric("agent_task_request_total", MetricUnit.NOUNIT,
+                "total agent batch task request send to BE");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_AGENT_TASK_REQUEST_TOTAL);
+        COUNTER_AGENT_TASK_TOTAL = addLabeledMetrics("task", () ->
+                new LongCounterMetric("agent_task_total", MetricUnit.NOUNIT, "total agent task"));
+        COUNTER_AGENT_TASK_RESEND_TOTAL = addLabeledMetrics("task", () ->
+                new LongCounterMetric("agent_task_resend_total", MetricUnit.NOUNIT, "total agent task resend"));
+
         // init system metrics
         initSystemMetrics();
         CloudMetrics.init();
@@ -630,6 +631,86 @@ public final class MetricRepo {
         if (Config.enable_metric_calculator) {
             metricTimer.scheduleAtFixedRate(metricCalculator, 0, 15 * 1000L, TimeUnit.MILLISECONDS);
         }
+    }
+
+    private static void initRoutineLoadJobMetrics() {
+        //  routine load jobs
+        RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
+        for (RoutineLoadJob.JobState jobState : RoutineLoadJob.JobState.values()) {
+            if (jobState == RoutineLoadJob.JobState.PAUSED) {
+                addRoutineLoadJobStateGaugeMetric(routineLoadManager, jobState, "USER_PAUSED",
+                        job -> job.getPauseReason() != null
+                            && job.getPauseReason().getCode() == InternalErrorCode.MANUAL_PAUSE_ERR);
+                addRoutineLoadJobStateGaugeMetric(routineLoadManager, jobState, "ABNORMAL_PAUSED",
+                        job -> job.getPauseReason() != null
+                            && job.getPauseReason().getCode() != InternalErrorCode.MANUAL_PAUSE_ERR);
+            }
+            addRoutineLoadJobStateGaugeMetric(routineLoadManager, jobState, jobState.name(), job -> true);
+        }
+        GAUGE_ROUTINE_LOAD_PROGRESS = new GaugeMetric<Long>("routine_load_progress",
+                MetricUnit.NOUNIT, "total routine load progress") {
+            @Override
+            public Long getValue() {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    return 0L;
+                }
+                return routineLoadManager
+                        .getActiveRoutineLoadJobs().stream()
+                        .mapToLong(RoutineLoadJob::totalProgress)
+                        .sum();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_ROUTINE_LOAD_PROGRESS);
+        GAUGE_ROUTINE_LOAD_LAG = new GaugeMetric<Long>("routine_load_lag",
+                MetricUnit.NOUNIT, "total routine load lag") {
+            @Override
+            public Long getValue() {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    return 0L;
+                }
+                return routineLoadManager
+                        .getActiveRoutineLoadJobs().stream()
+                        .mapToLong(RoutineLoadJob::totalLag)
+                        .sum();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_ROUTINE_LOAD_LAG);
+        GAUGE_ROUTINE_LOAD_ABORT_TASK_NUM = new GaugeMetric<Long>("routine_load_abort_task_num",
+                MetricUnit.NOUNIT, "total number of aborted tasks in active routine load jobs") {
+            @Override
+            public Long getValue() {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    return 0L;
+                }
+                return routineLoadManager
+                        .getActiveRoutineLoadJobs().stream()
+                        .mapToLong(job -> job.getRoutineLoadStatistic().abortedTaskNum)
+                        .sum();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_ROUTINE_LOAD_ABORT_TASK_NUM);
+    }
+
+    private static void addRoutineLoadJobStateGaugeMetric(RoutineLoadManager routineLoadManager,
+                                            RoutineLoadJob.JobState jobState,
+                                            String stateLabel, Predicate<RoutineLoadJob> filter) {
+        GaugeMetric<Long> gauge = new GaugeMetric<Long>("job", MetricUnit.NOUNIT, "routine load job statistics") {
+            @Override
+            public Long getValue() {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    return 0L;
+                }
+                return routineLoadManager
+                        .getRoutineLoadJobByState(Collections.singleton(jobState))
+                        .stream()
+                        .filter(filter)
+                        .count();
+            }
+        };
+        gauge.addLabel(new MetricLabel("job", "load"))
+                .addLabel(new MetricLabel("type", "ROUTINE_LOAD"))
+                .addLabel(new MetricLabel("state", stateLabel));
+        DORIS_METRIC_REGISTER.addMetrics(gauge);
     }
 
     private static void initSystemMetrics() {

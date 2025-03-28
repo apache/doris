@@ -200,4 +200,58 @@ suite("or_expansion") {
             on (oe1.k0 = oe2.k0 or oe1.k1 + 1 = oe2.k1 * 2) or oe1.k2 = 1
             order by oe2.k0, oe1.k0
         """
+
+    // test all plan node to be deep copied, include
+    // - LogicalOneRowRelation
+    // - LogicalEmptyRelation
+    // - LogicalFilter
+    // - LogicalProject
+    // - LogicalJoin
+    // - LogicalRepeat
+    // - LogicalAggregate
+    // - LogicalGenerate
+    // - LogicalWindow
+    // - LogicalPartitionTopN
+    // - LogicalTopN
+    // - LogicalLimit
+    explain {
+        sql """
+            WITH cte1 AS (
+              SELECT 1 AS c1, max(1) OVER() AS c3
+            )
+            , cte2 AS (
+              SELECT c1, sum(c3) AS c3 FROM cte1 GROUP BY GROUPING SETS((c1), ())
+            )
+            , cte3 AS (
+              SELECT c1, [1, 2, 3] AS c2, c3 FROM cte2
+            )
+            , cte4 AS (
+              SELECT c1, c2, c3, c4 FROM cte3 LATERAL VIEW EXPLODE (c2) lv AS c4 LIMIT 10
+            )
+            , cte5 AS (
+              SELECT * FROM cte4 WHERE c4 > 2
+            )
+            , cte6 AS (
+              SELECT 1 AS c5 FROM (SELECT 1) t WHERE 1 < 0
+            )
+            , cte7 AS (
+              SELECT * FROM cte5 LEFT OUTER JOIN cte6 ON cte5.c1 = cte6.c5 ORDER BY c4 LIMIT 10
+            )
+            , cte8 AS (
+              SELECT 1 AS c1, max(1) OVER() AS c3
+            )
+            , cte9 AS (
+              SELECT * FROM (SELECT 1 AS c6, ROW_NUMBER() OVER(PARTITION BY c3 ORDER BY c1) AS c7 FROM cte8) t WHERE c7 < 3
+            )
+            , cte10 AS (
+              SELECT * FROM cte7 LEFT OUTER JOIN cte9 ON cte7.c1 = cte9.c6
+            )
+            SELECT *
+            FROM
+              cte10 a
+              LEFT JOIN (SELECT 1 AS c1, 2 AS c2) b ON a.c1 = b.c1 OR a.c1 = b.c2 ORDER BY c1
+        """
+
+        contains "ANTI JOIN"
+    }
 }

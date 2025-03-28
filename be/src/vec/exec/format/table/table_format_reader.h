@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "exec/olap_common.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -78,7 +79,7 @@ public:
     virtual Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) = 0;
 
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override {
+                       std::unordered_set<std::string>* missing_cols) final {
         return _file_format_reader->get_columns(name_to_type, missing_cols);
     }
 
@@ -90,7 +91,7 @@ public:
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override {
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) final {
         return _file_format_reader->set_fill_columns(partition_columns, missing_columns);
     }
 
@@ -113,5 +114,46 @@ protected:
         }
     }
 };
+
+class TableSchemaChangeHelper {
+public:
+    /** Get the mapping from the unique ID of the column in the current file to the file column name.
+     * Iceberg/Hudi/Paimon usually maintains field IDs to support schema changes. If you cannot obtain this
+     * information (maybe the old version does not have this information), you need to set `exist_schema` = `false`.
+     */
+    virtual Status get_file_col_id_to_name(bool& exist_schema,
+                                           std::map<int, std::string>& file_col_id_to_name) = 0;
+
+    virtual ~TableSchemaChangeHelper() = default;
+
+protected:
+    /** table_id_to_name  : table column unique id to table name map */
+    Status init_schema_info(const std::vector<std::string>& read_table_col_names,
+                            const std::unordered_map<int32_t, std::string>& table_id_to_name,
+                            const std::unordered_map<std::string, ColumnValueRangeType>*
+                                    table_col_name_to_value_range);
+
+    /** To support schema evolution. We change the column name in block to
+     * make it match with the column name in file before reading data. and
+     * set the name back to table column name before return this block.
+     */
+    Status get_next_block_before(Block* block) const;
+
+    /** Set the name back to table column name before return this block.*/
+    Status get_next_block_after(Block* block) const;
+
+    // copy from _colname_to_value_range with new column name that is in parquet/orc file
+    std::unordered_map<std::string, ColumnValueRangeType> _new_colname_to_value_range;
+    // all the columns required by user sql.
+    std::vector<std::string> _all_required_col_names;
+    // col names in table but not in parquet,orc file
+    std::vector<std::string> _not_in_file_col_names;
+    bool _has_schema_change = false;
+    // file column name to table column name map
+    std::unordered_map<std::string, std::string> _file_col_to_table_col;
+    // table column name to file column name map.
+    std::unordered_map<std::string, std::string> _table_col_to_file_col;
+};
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

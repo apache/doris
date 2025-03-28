@@ -107,7 +107,7 @@ public:
     [[nodiscard]] int64_t watcher_elapse_time() { return _watcher.elapsed_time(); }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] virtual Dependency* is_blocked_by(PipelineTask* task = nullptr);
+    [[nodiscard]] Dependency* is_blocked_by(PipelineTask* task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
     virtual void set_ready();
     void set_ready_to_read() {
@@ -267,12 +267,13 @@ struct RuntimeFilterTimerQueue {
 
 class RuntimeFilterDependency final : public Dependency {
 public:
-    RuntimeFilterDependency(int id, int node_id, std::string name, IRuntimeFilter* runtime_filter)
+    RuntimeFilterDependency(int id, int node_id, std::string name,
+                            RuntimeFilterConsumer* runtime_filter)
             : Dependency(id, node_id, std::move(name)), _runtime_filter(runtime_filter) {}
     std::string debug_string(int indentation_level = 0) override;
 
 private:
-    const IRuntimeFilter* _runtime_filter = nullptr;
+    const RuntimeFilterConsumer* _runtime_filter = nullptr;
 };
 
 struct AggSharedState : public BasicSharedState {
@@ -505,7 +506,7 @@ using AggSpillPartitionSPtr = std::shared_ptr<AggSpillPartition>;
 struct SortSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(SortSharedState)
 public:
-    std::unique_ptr<vectorized::Sorter> sorter;
+    std::shared_ptr<vectorized::Sorter> sorter;
 };
 
 struct SpillSortSharedState : public BasicSharedState,
@@ -646,6 +647,7 @@ public:
     std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
     bool sink_eos = false;
     std::mutex sink_eos_lock;
+    std::mutex prepared_finish_lock;
 };
 
 struct SetSharedState : public BasicSharedState {
@@ -702,8 +704,6 @@ enum class ExchangeType : uint8_t {
     ADAPTIVE_PASSTHROUGH = 5,
     // Send all data to the first channel.
     PASS_TO_ONE = 6,
-    // merge all data to one channel.
-    LOCAL_MERGE_SORT = 7,
 };
 
 inline std::string get_exchange_type_name(ExchangeType idx) {
@@ -722,8 +722,6 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
         return "ADAPTIVE_PASSTHROUGH";
     case ExchangeType::PASS_TO_ONE:
         return "PASS_TO_ONE";
-    case ExchangeType::LOCAL_MERGE_SORT:
-        return "LOCAL_MERGE_SORT";
     }
     throw Exception(Status::FatalError("__builtin_unreachable"));
 }
@@ -752,7 +750,7 @@ public:
     std::atomic<size_t> _buffer_mem_limit = config::local_exchange_buffer_mem_limit;
     // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
-    virtual void create_dependencies(int local_exchange_id) {
+    void create_dependencies(int local_exchange_id) {
         for (auto& source_dep : source_deps) {
             source_dep = std::make_shared<Dependency>(local_exchange_id, local_exchange_id,
                                                       "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
@@ -772,10 +770,10 @@ public:
         }
     }
 
-    virtual std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
+    std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
         return {source_deps[channel_id]};
     }
-    virtual Dependency* get_sink_dep_by_channel_id(int channel_id) { return nullptr; }
+    Dependency* get_sink_dep_by_channel_id(int channel_id) { return nullptr; }
 
     void set_ready_to_read(int channel_id) {
         auto& dep = source_deps[channel_id];
@@ -783,21 +781,19 @@ public:
         dep->set_ready();
     }
 
-    virtual void add_mem_usage(int channel_id, size_t delta) {
-        mem_counters[channel_id]->update(delta);
-    }
+    void add_mem_usage(int channel_id, size_t delta) { mem_counters[channel_id]->update(delta); }
 
-    virtual void sub_mem_usage(int channel_id, size_t delta) {
+    void sub_mem_usage(int channel_id, size_t delta) {
         mem_counters[channel_id]->update(-(int64_t)delta);
     }
 
-    virtual void add_total_mem_usage(size_t delta) {
+    void add_total_mem_usage(size_t delta) {
         if (cast_set<int64_t>(mem_usage.fetch_add(delta) + delta) > _buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
 
-    virtual void sub_total_mem_usage(size_t delta) {
+    void sub_total_mem_usage(size_t delta) {
         auto prev_usage = mem_usage.fetch_sub(delta);
         DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta;
         if (cast_set<int64_t>(prev_usage - delta) <= _buffer_mem_limit) {
@@ -805,72 +801,11 @@ public:
         }
     }
 
-    virtual void set_low_memory_mode(RuntimeState* state) {
+    void set_low_memory_mode(RuntimeState* state) {
         _buffer_mem_limit = std::min<int64_t>(config::local_exchange_buffer_mem_limit,
                                               state->low_memory_mode_buffer_limit());
     }
 };
 
-struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
-    ENABLE_FACTORY_CREATOR(LocalMergeExchangeSharedState);
-    LocalMergeExchangeSharedState(int num_instances)
-            : LocalExchangeSharedState(num_instances),
-              _each_queue_limit(config::local_exchange_buffer_mem_limit / num_instances) {}
-
-    void create_dependencies(int local_exchange_id) override {
-        sink_deps.resize(source_deps.size());
-        for (size_t i = 0; i < source_deps.size(); i++) {
-            source_deps[i] =
-                    std::make_shared<Dependency>(local_exchange_id, local_exchange_id,
-                                                 "LOCAL_MERGE_EXCHANGE_OPERATOR_DEPENDENCY");
-            source_deps[i]->set_shared_state(this);
-            sink_deps[i] = std::make_shared<Dependency>(
-                    local_exchange_id, local_exchange_id,
-                    "LOCAL_MERGE_EXCHANGE_OPERATOR_SINK_DEPENDENCY", true);
-            sink_deps[i]->set_shared_state(this);
-        }
-    }
-
-    void sub_total_mem_usage(size_t delta) override { mem_usage.fetch_sub(delta); }
-    void add_total_mem_usage(size_t delta) override { mem_usage.fetch_add(delta); }
-
-    void add_mem_usage(int channel_id, size_t delta) override {
-        LocalExchangeSharedState::add_mem_usage(channel_id, delta);
-        if (mem_counters[channel_id]->value() > _each_queue_limit.load()) {
-            sink_deps[channel_id]->block();
-        }
-    }
-
-    void sub_mem_usage(int channel_id, size_t delta) override {
-        LocalExchangeSharedState::sub_mem_usage(channel_id, delta);
-        if (mem_counters[channel_id]->value() <= _each_queue_limit.load()) {
-            sink_deps[channel_id]->set_ready();
-        }
-    }
-
-    void set_low_memory_mode(RuntimeState* state) override {
-        _buffer_mem_limit = std::min<int64_t>(config::local_exchange_buffer_mem_limit,
-                                              state->low_memory_mode_buffer_limit());
-        _each_queue_limit = std::max<int64_t>(64 * 1024, _buffer_mem_limit / source_deps.size());
-    }
-
-    Dependency* get_sink_dep_by_channel_id(int channel_id) override {
-        return sink_deps[channel_id].get();
-    }
-
-    std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) override {
-        return source_deps;
-    }
-
-private:
-    std::atomic_int64_t _each_queue_limit;
-};
-
-class QueryGlobalDependency final : public Dependency {
-    ENABLE_FACTORY_CREATOR(QueryGlobalDependency);
-    QueryGlobalDependency(std::string name, bool ready = false) : Dependency(-1, -1, name, ready) {}
-    ~QueryGlobalDependency() override = default;
-    Dependency* is_blocked_by(PipelineTask* task = nullptr) override;
-};
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

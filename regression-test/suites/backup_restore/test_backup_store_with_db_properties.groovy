@@ -18,7 +18,7 @@
 suite("test_backup_store_with_db_properties","backup_restore") {
     String dbName = "test_backup_store_with_db_properties_db"
     String suiteName = "test_backup_store_with_db_properties"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot"
     String tableNamePrefix = "${suiteName}"
 
@@ -96,7 +96,7 @@ suite("test_backup_store_with_db_properties","backup_restore") {
     assertEquals(result_kv_restore, result_kv_origin);
 
     for (def tableName in tables) {
-        result = sql "SELECT * FROM ${dbName}.${tableName}"
+        def result = sql "SELECT * FROM ${dbName}.${tableName}"
         assertEquals(result.size(), numRows);
         sql "DROP TABLE ${dbName}.${tableName} FORCE"
     }

@@ -125,6 +125,9 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 .getCatalogOrException(ctlName, catalog -> new DdlException("Unknown catalog " + catalog))
                 .getDbOrDdlException(dbName);
         TableIf tableIf = dbIf.getTableOrDdlException(tableName);
+        if (tableIf.isTemporary()) {
+            throw new AnalysisException("Do not support alter temporary table[" + tableName + "]");
+        }
         if (tableIf instanceof OlapTable) {
             rewriteAlterOpForOlapTable(ctx, (OlapTable) tableIf);
         } else {

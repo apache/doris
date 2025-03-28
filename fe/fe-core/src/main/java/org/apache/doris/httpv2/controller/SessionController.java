@@ -44,6 +44,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 
@@ -112,7 +113,7 @@ public class SessionController extends RestBaseController {
                 .listConnection("root", false);
         long nowMs = System.currentTimeMillis();
         return threadInfos.stream()
-                .map(info -> info.toRow(-1, nowMs))
+                .map(info -> info.toRow(-1, nowMs, Optional.empty()))
                 .map(row -> {
                     Map<String, String> record = new HashMap<>();
                     for (int i = 0; i < row.size(); i++) {

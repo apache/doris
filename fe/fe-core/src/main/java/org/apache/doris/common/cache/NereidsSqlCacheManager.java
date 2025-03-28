@@ -130,6 +130,13 @@ public class NereidsSqlCacheManager {
      * tryAddFeCache
      */
     public void tryAddFeSqlCache(ConnectContext connectContext, String sql) {
+        switch (connectContext.getCommand()) {
+            case COM_STMT_EXECUTE:
+            case COM_STMT_PREPARE:
+                return;
+            default: { }
+        }
+
         Optional<SqlCacheContext> sqlCacheContextOpt = connectContext.getStatementContext().getSqlCacheContext();
         if (!sqlCacheContextOpt.isPresent()) {
             return;
@@ -149,6 +156,12 @@ public class NereidsSqlCacheManager {
      * tryAddBeCache
      */
     public void tryAddBeCache(ConnectContext connectContext, String sql, CacheAnalyzer analyzer) {
+        switch (connectContext.getCommand()) {
+            case COM_STMT_EXECUTE:
+            case COM_STMT_PREPARE:
+                return;
+            default: { }
+        }
         Optional<SqlCacheContext> sqlCacheContextOpt = connectContext.getStatementContext().getSqlCacheContext();
         if (!sqlCacheContextOpt.isPresent()) {
             return;
@@ -180,6 +193,12 @@ public class NereidsSqlCacheManager {
      * tryParseSql
      */
     public Optional<LogicalSqlCache> tryParseSql(ConnectContext connectContext, String sql) {
+        switch (connectContext.getCommand()) {
+            case COM_STMT_EXECUTE:
+            case COM_STMT_PREPARE:
+                return Optional.empty();
+            default: { }
+        }
         String key = generateCacheKey(connectContext, normalizeSql(sql.trim()));
         SqlCacheContext sqlCacheContext = sqlCaches.getIfPresent(key);
         if (sqlCacheContext == null) {

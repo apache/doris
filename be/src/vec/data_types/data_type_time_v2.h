@@ -159,8 +159,8 @@ public:
             return value.to_date_int_val();
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Invalid value: {} for type DateTimeV2",
-                                   node.date_literal.value);
+                                   "Invalid value: {} for type DateTimeV2({})",
+                                   node.date_literal.value, _scale);
         }
     }
     MutableColumnPtr create_column() const override;

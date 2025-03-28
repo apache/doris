@@ -264,6 +264,7 @@ void MemoryProfile::refresh_memory_overview_profile() {
     memory_untracked_memory_bytes << untracked_memory - memory_untracked_memory_bytes.get_value();
 
     // 6 refresh additional tracker printed when memory exceeds limit.
+    // TODO, separate Framgnet and Memtable memory in Load memory.
     COUNTER_SET(_load_all_memtables_usage_counter,
                 ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->consumption());
 
@@ -343,7 +344,7 @@ void MemoryProfile::print_log_process_usage() {
     if (_enable_print_log_process_usage) {
         _enable_print_log_process_usage = false;
         auto log_str = process_memory_detail_str();
-        LOG_LONG_STRING(WARNING, log_str);
+        LOG_LONG_STRING(INFO, log_str);
     }
 }
 

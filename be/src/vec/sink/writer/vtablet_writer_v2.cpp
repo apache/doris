@@ -682,10 +682,7 @@ Status VTabletWriterV2::close(Status exec_status) {
             std::vector<TTabletCommitInfo> tablet_commit_infos;
             RETURN_IF_ERROR(
                     _create_commit_info(tablet_commit_infos, _load_stream_map, _num_replicas));
-            _state->tablet_commit_infos().insert(
-                    _state->tablet_commit_infos().end(),
-                    std::make_move_iterator(tablet_commit_infos.begin()),
-                    std::make_move_iterator(tablet_commit_infos.end()));
+            _state->add_tablet_commit_infos(tablet_commit_infos);
         }
 
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node

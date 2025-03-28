@@ -493,6 +493,13 @@ TEST(function_string_test, function_string_lower_test) {
                 {{std::string("AbCdEfg")}, std::string("abcdefg")},
                 {{std::string("HELLO123")}, std::string("hello123")},
                 {{std::string("你好HELLO")}, std::string("你好hello")},
+                {{std::string("ÀÇ")}, std::string("àç")},
+                {{std::string("ÀÇAC123")}, std::string("àçac123")},
+                {{std::string("İstanbul")}, std::string("i̇stanbul")},
+                {{std::string("KIZILAY")}, std::string("kizilay")},
+                {{std::string("GROSSE")}, std::string("grosse")},
+                {{std::string("Å")}, std::string("å")},
+                {{std::string("ΣΟΦΟΣ")}, std::string("σοφος")},
                 {{std::string("123ABC_")}, std::string("123abc_")},
                 {{std::string("MYtestSTR")}, std::string("myteststr")},
                 {{std::string("")}, std::string("")},
@@ -515,6 +522,12 @@ TEST(function_string_test, function_string_upper_test) {
                 {{std::string("你好HELLO")}, std::string("你好HELLO")},
                 {{std::string("123ABC_")}, std::string("123ABC_")},
                 {{std::string("MYtestSTR")}, std::string("MYTESTSTR")},
+                {{std::string("àç")}, std::string("ÀÇ")},
+                {{std::string("straße")}, std::string("STRASSE")},
+                {{std::string("àçac123")}, std::string("ÀÇAC123")},
+                {{std::string("ﬃ")}, std::string("FFI")},
+                {{std::string("ǅ")}, std::string("Ǆ")},
+                {{std::string("Ångström")}, std::string("ÅNGSTRÖM")},
                 {{std::string("")}, std::string("")},
                 {{Null()}, Null()},
                 {{std::string("abcdefghijklmnopqrstuvwxyz")},
@@ -537,7 +550,7 @@ TEST(function_string_test, function_string_upper_test) {
                 {{std::string("יידיש טעקסט")}, std::string("יידיש טעקסט")},
                 //bug{{std::string("Exámplè wïth âccents")}, std::string("EXÁMPLÈ WÏTH ÂCCENTS")},
                 {{std::string("ⓔⓧⓐⓜⓟⓛⓔ ⓦⓘⓣⓗ ⓒⓘⓡⓒⓛⓔ ⓛⓔⓣⓣⓔⓡⓢ")},
-                 std::string("ⓔⓧⓐⓜⓟⓛⓔ ⓦⓘⓣⓗ ⓒⓘⓡⓒⓛⓔ ⓛⓔⓣⓣⓔⓡⓢ")},
+                 std::string("ⒺⓍⒶⓂⓅⓁⒺ ⓌⒾⓉⒽ ⒸⒾⓇⒸⓁⒺ ⓁⒺⓉⓉⒺⓇⓈ")},
                 {{std::string("🅴🆇🅰🅼🅿🅻🅴 🆆🅸🆃🅷 🆂🆀🆄🅰🆁🅴 🅻🅴🆃🆃🅴🆁🆂")},
                  std::string("🅴🆇🅰🅼🅿🅻🅴 🆆🅸🆃🅷 🆂🆀🆄🅰🆁🅴 🅻🅴🆃🆃🅴🆁🆂")},
         };
@@ -2284,7 +2297,8 @@ TEST(function_string_test, function_parse_url_test) {
                 {{std::string(
                           "https://www.facebook.com/aa/bb?returnpage=https://www.facebook.com/"),
                   std::string("HosT")},
-                 std::string("www.facebook.com")}};
+                 std::string("www.facebook.com")},
+                {{std::string("http://www.baidu.com"), std::string("FILE")}, {std::string("")}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -3031,6 +3045,15 @@ TEST(function_string_test, function_overlay_test) {
                 {{VARCHAR("aaaaa"), INT(2), INT(3), VARCHAR("bbbbb")}, {VARCHAR("abbbbba")}},
                 {{VARCHAR("aaaaa"), INT(6), INT(2), VARCHAR("bbbbb")}, {VARCHAR("aaaaa")}},
                 {{VARCHAR("aaaaa"), INT(-10), INT(2), VARCHAR("bbbbb")}, {VARCHAR("aaaaa")}},
+                {{VARCHAR("こaaaa"), INT(-1), INT(2), VARCHAR("にちは")}, {VARCHAR("こaaaa")}},
+                {{VARCHAR("こaaaa"), INT(2), INT(2), VARCHAR("にちは")}, {VARCHAR("こにちはaa")}},
+                {{VARCHAR("你好123世界"), INT(2), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你我的23世界")}},
+                {{VARCHAR("你好123世界"), INT(-1), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你好123世界")}},
+                {{VARCHAR("你好123世界"), INT(10), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你好123世界")}},
+                {{VARCHAR("你好123世界"), INT(2), INT(10), VARCHAR("我的")}, {VARCHAR("你我的")}},
                 {{VARCHAR("aaaaa"), INT(2), INT(-1), VARCHAR("bbbbb")}, {VARCHAR("abbbbb")}}};
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
@@ -3076,6 +3099,15 @@ TEST(function_string_test, function_overlay_test) {
                 {{VARCHAR("aaaaa"), INT(2), INT(3), VARCHAR("bbbbb")}, {VARCHAR("abbbbba")}},
                 {{VARCHAR("aaaaa"), INT(6), INT(2), VARCHAR("bbbbb")}, {VARCHAR("aaaaa")}},
                 {{VARCHAR("aaaaa"), INT(-10), INT(2), VARCHAR("bbbbb")}, {VARCHAR("aaaaa")}},
+                {{VARCHAR("こaaaa"), INT(-1), INT(2), VARCHAR("にちは")}, {VARCHAR("こaaaa")}},
+                {{VARCHAR("こaaaa"), INT(2), INT(2), VARCHAR("にちは")}, {VARCHAR("こにちはaa")}},
+                {{VARCHAR("你好123世界"), INT(2), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你我的23世界")}},
+                {{VARCHAR("你好123世界"), INT(-1), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你好123世界")}},
+                {{VARCHAR("你好123世界"), INT(10), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你好123世界")}},
+                {{VARCHAR("你好123世界"), INT(2), INT(10), VARCHAR("我的")}, {VARCHAR("你我的")}},
                 {{VARCHAR("aaaaa"), INT(2), INT(-1), VARCHAR("bbbbb")}, {VARCHAR("abbbbb")}}};
         for (const auto& line : data_set) {
             DataSet const_dataset = {line};

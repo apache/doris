@@ -96,6 +96,7 @@ public:
     int64 get_output_rows() const { return _output_total_rows; }
     void reset_sorter_state(RuntimeState* runtime_state);
     bool prepared_finish() { return _prepared_finish; }
+    void set_prepared_finish() { _prepared_finish = true; }
 
 private:
     Status _read_row_num(Block* block, bool* eos, int batch_size);
@@ -121,7 +122,7 @@ private:
     int64 _partition_inner_limit = 0;
     TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::type::ROW_NUMBER;
     SortCursorCmp* _previous_row = nullptr;
-    std::atomic_bool _prepared_finish = false;
+    bool _prepared_finish = false;
 };
 
 #include "common/compile_check_end.h"

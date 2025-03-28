@@ -45,13 +45,14 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/query_context.h"
-#include "runtime/runtime_filter_mgr.h"
 #include "runtime/thread_context.h"
+#include "runtime_filter/runtime_filter_mgr.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
@@ -299,7 +300,7 @@ void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
 
     if (_unreported_error_idx < _error_log.size()) {
         new_errors->assign(_error_log.begin() + _unreported_error_idx, _error_log.end());
-        _unreported_error_idx = _error_log.size();
+        _unreported_error_idx = (int)_error_log.size();
     }
 }
 
@@ -356,8 +357,7 @@ Status RuntimeState::create_error_log_file() {
 
 Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
                                               std::function<std::string()> error_msg,
-                                              bool* stop_processing, bool is_summary) {
-    *stop_processing = false;
+                                              bool is_summary) {
     if (query_type() != TQueryType::LOAD) {
         return Status::OK();
     }
@@ -378,7 +378,10 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM &&
         !is_summary) {
         if (_load_zero_tolerance) {
-            *stop_processing = true;
+            return Status::DataQualityError(
+                    "Encountered unqualified data, stop processing. Please check if the source "
+                    "data matches the schema, and consider disabling strict mode or increasing "
+                    "max_filter_ratio.");
         }
         return Status::OK();
     }
@@ -494,26 +497,23 @@ RuntimeFilterMgr* RuntimeState::global_runtime_filter_mgr() {
 }
 
 Status RuntimeState::register_producer_runtime_filter(
-        const TRuntimeFilterDesc& desc, std::shared_ptr<IRuntimeFilter>* producer_filter) {
+        const TRuntimeFilterDesc& desc, std::shared_ptr<RuntimeFilterProducer>* producer_filter,
+        RuntimeProfile* parent_profile) {
     // Producers are created by local runtime filter mgr and shared by global runtime filter manager.
     // When RF is published, consumers in both global and local RF mgr will be found.
-    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(desc, query_options(),
-                                                                         producer_filter));
-    RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merge_producer_filter(
-            desc, query_options(), *producer_filter));
+    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(desc, producer_filter,
+                                                                         parent_profile));
+    RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merger_producer_filter(
+            desc, *producer_filter, &_profile));
     return Status::OK();
 }
 
 Status RuntimeState::register_consumer_runtime_filter(
         const doris::TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
-        std::shared_ptr<IRuntimeFilter>* consumer_filter) {
-    if (desc.has_remote_targets || need_local_merge) {
-        return global_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
-                                                                     consumer_filter, true);
-    } else {
-        return local_runtime_filter_mgr()->register_consumer_filter(desc, query_options(), node_id,
-                                                                    consumer_filter, false);
-    }
+        std::shared_ptr<RuntimeFilterConsumer>* consumer_filter, RuntimeProfile* parent_profile) {
+    bool need_merge = desc.has_remote_targets || need_local_merge;
+    RuntimeFilterMgr* mgr = need_merge ? global_runtime_filter_mgr() : local_runtime_filter_mgr();
+    return mgr->register_consumer_filter(desc, node_id, consumer_filter, parent_profile);
 }
 
 bool RuntimeState::is_nereids() const {
@@ -553,4 +553,5 @@ bool RuntimeState::low_memory_mode() const {
     return _query_ctx->low_memory_mode();
 }
 
+#include "common/compile_check_end.h"
 } // end namespace doris

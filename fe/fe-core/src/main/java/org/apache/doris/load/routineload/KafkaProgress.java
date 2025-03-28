@@ -246,4 +246,7 @@ public class KafkaProgress extends RoutineLoadProgress {
         }
     }
 
+    public Long totalProgress() {
+        return partitionIdToOffset.values().stream().reduce(0L, Long::sum);
+    }
 }

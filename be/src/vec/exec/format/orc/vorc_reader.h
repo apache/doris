@@ -137,6 +137,7 @@ public:
     //If you want to read the file by index instead of column name, set hive_use_column_names to false.
     Status init_reader(
             const std::vector<std::string>* column_names,
+            const std::vector<std::string>& missing_column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, bool is_acid,
             const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
@@ -177,8 +178,8 @@ public:
                              std::vector<TypeDescriptor>* col_types) override;
 
     Status get_schema_col_name_attribute(std::vector<std::string>* col_names,
-                                         std::vector<uint64_t>* col_attributes,
-                                         std::string attribute);
+                                         std::vector<int32_t>* col_attributes,
+                                         const std::string& attribute, bool* exist_attribute);
     void set_table_col_to_file_col(
             std::unordered_map<std::string, std::string> table_col_to_file_col) {
         _table_col_to_file_col = table_col_to_file_col;
@@ -586,6 +587,9 @@ private:
     int64_t _range_size;
     const std::string& _ctz;
     const std::vector<std::string>* _column_names;
+    // _missing_column_names_set: used in iceberg/hudi/paimon, the columns are dropped
+    // but added back(drop column a then add column a). Shouldn't read this column data in this case.
+    std::set<std::string> _missing_column_names_set;
     int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
 

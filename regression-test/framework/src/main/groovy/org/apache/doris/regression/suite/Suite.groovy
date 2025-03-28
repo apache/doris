@@ -60,6 +60,7 @@ import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
+import org.apache.hadoop.fs.FileSystem
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
@@ -105,6 +106,7 @@ class Suite implements GroovyInterceptable {
     static Boolean isTrinoConnectorDownloaded = false
 
     private AmazonS3 s3Client = null
+    private FileSystem fs = null
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -925,6 +927,16 @@ class Suite implements GroovyInterceptable {
         return enableHdfs.equals("true");
     }
 
+    synchronized FileSystem getHdfs() {
+        if (fs == null) {
+            String hdfsFs = context.config.otherConfigs.get("hdfsFs")
+            String hdfsUser = context.config.otherConfigs.get("hdfsUser")
+            Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, context.config.dataPath + "/")
+            fs = hdfs.fs
+        }
+        return fs
+    }
+
     String uploadToHdfs(String localFile) {
         // as group can be rewrite the origin data file not relate to group
         String dataDir = context.config.dataPath + "/"
@@ -1577,6 +1589,13 @@ class Suite implements GroovyInterceptable {
     }
 
     DebugPoint GetDebugPoint() {
+        def execType = RegressionTest.getGroupExecType(group);
+        if (execType != RegressionTest.GroupExecType.SINGLE
+            && execType != RegressionTest.GroupExecType.DOCKER) {
+            throw new Exception("Debug point must use in nonConcurrent suite or docker suite, "
+                    + "need add 'nonConcurrent' or 'docker' to suite's belong groups, "
+                    + "see example demo_p0/debugpoint_action.groovy.")
+        }
         return debugPoint
     }
 
@@ -2963,7 +2982,7 @@ class Suite implements GroovyInterceptable {
         def udf_file_dir = new File(udf_file_path).parent
         backendId_to_backendIP.values().each { be_ip ->
             sshExec("root", be_ip, "ssh-keygen -f '/root/.ssh/known_hosts' -R \"${be_ip}\"", false)
-            sshExec("root", be_ip, "ssh -o StrictHostKeyChecking=no root@${be_ip} \"mkdir -p ${udf_file_dir}\"", false)
+            sshExec("root", be_ip, "mkdir -p ${udf_file_dir}", false)
             scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
         }
     }

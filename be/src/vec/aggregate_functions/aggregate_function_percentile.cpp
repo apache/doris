@@ -22,6 +22,7 @@
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_percentile_approx(
         const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
@@ -64,6 +65,7 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("percentile",
                                    creator_with_numeric_type::creator<AggregateFunctionPercentile>);
+    factory.register_alias("percentile", "percentile_cont");
     factory.register_function_both(
             "percentile_array",
             creator_with_numeric_type::creator<AggregateFunctionPercentileArray>);
@@ -88,4 +90,5 @@ void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactor
     register_percentile_approx_old_function(factory);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

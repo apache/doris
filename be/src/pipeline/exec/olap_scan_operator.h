@@ -30,7 +30,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace vectorized {
-class NewOlapScanner;
+class OlapScanner;
 }
 } // namespace doris
 
@@ -54,7 +54,7 @@ public:
     Status hold_tablets();
 
 private:
-    friend class vectorized::NewOlapScanner;
+    friend class vectorized::OlapScanner;
 
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
@@ -85,7 +85,7 @@ private:
         return _is_key_column(predicate.get_col_name(_parent->node_id()));
     }
 
-    Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
+    Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
 
     void add_filter_info(int id, const PredicateFilterInfo& info);
 
@@ -94,7 +94,7 @@ private:
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
     std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
-    std::vector<TCondition> _olap_filters;
+    std::vector<FilterOlapParam<TCondition>> _olap_filters;
     // If column id in this set, indicate that we need to read data after index filtering
     std::set<int32_t> _maybe_read_column_ids;
 

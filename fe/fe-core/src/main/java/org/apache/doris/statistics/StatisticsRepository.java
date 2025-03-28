@@ -26,6 +26,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -217,7 +219,7 @@ public class StatisticsRepository {
 
     public static void dropStatistics(
             long ctlId, long dbId, long tblId, Set<String> colNames, Set<String> partNames) throws DdlException {
-        if (colNames == null && partNames == null) {
+        if ((colNames == null || colNames.isEmpty()) && (partNames == null || partNames.isEmpty())) {
             executeDropStatisticsAllColumnSql(ctlId, dbId, tblId);
         } else {
             dropStatisticsByColAndPartitionName(ctlId, dbId, tblId, colNames, partNames);
@@ -309,6 +311,99 @@ public class StatisticsRepository {
                 new StringSubstitutor(params).replace(DELETE_PARTITION_STATISTICS_TEMPLATE));
         } catch (Exception e) {
             throw new DdlException(e.getMessage(), e);
+        }
+    }
+
+    public static void alterColumnStatistics(AlterColumnStatsCommand alterColumnStatsCommand) throws Exception {
+        TableNameInfo tableNameInfo = alterColumnStatsCommand.getTableNameInfo();
+        List<Long> partitionIds = alterColumnStatsCommand.getPartitionIds();
+        DBObjects objects = StatisticsUtil.convertTableNameToObjects(tableNameInfo);
+        String rowCount = alterColumnStatsCommand.getValue(StatsType.ROW_COUNT);
+        String ndv = alterColumnStatsCommand.getValue(StatsType.NDV);
+        String nullCount = alterColumnStatsCommand.getValue(StatsType.NUM_NULLS);
+        String min = alterColumnStatsCommand.getValue(StatsType.MIN_VALUE);
+        String max = alterColumnStatsCommand.getValue(StatsType.MAX_VALUE);
+        String dataSize = alterColumnStatsCommand.getValue(StatsType.DATA_SIZE);
+        long indexId = alterColumnStatsCommand.getIndexId();
+        if (rowCount == null) {
+            throw new RuntimeException("Row count is null.");
+        }
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(Double.parseDouble(rowCount));
+        String colName = alterColumnStatsCommand.getColumnName();
+        Column column = objects.table.getColumn(colName);
+        if (ndv != null) {
+            double dNdv = Double.parseDouble(ndv);
+            builder.setNdv(dNdv);
+            builder.setOriginal(null);
+        }
+        if (nullCount != null) {
+            builder.setNumNulls(Double.parseDouble(nullCount));
+        }
+        if (min != null) {
+            builder.setMinExpr(StatisticsUtil.readableValue(column.getType(), min));
+            builder.setMinValue(StatisticsUtil.convertToDouble(column.getType(), min));
+        }
+        if (max != null) {
+            builder.setMaxExpr(StatisticsUtil.readableValue(column.getType(), max));
+            builder.setMaxValue(StatisticsUtil.convertToDouble(column.getType(), max));
+        }
+        if (dataSize != null) {
+            double size = Double.parseDouble(dataSize);
+            double rows = Double.parseDouble(rowCount);
+            if (size > 0) {
+                builder.setDataSize(size);
+                if (rows > 0) {
+                    builder.setAvgSizeByte(size / rows);
+                }
+            }
+        }
+
+        ColumnStatistic columnStatistic = builder.build();
+        Map<String, String> params = new HashMap<>();
+        params.put("id", constructId(objects.table.getId(), indexId, colName));
+        params.put("catalogId", String.valueOf(objects.catalog.getId()));
+        params.put("dbId", String.valueOf(objects.db.getId()));
+        params.put("idxId", String.valueOf(indexId));
+        params.put("tblId", String.valueOf(objects.table.getId()));
+        params.put("colId", String.valueOf(colName));
+        params.put("count", String.valueOf(columnStatistic.count));
+        params.put("ndv", String.valueOf(columnStatistic.ndv));
+        params.put("nullCount", String.valueOf(columnStatistic.numNulls));
+        params.put("min", min == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(min) + "'");
+        params.put("max", max == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(max) + "'");
+        params.put("dataSize", String.valueOf(columnStatistic.dataSize));
+
+        if (partitionIds.isEmpty()) {
+            // update table granularity statistics
+            params.put("partId", "NULL");
+            StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS_FOR_ALTER, params);
+            ColStatsData data = new ColStatsData(constructId(objects.table.getId(), indexId, colName),
+                    objects.catalog.getId(), objects.db.getId(), objects.table.getId(), indexId, colName,
+                    null, columnStatistic);
+            Env.getCurrentEnv().getStatisticsCache().syncColStats(data);
+            AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
+                    .setTblUpdateTime(objects.table.getUpdateTime())
+                    .setColName("")
+                    .setRowCount((long) Double.parseDouble(rowCount))
+                    .setJobColumns(Sets.newHashSet())
+                    .setUserInject(true)
+                    .setJobType(AnalysisInfo.JobType.MANUAL)
+                    .build();
+            if (objects.table instanceof OlapTable) {
+                indexId = indexId == -1 ? ((OlapTable) objects.table).getBaseIndexId() : indexId;
+                mockedJobInfo.addIndexRowCount(indexId, (long) Double.parseDouble(rowCount));
+            }
+            Env.getCurrentEnv().getAnalysisManager().updateTableStatsForAlterStats(mockedJobInfo, objects.table);
+        } else {
+            // update partition granularity statistics
+            for (Long partitionId : partitionIds) {
+                HashMap<String, String> partParams = Maps.newHashMap(params);
+                partParams.put("partId", String.valueOf(partitionId));
+                StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS_FOR_ALTER, partParams);
+                // TODO cache partition granular statistics
+                // Env.getCurrentEnv().getStatisticsCache()
+                //         .updateColStatsCache(partitionId, -1, colName, builder.build());
+            }
         }
     }
 

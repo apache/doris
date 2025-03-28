@@ -73,6 +73,7 @@ private:
     std::mutex _this_lock;
     bool _closed = false;
     int32_t _read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE;
+    void _copyFile(const char* file, int32_t file_length, uint8_t* buffer, int32_t buffer_length);
 
 protected:
     /** Removes an existing file in the directory-> */
@@ -86,7 +87,6 @@ public:
                         int32_t read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE,
                         const io::IOContext* io_ctx = nullptr);
     ~DorisCompoundReader() override;
-    void copyFile(const char* file, int64_t file_length, uint8_t* buffer, int64_t buffer_length);
     bool list(std::vector<std::string>* names) const override;
     bool fileExists(const char* name) const override;
     int64_t fileModified(const char* name) const override;

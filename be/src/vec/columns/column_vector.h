@@ -183,7 +183,6 @@ public:
         } else {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "double column not support insert_range_of_integer");
-            __builtin_unreachable();
         }
     }
 
@@ -361,8 +360,9 @@ public:
 
     // For example, during create column_const(1, uint8), will use NearestFieldType
     // to cast a uint8 to int64, so that the Field is int64, but the column is created
-    // using data_type, so that T == uint8. After the field is created, it will be inserted
-    // into the column, but its type is different from column's data type, so that during column
+    // using data_type, so that T == uint8, NearestFieldType<T> == uint64.
+    // After the field is created, it will be inserted into the column,
+    // but its type is different from column's data type (int64 vs uint64), so that during column
     // insert method, should use NearestFieldType<T> to get the Field and get it actual
     // uint8 value and then insert into column.
     void insert(const Field& x) override {

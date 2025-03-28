@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.DropObserverClause;
 import org.apache.doris.ha.FrontendNodeType;
 
 /**
@@ -35,10 +33,5 @@ public class DropObserverOp extends FrontendOp {
         sb.append("ALTER CLUSTER DROP OBSERVER \"");
         sb.append(hostPort).append("\"");
         return sb.toString();
-    }
-
-    @Override
-    public AlterClause translateToLegacyAlterClause() {
-        return new DropObserverClause(hostPort, host, port, role);
     }
 }

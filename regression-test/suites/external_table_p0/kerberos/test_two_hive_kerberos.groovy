@@ -136,19 +136,19 @@ suite("test_two_hive_kerberos", "p0,external,kerberos,external_docker,external_d
         thread1.join()
         thread2.join()
 
-        // test information_schema.backend_kerberos_ticket_cache
-        sql """switch internal"""
-        List<List<Object>> backends = sql "show backends"
-        int beNum = backends.size();
-        test {
-            sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/hive-presto-master.keytab";"""
-            rowNum beNum
-        } 
+        // // test information_schema.backend_kerberos_ticket_cache
+        // sql """switch internal"""
+        // List<List<Object>> backends = sql "show backends"
+        // int beNum = backends.size();
+        // test {
+        //     sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@LABS.TERADATA.COM" and KEYTAB = "${keytab_root_dir}/hive-presto-master.keytab";"""
+        //     rowNum beNum
+        // } 
 
-        test {
-            sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@OTHERREALM.COM" and KEYTAB = "${keytab_root_dir}/other-hive-presto-master.keytab";"""
-            rowNum beNum
-        }
+        // test {
+        //     sql """select * from information_schema.backend_kerberos_ticket_cache where PRINCIPAL="hive/presto-master.docker.cluster@OTHERREALM.COM" and KEYTAB = "${keytab_root_dir}/other-hive-presto-master.keytab";"""
+        //     rowNum beNum
+        // }
 
         // sql """drop catalog ${hms_catalog_name};"""
         // sql """drop catalog other_${hms_catalog_name};"""

@@ -19,11 +19,12 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.constants.S3Properties;
-import org.apache.doris.fs.remote.AzureFileSystem;
+import org.apache.doris.fs.obj.AzureObjStorage;
+import org.apache.doris.fs.obj.ObjStorage;
+import org.apache.doris.fs.obj.RemoteObjects;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -31,6 +32,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -78,21 +80,57 @@ public class AzureResource extends Resource {
         this.properties = newProperties;
     }
 
-    private static void pingAzure(String bucketName, String rootPath,
+    protected static void pingAzure(String bucketName, String rootPath,
             Map<String, String> newProperties) throws DdlException {
-        if (FeConstants.runningUnitTest) {
-            return;
+
+        Long timestamp = System.currentTimeMillis();
+        String testObj = "azure://" + bucketName + "/" + rootPath
+                + "/doris-test-object-valid-" + timestamp.toString() + ".txt";
+
+        byte[] contentData = new byte[2 * ObjStorage.CHUNK_SIZE];
+        Arrays.fill(contentData, (byte) 'A');
+        AzureObjStorage azureObjStorage = new AzureObjStorage(newProperties);
+
+        Status status = azureObjStorage.putObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
+        if (!Status.OK.equals(status)) {
+            throw new DdlException(
+                    "ping azure failed(put), status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false));
         }
 
-        String testFile = "azure://" + bucketName + "/" + rootPath + "/test-object-valid.txt";
-        AzureFileSystem fileSystem = new AzureFileSystem(newProperties);
-        Status status = fileSystem.exists(testFile);
-        if (status != Status.OK && status.getErrCode() != Status.ErrCode.NOT_FOUND) {
+        status = azureObjStorage.headObject(testObj);
+        if (!Status.OK.equals(status)) {
             throw new DdlException(
                     "ping azure failed(head), status: " + status + ", properties: " + new PrintableMap<>(
                             newProperties, "=", true, false, true, false));
         }
-        LOG.info("success to ping azure");
+
+        RemoteObjects remoteObjects = azureObjStorage.listObjects(testObj, null);
+        LOG.info("remoteObjects: {}", remoteObjects);
+        Preconditions.checkArgument(remoteObjects.getObjectList().size() == 1, "remoteObjects.size() must equal 1");
+
+        status = azureObjStorage.deleteObject(testObj);
+        if (!Status.OK.equals(status)) {
+            throw new DdlException(
+                    "ping azure failed(delete), status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false));
+        }
+
+        status = azureObjStorage.multipartUpload(testObj,
+                new ByteArrayInputStream(contentData), contentData.length);
+        if (!Status.OK.equals(status)) {
+            throw new DdlException(
+                    "ping azure failed(multiPartPut), status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false));
+        }
+
+        status = azureObjStorage.deleteObject(testObj);
+        if (!Status.OK.equals(status)) {
+            throw new DdlException(
+                    "ping azure failed(delete), status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false));
+        }
+        LOG.info("Success to ping azure blob storage.");
     }
 
     @Override

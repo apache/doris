@@ -183,7 +183,7 @@ public class MaterializedViewUtils {
             Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
             StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
             // Refresh struct info in current level plan from top to bottom
-            structInfoMap.refresh(ownerGroup, cascadesContext);
+            structInfoMap.refresh(ownerGroup, cascadesContext, new HashSet<>());
             structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
 
             Set<BitSet> queryTableSets = structInfoMap.getTableMaps();
@@ -229,7 +229,8 @@ public class MaterializedViewUtils {
                 ImmutableList.of(),
                 // this must be empty, or it will be used to sample
                 ImmutableList.of(),
-                Optional.empty());
+                Optional.empty(),
+                ImmutableList.of());
         return BindRelation.checkAndAddDeleteSignFilter(olapScan, cascadesContext.getConnectContext(),
                 olapScan.getTable());
     }
@@ -261,7 +262,8 @@ public class MaterializedViewUtils {
                 .getSessionVariable()
                 .getDisableNereidsRuleNames();
         rewrittenPlanContext.getStatementContext().getConnectContext().getSessionVariable()
-                .setDisableNereidsRules(String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
+                .setDisableNereidsRules(String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name(),
+                        RuleType.ELIMINATE_CONST_JOIN_CONDITION.name())));
         rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         try {
             rewrittenPlanContext.getConnectContext().setSkipAuth(true);

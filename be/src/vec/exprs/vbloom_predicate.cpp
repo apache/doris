@@ -55,7 +55,6 @@ Status VBloomPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
         return Status::InternalError("Invalid argument for VBloomPredicate.");
     }
 
-    _be_exec_version = state->be_exec_version();
     _prepare_finished = true;
     return Status::OK();
 }
@@ -105,7 +104,8 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
 const std::string& VBloomPredicate::expr_name() const {
     return _expr_name;
 }
-void VBloomPredicate::set_filter(std::shared_ptr<BloomFilterFuncBase>& filter) {
+
+void VBloomPredicate::set_filter(std::shared_ptr<BloomFilterFuncBase> filter) {
     _filter = filter;
 }
 

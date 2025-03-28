@@ -29,6 +29,8 @@ import {Trans} from 'react-i18next';
 import {getBasePath} from 'Src/utils/utils';
 import SyntaxHighlighter from 'react-syntax-highlighter';
 import {docco} from 'react-syntax-highlighter/dist/esm/styles/hljs';
+
+const JSONbig = require('json-bigint')({ storeAsString: true });
 function checkStatus(response) {
     if (response.status >= 200 && response.status < 300) {
         return response;
@@ -116,7 +118,8 @@ export default async function request(url, options = {}, tipSuccess = false, tip
     if (options && options.download) {
         return response.blob();
     }
-    const data = await response.json();
+    const text = await response.text();
+    const data = JSONbig.parse(text);
     if ('code' in data || 'msg' in data) {
         const {code, msg} = data;
         if (code === 401 && data.data === 'Cookie is invalid') {

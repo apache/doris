@@ -110,7 +110,7 @@ suite("test_warmup_show_stmt_2") {
 
     sql new File("""${context.file.parent}/../ddl/${table}_delete.sql""").text
     sleep(40000)
-    def result = show_cache_hotspot()
+    result = show_cache_hotspot()
     log.info(result.toString())
     org.junit.Assert.assertTrue("result.size() " + result.size() + " > 0", result.size() > 0)
     found = false
