@@ -29,7 +29,6 @@
 #include <memory>
 #include <ostream>
 
-#include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_reader_first_last.h"
 #include "vec/columns/column.h"
