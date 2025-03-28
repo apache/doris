@@ -746,23 +746,48 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
     }
     std::unordered_map<int32_t, PathToNoneNullValues> output_uid_to_path_stats;
     RETURN_IF_ERROR(collect_path_stats(output, output_uid_to_path_stats));
-    for (const auto& [uid, stats] : original_uid_to_path_stats) {
-        if (output_uid_to_path_stats.find(uid) == output_uid_to_path_stats.end()) {
+    for (const auto& [uid, stats] : output_uid_to_path_stats) {
+        if (original_uid_to_path_stats.find(uid) == original_uid_to_path_stats.end()) {
             return Status::InternalError("Path stats not found for uid {}, tablet_id {}", uid,
                                          tablet->tablet_id());
         }
-        if (stats.size() != output_uid_to_path_stats.at(uid).size()) {
-            return Status::InternalError("Path stats size not match for uid {}, tablet_id {}", uid,
-                                         tablet->tablet_id());
+
+        // In input rowsets, some rowsets may have statistics values exceeding the maximum limit,
+        // which leads to inaccurate statistics
+        if (stats.size() > VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+            // When there is only one segment, we can ensure that the size of each path in output stats is accurate
+            if (output->num_segments() == 1) {
+                for (const auto& [path, size] : stats) {
+                    if (original_uid_to_path_stats.at(uid).at(path) > size) {
+                        return Status::InternalError(
+                                "Path stats not smaller for uid {} with path `{}`, input size {}, "
+                                "output "
+                                "size {}, "
+                                "tablet_id {}",
+                                uid, path, original_uid_to_path_stats.at(uid).at(path), size,
+                                tablet->tablet_id());
+                    }
+                }
+            }
         }
-        for (const auto& [path, size] : stats) {
-            if (output_uid_to_path_stats.at(uid).at(path) != size) {
+        // in this case, input stats is accurate, so we check the stats size and stats value
+        else {
+            if (stats.size() != original_uid_to_path_stats.at(uid).size()) {
                 return Status::InternalError(
-                        "Path stats not match for uid {} with path `{}`, input size {}, output "
-                        "size {}, "
-                        "tablet_id {}",
-                        uid, path, size, output_uid_to_path_stats.at(uid).at(path),
-                        tablet->tablet_id());
+                        "Path stats size not match for uid {}, tablet_id {}, input size {}, output "
+                        "size {}",
+                        uid, tablet->tablet_id(), original_uid_to_path_stats.at(uid).size(),
+                        stats.size());
+            }
+            for (const auto& [path, size] : stats) {
+                if (original_uid_to_path_stats.at(uid).at(path) != size) {
+                    return Status::InternalError(
+                            "Path stats not match for uid {} with path `{}`, input size {}, output "
+                            "size {}, "
+                            "tablet_id {}",
+                            uid, path, original_uid_to_path_stats.at(uid).at(path), size,
+                            tablet->tablet_id());
+                }
             }
         }
     }
@@ -831,49 +856,35 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
 void calculate_variant_stats(const IColumn& encoded_sparse_column,
                              segment_v2::VariantStatisticsPB* stats, size_t row_pos,
                              size_t num_rows) {
-    size_t limit = VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE -
-                   stats->sparse_column_non_null_size().size();
     // Cast input column to ColumnMap type since sparse column is stored as a map
     const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
-
-    // Map to store path frequencies - tracks how many times each path appears
-    std::unordered_map<StringRef, size_t> sparse_data_paths_statistics;
 
     // Get the keys column which contains the paths as strings
     const auto& sparse_data_paths =
             assert_cast<const ColumnString*>(map_column.get_keys_ptr().get());
     const auto& serialized_sparse_column_offsets =
             assert_cast<const ColumnArray::Offsets64&>(map_column.get_offsets());
+    auto& count_map = *stats->mutable_sparse_column_non_null_size();
     // Iterate through all paths in the sparse column
     for (size_t i = row_pos; i != row_pos + num_rows; ++i) {
         size_t offset = serialized_sparse_column_offsets[i - 1];
         size_t end = serialized_sparse_column_offsets[i];
         for (size_t j = offset; j != end; ++j) {
             auto path = sparse_data_paths->get_data_at(j);
+
+            const auto& sparse_path = path.to_string();
             // If path already exists in statistics, increment its count
-            if (auto it = sparse_data_paths_statistics.find(path);
-                it != sparse_data_paths_statistics.end()) {
+            if (auto it = count_map.find(sparse_path); it != count_map.end()) {
                 ++it->second;
             }
             // If path doesn't exist and we haven't hit the max statistics size limit,
             // add it with count 1
-            else if (sparse_data_paths_statistics.size() < limit) {
-                sparse_data_paths_statistics.emplace(path, 1);
+            else if (count_map.size() < VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+                count_map.emplace(sparse_path, 1);
             }
         }
     }
 
-    // Copy the collected statistics into the protobuf stats object
-    // This maps each path string to its frequency count
-    for (const auto& [path, size] : sparse_data_paths_statistics) {
-        const auto& sparse_path = path.to_string();
-        auto& count_map = *stats->mutable_sparse_column_non_null_size();
-        if (auto it = count_map.find(sparse_path); it != count_map.end()) {
-            it->second += size;
-        } else {
-            count_map.emplace(sparse_path, size);
-        }
-    }
     if (stats->sparse_column_non_null_size().size() >
         VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
         throw doris::Exception(
