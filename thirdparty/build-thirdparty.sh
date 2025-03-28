@@ -1883,6 +1883,21 @@ build_pugixml() {
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugiconfig.hpp" "${TP_INSTALL_DIR}/include/"
 }
 
+build_datasketches() {
+  check_if_source_exist "${DATASKETCHES_SOURCE}"
+  cd "${TP_SOURCE_DIR}/${DATASKETCHES_SOURCE}"
+
+  mkdir -p "${BUILD_DIR}"
+  cd "${BUILD_DIR}"
+
+  LDFLAGS="-L${TP_LIB_DIR}" \
+        ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_TESTS=OFF \
+        -DCMAKE_BUILD_TYPE=Release ..
+  # nothing to be built
+  "${BUILD_SYSTEM}" install
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         jindofs
@@ -1955,6 +1970,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         brotli
         icu
         pugixml
+        datasketches
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
