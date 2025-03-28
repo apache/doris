@@ -31,7 +31,7 @@ TEST(TimeValueTest, make_time) {
 }
 
 TEST(TimeValueTest, round_time) {
-    //  01:02:03.500000 -> 01:01:04.000000
+    //  01:02:03.500000 -> 01:02:04.000000
     EXPECT_EQ(TimeValue::round_time(TimeValue::make_time(1, 2, 3, 500000), 0),
               TimeValue::make_time(1, 2, 4));
 
