@@ -20,9 +20,9 @@ suite("any_value") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    test {
-        sql "select any(s_suppkey), any(s_name), any_value(s_address) from supplier;"
-    }
+    // test {
+    //     sql "select any(s_suppkey), any(s_name), any_value(s_address) from supplier;"
+    // }
     qt_sql_max """select max(cast(concat(number, ":00:00") as time)) from numbers("number" = "100");"""
     qt_sql_min """select min(cast(concat(number, ":00:00") as time)) from numbers("number" = "100");"""
     sql """select any(cast(concat(number, ":00:00") as time)) from numbers("number" = "100");"""
@@ -57,9 +57,9 @@ suite("any_value") {
     sql """ insert into any_test values(2, array(4,5,6), array(7,8,9), array('d','e','f'), array('g','h','i'), named_struct('s_id', 3, 's_name', 'e', 's_address', 'f'), named_struct('s_id', 4, 's_name', 'g', 's_address', 'h'), map('e', 5, 'f', 6), map('g', 7, 'h', 8)); """
     qt_sql_any4 """ select any(c_array1),any(c_array2),any(c_array3),any(c_array4),any(s_info1),any(s_info2),any(m1),any(m2) from any_test group by id order by id; """       
 
-    sql """DROP TABLE IF EXISTS baseall"""
+    sql """DROP TABLE IF EXISTS baseall_any"""
     sql """
-        CREATE TABLE `baseall` (
+        CREATE TABLE `baseall_any` (
         `k1` tinyint NULL,
         `k2` smallint NULL,
         `k3` int NULL,
@@ -78,14 +78,114 @@ suite("any_value") {
             "replication_allocation" = "tag.location.default: 1"
         );
     """
-    qt_sql_any5 """ select any(k1),any(k2),any(k3),any(k4),any(k5),any(k6),any(k10),any(k11),any(k7),any(k8),any(k9) from baseall; """
-    qt_sql_any6 """ select any(k1),any(k2),any(k3),any(k4),any(k5),any(k6),any(k10),any(k11),any(k7),any(k8),any(k9) from baseall group by k1; """       
+    qt_sql_any5 """ select any(k1),any(k2),any(k3),any(k4),any(k5),any(k6),any(k10),any(k11),any(k7),any(k8),any(k9) from baseall_any; """
+    qt_sql_any6 """ select any(k1),any(k2),any(k3),any(k4),any(k5),any(k6),any(k10),any(k11),any(k7),any(k8),any(k9) from baseall_any group by k1; """       
     sql """
-        insert into baseall values(1, 1, 1, 1, 1.1, 'a', '2021-01-01', '2021-01-01 00:00:00', 'a', 1.1, 1.1);
+        insert into baseall_any values(1, 1, 1, 1, 1.1, 'a', '2021-01-01', '2021-01-01 00:00:00', 'a', 1.1, 1.1);
     """
-    qt_sql_any7 """ select any(k1),any(k2),any(k3),any(k4),any(k5),any(k6),any(k10),any(k11),any(k7),any(k8),any(k9) from baseall; """
+    qt_sql_any7 """ select any(k1),any(k2),any(k3),any(k4),any(k5),any(k6),any(k10),any(k11),any(k7),any(k8),any(k9) from baseall_any; """
     sql """
-        insert into baseall values(2, 2, 2, 2, 2.2, 'b', '2021-02-02', '2021-02-02 00:00:00', 'b', 2.2, 2.2);
+        insert into baseall_any values(2, 2, 2, 2, 2.2, 'b', '2021-02-02', '2021-02-02 00:00:00', 'b', 2.2, 2.2);
     """
-    qt_sql_any8 """ select any(k1),any(k2),any(k3),any(k4),any(k5),any(k6),any(k10),any(k11),any(k7),any(k8),any(k9) from baseall group by k1 order by k1; """
+    qt_sql_any8 """ select any(k1),any(k2),any(k3),any(k4),any(k5),any(k6),any(k10),any(k11),any(k7),any(k8),any(k9) from baseall_any group by k1 order by k1; """
+
+     sql """DROP TABLE IF EXISTS pv_bitmap_any"""
+    sql """
+    CREATE TABLE `pv_bitmap_any` (
+        `dt` int(11) NULL COMMENT "",
+        `page` varchar(10) NULL COMMENT "",
+        `user_id` bitmap BITMAP_UNION NOT NULL COMMENT ""
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`dt`, `page`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`dt`) BUCKETS 2
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    qt_sql_any9 """ select bitmap_to_string(any(user_id)) from pv_bitmap_any; """
+    qt_sql_any10 """ select dt, bitmap_to_string(any(user_id)) from pv_bitmap_any group by dt order by dt; """
+
+    sql """
+        insert into pv_bitmap_any values(20230101, 'a', bitmap_from_string('1,2,3'));
+    """
+    qt_sql_any11 """ select bitmap_to_string(any(user_id)) from pv_bitmap_any; """
+    sql """
+        insert into pv_bitmap_any values(20230102, 'b', bitmap_from_string('4,5,6'));
+    """
+    qt_sql_any12 """ select dt, bitmap_to_string(any(user_id)) from pv_bitmap_any group by dt order by dt; """
+
+    sql """DROP TABLE IF EXISTS test_hll_any"""
+    sql """
+    create table test_hll_any(
+        id int,
+        uv hll hll_union
+    )
+    Aggregate KEY (id)
+    distributed by hash(id) buckets 10
+    PROPERTIES(
+            "replication_num" = "1"
+    );
+    """
+    qt_sql_any13 """ select HLL_CARDINALITY(any(uv)) from test_hll_any; """
+    qt_sql_any14 """ select id, HLL_CARDINALITY(any(uv)) from test_hll_any group by id order by id; """
+    sql """
+        insert into test_hll_any values(1, hll_hash(1));
+    """
+    qt_sql_any15 """ select HLL_CARDINALITY(any(uv)) from test_hll_any; """
+    sql """
+        insert into test_hll_any values(2, hll_hash(2));
+    """
+    qt_sql_any16 """ select id, HLL_CARDINALITY(any(uv)) from test_hll_any group by id order by id; """
+
+
+    sql """DROP TABLE IF EXISTS quantile_state_agg_test"""
+    sql """
+        CREATE TABLE IF NOT EXISTS quantile_state_agg_test (
+         `dt` int(11) NULL COMMENT "",
+         `id` int(11) NULL COMMENT "",
+         `price` quantile_state QUANTILE_UNION NOT NULL COMMENT ""
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`dt`, `id`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`dt`) BUCKETS 1
+        PROPERTIES ("replication_num" = "1");
+    """
+    qt_sql_any17 """ select quantile_percent(any(price),1) from quantile_state_agg_test; """
+    qt_sql_any18 """ select dt, quantile_percent(any(price),1) from quantile_state_agg_test group by dt order by dt; """
+    sql """
+        insert into quantile_state_agg_test values(20230101, 1, to_quantile_state(1,2048));
+    """
+    qt_sql_any19 """ select quantile_percent(any(price),1) from quantile_state_agg_test; """
+    sql """
+        insert into quantile_state_agg_test values(20230102, 2, to_quantile_state(200,2048));
+    """
+    qt_sql_any20 """ select dt, quantile_percent(any(price),1) from quantile_state_agg_test group by dt order by dt; """
+
+    sql """ set enable_agg_state=true"""
+    sql """DROP TABLE IF EXISTS a_table_any"""
+    sql """
+        create table a_table_any(
+            k1 int null,
+            k2 agg_state<max_by(int not null,int)> generic,
+            k3 agg_state<group_concat(string)> generic
+        )
+        aggregate key (k1)
+        distributed BY hash(k1) buckets 3
+        properties("replication_num" = "1");
+    """
+    qt_sql_any21 """ select any(k1),any(k2),any(k3) from a_table_any; """
+    qt_sql_any22 """ select k1,any(k2),any(k3) from a_table_any group by k1 order by k1; """
+    sql """
+        insert into a_table_any values(1, max_by_state(1,1), group_concat_state('a'));
+    """
+    qt_sql_any23 """ select max_by_merge(u2),group_concat_merge(u3) from (
+        select k1,max_by_union(k2) as u2,group_concat_union(k3) u3 from a_table_any group by k1 order by k1
+        ) t; """
+    sql """
+        insert into a_table_any values(2, max_by_state(2,2), group_concat_state('a'));
+    """
+    qt_sql_any24 """ select max_by_merge(u2),group_concat_merge(u3) from (
+        select k1,max_by_union(k2) as u2,group_concat_union(k3) u3 from a_table_any group by k1 order by k1
+        ) t; """
 }

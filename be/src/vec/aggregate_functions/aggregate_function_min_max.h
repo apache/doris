@@ -21,9 +21,12 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <glog/logging.h>
 #include <string.h>
 
 #include <memory>
+#include <string>
+#include <type_traits>
 #include <vector>
 
 #include "common/cast_set.h"
@@ -336,8 +339,6 @@ private:
 
 public:
     ~SingleValueDataString() = default;
-    SingleValueDataString() = default;
-    SingleValueDataString(const DataTypes& argument_types) {}
 
     constexpr static bool IsFixedLength = false;
 
@@ -491,7 +492,6 @@ struct AggregateFunctionMaxData : public Data {
     constexpr static bool IS_ANY = false;
 
     AggregateFunctionMaxData() { reset(); }
-    AggregateFunctionMaxData(const DataTypes& argument_types) { reset(); }
 
     void change_if_better(const IColumn& column, size_t row_num, Arena*) {
         if constexpr (Data::IsFixedLength) {
@@ -520,7 +520,6 @@ struct AggregateFunctionMinData : Data {
     constexpr static bool IS_ANY = false;
 
     AggregateFunctionMinData() { reset(); }
-    AggregateFunctionMinData(const DataTypes& argument_types) { reset(); }
 
     void change_if_better(const IColumn& column, size_t row_num, Arena*) {
         if constexpr (Data::IsFixedLength) {
@@ -546,13 +545,11 @@ struct AggregateFunctionAnyBase {
     static const char* name() { return "any"; }
 };
 
+// this is used for plain type about any_value function
 template <typename Data>
 struct AggregateFunctionAnyData : Data, AggregateFunctionAnyBase {
     using Self = AggregateFunctionAnyData;
     using Data::IsFixedLength;
-
-    AggregateFunctionAnyData() = default;
-    AggregateFunctionAnyData(const DataTypes& argument_types) {}
 
     void change_if_better(const IColumn& column, size_t row_num, Arena*) {
         this->change_first_time(column, row_num, nullptr);
@@ -561,37 +558,39 @@ struct AggregateFunctionAnyData : Data, AggregateFunctionAnyBase {
     void change_if_better(const Self& to, Arena*) { this->change_first_time(to, nullptr); }
 };
 
+// this is used for complex type about any_value function
 struct SingleValueDataComplexType : AggregateFunctionAnyBase {
     constexpr static bool IsFixedLength = false;
     using Self = SingleValueDataComplexType;
 
     SingleValueDataComplexType() = default;
 
-    SingleValueDataComplexType(const DataTypes& argument_types) {
-        DataTypePtr column_type = argument_types[0];
+    SingleValueDataComplexType(const DataTypes& argument_types, int be_version) {
+        column_type = argument_types[0];
         column_data = column_type->create_column();
-        serde = column_type->get_serde();
+        be_exec_version = be_version;
     }
 
     bool has() const { return has_value; }
 
-    void change_first_time(const IColumn& column, size_t row_num, Arena*) {
+    void change_first_time(const IColumn& column, size_t row_num) {
         if (UNLIKELY(!has())) {
-            change(column, row_num, nullptr);
+            change(column, row_num);
         }
     }
 
-    void change_first_time(const Self& to, Arena*) {
+    void change_first_time(const Self& to) {
         if (UNLIKELY(!has() && to.has())) {
-            change(to, nullptr);
+            change(to);
         }
     }
 
-    void change(const IColumn& column, size_t row_num, Arena*) { change_impl(column, row_num); }
+    void change(const IColumn& column, size_t row_num) { change_impl(column, row_num); }
 
-    void change(const Self& to, Arena*) { change_impl(*to.column_data, 0); }
+    void change(const Self& to) { change_impl(*to.column_data, 0); }
 
     void change_impl(const IColumn& column, size_t row_num) {
+        DCHECK_EQ(column_data->size(), 0);
         column_data->insert_from(column, row_num);
         has_value = true;
     }
@@ -614,60 +613,37 @@ struct SingleValueDataComplexType : AggregateFunctionAnyBase {
         if (!has()) {
             return;
         }
-        const size_t size = column_data->size();
-        write_binary(size, buf);
-        DataTypeSerDe::FormatOptions opt;
-        auto tmp_str = ColumnString::create();
-        VectorBufferWriter tmp_buf(*tmp_str.get());
-
-        for (size_t i = 0; i < size; i++) {
-            tmp_str->clear();
-            Status st = serde->serialize_one_cell_to_json(*column_data, i, tmp_buf, opt);
-            if (!st.ok()) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                       "any_value failed to serialize data for " +
-                                               column_data->get_name() +
-                                               " error: " + st.to_string());
-            }
-            tmp_buf.commit();
-            write_string_binary(tmp_str->get_data_at(0), buf);
-        }
+        auto size_bytes =
+                column_type->get_uncompressed_serialized_bytes(*column_data, be_exec_version);
+        std::string memory_buffer(size_bytes, '0');
+        auto* p = column_type->serialize(*column_data, memory_buffer.data(), be_exec_version);
+        write_binary(memory_buffer, buf);
+        DCHECK_EQ(p, memory_buffer.data() + size_bytes);
     }
 
-    void read(BufferReadable& buf, Arena*) {
+    void read(BufferReadable& buf, Arena* arena) {
         read_binary(has_value, buf);
         if (!has()) {
             return;
         }
-        size_t size = 0;
-        read_binary(size, buf);
-        column_data->clear();
-        column_data->reserve(size);
-
-        StringRef s;
-        DataTypeSerDe::FormatOptions opt;
-        for (size_t i = 0; i < size; i++) {
-            read_string_binary(s, buf);
-            Slice slice(s.data, s.size);
-            Status st = serde->deserialize_one_cell_from_json(*column_data, slice, opt);
-            if (!st.ok()) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                       "any_value failed to deserialize data for " +
-                                               column_data->get_name() +
-                                               " error: " + st.to_string());
-            }
-        }
+        std::string memory_buffer;
+        read_binary(memory_buffer, buf);
+        const auto* p =
+                column_type->deserialize(memory_buffer.data(), &column_data, be_exec_version);
+        DCHECK_EQ(p, memory_buffer.data() + memory_buffer.size());
     }
 
-    void change_if_better(const IColumn& column, size_t row_num, Arena*) {
-        this->change_first_time(column, row_num, nullptr);
+    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
+        this->change_first_time(column, row_num);
     }
-    void change_if_better(const Self& to, Arena*) { this->change_first_time(to, nullptr); }
+
+    void change_if_better(const Self& to, Arena* arena) { this->change_first_time(to); }
 
 private:
     bool has_value = false;
     MutableColumnPtr column_data;
-    DataTypeSerDeSPtr serde;
+    DataTypePtr column_type;
+    int be_exec_version = -1;
 };
 
 template <typename Data>
@@ -694,7 +670,11 @@ public:
     }
 
     void create(AggregateDataPtr __restrict place) const override {
-        new (place) Data(argument_types);
+        if constexpr (std::is_same_v<Data, SingleValueDataComplexType>) {
+            new (place) Data(argument_types, IAggregateFunction::version);
+        } else {
+            new (place) Data;
+        }
     }
 
     String get_name() const override { return Data::name(); }
