@@ -76,9 +76,10 @@ TEST_F(RuntimeFilterProducerHelperTest, basic) {
     column->insert(2);
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.build(_runtime_states[0].get(), &block));
     vectorized::SharedHashTableContextPtr shared_hash_table_ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, shared_hash_table_ctx));
+            helper.publish(_runtime_states[0].get(), shared_hash_table_ctx));
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
@@ -101,10 +102,8 @@ TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
     column->insert(2);
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
-    vectorized::SharedHashTableContextPtr shared_hash_table_ctx;
     _tasks[0]->set_wake_up_early();
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, shared_hash_table_ctx));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.terminate(_runtime_states[0].get()));
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
@@ -132,9 +131,10 @@ TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
     column->insert(2);
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.build(_runtime_states[0].get(), &block));
     vectorized::SharedHashTableContextPtr shared_hash_table_ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, shared_hash_table_ctx));
+            helper.publish(_runtime_states[0].get(), shared_hash_table_ctx));
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, broadcast) {
@@ -156,16 +156,17 @@ TEST_F(RuntimeFilterProducerHelperTest, broadcast) {
     column->insert(2);
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.build(_runtime_states[0].get(), &block));
     vectorized::SharedHashTableContextPtr shared_hash_table_ctx =
             std::make_shared<vectorized::SharedHashTableContext>();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, shared_hash_table_ctx));
+            helper.publish(_runtime_states[0].get(), shared_hash_table_ctx));
 
     auto helper2 = RuntimeFilterProducerHelper(&_profile, false, true);
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper2.init(_runtime_states[1].get(), build_expr_ctxs, runtime_filter_descs));
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper2.process(_runtime_states[1].get(), &block, shared_hash_table_ctx));
+            helper2.publish(_runtime_states[1].get(), shared_hash_table_ctx));
 }
 
 } // namespace doris
