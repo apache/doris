@@ -27,10 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -43,21 +40,6 @@ import java.util.List;
  */
 public class DateTrunc extends ScalarFunction
         implements BinaryExpression, AlwaysNullable, Monotonic, CustomSignature {
-
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateV2Type.INSTANCE)
-                    .args(DateV2Type.INSTANCE, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, DateTimeType.INSTANCE),
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, DateV2Type.INSTANCE),
-            FunctionSignature.ret(DateType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, DateType.INSTANCE)
-    );
-
     private static final List<String> LEGAL_TIME_UNIT =
             ImmutableList.of("year", "quarter", "month", "week", "day", "hour", "minute", "second");
 
@@ -110,7 +92,7 @@ public class DateTrunc extends ScalarFunction
                     .args(getArgument(0).getDataType(), VarcharType.SYSTEM_DEFAULT);
         } else if (getArgument(1).getDataType().isDateLikeType()) {
             return FunctionSignature.ret(getArgument(1).getDataType())
-                    .args(getArgument(1).getDataType(), VarcharType.SYSTEM_DEFAULT);
+                    .args(VarcharType.SYSTEM_DEFAULT, getArgument(1).getDataType());
         }
         boolean firstArgIsStringLiteral =
                 getArgument(0).isConstant() && getArgument(0) instanceof VarcharLiteral;
