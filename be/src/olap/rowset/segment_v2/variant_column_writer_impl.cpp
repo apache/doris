@@ -222,7 +222,7 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
                 paths.emplace(path);
             }
             // // todo : Add all remaining paths into shared data statistics until we reach its max size;
-            // else if (new_statistics.sparse_data_paths_statistics.size() < Statistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+            // else if (new_statistics.sparse_data_paths_statistics.size() < Statistics::config::variant_max_sparse_column_statistics_size) {
             //     new_statistics.sparse_data_paths_statistics.emplace(path, size);
             // }
         }
@@ -421,7 +421,7 @@ Status VariantColumnWriterImpl::_process_sparse_column(
             it != sparse_data_paths_statistics.end()) {
             ++it->second;
         } else if (sparse_data_paths_statistics.size() <
-                   VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+                   config::variant_max_sparse_column_statistics_size) {
             sparse_data_paths_statistics.emplace(path, 1);
         }
     }

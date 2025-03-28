@@ -365,15 +365,15 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     // 13. check statistics size == limit
     auto& variant_stats = variant_column_reader->_statistics;
     EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() <
-                VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
-    auto limit = VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE -
+                config::variant_max_sparse_column_statistics_size);
+    auto limit = config::variant_max_sparse_column_statistics_size -
                  variant_stats->sparse_column_non_null_size.size();
     for (int i = 0; i < limit; ++i) {
         std::string key = parent_column.name_lower_case() + ".key10" + std::to_string(i);
         variant_stats->sparse_column_non_null_size[key] = 10000;
     }
     EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() ==
-                VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
+                config::variant_max_sparse_column_statistics_size);
 
     st = variant_column_reader->new_iterator(&it, subcolumn, &storage_read_opts);
     EXPECT_TRUE(st.ok()) << st.msg();

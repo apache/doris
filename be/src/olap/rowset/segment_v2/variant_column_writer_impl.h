@@ -36,13 +36,7 @@ class ColumnWriter;
 class ScalarColumnWriter;
 
 struct VariantStatistics {
-    // #ifdef BE_TEST
-    //     static constexpr size_t MAX_SPARSE_DATA_STATISTICS_SIZE = 10;
-    // #else
-    //     // If reached the size of this, we should stop writing statistics for sparse data
-    //     static constexpr size_t MAX_SPARSE_DATA_STATISTICS_SIZE = 10000;
-    // #endif
-    static constexpr size_t MAX_SPARSE_DATA_STATISTICS_SIZE = 10000;
+    // If reached the size of this, we should stop writing statistics for sparse data
     std::map<std::string, size_t> subcolumns_non_null_size;
     std::map<std::string, size_t> sparse_column_non_null_size;
 

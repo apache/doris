@@ -96,7 +96,7 @@ suite("regression_test_variant", "p0"){
             sql """insert into ${table_name} values (11,  '[123.1]'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
             sql """insert into ${table_name} values (12,  '[123.2]'),(1022,  '{"a" : 1, "b" : 10}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
             qt_sql1 "select k, cast(v['a'] as array<int>) from  ${table_name} where  size(cast(v['a'] as array<int>)) > 0 order by k, cast(v['a'] as string) asc"
-            qt_sql2 "select k, cast(v as int), cast(v['b'] as string) from  ${table_name} where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string), cast(v['b'] as string) "
+            qt_sql2 "select k, cast(v as string), cast(v['b'] as string) from  ${table_name} where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string), cast(v['b'] as string) "
             qt_sql3 "select k, v from  ${table_name} order by k, cast(v as string) limit 5"
             qt_sql4 "select v['b'], v['b']['c'], cast(v as int) from  ${table_name} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,cast(v as string) desc limit 10000;"
             qt_sql5 "select v['b'] from ${table_name} where cast(v['b'] as int) > 0;"
