@@ -25,9 +25,7 @@ import org.apache.doris.qe.StmtExecutor;
 /**
  * base class for all kill commands
  */
-
 public abstract class KillCommand extends Command implements ForwardWithSync {
-
     public KillCommand(PlanType type) {
         super(type);
     }

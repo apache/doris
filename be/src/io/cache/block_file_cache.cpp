@@ -1841,10 +1841,10 @@ void BlockFileCache::run_background_ttl_gc() { // TODO(zhengyu): fix!
 
 void BlockFileCache::run_background_gc() {
     FileCacheKey key;
-    static const size_t interval_ms = 100;
-    const size_t batch_limit = config::file_cache_remove_block_qps_limit * interval_ms / 1000;
     size_t batch_count = 0;
     while (!_close) {
+        size_t interval_ms = config::file_cache_background_gc_interval_ms;
+        size_t batch_limit = config::file_cache_remove_block_qps_limit * interval_ms / 1000;
         {
             std::unique_lock close_lock(_close_mtx);
             _close_cv.wait_for(close_lock, std::chrono::milliseconds(interval_ms));
@@ -1889,7 +1889,9 @@ void BlockFileCache::run_background_evict_in_advance() {
         batch = config::file_cache_evict_in_advance_batch_bytes;
 
         // Skip if eviction not needed or too many pending recycles
-        if (!_need_evict_cache_in_advance || _recycle_keys.size_approx() >= (batch * 10)) {
+        if (!_need_evict_cache_in_advance ||
+            _recycle_keys.size_approx() >=
+                    config::file_cache_evict_in_advance_recycle_keys_num_threshold) {
             continue;
         }
 

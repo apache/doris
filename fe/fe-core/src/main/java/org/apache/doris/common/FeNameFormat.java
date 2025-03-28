@@ -36,6 +36,7 @@ public class FeNameFormat {
     private static final String UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z][a-zA-Z0-9-_]{0,63}$";
     private static final String TABLE_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9-_]*$";
     private static final String USER_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9.-_]*$";
+    private static final String REPOSITORY_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9-_]{0,255}$";
     private static final String COLUMN_NAME_REGEX = "^[.a-zA-Z0-9_+-/?@#$%^&*\"\\s,:]{1,256}$";
 
     private static final String UNICODE_LABEL_REGEX = "^[-_A-Za-z0-9:\\p{L}]{1," + Config.label_regex_length + "}$";
@@ -45,6 +46,7 @@ public class FeNameFormat {
     private static final String UNICODE_USER_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9.-_\\p{L}]*$";
     private static final String UNICODE_COLUMN_NAME_REGEX
             = "^[.a-zA-Z0-9_+-/?@#$%^&*\"\\s,:\\p{L}]{1,256}$";
+    private static final String UNICODE_REPOSITORY_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9-_\\p{L}]{0,255}$";
 
     public static final String FORBIDDEN_PARTITION_NAME = "placeholder_";
 
@@ -170,6 +172,13 @@ public class FeNameFormat {
         }
     }
 
+    public static void checkRepositoryName(String repositoryName) throws AnalysisException {
+        final String regex = getRepositoryNameRegex();
+        if (Strings.isNullOrEmpty(repositoryName) || !repositoryName.matches(regex)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, "repository", repositoryName, regex);
+        }
+    }
+
     private static boolean isEnableUnicodeNameSupport() {
         boolean unicodeSupport;
         if (ConnectContext.get() != null) {
@@ -225,6 +234,14 @@ public class FeNameFormat {
             return UNICODE_UNDERSCORE_COMMON_NAME_REGEX;
         } else {
             return UNDERSCORE_COMMON_NAME_REGEX;
+        }
+    }
+
+    public static String getRepositoryNameRegex() {
+        if (FeNameFormat.isEnableUnicodeNameSupport()) {
+            return UNICODE_REPOSITORY_NAME_REGEX;
+        } else {
+            return REPOSITORY_NAME_REGEX;
         }
     }
 }
