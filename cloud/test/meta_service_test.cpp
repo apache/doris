@@ -5111,7 +5111,7 @@ static std::string generate_random_string(int length) {
 }
 
 TEST(MetaServiceTest, UpdateDeleteBitmapWithBigKeys) {
-    auto meta_service = get_fdb_meta_service();
+    auto meta_service = get_meta_service();
     // get delete bitmap update lock
     brpc::Controller cntl;
     GetDeleteBitmapUpdateLockRequest get_lock_req;

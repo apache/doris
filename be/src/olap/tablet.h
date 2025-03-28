@@ -534,6 +534,12 @@ private:
     int64_t get_segment_file_size(const RowsetMetaSharedPtr& rs_meta);
     int64_t get_inverted_index_file_size(const RowsetMetaSharedPtr& rs_meta);
 
+    using DeleteBitmapKeyRanges =
+            std::vector<std::tuple<DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>;
+    void _agg_delete_bitmap_for_stale_rowsets(
+            const std::vector<TimestampedVersionSharedPtr>& to_delete_version,
+            DeleteBitmapKeyRanges& remove_delete_bitmap_key_ranges);
+
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
 

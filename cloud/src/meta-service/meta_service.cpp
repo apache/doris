@@ -1849,6 +1849,61 @@ static bool remove_pending_delete_bitmap(MetaServiceCode& code, std::string& msg
     return true;
 }
 
+static bool commit_update_delete_bitmap(MetaServiceCode& code, std::string& msg,
+                                        std::stringstream& ss, std::shared_ptr<TxnKv>& txn_kv,
+                                        std::unique_ptr<Transaction>& txn, const std::string& key,
+                                        const std::string& val, size_t& current_key_count,
+                                        size_t& current_value_count, size_t& total_key_count,
+                                        size_t& total_value_count, size_t& total_txn_put_keys,
+                                        size_t& total_txn_put_bytes, size_t& total_txn_size,
+                                        std::string& instance_id, int64_t table_id,
+                                        int64_t tablet_id, int64_t lock_id, int64_t lock_initiator,
+                                        bool unlock, std::string& log) {
+    // Split into multiple fdb transactions, because the size of one fdb
+    // transaction can't exceed 10MB.
+    if (txn->approximate_bytes() + key.size() * 3 + val.size() > config::max_txn_commit_byte) {
+        LOG(INFO) << "fdb txn size more than " << config::max_txn_commit_byte
+                  << ", current size: " << txn->approximate_bytes() << " lock_id=" << lock_id
+                  << " initiator=" << lock_initiator << ", need to commit";
+        auto err = txn->commit();
+        total_txn_put_keys += txn->num_put_keys();
+        total_txn_put_bytes += txn->put_bytes();
+        total_txn_size += txn->approximate_bytes();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to update delete bitmap, err=" << err << " tablet_id=" << tablet_id
+               << " lock_id=" << lock_id << " initiator=" << lock_initiator
+               << " delete_bitmap_key=" << current_key_count
+               << " delete_bitmap_value=" << current_value_count << " put_size=" << txn->put_bytes()
+               << " num_put_keys=" << txn->num_put_keys()
+               << " txn_size=" << txn->approximate_bytes();
+            msg = ss.str();
+            g_bvar_update_delete_bitmap_fail_counter << 1;
+            return false;
+        }
+        current_key_count = 0;
+        current_value_count = 0;
+        err = txn_kv->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            msg = "failed to init txn";
+            return false;
+        }
+        if (!unlock) {
+            std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+            DeleteBitmapUpdateLockPB lock_info;
+            if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id, lock_id,
+                                          lock_initiator, lock_key, lock_info, log)) {
+                LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
+                             << " request lock_id=" << lock_id
+                             << " request initiator=" << lock_initiator << " msg " << msg;
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* controller,
                                            const UpdateDeleteBitmapRequest* request,
                                            UpdateDeleteBitmapResponse* response,
@@ -1995,52 +2050,44 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
         auto& key = delete_bitmap_keys.delete_bitmap_keys(i);
         auto& val = request->segment_delete_bitmaps(i);
-
-        // Split into multiple fdb transactions, because the size of one fdb
-        // transaction can't exceed 10MB.
-        if (txn->approximate_bytes() + key.size() * 3 + val.size() > config::max_txn_commit_byte) {
-            LOG(INFO) << "fdb txn size more than " << config::max_txn_commit_byte
-                      << ", current size: " << txn->approximate_bytes()
-                      << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
-                      << ", need to commit";
-            err = txn->commit();
-            total_txn_put_keys += txn->num_put_keys();
-            total_txn_put_bytes += txn->put_bytes();
-            total_txn_size += txn->approximate_bytes();
-            if (err != TxnErrorCode::TXN_OK) {
-                code = cast_as<ErrCategory::COMMIT>(err);
-                ss << "failed to update delete bitmap, err=" << err << " tablet_id=" << tablet_id
-                   << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
-                   << " delete_bitmap_key=" << current_key_count
-                   << " delete_bitmap_value=" << current_value_count
-                   << " put_size=" << txn->put_bytes() << " num_put_keys=" << txn->num_put_keys()
-                   << " txn_size=" << txn->approximate_bytes();
-                msg = ss.str();
-                g_bvar_update_delete_bitmap_fail_counter << 1;
-                return;
-            }
-            current_key_count = 0;
-            current_value_count = 0;
-            TxnErrorCode err = txn_kv_->create_txn(&txn);
-            if (err != TxnErrorCode::TXN_OK) {
-                code = cast_as<ErrCategory::CREATE>(err);
-                msg = "failed to init txn";
-                return;
-            }
-            if (!unlock) {
-                std::string lock_key =
-                        meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
-                DeleteBitmapUpdateLockPB lock_info;
-                if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id,
-                                              request->lock_id(), request->initiator(), lock_key,
-                                              lock_info, log)) {
-                    LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
-                                 << " request lock_id=" << request->lock_id()
-                                 << " request initiator=" << request->initiator() << " msg " << msg;
-                    return;
-                }
-            }
+        if (!commit_update_delete_bitmap(code, msg, ss, txn_kv_, txn, key, val, current_key_count,
+                                         current_value_count, total_key_count, total_value_count,
+                                         total_txn_put_keys, total_txn_put_bytes, total_txn_size,
+                                         instance_id, table_id, tablet_id, request->lock_id(),
+                                         request->initiator(), unlock, log)) {
+            return;
         }
+        // splitting large values (>90*1000) into multiple KVs
+        cloud::put(txn.get(), key, val, 0);
+        current_key_count++;
+        current_value_count += val.size();
+        total_key_count++;
+        total_value_count += val.size();
+        VLOG_DEBUG << "xxx update delete bitmap put delete_bitmap_key=" << hex(key)
+                   << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
+                   << " key_size: " << key.size() << " value_size: " << val.size();
+    }
+    for (size_t i = 0; i < request->pre_rowset_ids_size(); ++i) {
+        MetaDeleteBitmapInfo key_info {instance_id, tablet_id, request->pre_rowset_ids(i),
+                                       request->pre_versions(i), request->pre_segment_ids(i)};
+        std::string key;
+        meta_delete_bitmap_key(key_info, &key);
+        auto& val = request->pre_segment_delete_bitmaps(i);
+        if (!commit_update_delete_bitmap(code, msg, ss, txn_kv_, txn, key, val, current_key_count,
+                                         current_value_count, total_key_count, total_value_count,
+                                         total_txn_put_keys, total_txn_put_bytes, total_txn_size,
+                                         instance_id, table_id, tablet_id, request->lock_id(),
+                                         request->initiator(), unlock, log)) {
+            return;
+        }
+
+        // remove first
+        auto& start_key = key;
+        std::string end_key {start_key};
+        encode_int64(INT64_MAX, &end_key);
+        txn->remove(start_key, end_key);
+        LOG(INFO) << "xxx remove delete_bitmap_key=" << hex(start_key) << " tablet_id=" << tablet_id
+                  << " lock_id=" << request->lock_id() << " initiator=" << request->initiator();
         // splitting large values (>90*1000) into multiple KVs
         cloud::put(txn.get(), key, val, 0);
         current_key_count++;

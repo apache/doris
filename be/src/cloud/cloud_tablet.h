@@ -184,13 +184,12 @@ public:
     Status save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
                                     DeleteBitmapPtr delete_bitmap, int64_t lock_id);
 
-    Status calc_delete_bitmap_for_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
-                                             const RowsetSharedPtr& output_rowset,
-                                             const RowIdConversion& rowid_conversion,
-                                             ReaderType compaction_type, int64_t merged_rows,
-                                             int64_t filtered_rows, int64_t initiator,
-                                             DeleteBitmapPtr& output_rowset_delete_bitmap,
-                                             bool allow_delete_in_cumu_compaction);
+    Status calc_delete_bitmap_for_compaction(
+            const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
+            const RowIdConversion& rowid_conversion, ReaderType compaction_type,
+            int64_t merged_rows, int64_t filtered_rows, int64_t initiator,
+            DeleteBitmapPtr& output_rowset_delete_bitmap, bool allow_delete_in_cumu_compaction,
+            DeleteBitmapPtr& pre_rowsets_delete_bitmap, std::vector<RowsetId>& pre_rowset_ids);
 
     // Find the missed versions until the spec_version.
     //
@@ -224,6 +223,10 @@ public:
     Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) override;
 
 private:
+    void _agg_delete_bitmap_for_compaction(int64_t start_version, int64_t end_version,
+                                           const std::vector<RowsetSharedPtr>& pre_rowsets,
+                                           DeleteBitmapPtr& new_delete_bitmap);
+
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
 

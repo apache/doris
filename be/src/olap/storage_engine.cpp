@@ -1215,6 +1215,34 @@ void StorageEngine::start_delete_unused_rowset() {
                 ++it;
             }
         }
+        // check remove delete bitmaps
+        for (auto it = _unused_delete_bitmap.begin(); it != _unused_delete_bitmap.end();) {
+            auto tablet_id = std::get<0>(*it);
+            auto tablet = _tablet_manager->get_tablet(tablet_id);
+            if (tablet == nullptr) {
+                it = _unused_delete_bitmap.erase(it);
+                continue;
+            }
+            auto& rowset_ids = std::get<1>(*it);
+            auto& key_ranges = std::get<2>(*it);
+            bool find_unused_rowset = false;
+            for (const auto& rowset_id : rowset_ids) {
+                if (_unused_rowsets.find(rowset_id) != _unused_rowsets.end()) {
+                    find_unused_rowset = true;
+                    break;
+                }
+            }
+            if (find_unused_rowset) {
+                ++it;
+                continue;
+            }
+            tablet->tablet_meta()->delete_bitmap().remove(key_ranges);
+            {
+                std::shared_lock rlock(tablet->get_header_lock());
+                tablet->save_meta();
+            }
+            it = _unused_delete_bitmap.erase(it);
+        }
     }
     LOG(INFO) << "collected " << unused_rowsets_copy.size() << " unused rowsets to remove, skipped "
               << due_to_use_count << " rowsets due to use count > 1, skipped "
@@ -1251,6 +1279,14 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
         _unused_rowsets[rowset->rowset_id()] = std::move(rowset);
         unused_rowsets_counter << 1;
     }
+}
+
+void StorageEngine::add_unused_delete_bitmap_key_ranges(int64_t tablet_id,
+                                                        const std::vector<RowsetId>& rowsets,
+                                                        const DeleteBitmapKeyRanges& key_ranges) {
+    VLOG_NOTICE << "add unused delete bitmap key ranges, tablet id:" << tablet_id;
+    std::lock_guard<std::mutex> lock(_gc_mutex);
+    _unused_delete_bitmap.push_back(std::make_tuple(tablet_id, rowsets, key_ranges));
 }
 
 // TODO(zc): refactor this funciton
