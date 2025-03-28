@@ -6369,6 +6369,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new AlterUserCommand(alterUserInfo);
     }
 
+    @Override
     public LogicalPlan visitShowTableStats(DorisParser.ShowTableStatsContext ctx) {
         if (ctx.tableId != null) {
             return new ShowTableStatsCommand(Long.parseLong(ctx.tableId.getText()));
