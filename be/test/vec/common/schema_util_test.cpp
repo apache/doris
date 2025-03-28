@@ -208,10 +208,10 @@ TEST_F(SchemaUtilTest, calculate_variant_stats) {
     // test with max size
     column_map->clear();
     const auto& key_value_counts3 = construct_column_map_with_random_values(
-            column_map, VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE, 5, "key2_");
+            column_map, config::variant_max_sparse_column_statistics_size, 5, "key2_");
     schema_util::calculate_variant_stats(*column_map, &stats, 0,
-                                         VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
-    EXPECT_EQ(VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE,
+                                         config::variant_max_sparse_column_statistics_size);
+    EXPECT_EQ(config::variant_max_sparse_column_statistics_size,
               stats.sparse_column_non_null_size_size());
 
     for (const auto& [path, size] : stats.sparse_column_non_null_size()) {

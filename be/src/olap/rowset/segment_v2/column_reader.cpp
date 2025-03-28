@@ -435,7 +435,7 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
     // which means the path maybe exist in sparse_column
     bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
                                         _statistics->sparse_column_non_null_size.size() ==
-                                                VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE;
+                                                config::variant_max_sparse_column_statistics_size;
 
     // For compaction operations, read flat leaves, otherwise read hierarchical data
     // Since the variant subcolumns are flattened in schema_util::get_compaction_schema
