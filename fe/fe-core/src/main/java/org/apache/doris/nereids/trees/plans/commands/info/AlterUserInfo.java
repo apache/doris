@@ -107,7 +107,8 @@ public class AlterUserInfo {
         }
 
         if (ops.size() != 1) {
-            throw new org.apache.doris.common.AnalysisException("Only support doing one type of operation at one time");
+            throw new org.apache.doris.common.AnalysisException("Only support doing one type of operation at one time,"
+                + "actual number of type is " + ops.size());
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {

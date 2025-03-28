@@ -75,7 +75,7 @@ public class AlterUserCommandTest {
         PassVar passVar = new PassVar("", true);
         userDesc = new UserDesc(userIdentity, passVar);
         passwordOptions = PasswordOptions.UNSET_OPTION;
-        alterUserInfo = new AlterUserInfo(true, userDesc, passwordOptions, "");
+        alterUserInfo = new AlterUserInfo(true, userDesc, passwordOptions, null);
         alterUserCommand = new AlterUserCommand(alterUserInfo);
         Assertions.assertDoesNotThrow(() -> alterUserCommand.validate());
     }
