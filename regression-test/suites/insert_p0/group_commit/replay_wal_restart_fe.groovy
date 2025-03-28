@@ -21,7 +21,7 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite("replay_wal_restart_fe") {
+suite("replay_wal_restart_fe", 'docker') {
     def check_schema_change = { state ->
         for (int i = 0; i < 30; i++) {
             def jobs = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName = 'tbl_2' order by CreateTime desc;"

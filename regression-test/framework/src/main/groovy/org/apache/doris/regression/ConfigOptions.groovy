@@ -61,6 +61,7 @@ class ConfigOptions {
     static Option forceGenOutOpt
     static Option parallelOpt
     static Option suiteParallelOpt
+    static Option dockerSuiteParallelOpt
     static Option actionParallelOpt
     static Option randomOrderOpt
     static Option stopWhenFailOpt
@@ -352,6 +353,14 @@ class ConfigOptions {
                 .longOpt("suiteParallel")
                 .desc("the num of threads running for suites")
                 .build()
+        dockerSuiteParallelOpt = Option.builder("dockerSuiteParallel")
+                .argName("dockerSuiteParallel")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("dockerSuiteParallel")
+                .desc("the num of threads running for docker suites")
+                .build()
         actionParallelOpt = Option.builder("actionParallel")
                 .argName("parallel")
                 .required(false)
@@ -435,6 +444,7 @@ class ConfigOptions {
                 .addOption(forceGenOutOpt)
                 .addOption(parallelOpt)
                 .addOption(suiteParallelOpt)
+                .addOption(dockerSuiteParallelOpt)
                 .addOption(actionParallelOpt)
                 .addOption(randomOrderOpt)
                 .addOption(stopWhenFailOpt)
