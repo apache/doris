@@ -18,8 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
-suite("test_base_compaction") {
-    def tableName = "base_compaction_uniq_keys"
+suite("test_base_compaction_after_sc") {
+    def tableName = "test_base_compaction_after_sc"
 
     String backend_id;
     def backendId_to_backendIP = [:]
@@ -52,7 +52,7 @@ suite("test_base_compaction") {
           L_RECEIPTDATE DATE NOT NULL,
           L_SHIPINSTRUCT CHAR(25) NOT NULL,
           L_SHIPMODE     CHAR(10) NOT NULL,
-          L_COMMENT      VARCHAR(44) NOT NULL
+          L_COMMENT      CHAR(44) NOT NULL
         )
         UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
         DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
@@ -62,6 +62,21 @@ suite("test_base_compaction") {
         )
 
     """
+    sql """ ALTER TABLE ${tableName} MODIFY COLUMN L_COMMENT VARCHAR(44) NOT NULL """
+
+    def wait_for_schema_change = {
+                def try_times=100
+                while(true){
+                    def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
+                    Thread.sleep(10)
+                    if(res[0][9].toString() == "FINISHED"){
+                        break;
+                    }
+                    assert(try_times>0)
+                    try_times--
+                }
+            }
+    wait_for_schema_change()
 
     streamLoad {
         // a default db 'regression_test' is specified in
