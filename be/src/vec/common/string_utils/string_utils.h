@@ -24,6 +24,8 @@
 #include <cstring>
 #include <string>
 
+#include "common/compiler_util.h"
+
 namespace doris::vectorized::detail {
 bool starts_with(const std::string& s, const char* prefix, size_t prefix_size);
 bool ends_with(const std::string& s, const char* suffix, size_t suffix_size);
@@ -45,29 +47,6 @@ inline bool starts_with(const std::string& s, const char* prefix) {
 
 inline bool ends_with(const std::string& s, const char* suffix) {
     return doris::vectorized::detail::ends_with(s, suffix, strlen(suffix));
-}
-
-/// Given an integer, return the adequate suffix for
-/// printing an ordinal number.
-template <typename T>
-std::string get_ordinal_suffix(T n) {
-    static_assert(std::is_integral_v<T> && std::is_unsigned_v<T>,
-                  "Unsigned integer value required");
-
-    const auto last_digit = n % 10;
-
-    if ((last_digit < 1 || last_digit > 3) || ((n > 10) && (((n / 10) % 10) == 1))) return "th";
-
-    switch (last_digit) {
-    case 1:
-        return "st";
-    case 2:
-        return "nd";
-    case 3:
-        return "rd";
-    default:
-        return "th";
-    }
 }
 
 /// More efficient than libc, because doesn't respect locale. But for some functions table implementation could be better.
@@ -104,7 +83,8 @@ inline bool is_valid_identifier_begin(char c) {
 }
 
 inline bool is_whitespace_ascii(char c) {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
+    // \t, \n, \v, \f, \r are 9~13, respectively.
+    return UNLIKELY(c == ' ' || (c >= 9 && c <= 13));
 }
 
 inline bool is_control_ascii(char c) {
@@ -128,27 +108,15 @@ inline bool equals_case_insensitive(char a, char b) {
     return a == b || (is_alpha_ascii(a) && alternate_case_if_alpha_ascii(a) == b);
 }
 
-template <typename F>
-std::string trim(const std::string& str, F&& predicate) {
-    size_t cut_front = 0;
-    size_t cut_back = 0;
-    size_t size = str.size();
-
-    for (size_t i = 0; i < size; ++i) {
-        if (predicate(str[i]))
-            ++cut_front;
-        else
-            break;
+// trim leading and trailing ascii whitespaces
+template <typename T>
+inline const char* trim_ascii_whitespaces(const char* s, T& len) {
+    while (len > 0 && is_whitespace_ascii(*s)) {
+        ++s;
+        --len;
     }
-
-    if (cut_front == size) return {};
-
-    for (auto it = str.rbegin(); it != str.rend(); ++it) {
-        if (predicate(*it))
-            ++cut_back;
-        else
-            break;
+    while (len > 0 && is_whitespace_ascii(s[len - 1])) {
+        --len;
     }
-
-    return str.substr(cut_front, size - cut_front - cut_back);
+    return s;
 }

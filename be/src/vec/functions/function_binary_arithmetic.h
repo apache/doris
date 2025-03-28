@@ -794,7 +794,7 @@ struct BinaryOperationTraits {
 
 template <typename LeftDataType, typename RightDataType, typename ExpectedResultDataType,
           template <typename, typename> class Operation, typename Name, bool is_to_null_type,
-          bool check_overflow_for_decimal>
+          bool enable_ansi_mode>
 struct ConstOrVectorAdapter {
     static constexpr bool result_is_decimal =
             IsDataTypeDecimal<LeftDataType> || IsDataTypeDecimal<RightDataType>;
@@ -807,7 +807,7 @@ struct ConstOrVectorAdapter {
     using OperationImpl = std::conditional_t<
             IsDataTypeDecimal<ResultDataType>,
             DecimalBinaryOperation<LeftDataType, RightDataType, ResultDataType, Operation, Name,
-                                   ResultType, is_to_null_type, check_overflow_for_decimal>,
+                                   ResultType, is_to_null_type, enable_ansi_mode>,
             BinaryOperationImpl<A, B, Operation<A, B>, is_to_null_type, ResultType>>;
 
     static ColumnPtr execute(ColumnPtr column_left, ColumnPtr column_right,
@@ -1050,7 +1050,7 @@ public:
                     static_cast<const DataTypeNullable*>(result_generic)->get_nested_type().get();
         }
 
-        bool check_overflow_for_decimal = context->check_overflow_for_decimal();
+        bool enable_ansi_mode = context->enable_ansi_mode();
         Status status;
         bool valid = cast_both_types(
                 left_generic, right_generic, result_generic,
@@ -1068,7 +1068,7 @@ public:
                                      ResultDataType>)&&(IsDataTypeDecimal<ExpectedResultDataType> ==
                                                         (IsDataTypeDecimal<LeftDataType> ||
                                                          IsDataTypeDecimal<RightDataType>))) {
-                        if (check_overflow_for_decimal) {
+                        if (enable_ansi_mode) {
                             // !is_to_null_type: plus, minus, multiply,
                             //                   pow, bitxor, bitor, bitand
                             // if check_overflow and params are decimal types:

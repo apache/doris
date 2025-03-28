@@ -46,7 +46,7 @@ namespace doris::vectorized {
 class DataTypeTimeV2 final : public DataTypeNumberBase<Float64> {
 public:
     DataTypeTimeV2(int scale = 0) : _scale(scale) {
-        if (UNLIKELY(scale > 6)) {
+        if (UNLIKELY(scale > MAX_MICROSECOND_DIGIT_COUNT)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scale {} is out of bounds", scale);
         }
         if (scale == -1) {

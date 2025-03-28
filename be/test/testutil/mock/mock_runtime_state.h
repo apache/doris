@@ -38,11 +38,18 @@ public:
 
     bool enable_local_exchange() const override { return true; }
 
+    bool enable_ansi_mode() const override { return _enable_ansi_mode; }
+
+    const cctz::time_zone& timezone_obj() const override { return _timezone_obj; }
     // default batch size
     int batsh_size = 4096;
     bool _enable_shared_exchange_sink_buffer = true;
     std::shared_ptr<MockContext> _mock_context = std::make_shared<MockContext>();
     std::shared_ptr<MockQueryContext> _query_ctx_uptr = std::make_shared<MockQueryContext>();
+
+    std::string _timezone;
+    cctz::time_zone _timezone_obj;
+    bool _enable_ansi_mode = false;
 };
 
 } // namespace doris

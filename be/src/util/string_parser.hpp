@@ -104,13 +104,8 @@ public:
     // Assumes s represents a decimal number.
     template <typename T>
     static inline T string_to_int(const char* __restrict s, size_t len, ParseResult* result) {
-        T ans = string_to_int_internal<T>(s, len, result);
-        if (LIKELY(*result == PARSE_SUCCESS)) {
-            return ans;
-        }
-
-        int i = skip_leading_whitespace(s, len);
-        return string_to_int_internal<T>(s + i, len - i, result);
+        s = trim_ascii_whitespaces(s, len);
+        return string_to_int_internal<T>(s, len, result);
     }
 
     // This is considerably faster than glibc's implementation.
@@ -118,26 +113,16 @@ public:
     // Assumes s represents a decimal number.
     template <typename T>
     static inline T string_to_unsigned_int(const char* __restrict s, int len, ParseResult* result) {
-        T ans = string_to_unsigned_int_internal<T>(s, len, result);
-        if (LIKELY(*result == PARSE_SUCCESS)) {
-            return ans;
-        }
-
-        int i = skip_leading_whitespace(s, len);
-        return string_to_unsigned_int_internal<T>(s + i, len - i, result);
+        s = trim_ascii_whitespaces(s, len);
+        return string_to_unsigned_int_internal<T>(s, len, result);
     }
 
     // Convert a string s representing a number in given base into a decimal number.
     template <typename T>
     static inline T string_to_int(const char* __restrict s, int64_t len, int base,
                                   ParseResult* result) {
-        T ans = string_to_int_internal<T>(s, len, base, result);
-        if (LIKELY(*result == PARSE_SUCCESS)) {
-            return ans;
-        }
-
-        int i = skip_leading_whitespace(s, len);
-        return string_to_int_internal<T>(s + i, len - i, base, result);
+        s = trim_ascii_whitespaces(s, len);
+        return string_to_int_internal<T>(s, len, base, result);
     }
 
     template <typename T>
@@ -147,11 +132,6 @@ public:
 
     // Parses a string for 'true' or 'false', case insensitive.
     static inline bool string_to_bool(const char* __restrict s, int len, ParseResult* result) {
-        bool ans = string_to_bool_internal(s, len, result);
-        if (LIKELY(*result == PARSE_SUCCESS)) {
-            return ans;
-        }
-
         int i = skip_leading_whitespace(s, len);
         return string_to_bool_internal(s + i, len - i, result);
     }
@@ -187,6 +167,11 @@ public:
         }
 
         return Status::OK();
+    }
+
+    // For strings like "3.0", "3.123", and "3.", can parse them as 3.
+    static inline bool is_float_suffix(const char* __restrict s, int len) {
+        return (s[0] == '.' && is_all_digit(s + 1, len - 1));
     }
 
 private:
@@ -237,16 +222,11 @@ private:
     // Returns true if s only contains whitespace.
     static inline bool is_all_whitespace(const char* __restrict s, int len) {
         for (int i = 0; i < len; ++i) {
-            if (!LIKELY(is_whitespace(s[i]))) {
+            if (!LIKELY(is_whitespace_ascii(s[i]))) {
                 return false;
             }
         }
         return true;
-    }
-
-    // For strings like "3.0", "3.123", and "3.", can parse them as 3.
-    static inline bool is_float_suffix(const char* __restrict s, int len) {
-        return (s[0] == '.' && is_all_digit(s + 1, len - 1));
     }
 
     static inline bool is_all_digit(const char* __restrict s, int len) {
@@ -261,16 +241,10 @@ private:
     // Returns the position of the first non-whitespace character in s.
     static inline int skip_leading_whitespace(const char* __restrict s, int len) {
         int i = 0;
-        while (i < len && is_whitespace(s[i])) {
+        while (i < len && is_whitespace_ascii(s[i])) {
             ++i;
         }
         return i;
-    }
-
-    // Our own definition of "isspace" that optimize on the ' ' branch.
-    static inline bool is_whitespace(const char& c) {
-        return LIKELY(c == ' ') ||
-               UNLIKELY(c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r');
     }
 
 }; // end of class StringParser
@@ -299,6 +273,15 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
             *result = PARSE_FAILURE;
             return 0;
         }
+        break;
+    case '.': // support .12345 -> 0
+        if (is_float_suffix(s, len)) {
+            *result = PARSE_SUCCESS;
+            return 0;
+        } else {
+            *result = PARSE_FAILURE;
+            return 0;
+        }
     }
 
     // This is the fast path where the string cannot overflow.
@@ -321,8 +304,7 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
             }
             val = val * 10 + digit;
         } else {
-            if ((UNLIKELY(i == first || (!is_all_whitespace(s + i, len - i) &&
-                                         !is_float_suffix(s + i, len - i))))) {
+            if ((UNLIKELY(i == first || !is_float_suffix(s + i, len - i)))) {
                 // Reject the string because either the first char was not a digit,
                 // or the remaining chars are not all whitespace
                 *result = PARSE_FAILURE;
@@ -346,16 +328,16 @@ T StringParser::string_to_unsigned_int_internal(const char* __restrict s, int le
     }
 
     T val = 0;
-    T max_val = std::numeric_limits<T>::max();
-    int i = 0;
 
     typedef typename std::make_signed<T>::type signedT;
     // This is the fast path where the string cannot overflow.
-    if (LIKELY(len - i < vectorized::NumberTraits::max_ascii_len<signedT>())) {
-        val = string_to_int_no_overflow<T>(s + i, len - i, result);
+    if (LIKELY(len < vectorized::NumberTraits::max_ascii_len<signedT>())) {
+        val = string_to_int_no_overflow<T>(s, len, result);
         return val;
     }
 
+    T max_val = std::numeric_limits<T>::max();
+    int i = 0;
     const T max_div_10 = max_val / 10;
     const T max_mod_10 = max_val % 10;
 
@@ -370,7 +352,7 @@ T StringParser::string_to_unsigned_int_internal(const char* __restrict s, int le
             }
             val = val * 10 + digit;
         } else {
-            if ((UNLIKELY(i == first || !is_all_whitespace(s + i, len - i)))) {
+            if ((UNLIKELY(i == first || !is_float_suffix(s + i, len - i)))) {
                 // Reject the string because either the first char was not a digit,
                 // or the remaining chars are not all whitespace
                 *result = PARSE_FAILURE;
@@ -419,7 +401,7 @@ T StringParser::string_to_int_internal(const char* __restrict s, int64_t len, in
         } else if (s[i] >= 'A' && s[i] <= 'Z') {
             digit = (s[i] - 'A' + 10);
         } else {
-            if ((UNLIKELY(i == first || !is_all_whitespace(s + i, len - i)))) {
+            if ((UNLIKELY(i == first))) {
                 // Reject the string because either the first char was not an alpha/digit,
                 // or the remaining chars are not all whitespace
                 *result = PARSE_FAILURE;
@@ -482,7 +464,7 @@ T StringParser::string_to_float_internal(const char* __restrict s, int len, Pars
     int i = 0;
     // skip leading spaces
     for (; i < len; ++i) {
-        if (!is_whitespace(s[i])) {
+        if (!is_whitespace_ascii(s[i])) {
             break;
         }
     }
@@ -490,7 +472,7 @@ T StringParser::string_to_float_internal(const char* __restrict s, int len, Pars
     // skip back spaces
     int j = len - 1;
     for (; j >= i; j--) {
-        if (!is_whitespace(s[j])) {
+        if (!is_whitespace_ascii(s[j])) {
             break;
         }
     }
@@ -565,13 +547,7 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
     //   4) '#.' == '#', a trailing dot is ignored.
 
     // Ignore leading and trailing spaces.
-    while (len > 0 && is_whitespace(*s)) {
-        ++s;
-        --len;
-    }
-    while (len > 0 && is_whitespace(s[len - 1])) {
-        --len;
-    }
+    s = trim_ascii_whitespaces(s, len);
 
     bool is_negative = false;
     if (len > 0) {
@@ -596,7 +572,10 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
     // Ignore leading zeros even after a dot. This allows for differentiating between
     // cases like 0.01e2, which would fit in a DECIMAL(1, 0), and 0.10e2, which would
     // overflow.
-    int scale = 0;
+    // total count of digits found so far, excluding leading zeros
+    int found_total_digit_count = 0;
+    // fraction digits found so far
+    int found_frac_digit_count = 0;
     int found_dot = 0;
     if (len > 0 && *s == '.') {
         found_dot = 1;
@@ -604,14 +583,13 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
         --len;
         while (len > 0 && UNLIKELY(*s == '0')) {
             found_value = true;
-            ++scale;
+            ++found_frac_digit_count;
             ++s;
             --len;
         }
     }
 
-    int precision = 0;
-    int max_digit = type_precision - type_scale;
+    int max_int_part_digit_count = type_precision - type_scale;
     int cur_digit = 0;
     bool found_exponent = false;
     int8_t exponent = 0;
@@ -625,29 +603,35 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
             // overflowing the underlying storage while handling a string like
             // 10000000000e-10 into a DECIMAL(1, 0). Adjustments for ignored digits and
             // an exponent will be made later.
-            if (LIKELY(type_precision > precision) && !has_round) {
+            if (LIKELY(type_precision > found_total_digit_count) && !has_round) {
                 value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
-                ++precision;
-                scale += found_dot;
-                cur_digit = precision - scale;
-            } else if (!found_dot && max_digit < (precision - scale)) {
+                ++found_total_digit_count;
+                found_frac_digit_count += found_dot;
+                cur_digit = found_total_digit_count - found_frac_digit_count;
+            } else if (!found_dot && max_int_part_digit_count <
+                                             (found_total_digit_count - found_frac_digit_count)) {
                 *result = StringParser::PARSE_OVERFLOW;
-                value = is_negative ? vectorized::min_decimal_value<DecimalType>(type_precision)
-                                    : vectorized::max_decimal_value<DecimalType>(type_precision);
+                value = 0;
                 return value;
-            } else if (found_dot && scale >= type_scale && !has_round) {
+            } else if (found_dot && found_frac_digit_count >= type_scale && !has_round) {
                 // make rounding cases
                 if (c > '4') {
                     value += 1;
                 }
                 has_round = true;
+                // don't break, need to process scientific notation
                 continue;
             } else if (!found_dot) {
                 ++cur_digit;
             }
             DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
-        } else if (c == '.' && LIKELY(!found_dot)) {
-            found_dot = 1;
+        } else if (c == '.') {
+            if (LIKELY(!found_dot)) {
+                found_dot = 1;
+            } else {
+                *result = StringParser::PARSE_FAILURE;
+                return 0;
+            }
         } else if ((c == 'e' || c == 'E') && LIKELY(!found_exponent)) {
             found_exponent = true;
             exponent = string_to_int_internal<int8_t>(s + i + 1, len - i - 1, result);
@@ -665,8 +649,8 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
             }
             // here to handle
             *result = StringParser::PARSE_SUCCESS;
-            if (type_scale >= scale) {
-                value *= get_scale_multiplier<T>(type_scale - scale);
+            if (type_scale >= found_frac_digit_count) {
+                value *= get_scale_multiplier<T>(type_scale - found_frac_digit_count);
                 // here meet non-valid character, should return the value, keep going to meet
                 // the E/e character because we make right user-given type_precision
                 // not max number type_precision
@@ -688,29 +672,29 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
     }
 
     // Find the number of truncated digits before adjusting the precision for an exponent.
-    if (exponent > scale) {
+    if (exponent > found_frac_digit_count) {
         // Ex: 0.1e3 (which at this point would have precision == 1 and scale == 1), the
         //     scale must be set to 0 and the value set to 100 which means a precision of 3.
-        precision += exponent - scale;
+        found_total_digit_count += exponent - found_frac_digit_count;
 
-        value *= get_scale_multiplier<T>(exponent - scale);
-        scale = 0;
+        value *= get_scale_multiplier<T>(exponent - found_frac_digit_count);
+        found_frac_digit_count = 0;
     } else {
         // Ex: 100e-4, the scale must be set to 4 but no adjustment to the value is needed,
         //     the precision must also be set to 4 but that will be done below for the
         //     non-exponent case anyways.
-        scale -= exponent;
+        found_frac_digit_count -= exponent;
     }
     // Ex: 0.001, at this point would have precision 1 and scale 3 since leading zeros
     //     were ignored during previous parsing.
-    if (scale > precision) {
-        precision = scale;
+    if (found_frac_digit_count > found_total_digit_count) {
+        found_total_digit_count = found_frac_digit_count;
     }
 
     // Microbenchmarks show that beyond this point, returning on parse failure is slower
     // than just letting the function run out.
     *result = StringParser::PARSE_SUCCESS;
-    if (UNLIKELY(precision - scale > type_precision - type_scale)) {
+    if (UNLIKELY(found_total_digit_count - found_frac_digit_count > type_precision - type_scale)) {
         *result = StringParser::PARSE_OVERFLOW;
         if constexpr (TYPE_DECIMALV2 != P) {
             // decimalv3 overflow will return max min value for type precision
@@ -718,9 +702,9 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
                                 : vectorized::max_decimal_value<DecimalType>(type_precision);
             return value;
         }
-    } else if (UNLIKELY(scale > type_scale)) {
-        *result = StringParser::PARSE_UNDERFLOW;
-        int shift = scale - type_scale;
+    } else if (UNLIKELY(found_frac_digit_count > type_scale)) {
+        // round to target scale
+        int shift = found_frac_digit_count - type_scale;
         T divisor = get_scale_multiplier<T>(shift);
         if (UNLIKELY(divisor == std::numeric_limits<T>::max())) {
             value = 0;
@@ -736,8 +720,8 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
         *result = StringParser::PARSE_FAILURE;
     }
 
-    if (type_scale > scale) {
-        value *= get_scale_multiplier<T>(type_scale - scale);
+    if (type_scale > found_frac_digit_count) {
+        value *= get_scale_multiplier<T>(type_scale - found_frac_digit_count);
     }
 
     return is_negative ? T(-value) : T(value);

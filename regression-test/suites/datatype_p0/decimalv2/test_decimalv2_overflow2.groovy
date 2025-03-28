@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_decimalv2_overflow2") {
-    sql """ set check_overflow_for_decimal=true; """
+    sql """ set enable_ansi_mode=true; """
     def prepare_decimalv2_overflow_test2 = {
         sql """
             drop TABLE if exists decimalv2_overflow_test2;

@@ -40,6 +40,7 @@
 #include "common/status.h"
 #include "util/timezone_utils.h"
 #include "vec/common/int_exp.h"
+#include "vec/common/string_utils/string_utils.h"
 
 namespace doris {
 
@@ -56,18 +57,12 @@ uint8_t mysql_week_mode(uint32_t mode) {
     return mode;
 }
 
-static bool check_space(char ch) {
-    // \t, \n, \v, \f, \r are 9~13, respectively.
-    return UNLIKELY(ch == ' ' || (ch >= 9 && ch <= 13));
-}
-
 static bool check_date_punct(char ch) {
-    return UNLIKELY(!(isdigit(ch) || isalpha(ch)));
+    return LIKELY((ch != '+' && std::ispunct(ch)));
 }
 
 static bool time_zone_begins(const char* ptr, const char* end) {
-    return *ptr == '+' || (*ptr == '-' && ptr + 3 < end && *(ptr + 3) == ':') ||
-           (isalpha(*ptr) && *ptr != 'T');
+    return *ptr == '+' || (*ptr == '-' && ptr + 3 < end && *(ptr + 3) == ':') || isalpha(*ptr);
 }
 
 bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
@@ -105,7 +100,10 @@ bool VecDateTimeValue::from_date_str(const char* date_str, size_t len,
 bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                                           const cctz::time_zone* local_time_zone) {
     const char* ptr = date_str;
+    // Skip space characters
+    ptr = trim_ascii_whitespaces(ptr, len);
     const char* end = date_str + len;
+
     // ONLY 2, 6 can follow by a space
     const static int allow_space_mask = 4 | 64;
     const static int MAX_DATE_PARTS = 8;
@@ -113,10 +111,6 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
     int32_t date_len[MAX_DATE_PARTS];
 
     _neg = false;
-    // Skip space character
-    while (ptr < end && check_space(*ptr)) {
-        ptr++;
-    }
     if (ptr == end || !isdigit(*ptr)) {
         return false;
     }
@@ -212,8 +206,8 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
             continue;
         }
         // escape separator
-        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
-            if (check_space(*ptr)) {
+        while (ptr < end && (check_date_punct(*ptr) || is_whitespace_ascii(*ptr))) {
+            if (is_whitespace_ascii(*ptr)) {
                 if (((1 << field_idx) & allow_space_mask) == 0) {
                     return false;
                 }
@@ -1245,7 +1239,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
     while (ptr < end && val < val_end) {
         // Skip space character
-        while (val < val_end && check_space(*val)) {
+        while (val < val_end && is_whitespace_ascii(*val)) {
             val++;
         }
         // Check switch
@@ -1507,7 +1501,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
             default:
                 return false;
             }
-        } else if (!check_space(*ptr)) {
+        } else if (!is_whitespace_ascii(*ptr)) {
             if (*ptr != *val) {
                 return false;
             }
@@ -1983,16 +1977,14 @@ template <typename T>
 bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
                                         const cctz::time_zone* local_time_zone, bool convert_zero) {
     const char* ptr = date_str;
-    const char* end = date_str + len;
+    // Trim leading and trailing space characters
+    ptr = trim_ascii_whitespaces(ptr, len);
+    const char* end = ptr + len;
     // ONLY 2, 6 can follow by a space
     const static int allow_space_mask = 4 | 64;
     uint32_t date_val[MAX_DATE_PARTS] = {0};
     int32_t date_len[MAX_DATE_PARTS] = {0};
 
-    // Skip space character
-    while (ptr < end && check_space(*ptr)) {
-        ptr++;
-    }
     if (ptr == end || !isdigit(*ptr)) {
         return false;
     }
@@ -2008,6 +2000,13 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
 
     // Compatible with MySQL.
     // For YYYYMMDD/YYYYMMDDHHMMSS is 4 digits years
+    // determine year length
+    // pos == end: all chars are digits, YYYYMMDD/YYYYMMDDHHMMSS/'YYYYMMT'
+    // *pos == '.': digits + '.': YYYYMMDDTHHMMSS.ssssss/'YYYYMMDD.'
+    // time_zone_begins: 'YYYYMMDDTHHMMSS{+08:00|-08.00|Asian/Shanghai}'
+    // other cases, e.g.:
+    //   normal: '2025-03-31 11:34:59.999999'
+    //   abnormal: 'YYYYMMDDTHHMMSSabc'
     if (pos == end || *pos == '.' ||
         time_zone_begins(pos, end)) { // no delimeter until ./Asia/Z/GMT...
         if (digits == 4 || digits == 8 || digits >= 14) {
@@ -2033,6 +2032,13 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         }
 
         if (ptr == start) {
+            return false;
+        }
+        const auto field_digit_count = ptr - start;
+        if (field_idx == 0 && field_digit_count > 4) {
+            return false;
+        }
+        if (field_idx > 0 && field_idx < 6 && field_digit_count > 2) {
             return false;
         }
 
@@ -2094,28 +2100,43 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
 
         field_len = 2;
 
+        // TODO: fe be behaviour mismatch for : '2025-12-31TTT23:59:59.999999'
+        // MySQL and hive result: 2025-12-31 00:00:00.000000
+        // fe: 2025-12-31 23:59:59.999999
+        // be: 2025-12-31 00:00:00.000000
+        if (field_idx == 2 && *ptr == 'T') {
+            // YYYYMMDDTHHMMDD, skip 'T' and continue
+            ptr++;
+            field_idx++;
+            continue;
+        }
+
+        if (ptr < end && is_whitespace_ascii(*ptr)) {
+            if (((1 << field_idx) & allow_space_mask) == 0) {
+                return false;
+            }
+            ptr++;
+            // support arbitrary cont of spaces between datetime and time zone
+            while (ptr < end && is_whitespace_ascii(*ptr)) {
+                ptr++;
+            }
+        }
         if (ptr == end) {
             field_idx++;
             break;
         }
 
         // timezone
-        if (UNLIKELY((field_idx > 2 ||
-                      !has_bar) /*dont treat xxxx-xx-xx:xx:xx as xxxx-xx(-xx:xx:xx)*/
-                     && time_zone_begins(ptr, end))) {
-            if (local_time_zone == nullptr) {
-                return false;
+        if (UNLIKELY(field_idx > 2 ||
+                     !has_bar)) { /*dont treat xxxx-xx-xx:xx:xx as xxxx-xx(-xx:xx:xx)*/
+            if (ptr < end && time_zone_begins(ptr, end)) {
+                if (local_time_zone == nullptr) {
+                    return false;
+                }
+                need_use_timezone = true;
+                field_idx++;
+                break;
             }
-            need_use_timezone = true;
-            field_idx++;
-            break;
-        }
-
-        if (field_idx == 2 && *ptr == 'T') {
-            // YYYYMMDDTHHMMDD, skip 'T' and continue
-            ptr++;
-            field_idx++;
-            continue;
         }
 
         // Second part
@@ -2138,12 +2159,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             continue;
         }
         // escape separator
-        while (ptr < end && (check_date_punct(*ptr) || check_space(*ptr))) {
-            if (check_space(*ptr)) {
-                if (((1 << field_idx) & allow_space_mask) == 0) {
-                    return false;
-                }
-            }
+        while (ptr < end && check_date_punct(*ptr)) {
             if (*ptr == '-') {
                 has_bar = true;
             }
@@ -2188,7 +2204,10 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         auto given = cctz::convert(cctz::civil_second {}, given_tz);
         auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
         // these two values is absolute time. so they are negative. need to use (-local) - (-given)
+        // TODO: += ??
         sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
+    } else if (ptr != end) {
+        return false;
     }
 
     // In check_range_and_set_time, for Date type the time part will be truncated. So if the timezone offset should make
@@ -2271,7 +2290,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
     auto [year, month, day, hour, minute, second, microsecond] = std::tuple {0, 0, 0, 0, 0, 0, 0};
     while (ptr < end && val < val_end) {
         // Skip space character
-        while (val < val_end && check_space(*val)) {
+        while (val < val_end && is_whitespace_ascii(*val)) {
             val++;
         }
         // Check switch

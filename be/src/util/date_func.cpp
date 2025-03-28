@@ -25,6 +25,7 @@
 
 #include <ostream>
 
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -94,8 +95,8 @@ int32_t time_to_buffer_from_double(double time, char* buffer) {
         time = -time;
         *buffer++ = '-';
     }
-    if (time > 3020399) {
-        time = 3020399;
+    if (time > TimeValue::MAX_TIME_IN_SECONDS) {
+        time = TimeValue::MAX_TIME_IN_SECONDS;
     }
     int64_t hour = (int64_t)(time / 3600);
     if (hour >= 100) {
@@ -116,11 +117,8 @@ int32_t time_to_buffer_from_double(double time, char* buffer) {
 }
 
 int64_t check_over_max_time(int64_t time) {
-    // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
-    // the time value between '-838:59:59' and '838:59:59'
-    const static int64_t max_time = (int64_t)3020399 * 1000 * 1000;
-    if (time > max_time) {
-        return max_time;
+    if (time > TimeValue::MAX_TIME_IN_MICROSECONDS) {
+        return TimeValue::MAX_TIME_IN_MICROSECONDS;
     }
     return time;
 }
@@ -176,8 +174,8 @@ std::string time_to_buffer_from_double(double time) {
         time = -time;
         fmt::format_to(buffer, "-");
     }
-    if (time > 3020399) {
-        time = 3020399;
+    if (time > TimeValue::MAX_TIME_IN_SECONDS) {
+        time = TimeValue::MAX_TIME_IN_SECONDS;
     }
     int64_t hour = (int64_t)(time / 3600);
     int32_t minute = ((int32_t)(time / 60)) % 60;

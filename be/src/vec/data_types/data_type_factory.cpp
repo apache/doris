@@ -400,6 +400,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
         result = std::make_shared<vectorized::DataTypeDateTime>();
         break;
+    case FieldType::OLAP_FIELD_TYPE_TIMEV2:
+        result = std::make_shared<vectorized::DataTypeTimeV2>(scale);
+        break;
     case FieldType::OLAP_FIELD_TYPE_DOUBLE:
         result = std::make_shared<vectorized::DataTypeFloat64>();
         break;

@@ -145,6 +145,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String INSERT_MAX_FILTER_RATIO = "insert_max_filter_ratio";
 
+    // enable ansi mode for query. When ansi mode is enabled, will return error under
+    // certain abnormal conditions, e.g. when casting string to integer, if the number in the string
+    // is out of range of integer, the query will return error. If strict mode is not enabled,
+    // cast will return undefined value.
+    public static final String ENABLE_ANSI_MODE = "enable_ansi_mode";
+
     public static final String ENABLE_SERVER_SIDE_PREPARED_STATEMENT = "enable_server_side_prepared_statement";
     public static final String MAX_PREPARED_STMT_COUNT = "max_prepared_stmt_count";
     public static final String ENABLE_GROUP_COMMIT_FULL_PREPARE = "enable_group_commit_full_prepare";
@@ -317,8 +323,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE
                     = "enable_short_circuit_query_access_column_store";
-
-    public static final String CHECK_OVERFLOW_FOR_DECIMAL = "check_overflow_for_decimal";
 
     public static final String DECIMAL_OVERFLOW_SCALE = "decimal_overflow_scale";
 
@@ -1056,6 +1060,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_ANSI_MODE, needForward = true)
+    public boolean enableAnsiMode = true;
+
     @VariableMgr.VarAttr(name = INSERT_MAX_FILTER_RATIO, needForward = true)
     public double insertMaxFilterRatio = 1.0;
 
@@ -1414,9 +1421,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE)
     private boolean enableShortCircuitQueryAcessColumnStore = true;
-
-    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
-    private boolean checkOverflowForDecimal = true;
 
     @VariableMgr.VarAttr(name = DECIMAL_OVERFLOW_SCALE, needForward = true, description = {
             "当decimal数值计算结果精度溢出时，计算结果最多可保留的小数位数", "When the precision of the result of"
@@ -3558,10 +3562,6 @@ public class SessionVariable implements Serializable, Writable {
         return enableShortCircuitQuery;
     }
 
-    public boolean checkOverflowForDecimal() {
-        return checkOverflowForDecimal;
-    }
-
     public boolean isTrimTailingSpacesForExternalTableQuery() {
         return trimTailingSpacesForExternalTableQuery;
     }
@@ -3973,7 +3973,6 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
-        tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec.trim().toLowerCase());
         tResult.setEnableLocalExchange(enableLocalExchange);
 
@@ -4070,6 +4069,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
+
+        tResult.setEnableAnsiMode(enableAnsiMode);
         return tResult;
     }
 

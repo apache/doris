@@ -17,12 +17,14 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "util/date_func.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -37,6 +39,15 @@ public:
     constexpr static int64_t ONE_HOUR_SECONDS = 60 * ONE_MINUTE_SECONDS;
     constexpr static uint32_t MICROS_SCALE = 6;
 
+    constexpr static int64_t MAX_TIME_HOURS = 838;
+    constexpr static int64_t MAX_TIME_MINUTES = 59;
+    constexpr static int64_t MAX_TIME_SECONDS = 59;
+
+    constexpr static int64_t MAX_TIME_IN_SECONDS = 3020399LL;
+    // 3020399999999, 13 digits
+    constexpr static int64_t MAX_TIME_IN_MICROSECONDS =
+            MAX_TIME_IN_SECONDS * 1000 * 1000 + MAX_MICROSECOND;
+
     using TimeType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType;
     using ColumnTime = vectorized::DataTypeTimeV2::ColumnType;
 
@@ -49,19 +60,32 @@ public:
         return roundedValue;
     }
 
+    static bool hour_overflow(int64_t v) { return (v > MAX_TIME_HOURS || v < -MAX_TIME_HOURS); }
+    static bool minute_overflow(int64_t v) {
+        return (v > MAX_TIME_MINUTES || v < -MAX_TIME_MINUTES);
+    }
+    static bool second_overflow(int64_t v) {
+        return (v > MAX_TIME_SECONDS || v < -MAX_TIME_SECONDS);
+    }
+    template <typename T>
+    static bool time_overflow(T time_in_microseconds) {
+        return (time_in_microseconds > MAX_TIME_IN_MICROSECONDS ||
+                time_in_microseconds < -MAX_TIME_IN_MICROSECONDS);
+    }
+
     // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
     // the time value between '-838:59:59' and '838:59:59'
     /// TODO: Why is the time type stored as double? Can we directly use int64 and remove the time limit?
+    // time is microseconds
     static int64_t check_over_max_time(double time) {
-        const static int64_t max_time = 3020399LL * 1000 * 1000;
         // cast(-4562632 as time)
         // -456:26:32
         // hour(cast(-4562632 as time))
         // 456
         // second(cast(-4562632 as time))
         // 32
-        if (time > max_time || time < -max_time) {
-            return max_time;
+        if (time > MAX_TIME_IN_MICROSECONDS || time < -MAX_TIME_IN_MICROSECONDS) {
+            return MAX_TIME_IN_MICROSECONDS;
         }
         return static_cast<int64_t>(time);
     }
