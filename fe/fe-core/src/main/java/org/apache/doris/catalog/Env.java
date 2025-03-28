@@ -5487,7 +5487,7 @@ public class Env {
             Map<String, String> origDynamicProperties = tableProperty.getOriginDynamicPartitionProperty();
             origDynamicProperties.putAll(properties);
             Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(
-                    origDynamicProperties, table, db);
+                    origDynamicProperties, table, db, false);
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
             tableProperty.buildDynamicProperty();
         }
