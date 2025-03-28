@@ -355,7 +355,7 @@ AWS_SDK_MD5SUM="3cd8bd51d39dc207a243a2074d11f439"
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
 TSAN_HEADER_NAME="tsan_interface_atomic.h"
 TSAN_HEADER_FILE="tsan_interface_atomic.h"
-TSAN_HEADER_MD5SUM="d72679bea167d6a513d959f5abd149dc"
+TSAN_HEADER_MD5SUM="d41d8cd98f00b204e9800998ecf8427e"
 
 # lzma
 LZMA_DOWNLOAD="https://github.com/kobolabs/liblzma/archive/refs/heads/master.zip"
@@ -514,12 +514,6 @@ AZURE_NAME="azure-core_1.10.3.tar.gz"
 AZURE_SOURCE="azure-sdk-for-cpp-azure-core_1.10.3"
 AZURE_MD5SUM="aa470cfdba93dd69a6f3112a6958c13c"
 
-# libdragonbox for faster double/float to string
-DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
-DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
-DRAGONBOX_SOURCE=dragonbox-1.1.3
-DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
-
 # icu
 ICU_DOWNLOAD="https://github.com/unicode-org/icu/archive/refs/tags/release-69-1.tar.gz"
 ICU_NAME=release-69-1.tar.gz
@@ -544,11 +538,11 @@ OPENBLAS_NAME="OpenBLAS-0.3.29.tar.gz"
 OPENBLAS_SOURCE="OpenBLAS-0.3.29"
 OPENBLAS_MD5SUM="853a0c5c0747c5943e7ef4bbb793162d"
 
-#faiss
+# faiss
 FAISS_DOWNLOAD="https://github.com/facebookresearch/faiss/archive/refs/tags/v1.10.0.tar.gz"
 FAISS_NAME="faiss-1.10.0.tar.gz"
 FAISS_SOURCE="faiss-1.10.0"
-# FAISS_MD5SUM="a0b1f2c3d4e5f6a7b8c9d0e1f2a3b4c5"
+FAISS_MD5SUM="f31edf2492808b27cc963d0ab316a205"
 
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
@@ -631,6 +625,8 @@ export TP_ARCHIVES=(
     'ICU'
     'JINDOFS'
     'PUGIXML'
+    'OPENBLAS'
+    'FAISS'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
