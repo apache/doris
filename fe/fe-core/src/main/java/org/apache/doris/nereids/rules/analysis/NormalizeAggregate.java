@@ -54,8 +54,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -299,7 +299,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // 1.找到group by 里面的可以被折叠成常量的表达式，构建一个map(slot, literal)
         Map<Expression, NormalizeToSlotTriplet> replaceMap = groupByExprContext.getNormalizeToSlotMap();
         if (!replaceMap.isEmpty()) {
-            Map<Slot, Expression> slotToLiteral = new HashMap<>();
+            Map<Slot, Expression> slotToLiteral = new LinkedHashMap<>();
             for (Map.Entry<Expression, NormalizeToSlotTriplet> replacement : replaceMap.entrySet()) {
                 Expression foldExpression = FoldConstantRuleOnFE.evaluate(replacement.getKey(), rewriteContext);
                 if (foldExpression.isConstant()) {
@@ -315,6 +315,11 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 if (!literalSlots.contains((Slot) normalizedGroupExpr)) {
                     newNormalizedGroupExprs.add(normalizedGroupExpr);
                 }
+            }
+            if (newNormalizedGroupExprs.isEmpty()) {
+                Slot remainSlot = literalSlots.iterator().next();
+                newNormalizedGroupExprs.add(remainSlot);
+                slotToLiteral.remove(remainSlot);
             }
             // 2.对agg output expression进行替换
             List<NamedExpression> nonConstantNamedExpressions = new ArrayList<>();
