@@ -56,8 +56,6 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
 
     _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                   "HashJoinProbeSpillDependency", true);
-    state->get_task()->add_spill_dependency(_spill_dependency.get());
-
     init_counters();
     return Status::OK();
 }

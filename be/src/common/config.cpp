@@ -635,7 +635,7 @@ DEFINE_Int32(num_cores, "0");
 DEFINE_Bool(ignore_broken_disk, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
-DEFINE_mInt32(memory_maintenance_sleep_time_ms, "20");
+DEFINE_mInt32(memory_maintenance_sleep_time_ms, "50");
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
@@ -1066,6 +1066,7 @@ DEFINE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent, "78");
 DEFINE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent, "75");
 DEFINE_mInt32(file_cache_evict_in_advance_interval_ms, "1000");
 DEFINE_mInt64(file_cache_evict_in_advance_batch_bytes, "31457280"); // 30MB
+DEFINE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold, "1000");
 
 DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
@@ -1079,6 +1080,7 @@ DEFINE_mInt64(cache_lock_wait_long_tail_threshold_us, "30000000");
 DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
+DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1255,6 +1257,9 @@ DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 
 // Ingest binlog with persistent connection
 DEFINE_Bool(enable_ingest_binlog_with_persistent_connection, "false");
+
+// Log ingest binlog elapsed threshold, -1 is disabled
+DEFINE_mInt64(ingest_binlog_elapsed_threshold_ms, "-1");
 
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
@@ -1448,7 +1453,7 @@ DEFINE_Bool(enable_table_size_correctness_check, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
-DEFINE_mInt32(compaction_num_per_round, "1");
+DEFINE_mInt32(compaction_num_per_round, "4");
 
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
