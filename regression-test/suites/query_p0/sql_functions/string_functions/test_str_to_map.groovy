@@ -43,7 +43,7 @@ suite("test_str_to_map") {
     
     order_qt_nullable_no_null "select str_to_map(nullable(map_str_not_null), nullable(key_delim_not_null), nullable(value_delim_not_null)) from str_to_map_args"
 
-    sql """
+    sql '''
     insert into str_to_map_args values
         (1, 'a:1,b:2,c:3', 'a:1,b:2,c:3', ',', ',', ':', ':'),
         (2, '', '', ',', ',', ':', ':'), -- Empty string test
@@ -60,7 +60,7 @@ suite("test_str_to_map") {
         (13, 'a:1\nb:2\nc:3', 'a:1\nb:2\nc:3', '\n', '\n', ':', ':'), -- Newline as delimiter
         (14, 'a:1\tb:2\tc:3', 'a:1\tb:2\tc:3', '\t', '\t', ':', ':'), -- Tab as delimiter
         (15, ' a : 1 , b : 2 ', ' a : 1 , b : 2 ', ',', ',', ':', ':') -- Spaces in string
-    """
+    '''
 
     // Test different nullable combinations with data
     order_qt_all_not_null_data """
@@ -125,36 +125,47 @@ suite("test_str_to_map") {
         order by k0;
     """
 
-    sql "truncate table printf_args"
-
-
     /// consts. most by BE-UT
     // Test const string with column delimiters
-    order_qt_const_str "select str_to_map('a:1,b:2', key_delim_not_null, value_delim_not_null) 
-        from str_to_map_args order by k0"
+    order_qt_const_str """
+        select str_to_map('a:1,b:2', key_delim_not_null, value_delim_not_null) 
+        from str_to_map_args order by k0
+    """
     
     // Test column string with const delimiters  
-    order_qt_const_delims "select str_to_map(map_str_not_null, ',', ':') 
-        from str_to_map_args order by k0"
+    order_qt_const_delims """
+        select str_to_map(map_str_not_null, ',', ':') 
+        from str_to_map_args order by k0
+    """
         
     // Test const string with one const delimiter and one column delimiter
-    order_qt_mixed_const1 "select str_to_map('x=1;y=2', ';', value_delim_not_null) 
-        from str_to_map_args order by k0"
+    order_qt_mixed_const1 """
+        select str_to_map('x=1;y=2', ';', value_delim_not_null) 
+        from str_to_map_args order by k0
+    """
     
-    order_qt_mixed_const2 "select str_to_map('p-1|q-2', key_delim_not_null, '-') 
-        from str_to_map_args order by k0"
+    order_qt_mixed_const2 """
+        select str_to_map('p-1|q-2', key_delim_not_null, '-') 
+        from str_to_map_args order by k0
+    """
     
     // Test all const non-null arguments
-    order_qt_all_const "select str_to_map('a=1|b=2', '|', '=') 
-        from str_to_map_args order by k0"
+    order_qt_all_const """
+        select str_to_map('a=1|b=2', '|', '=') 
+        from str_to_map_args order by k0
+    """
     
     // Test const string with nullable column delimiters
-    order_qt_const_str_null_delims "select str_to_map('m:1,n:2', key_delim_null, value_delim_null) 
-        from str_to_map_args order by k0"
+    order_qt_const_str_null_delims """
+        select str_to_map('m:1,n:2', key_delim_null, value_delim_null) 
+        from str_to_map_args order by k0
+    """
     
     // Test nullable column string with const delimiters
-    order_qt_null_str_const_delims "select str_to_map(map_str_null, '#', '$') 
-        from str_to_map_args order by k0"
+    order_qt_null_str_const_delims '''
+        select str_to_map(map_str_null, '#', '$') 
+        from str_to_map_args order by k0
+    '''
 
     // Test basic str_to_map functionality with all parameters
     qt_basic_1 "select str_to_map('a:1,b:2,c:3', ',', ':');"
