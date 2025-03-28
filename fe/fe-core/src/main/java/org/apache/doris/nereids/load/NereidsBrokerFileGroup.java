@@ -43,6 +43,7 @@ import com.google.common.collect.Maps;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -110,7 +111,9 @@ public class NereidsBrokerFileGroup implements Writable {
     public NereidsBrokerFileGroup(NereidsDataDescription dataDescription) {
         this.fileFieldNames = dataDescription.getFileFieldNames();
         this.columnNamesFromPath = dataDescription.getColumnsFromPath();
-        this.columnExprList = dataDescription.getParsedColumnExprList();
+        this.columnExprList = dataDescription.getParsedColumnExprList() != null
+                ? dataDescription.getParsedColumnExprList()
+                : new ArrayList<>();
         this.columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
         this.precedingFilterExpr = dataDescription.getPrecdingFilterExpr();
         this.whereExpr = dataDescription.getWhereExpr();
@@ -147,7 +150,7 @@ public class NereidsBrokerFileGroup implements Writable {
         this.fileSize = fileSize;
         this.fileFieldNames = fileFieldNames;
         this.columnNamesFromPath = columnNamesFromPath;
-        this.columnExprList = columnExprList;
+        this.columnExprList = columnExprList != null ? columnExprList : new ArrayList<>();
         this.columnToHadoopFunction = columnToHadoopFunction;
         this.precedingFilterExpr = precedingFilterExpr;
         this.whereExpr = whereExpr;
