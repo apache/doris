@@ -358,6 +358,26 @@ public class DateTimeExtractAndTransform {
         return DateV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
 
+    @ExecFunction(name = "date_trunc")
+    public static Expression dateTrunc(StringLikeLiteral trunc, DateTimeLiteral date) {
+        return DateTimeLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
+    }
+
+    @ExecFunction(name = "date_trunc")
+    public static Expression dateTrunc(StringLikeLiteral trunc, DateTimeV2Literal date) {
+        return DateTimeV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
+    }
+
+    @ExecFunction(name = "date_trunc")
+    public static Expression dateTrunc(StringLikeLiteral trunc, DateLiteral date) {
+        return DateLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
+    }
+
+    @ExecFunction(name = "date_trunc")
+    public static Expression dateTrunc(StringLikeLiteral trunc, DateV2Literal date) {
+        return DateV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
+    }
+
     private static LocalDateTime dateTruncHelper(LocalDateTime dateTime, String trunc) {
         int year = dateTime.getYear();
         int month = dateTime.getMonthValue();
