@@ -21,7 +21,7 @@ suite("test_iot_recycle_mtmv","mtmv") {
     String suiteName = "test_iot_recycle_mtmv"
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
-    String value = "${suiteName}_value"
+    String value = UUID.randomUUID().toString().replaceAll("-", "")
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
