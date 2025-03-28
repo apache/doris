@@ -240,8 +240,8 @@ public class DynamicPartitionUtil {
                 null, false, true);
     }
 
-    private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, int hotPartitionNum,
-            Database db) throws DdlException {
+    private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, int hotPartitionNum)
+            throws DdlException {
         if (replicaAlloc.getTotalReplicaNum() <= 0) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
         }
@@ -547,8 +547,9 @@ public class DynamicPartitionUtil {
     }
 
     // Analyze all properties to check their validation
+    // ATTN, should not throw any exception when isReplay is true.
     public static Map<String, String> analyzeDynamicPartition(Map<String, String> properties,
-            OlapTable olapTable, Database db) throws UserException {
+            OlapTable olapTable, Database db, boolean isReplay) throws UserException {
         // properties should not be empty, check properties before call this function
         Map<String, String> analyzedProperties = new HashMap<>();
         if (properties.containsKey(DynamicPartitionProperty.TIME_UNIT)) {
@@ -624,7 +625,6 @@ public class DynamicPartitionUtil {
         // If create_history_partition is false, history partition is not considered.
         // If create_history_partition is true, will pre-create history partition according the valid value from
         // start and history_partition_num.
-        //
         long expectCreatePartitionNum = 0;
         if (!createHistoryPartition) {
             start = 0;
@@ -640,7 +640,7 @@ public class DynamicPartitionUtil {
         }
         expectCreatePartitionNum = (long) end - start;
 
-        if (hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)
+        if (!isReplay && hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)
                 && Boolean.parseBoolean(analyzedProperties.getOrDefault(DynamicPartitionProperty.ENABLE, "true"))) {
             throw new DdlException("Too many dynamic partitions: "
                     + expectCreatePartitionNum + ". Limit: " + Config.max_dynamic_partition_num);
@@ -693,11 +693,14 @@ public class DynamicPartitionUtil {
         } else {
             replicaAlloc = olapTable.getDefaultReplicaAllocation();
         }
-        if (olapTable.getMinLoadReplicaNum() > replicaAlloc.getTotalReplicaNum()) {
+        if (!isReplay && olapTable.getMinLoadReplicaNum() > replicaAlloc.getTotalReplicaNum()) {
             throw new DdlException("Failed to check min load replica num [" + olapTable.getMinLoadReplicaNum()
                     + "]  <= dynamic partition replica num [" + replicaAlloc.getTotalReplicaNum() + "]");
         }
-        checkReplicaAllocation(replicaAlloc, hotPartitionNum, db);
+
+        if (!isReplay) {
+            checkReplicaAllocation(replicaAlloc, hotPartitionNum);
+        }
 
         if (properties.containsKey(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS)) {
             String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
@@ -767,7 +770,7 @@ public class DynamicPartitionUtil {
             Database db) throws UserException {
         if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable)) {
             Map<String, String> dynamicPartitionProperties =
-                    DynamicPartitionUtil.analyzeDynamicPartition(properties, olapTable, db);
+                    DynamicPartitionUtil.analyzeDynamicPartition(properties, olapTable, db, false);
             TableProperty tableProperty = olapTable.getTableProperty();
             if (tableProperty != null) {
                 tableProperty.modifyTableProperties(dynamicPartitionProperties);
