@@ -270,6 +270,10 @@ struct WhichDataType {
     bool is_bitmap() const { return idx == TypeIndex::BitMap; }
     bool is_hll() const { return idx == TypeIndex::HLL; }
 
+    bool is_bitmap() const { return idx == TypeIndex::BitMap; }
+    bool is_hll() const { return idx == TypeIndex::HLL; }
+    bool is_quantile() const { return idx == TypeIndex::QuantileState; }
+    bool is_agg_state() const { return idx == TypeIndex::AggState; }
     bool is_array() const { return idx == TypeIndex::Array; }
     bool is_tuple() const { return idx == TypeIndex::Tuple; }
     bool is_struct() const { return idx == TypeIndex::Struct; }
@@ -388,6 +392,15 @@ inline bool is_not_decimal_but_comparable_to_decimal(const DataTypePtr& data_typ
 inline bool is_complex_type(const DataTypePtr& data_type) {
     WhichDataType which(data_type);
     return which.is_array() || which.is_map() || which.is_struct();
+}
+
+inline bool is_special_aggregation_type(const DataTypePtr& data_type) {
+    WhichDataType which(data_type);
+    return which.is_bitmap() || which.is_hll() || which.is_quantile();
+}
+
+inline bool is_agg_state_type(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_agg_state();
 }
 
 inline bool is_variant_type(const DataTypePtr& data_type) {
