@@ -58,7 +58,7 @@ public class DateTrunc extends ScalarFunction
             FunctionSignature.ret(DateType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, DateType.INSTANCE)
     );
 
-    private final static List<String> LEGAL_TIME_UNIT =
+    private static final List<String> LEGAL_TIME_UNIT =
             ImmutableList.of("year", "quarter", "month", "week", "day", "hour", "minute", "second");
 
     /**
