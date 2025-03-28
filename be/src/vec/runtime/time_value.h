@@ -35,14 +35,14 @@ public:
     constexpr static int64_t ONE_HOUR_MICROSECONDS = 60 * ONE_MINUTE_MICROSECONDS;
     constexpr static int64_t ONE_MINUTE_SECONDS = 60;
     constexpr static int64_t ONE_HOUR_SECONDS = 60 * ONE_MINUTE_SECONDS;
-    constexpr static uint32_t MICROs_SCALE = 6;
+    constexpr static uint32_t MICROS_SCALE = 6;
 
     using TimeType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType;
     using ColumnTime = vectorized::DataTypeTimeV2::ColumnType;
 
     static int64_t round_time(TimeType value, uint32_t scale) {
         int64_t time = value;
-        DCHECK(scale <= MICROs_SCALE);
+        DCHECK(scale <= MICROS_SCALE);
         int64_t factor = std::pow(10, 6 - scale);
         int64_t roundedValue = (time >= 0) ? (time + factor / 2) / factor * factor
                                            : (time - factor / 2) / factor * factor;
