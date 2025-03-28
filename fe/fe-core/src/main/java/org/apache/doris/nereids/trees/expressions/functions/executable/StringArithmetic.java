@@ -133,11 +133,7 @@ public class StringArithmetic {
     public static Expression lowerVarchar(StringLikeLiteral first) {
         StringBuilder result = new StringBuilder(first.getValue().length());
         for (char c : first.getValue().toCharArray()) {
-            if (isAlphabetic(c)) {
-                result.append(Character.toLowerCase(c));
-            } else {
-                result.append(c);
-            }
+            result.append(Character.toLowerCase(c));
         }
         return castStringLikeLiteral(first, result.toString());
     }
@@ -149,11 +145,7 @@ public class StringArithmetic {
     public static Expression upperVarchar(StringLikeLiteral first) {
         StringBuilder result = new StringBuilder(first.getValue().length());
         for (char c : first.getValue().toCharArray()) {
-            if (isAlphabetic(c)) {
-                result.append(Character.toUpperCase(c));
-            } else {
-                result.append(c);
-            }
+            result.append(Character.toUpperCase(c));
         }
         return castStringLikeLiteral(first, result.toString());
     }
@@ -342,10 +334,9 @@ public class StringArithmetic {
                 return castStringLikeLiteral(first, first.getValue().substring(
                     inputLength - index, inputLength));
             } else {
-                int index = first.getValue().offsetByCodePoints(Math.abs(second.getValue()) - 1,
-                        first.getValue().length());
+                int index = first.getValue().offsetByCodePoints(0, Math.abs(second.getValue()) - 1);
                 return castStringLikeLiteral(first, first.getValue().substring(
-                    index - 1, inputLength));
+                    index, inputLength));
             }
         }
     }
