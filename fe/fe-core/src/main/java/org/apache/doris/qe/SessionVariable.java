@@ -1584,7 +1584,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableFallbackToOriginalPlanner = false;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TIMEOUT, needForward = true)
-    public boolean enableNereidsTimeout = false;
+    public boolean enableNereidsTimeout = true;
 
     @VariableMgr.VarAttr(name = NEREIDS_TIMEOUT_SECOND, needForward = true)
     public int nereidsTimeoutSecond = 30;

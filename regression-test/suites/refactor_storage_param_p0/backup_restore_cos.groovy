@@ -145,7 +145,6 @@ suite("refactor_storage_backup_restore_cos") {
                         println "tbl not found"+e.getMessage()
                         return false
                     }
-                    println "succcess"
                 })
     }
 
