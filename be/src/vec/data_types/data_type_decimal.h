@@ -24,11 +24,8 @@
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <cassert>
 #include <cmath>
-#include <limits>
 #include <memory>
-#include <ostream>
 #include <string>
 #include <type_traits>
 
@@ -49,9 +46,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h" // IWYU pragma: keep
-#include "vec/data_types/number_traits.h"
 #include "vec/data_types/serde/data_type_serde.h"
-#include "vec/utils/template_helpers.hpp"
 
 namespace doris {
 class DecimalV2Value;

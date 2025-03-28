@@ -106,18 +106,22 @@ using IPV4 = uint32_t;
 using IPV6 = uint128_t;
 
 // cell constructors. could also use from_int_frac if you'd like
-inline auto DECIMALV2 = Decimal128V2::double_to_decimal;
-inline auto DECIMAL32 = [](int32_t x, int32_t y) { return Decimal32::from_int_frac(x, y, 5); };
-inline auto DECIMAL64 = [](int64_t x, int64_t y) { return Decimal64::from_int_frac(x, y, 9); };
-inline auto DECIMAL128V3 = [](int128_t x, int128_t y) {
-    return Decimal128V3::from_int_frac(x, y, 20);
+inline auto DECIMALV2 = Decimal128V2::double_to_decimalv2;
+inline auto DECIMAL32 = [](int32_t x, int32_t y, int scale) {
+    return Decimal32::from_int_frac(x, y, scale);
 };
-inline auto DECIMAL256 = [](wide::Int256 x, wide::Int256 y) {
-    return Decimal256::from_int_frac(x, y, 40);
+inline auto DECIMAL64 = [](int64_t x, int64_t y, int scale) {
+    return Decimal64::from_int_frac(x, y, scale);
+};
+inline auto DECIMAL128V3 = [](int128_t x, int128_t y, int scale) {
+    return Decimal128V3::from_int_frac(x, y, scale);
+};
+inline auto DECIMAL256 = [](wide::Int256 x, wide::Int256 y, int scale) {
+    return Decimal256::from_int_frac(x, y, scale);
 };
 
 inline auto DECIMALFIELD = [](double v) {
-    return DecimalField<Decimal128V2>(Decimal128V2::double_to_decimal(v), 9);
+    return DecimalField<Decimal128V2>(Decimal128V2::double_to_decimalv2(v), 9);
 };
 
 using DATETIME = std::string;
@@ -210,10 +214,25 @@ void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types
                               const InputDataSet& input_set, const InputTypeSet& output_types,
                               const InputDataSet& output_set);
 
-// Null values are represented by Null()
-// The type of the constant column is represented as follows: Consted {TypeIndex::String}
-// A DataSet with a constant column can only have one row of data
-template <typename ReturnType, bool nullable = false>
+/**
+ * Null values are represented by Null()
+ * The type of the constant column is represented as follows: Consted {TypeIndex::String}
+ * A DataSet with a constant column can only have one row of data
+ * About scales and precisions:
+    When you need scale in and scale out(like, DatetimeV2 to DatetimeV2), you need:
+        InputTypeSet input_types = {{TypeIndex::DateTimeV2, 3}}; // input scale
+        ...
+        check_function<DataTypeDateTimeV2, true, 3>(func_name, input_types, data_set); // output scale
+     IF YOU FORGET TO SET THE SCALE, THE MICROSECOND WILL NOT BE TESTED. we can't force to check it because Field doesn't
+     keep the scale. So if the scale doesn't match, 
+    And for Decimal input or output, you need:
+        {{...}, DECIMAL64(1653395696, 789, 3)} // an output example
+     because every Decimal type already set its precision. so scale in enough.
+    For Decimal output, you need sepecific output's scale and precision:
+        check_function<DataTypeDecimal<Decimal64>, true, 6, 9>(func_name, input_types, data_set);
+*/
+template <typename ReturnType, bool Nullable = false, int ResultScale = -1,
+          int ResultPrecision = -1>
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
                       const DataSet& data_set, bool expect_fail = false) {
     // 1.0 create data type
@@ -260,8 +279,19 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     }
 
     // 2. execute function
-    auto return_type = nullable ? make_nullable(std::make_shared<ReturnType>())
-                                : std::make_shared<ReturnType>();
+    auto return_type = []() {
+        if constexpr (ResultPrecision != -1) { // decimal
+            return Nullable ? make_nullable(
+                                      std::make_shared<ReturnType>(ResultPrecision, ResultScale))
+                            : std::make_shared<ReturnType>(ResultPrecision, ResultScale);
+        } else if constexpr (ResultScale != -1) { // datetimev2
+            return Nullable ? make_nullable(std::make_shared<ReturnType>(ResultScale))
+                            : std::make_shared<ReturnType>(ResultScale);
+        } else {
+            return Nullable ? make_nullable(std::make_shared<ReturnType>())
+                            : std::make_shared<ReturnType>();
+        }
+    }();
     auto func = SimpleFunctionFactory::instance().get_function(
             func_name, block.get_columns_with_type_and_name(), return_type);
     EXPECT_TRUE(func != nullptr);
@@ -280,15 +310,15 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DATEV2;
     } else if (std::is_same_v<ReturnType, DateTimeV2>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIMEV2;
-    } else if (std::is_same_v<ReturnType, Decimal128V2>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V2>>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMALV2;
-    } else if (std::is_same_v<ReturnType, Decimal32>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal32>>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL32;
-    } else if (std::is_same_v<ReturnType, Decimal64>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal64>>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL64;
-    } else if (std::is_same_v<ReturnType, Decimal128V3>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V3>>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL128I;
-    } else if (std::is_same_v<ReturnType, Decimal256>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal256>>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL256;
     } else {
         fn_ctx_return.type = doris::PrimitiveType::INVALID_TYPE;
@@ -350,7 +380,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     EXPECT_EQ(expect_data.value, column_data.value) << " at row " << i;
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeBitMap>) {
                     const ColumnBitmap* bitmap_col = nullptr;
-                    if constexpr (nullable) {
+                    if constexpr (Nullable) {
                         const auto* nullable_column =
                                 assert_cast<const ColumnNullable*>(column.get());
                         bitmap_col = assert_cast<const ColumnBitmap*>(
@@ -362,7 +392,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                             << " at row " << i;
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeHLL>) {
                     const ColumnHLL* hll_col = nullptr;
-                    if constexpr (nullable) {
+                    if constexpr (Nullable) {
                         const auto* nullable_column =
                                 assert_cast<const ColumnNullable*>(column.get());
                         hll_col = assert_cast<const ColumnHLL*>(
@@ -384,7 +414,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
             }
         };
 
-        if constexpr (nullable) {
+        if constexpr (Nullable) {
             bool is_null = data_set[i].second.type() == &typeid(Null);
             EXPECT_EQ(is_null, column->is_null_at(i)) << " at row " << i;
             if (!is_null) {

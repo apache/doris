@@ -155,19 +155,23 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
     // for decimals in ut we set the default scale and precision. for more scales, we prefer test them in regression.
     case TypeIndex::Decimal32:
         desc.type = doris::PrimitiveType::TYPE_DECIMAL32;
-        type = std::make_shared<DataTypeDecimal<Decimal32>>(9, 5);
+        type = std::make_shared<DataTypeDecimal<Decimal32>>(input_types[index].precision_or(9),
+                                                            input_types[index].scale_or(5));
         return 1;
     case TypeIndex::Decimal64:
         desc.type = doris::PrimitiveType::TYPE_DECIMAL64;
-        type = std::make_shared<DataTypeDecimal<Decimal64>>(18, 9);
+        type = std::make_shared<DataTypeDecimal<Decimal64>>(input_types[index].precision_or(18),
+                                                            input_types[index].scale_or(9));
         return 1;
     case TypeIndex::Decimal128V3:
         desc.type = doris::PrimitiveType::TYPE_DECIMAL128I;
-        type = std::make_shared<DataTypeDecimal<Decimal128V3>>(38, 20);
+        type = std::make_shared<DataTypeDecimal<Decimal128V3>>(input_types[index].precision_or(38),
+                                                               input_types[index].scale_or(20));
         return 1;
     case TypeIndex::Decimal256:
         desc.type = doris::PrimitiveType::TYPE_DECIMAL256;
-        type = std::make_shared<DataTypeDecimal<Decimal256>>(76, 40);
+        type = std::make_shared<DataTypeDecimal<Decimal256>>(input_types[index].precision_or(76),
+                                                             input_types[index].scale_or(40));
         return 1;
     case TypeIndex::DateTime:
         desc.type = doris::PrimitiveType::TYPE_DATETIME;
@@ -183,7 +187,7 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
         return 1;
     case TypeIndex::DateTimeV2:
         desc.type = doris::PrimitiveType::TYPE_DATETIMEV2;
-        type = std::make_shared<DataTypeDateTimeV2>();
+        type = std::make_shared<DataTypeDateTimeV2>(input_types[index].scale_or(0));
         return 1;
     case TypeIndex::Array: {
         desc.type = doris::PrimitiveType::TYPE_ARRAY;
