@@ -77,7 +77,12 @@ public abstract class HMSDlaTable implements MTMVBaseTableIf {
                 .refreshTable(hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(), true);
     }
 
-    boolean isValidRelatedTable() {
+    /**
+     * If the table is supported as related table.
+     * For example, an Iceberg table may become unsupported after partition revolution.
+     * @return
+     */
+    protected boolean isValidRelatedTable() {
         return true;
     }
 }

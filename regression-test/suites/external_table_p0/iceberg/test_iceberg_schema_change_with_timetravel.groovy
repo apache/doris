@@ -58,13 +58,11 @@ suite("iceberg_schema_change_with_timetravel", "p0,external,doris,external_docke
         ]
     
         qt_q0 """ desc ${tableName} """
-        // TODO This will incorrectly read historical data, which will be fixed by cyw
         qt_q1 """ select * from ${tableName} order by c1 """
         qt_q2 """ select * from ${tableName} for version as of ${snapshotIds.s0} order by c1 """
         qt_q3 """ select * from ${tableName} for version as of ${snapshotIds.s1} order by c1 """
         qt_q4 """ select * from ${tableName} for version as of ${snapshotIds.s2} order by c1 """
         qt_q5 """ select * from ${tableName} for version as of ${snapshotIds.s3} order by c1 """
-        // TODO This will incorrectly read historical data, which will be fixed by cyw
         qt_q6 """ select * from ${tableName} for version as of ${snapshotIds.s4} order by c1 """
     }
 

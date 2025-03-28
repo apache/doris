@@ -73,7 +73,7 @@ public class IcebergDlaTable extends HMSDlaTable {
         IcebergSnapshotCacheValue snapshotValue =
                 IcebergUtils.getOrFetchSnapshotCacheValue(
                         snapshot, hmsTable.getCatalog(), hmsTable.getDbName(), hmsTable.getName());
-        IcebergSchemaCacheValue schemaValue = IcebergUtils.getIcebergPartitionColumnsCache(
+        IcebergSchemaCacheValue schemaValue = IcebergUtils.getSchemaCacheValue(
                 hmsTable.getCatalog(), hmsTable.getDbName(), hmsTable.getName(),
                 snapshotValue.getSnapshot().getSchemaId());
         return schemaValue.getPartitionColumns();
@@ -108,7 +108,7 @@ public class IcebergDlaTable extends HMSDlaTable {
     }
 
     @Override
-    boolean isValidRelatedTable() {
+    protected boolean isValidRelatedTable() {
         if (isValidRelatedTableCached) {
             return isValidRelatedTable;
         }

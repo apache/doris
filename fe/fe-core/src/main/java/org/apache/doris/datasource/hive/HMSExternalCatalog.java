@@ -190,7 +190,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
             ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
             Integer.MAX_VALUE,
-            String.format("hms_catalog_%s_executor_pool", name),
+            String.format("hms_iceberg_catalog_%s_executor_pool", name),
             true,
             preExecutionAuthenticator);
     }

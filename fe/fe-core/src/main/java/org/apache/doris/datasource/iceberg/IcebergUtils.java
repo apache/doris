@@ -99,6 +99,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.Month;
@@ -748,21 +749,22 @@ public class IcebergUtils {
         return hiveCatalog;
     }
 
+    // get snapshot id from query like 'for version/time as of'
     public static long getQuerySpecSnapshot(Table table, TableSnapshot queryTableSnapshot) {
-        long snapshotId = -1;
-        if (queryTableSnapshot != null) {
-            TableSnapshot.VersionType type = queryTableSnapshot.getType();
-            if (type == TableSnapshot.VersionType.VERSION) {
-                snapshotId = queryTableSnapshot.getVersion();
-            } else {
-                long timestamp = TimeUtils.timeStringToLong(queryTableSnapshot.getTime(), TimeUtils.getTimeZone());
-                snapshotId = SnapshotUtil.snapshotIdAsOfTime(table, timestamp);
+        TableSnapshot.VersionType type = queryTableSnapshot.getType();
+        if (type == TableSnapshot.VersionType.VERSION) {
+            return queryTableSnapshot.getVersion();
+        } else {
+            long timestamp = TimeUtils.timeStringToLong(queryTableSnapshot.getTime(), TimeUtils.getTimeZone());
+            if (timestamp < 0) {
+                throw new DateTimeException("can't parse time: " + queryTableSnapshot.getTime());
             }
+            return SnapshotUtil.snapshotIdAsOfTime(table, timestamp);
         }
-        return snapshotId;
     }
 
-    public static IcebergSchemaCacheValue getSchemaCacheValueFromCache(
+    // read schema from external schema cache
+    public static IcebergSchemaCacheValue getSchemaCacheValue(
             ExternalCatalog catalog, String dbName, String name, long schemaId) {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
@@ -772,11 +774,6 @@ public class IcebergUtils {
                 null, catalog.getName(), dbName, name, schemaId);
         }
         return (IcebergSchemaCacheValue) schemaCacheValue.get();
-    }
-
-    public static IcebergSchemaCacheValue getIcebergPartitionColumnsCache(
-            ExternalCatalog catalog, String dbName, String name, long schemaId) {
-        return IcebergUtils.getSchemaCacheValueFromCache(catalog, dbName, name, schemaId);
     }
 
     public static IcebergSnapshot getLastedIcebergSnapshot(ExternalCatalog catalog, String dbName, String tbName) {
@@ -797,7 +794,7 @@ public class IcebergUtils {
         Map<String, IcebergPartition> nameToPartition = Maps.newHashMap();
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
 
-        List<Column> partitionColumns = IcebergUtils.getIcebergPartitionColumnsCache(
+        List<Column> partitionColumns = IcebergUtils.getSchemaCacheValue(
                 catalog, dbName, tbName, table.snapshot(snapshotId).schemaId()).getPartitionColumns();
         for (IcebergPartition partition : icebergPartitions) {
             nameToPartition.put(partition.getPartitionName(), partition);
@@ -811,7 +808,7 @@ public class IcebergUtils {
         return new IcebergPartitionInfo(nameToPartitionItem, nameToPartition, partitionNameMap);
     }
 
-    public static List<IcebergPartition> loadIcebergPartition(Table table, long snapshotId) {
+    private static List<IcebergPartition> loadIcebergPartition(Table table, long snapshotId) {
         PartitionsTable partitionsTable = (PartitionsTable) MetadataTableUtils
                 .createMetadataTableInstance(table, MetadataTableType.PARTITIONS);
         List<IcebergPartition> partitions = Lists.newArrayList();
@@ -828,7 +825,7 @@ public class IcebergUtils {
         return partitions;
     }
 
-    public static IcebergPartition generateIcebergPartition(Table table, StructLike row) {
+    private static IcebergPartition generateIcebergPartition(Table table, StructLike row) {
         // row format :
         // 0. partitionData,
         // 1. spec_id,
@@ -934,6 +931,7 @@ public class IcebergUtils {
     /**
      * Merge overlapped iceberg partitions into one Doris partition.
      */
+    @VisibleForTesting
     public static Map<String, Set<String>> mergeOverlapPartitions(Map<String, PartitionItem> originPartitions) {
         List<Map.Entry<String, PartitionItem>> entries = sortPartitionMap(originPartitions);
         Map<String, Set<String>> map = Maps.newHashMap();
@@ -979,6 +977,7 @@ public class IcebergUtils {
      * After sort, they become:
      * [0, 30), [10, 20), [10, 15), [30, 40)
      */
+    @VisibleForTesting
     public static List<Map.Entry<String, PartitionItem>> sortPartitionMap(Map<String, PartitionItem> originPartitions) {
         List<Map.Entry<String, PartitionItem>> entries = new ArrayList<>(originPartitions.entrySet());
         entries.sort(new RangeComparator());
@@ -1024,7 +1023,7 @@ public class IcebergUtils {
             TableSnapshot snapshot = tableSnapshot.get();
             long querySpecSnapshot = getQuerySpecSnapshot(icebergTable, snapshot);
             return new IcebergSnapshotCacheValue(
-                    snapshotCache.getPartitionInfo(),
+                    IcebergPartitionInfo.empty(),
                     new IcebergSnapshot(querySpecSnapshot, icebergTable.snapshot(querySpecSnapshot).schemaId()));
         } else {
             // Otherwise, use the latest snapshot and the latest schema.
@@ -1032,7 +1031,8 @@ public class IcebergUtils {
         }
     }
 
-    public static Optional<SchemaCacheValue> getSchemaCacheValue(
+    // load table schema from iceberg API to external schema cache.
+    public static Optional<SchemaCacheValue> loadSchemaCacheValue(
             ExternalCatalog catalog, String dbName, String tbName, long schemaId) {
         Table table = IcebergUtils.getIcebergTable(catalog, dbName, tbName);
         List<Column> schema = IcebergUtils.getSchema(catalog, dbName, tbName, schemaId);
@@ -1058,7 +1058,7 @@ public class IcebergUtils {
         Optional<MvccSnapshot> snapshotFromContext = MvccUtil.getSnapshotFromContext(tableIf);
         IcebergSnapshotCacheValue cacheValue =
                 IcebergUtils.getOrFetchSnapshotCacheValue(snapshotFromContext, catalog, dbName, tbName);
-        return IcebergUtils.getSchemaCacheValueFromCache(
+        return IcebergUtils.getSchemaCacheValue(
                 catalog, dbName, tbName, cacheValue.getSnapshot().getSchemaId())
                 .getSchema();
     }
