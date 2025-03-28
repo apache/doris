@@ -551,6 +551,9 @@ struct AggregateFunctionAnyData : Data, AggregateFunctionAnyBase {
     using Self = AggregateFunctionAnyData;
     using Data::IsFixedLength;
 
+    AggregateFunctionAnyData() = default;
+    AggregateFunctionAnyData(const DataTypes& argument_types) {}
+
     void change_if_better(const IColumn& column, size_t row_num, Arena*) {
         this->change_first_time(column, row_num, nullptr);
     }
