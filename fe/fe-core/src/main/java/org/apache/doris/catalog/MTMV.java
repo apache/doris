@@ -523,10 +523,15 @@ public class MTMV extends OlapTable {
         if (refreshSnapshot == null) {
             refreshSnapshot = new MTMVRefreshSnapshot();
         }
-        if (Env.getCurrentEnv().isReady()) {
+        try {
             Optional<String> errMsg = compatibleInternal(Env.getCurrentEnv().getCatalogMgr());
-            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getQualifiedDbName(), name,
-                    errMsg.get());
+            if (errMsg.isPresent()) {
+                LOG.info("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getQualifiedDbName(), name,
+                        errMsg.get());
+            }
+        } catch (Throwable t) {
+            LOG.info("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getQualifiedDbName(), name,
+                    t.getMessage());
         }
     }
 

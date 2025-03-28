@@ -169,19 +169,22 @@ public class AlterMTMV implements Writable {
 
     public static AlterMTMV read(DataInput in) throws IOException {
         AlterMTMV alterMTMV = GsonUtils.GSON.fromJson(Text.readString(in), AlterMTMV.class);
-        alterMTMV.compatible();
+        try {
+            alterMTMV.compatible();
+        } catch (Throwable t) {
+            LOG.info("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", alterMTMV.mvName.getDb(),
+                    alterMTMV.mvName.getTbl(),
+                    t.getMessage());
+        }
         return alterMTMV;
     }
 
 
     private void compatible() {
-        if (!Env.getCurrentEnv().isReady()) {
-            return;
-        }
         if (relation != null) {
             Optional<String> errMsg = relation.compatible(Env.getCurrentEnv().getCatalogMgr());
             if (errMsg.isPresent()) {
-                LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", mvName.getDb(),
+                LOG.info("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", mvName.getDb(),
                         mvName.getTbl(),
                         errMsg.get());
             }
@@ -191,14 +194,14 @@ public class AlterMTMV implements Writable {
             try {
                 mtmv = getMTMV(mvName);
             } catch (DdlException | MetaNotFoundException e) {
-                LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", mvName.getDb(), mvName.getTbl(),
+                LOG.info("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", mvName.getDb(), mvName.getTbl(),
                         e.getMessage());
                 return;
             }
             for (MTMVRefreshPartitionSnapshot snapshot : partitionSnapshots.values()) {
                 Optional<String> errMsg = snapshot.compatible(mtmv);
                 if (errMsg.isPresent()) {
-                    LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", mvName.getDb(),
+                    LOG.info("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", mvName.getDb(),
                             mvName.getTbl(), errMsg.get());
                 }
             }
