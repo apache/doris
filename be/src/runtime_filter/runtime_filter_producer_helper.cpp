@@ -84,29 +84,44 @@ Status RuntimeFilterProducerHelper::_publish(RuntimeState* state) {
     return Status::OK();
 }
 
-Status RuntimeFilterProducerHelper::process(
-        RuntimeState* state, const vectorized::Block* block, bool use_shared_table,
+Status RuntimeFilterProducerHelper::build(RuntimeState* state, const vectorized::Block* block) {
+    if (_skip_runtime_filters_process) {
+        return Status::OK();
+    }
+
+    DCHECK(_should_build_hash_table);
+    // Hash table is completed and runtime filter has a global size now.
+    uint64_t hash_table_size = block ? block->rows() : 0;
+    RETURN_IF_ERROR(_init_filters(state, hash_table_size));
+    if (hash_table_size > 1) {
+        constexpr int HASH_JOIN_INSERT_OFFSET = 1; // the first row is mocked on hash join sink
+        RETURN_IF_ERROR(_insert(block, HASH_JOIN_INSERT_OFFSET));
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::terminate(RuntimeState* state) {
+    if (_skip_runtime_filters_process) {
+        return Status::OK();
+    }
+
+    for (const auto& filter : _producers) {
+        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::IGNORED);
+    }
+
+    RETURN_IF_ERROR(_publish(state));
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::publish(
+        RuntimeState* state, bool use_shared_table,
         std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters) {
     if (_skip_runtime_filters_process) {
         return Status::OK();
     }
 
-    bool wake_up_early = state->get_task()->wake_up_early();
-    // Runtime filter is ignored partially which has no effect on correctness.
-    auto wrapper_state = wake_up_early ? RuntimeFilterWrapper::State::IGNORED
-                                       : RuntimeFilterWrapper::State::READY;
-    if (_should_build_hash_table && !wake_up_early) {
-        // Hash table is completed and runtime filter has a global size now.
-        uint64_t hash_table_size = block ? block->rows() : 0;
-        RETURN_IF_ERROR(_init_filters(state, hash_table_size));
-        if (hash_table_size > 1) {
-            constexpr int HASH_JOIN_INSERT_OFFSET = 1; // the first row is mocked on hash join sink
-            RETURN_IF_ERROR(_insert(block, HASH_JOIN_INSERT_OFFSET));
-        }
-    }
-
     for (const auto& filter : _producers) {
-        if (use_shared_table && !wake_up_early) {
+        if (use_shared_table) {
             DCHECK(_is_broadcast_join);
             if (_should_build_hash_table) {
                 DCHECK(!runtime_filters.contains(filter->wrapper()->filter_id()));
@@ -116,7 +131,7 @@ Status RuntimeFilterProducerHelper::process(
                 filter->set_wrapper(runtime_filters[filter->wrapper()->filter_id()]);
             }
         }
-        filter->set_wrapper_state_and_ready_to_publish(wrapper_state);
+        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
     }
 
     RETURN_IF_ERROR(_publish(state));

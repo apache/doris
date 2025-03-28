@@ -101,6 +101,16 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+Status HashJoinBuildSinkLocalState::terminate(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    if (_terminated) {
+        return Status::OK();
+    }
+    _shared_state->build_block.reset();
+    RETURN_IF_ERROR(_runtime_filter_producer_helper->terminate(state));
+    return JoinBuildSinkLocalState::terminate(state);
+}
+
 size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
     if (!_should_build_hash_table) {
         return 0;
@@ -227,19 +237,24 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
     }
 
     try {
-        RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
-                state, _shared_state->build_block.get(), p._use_shared_hash_table,
-                p._runtime_filters));
+        if (!_terminated) {
+            if (_should_build_hash_table) {
+                RETURN_IF_ERROR(_runtime_filter_producer_helper->build(
+                        state, _shared_state->build_block.get()));
+            }
+            RETURN_IF_ERROR(_runtime_filter_producer_helper->publish(
+                    state, p._use_shared_hash_table, p._runtime_filters));
+        }
     } catch (Exception& e) {
         bool blocked_by_shared_hash_table_signal =
                 !_should_build_hash_table && p._use_shared_hash_table && !p._signaled;
 
         return Status::InternalError(
-                "rf process meet error: {}, wake_up_early: {}, should_build_hash_table: "
+                "rf process meet error: {}, _terminated: {}, should_build_hash_table: "
                 "{}, _finish_dependency: {}, "
                 "blocked_by_shared_hash_table_signal: "
                 "{}",
-                e.to_string(), state->get_task()->wake_up_early(), _should_build_hash_table,
+                e.to_string(), _terminated, _should_build_hash_table,
                 _finish_dependency->debug_string(), blocked_by_shared_hash_table_signal);
     }
     return Base::close(state, exec_status);
@@ -604,7 +619,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit
         // return eof will make task marked as wake_up_early
         // todo: remove signaled after we can guarantee that wake up eraly is always set accurately
-        if (!_signaled || state->get_task()->wake_up_early()) {
+        if (!_signaled || local_state._terminated) {
             return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
         }
 

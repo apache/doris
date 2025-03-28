@@ -203,8 +203,6 @@ public:
     [[nodiscard]] size_t get_revocable_size() const;
     [[nodiscard]] Status revoke_memory(const std::shared_ptr<SpillContext>& spill_context);
 
-    bool wake_up_early() const { return _wake_up_early; }
-
     Status blocked(Dependency* dependency) {
         DCHECK_EQ(_blocked_dep, nullptr) << "task: " << debug_string();
         _blocked_dep = dependency;

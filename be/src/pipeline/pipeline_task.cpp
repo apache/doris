@@ -349,7 +349,15 @@ Status PipelineTask::execute(bool* done) {
         _task_cpu_timer->update(delta_cpu_time);
         query_context()->resource_ctx()->cpu_context()->update_cpu_cost_ms(delta_cpu_time);
 
-        if (_eos && !_spilling && (_fragment_context->is_canceled() || !_is_pending_finish())) {
+        // If task is woke up early, we should terminate all operators, and this task could be closed immediately.
+        if (_wake_up_early) {
+            terminate();
+            THROW_IF_ERROR(_root->terminate(_state));
+            THROW_IF_ERROR(_sink->terminate(_state));
+            _eos = true;
+            *done = true;
+        } else if (_eos && !_spilling &&
+                   (_fragment_context->is_canceled() || !_is_pending_finish())) {
             *done = true;
         }
         // If this run is pended by a spilling request, the block will be output in next run.
@@ -379,7 +387,7 @@ Status PipelineTask::execute(bool* done) {
         Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");
         return status;
     });
-    if (_wait_to_start()) {
+    if (_wait_to_start() || _wake_up_early) {
         if (config::enable_prefetch_tablet) {
             RETURN_IF_ERROR(_source->hold_tablets(_state));
         }
@@ -400,20 +408,8 @@ Status PipelineTask::execute(bool* done) {
             }
         });
 
-        if (_wake_up_early) {
-            _eos = true;
-            return Status::OK();
-        }
         RETURN_IF_ERROR(_open());
     }
-
-    auto set_wake_up_and_dep_ready = [&]() {
-        if (wake_up_early()) {
-            return;
-        }
-        set_wake_up_early();
-        terminate();
-    };
 
     while (!_fragment_context->is_canceled()) {
         Defer defer {[&]() {
@@ -422,7 +418,7 @@ Status PipelineTask::execute(bool* done) {
                 _block->clear_column_data(_root->row_desc().num_materialized_slots());
             }
         }};
-        if (_is_blocked()) {
+        if (_is_blocked() || _wake_up_early) {
             return Status::OK();
         }
 
@@ -447,11 +443,12 @@ Status PipelineTask::execute(bool* done) {
 
         // `_sink->is_finished(_state)` means sink operator should be finished
         if (_sink->is_finished(_state)) {
-            set_wake_up_and_dep_ready();
+            set_wake_up_early();
+            return Status::OK();
         }
 
         // `_dry_run` means sink operator need no more data
-        _eos = wake_up_early() || _dry_run || _eos;
+        _eos = _wake_up_early || _dry_run || _eos;
         _spilling = false;
         auto workload_group = _state->get_query_ctx()->workload_group();
         // If last run is pended by a spilling request, `_block` is produced with some rows in last
@@ -514,13 +511,13 @@ Status PipelineTask::execute(bool* done) {
             _eos = eos;
         }
 
-        if (!_block->empty() || _eos) {
+        if ((!_block->empty() || _eos) && !_wake_up_early) {
             SCOPED_TIMER(_sink_timer);
             Status status = Status::OK();
             DEFER_RELEASE_RESERVED();
             COUNTER_UPDATE(_memory_reserve_times, 1);
             if (_state->get_query_ctx()->enable_reserve_memory() && workload_group &&
-                !(wake_up_early() || _dry_run)) {
+                !(_wake_up_early || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
                 status = sink_reserve_size != 0
                                  ? thread_context()->thread_mem_tracker_mgr->try_reserve(
@@ -584,7 +581,8 @@ Status PipelineTask::execute(bool* done) {
             status = _sink->sink(_state, block, _eos);
 
             if (status.is<ErrorCode::END_OF_FILE>()) {
-                set_wake_up_and_dep_ready();
+                set_wake_up_early();
+                return Status::OK();
             } else if (!status) {
                 return status;
             }
@@ -629,7 +627,7 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
     }
 
     if (close_sink && _opened) {
-        _task_profile->add_info_string("WakeUpEarly", wake_up_early() ? "true" : "false");
+        _task_profile->add_info_string("WakeUpEarly", std::to_string(_wake_up_early.load()));
         _fresh_profile_counter();
     }
 

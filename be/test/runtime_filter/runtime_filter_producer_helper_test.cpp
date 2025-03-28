@@ -77,8 +77,10 @@ TEST_F(RuntimeFilterProducerHelperTest, basic) {
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.build(_runtime_states[0].get(), &block));
+    vectorized::SharedHashTableContextPtr shared_hash_table_ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, false, runtime_filters));
+            helper.publish(_runtime_states[0].get(), false, runtime_filters));
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
@@ -102,9 +104,7 @@ TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
     _tasks[0]->set_wake_up_early();
-    std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, false, runtime_filters));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.terminate(_runtime_states[0].get()));
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
@@ -133,8 +133,9 @@ TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.build(_runtime_states[0].get(), &block));
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, false, runtime_filters));
+            helper.publish(_runtime_states[0].get(), false, runtime_filters));
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, broadcast) {
@@ -157,14 +158,15 @@ TEST_F(RuntimeFilterProducerHelperTest, broadcast) {
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.build(_runtime_states[0].get(), &block));
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, true, runtime_filters));
+            helper.publish(_runtime_states[0].get(), true, runtime_filters));
 
     auto helper2 = RuntimeFilterProducerHelper(&_profile, false, true);
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper2.init(_runtime_states[1].get(), build_expr_ctxs, runtime_filter_descs));
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper2.process(_runtime_states[1].get(), &block, true, runtime_filters));
+            helper2.publish(_runtime_states[1].get(), true, runtime_filters));
 }
 
 } // namespace doris

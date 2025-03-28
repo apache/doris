@@ -30,7 +30,11 @@ namespace doris {
 #include "common/compile_check_begin.h"
 // this class used in hash join node
 /**
+<<<<<<< HEAD
  * init -> (skip_process ->) send_filter_size -> (share_filters ->) process
+=======
+ * init -> (skip_runtime_filters ->) send_filter_size -> build filter -> publish filter
+>>>>>>> cd8c422b04 ([refactor](terminate) add terminate interface)
  */
 class RuntimeFilterProducerHelper {
 public:
@@ -62,8 +66,12 @@ public:
     // skip all runtime filter process, send size and rf to remote imeediately, mainly used to make join spill instance do not block other instance
     MOCK_FUNCTION Status skip_process(RuntimeState* state);
 
-    // build rf's predicate and publish rf
-    Status process(RuntimeState* state, const vectorized::Block* block, bool use_shared_table,
+    // build rf
+    Status build(RuntimeState* state, const vectorized::Block* block);
+    // if task is terminated, rf also need to publish
+    Status terminate(RuntimeState* state);
+    // publish rf
+    Status publish(RuntimeState* state, bool use_shared_table,
                    std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters);
 
 protected:
