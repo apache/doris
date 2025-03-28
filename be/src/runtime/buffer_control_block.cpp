@@ -23,6 +23,7 @@
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
 // IWYU pragma: no_include <bits/chrono.h>
+#include <algorithm>
 #include <chrono> // IWYU pragma: keep
 #include <ostream>
 #include <string>
@@ -130,16 +131,21 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
     }
 
     if (_waiting_rpc.empty()) {
+        size_t bytes = 0;
+        std::for_each(result->result_batch.rows.cbegin(), result->result_batch.rows.cend(),
+                      [&bytes](const std::string& row) { bytes += row.size(); });
         // Merge result into batch to reduce rpc times
         if (!_batch_queue.empty() &&
             ((_batch_queue.back()->result_batch.rows.size() + num_rows) < _buffer_limit) &&
-            !result->eos) {
+            !result->eos && (bytes + _last_batch_bytes) <= config::thrift_max_message_size) {
             std::vector<std::string>& back_rows = _batch_queue.back()->result_batch.rows;
             std::vector<std::string>& result_rows = result->result_batch.rows;
             back_rows.insert(back_rows.end(), std::make_move_iterator(result_rows.begin()),
                              std::make_move_iterator(result_rows.end()));
+            _last_batch_bytes += bytes;
         } else {
             _batch_queue.push_back(std::move(result));
+            _last_batch_bytes = bytes;
         }
         _buffer_rows += num_rows;
         _data_arrival.notify_one();

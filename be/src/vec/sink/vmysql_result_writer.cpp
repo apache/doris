@@ -601,9 +601,8 @@ int VMysqlResultWriter<is_binary_format>::_add_one_cell(const ColumnPtr& column_
 template <bool is_binary_format>
 Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
     SCOPED_TIMER(_append_row_batch_timer);
-    Status status = Status::OK();
     if (UNLIKELY(input_block.rows() == 0)) {
-        return status;
+        return Status::OK();
     }
 
     DCHECK(_output_vexpr_ctxs.empty() != true);
@@ -613,7 +612,36 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
     Block block;
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
                                                                        input_block, &block));
+
+    const auto total_bytes = block.bytes();
+    if (total_bytes > config::thrift_max_message_size) [[unlikely]] {
+        const auto total_rows = block.rows();
+        const auto sub_block_count = (total_bytes + config::thrift_max_message_size - 1) /
+                                     config::thrift_max_message_size;
+        const auto sub_block_rows = (total_rows + sub_block_count - 1) / sub_block_count;
+
+        size_t offset = 0;
+        while (offset < total_rows) {
+            size_t rows = std::min(static_cast<size_t>(sub_block_rows), total_rows - offset);
+            auto sub_block = block.clone_empty();
+            for (size_t i = 0; i != block.columns(); ++i) {
+                sub_block.get_by_position(i).column =
+                        block.get_by_position(i).column->cut(offset, rows);
+            }
+            offset += rows;
+
+            RETURN_IF_ERROR(_append_block(sub_block));
+        }
+        return Status::OK();
+    }
+
+    return _append_block(block);
+}
+
+template <bool is_binary_format>
+Status VMysqlResultWriter<is_binary_format>::_append_block(Block& block) {
     // convert one batch
+    Status status = Status::OK();
     auto result = std::make_unique<TFetchDataResult>();
     auto num_rows = block.rows();
     result->result_batch.rows.resize(num_rows);
