@@ -184,7 +184,9 @@ public abstract class AbstractTask implements Task {
             onFail();
             log.warn("execute task error, job id is {}, task id is {}", jobId, taskId, e);
         } finally {
-            closeOrReleaseResources();
+            if (!TaskStatus.CANCELED.equals(status)) {
+                closeOrReleaseResources();
+            }
         }
     }
 
