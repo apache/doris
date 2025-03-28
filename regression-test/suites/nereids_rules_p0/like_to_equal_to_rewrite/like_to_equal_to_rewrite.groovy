@@ -53,28 +53,21 @@ suite("like_to_equal_to_rewrite") {
 	
 
 	//test when escape is not null
-    sql """drop database if exists test_like_escape"""
-    sql """create database test_like_escape"""
-	sql """use test_like_escape"""
+    sql """drop table if exists employees"""
 	sql """
 		CREATE TABLE `employees` (
 		`id` tinyint NULL,
 		`name` char(20) NULL COMMENT "name string"
 		) ENGINE=OLAP
 		DUPLICATE KEY(`id`, `name`)
-		COMMENT 'my first table'
 		DISTRIBUTED BY HASH(`id`) BUCKETS 1
 		PROPERTIES (
 		"replication_allocation" = "tag.location.default: 1"
 		);
 		"""
-		
-    sql "insert into test_like_escape.employees  values  (1, 'A_%');"
-	sql "insert into test_like_escape.employees  values  (2, 'B_%');"
-	sql "insert into test_like_escape.employees  values  (3, 'C_D');"
-	sql "insert into test_like_escape.employees  values  (4, 'E_F');"
-	sql "insert into test_like_escape.employees  values  (5, 'F_%');"
-	
+
+    sql "insert into employees values (1, 'A_%'),(2, 'B_%'),(3, 'C_D'),(4, 'E_F'),(5, 'F_%');"
+
 	sql "select * from employees where name like '%\_\%' escape '\\';"
 	assertEquals(3, result.size())
 	sql "select * from employees where name like '%|_|%' escape '|';"
@@ -83,6 +76,6 @@ suite("like_to_equal_to_rewrite") {
 	assertEquals(3, result.size())
 	sql "select * from employees where name like '%#_#%' escape '#';"
 	assertEquals(3, result.size())
-	
-	sql """drop database if exists test_like_escape"""
+
+	sql """drop table if exists employees"""
 }
