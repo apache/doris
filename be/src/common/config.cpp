@@ -635,7 +635,7 @@ DEFINE_Int32(num_cores, "0");
 DEFINE_Bool(ignore_broken_disk, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
-DEFINE_mInt32(memory_maintenance_sleep_time_ms, "20");
+DEFINE_mInt32(memory_maintenance_sleep_time_ms, "50");
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
