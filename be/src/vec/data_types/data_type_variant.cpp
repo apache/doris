@@ -70,7 +70,6 @@ int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column
         }
         PColumnMeta column_meta_pb;
         column_meta_pb.set_name(entry->path.get_path());
-        segment_v2::ColumnPathInfo path;
         entry->path.to_protobuf(column_meta_pb.mutable_column_path(), -1 /*not used here*/);
         type->to_pb_column_meta(&column_meta_pb);
         std::string meta_binary;
@@ -115,7 +114,6 @@ char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_v
         ++num_of_columns;
         PColumnMeta column_meta_pb;
         column_meta_pb.set_name(entry->path.get_path());
-        segment_v2::ColumnPathInfo path;
         entry->path.to_protobuf(column_meta_pb.mutable_column_path(), -1 /*not used here*/);
         type->to_pb_column_meta(&column_meta_pb);
         std::string meta_binary;

@@ -28,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+#include "runtime/primitive_type.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
