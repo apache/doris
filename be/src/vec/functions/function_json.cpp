@@ -70,6 +70,7 @@
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/stringop_substring.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris {

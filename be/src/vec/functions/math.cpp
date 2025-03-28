@@ -42,6 +42,7 @@
 #include "vec/functions/function_totype.h"
 #include "vec/functions/function_unary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/stringop_substring.h"
 
 namespace doris {
 namespace vectorized {

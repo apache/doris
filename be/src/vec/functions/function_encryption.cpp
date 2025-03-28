@@ -40,6 +40,7 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/stringop_substring.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
