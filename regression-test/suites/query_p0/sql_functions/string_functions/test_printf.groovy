@@ -94,65 +94,65 @@ suite("test_printf") {
     order_qt_const_not_nullable "select printf('%s, %s, %s, %d, %d, %d, %d, %f, %lf, %lf', string_arg, var_char_arg, char_arg, byte_arg, short_arg, int_arg, long_arg, float_arg, double_arg, decimal_arg) from printf_args"
     order_qt_const_nullable_no_null "select printf('%s, %s, %s, %d, %d, %d, %d, %f, %lf, %lf', nullable(string_arg), nullable(var_char_arg), nullable(char_arg), byte_arg, short_arg, int_arg, long_arg, float_arg, double_arg, nullable(decimal_arg)) from printf_args"
 
-    /// folding
+    /// cases
     // Basic format specifiers
-    check_fold_consistency "printf('%d', 123)"
-    check_fold_consistency "printf('%5d', 123)"
-    check_fold_consistency "printf('%-5d', 123)"
-    check_fold_consistency "printf('%05d', 123)"
+    order_qt_basic_format_specifiers "select printf('%d', 123)"
+    order_qt_basic_format_specifiers "select printf('%5d', 123)"
+    order_qt_basic_format_specifiers "select printf('%-5d', 123)"
+    order_qt_basic_format_specifiers "select printf('%05d', 123)"
     
     // Integer boundary values
-    check_fold_consistency "printf('%d', cast(127 as tinyint))"  // max tinyint
-    check_fold_consistency "printf('%d', cast(-128 as tinyint))" // min tinyint
-    check_fold_consistency "printf('%d', cast(32767 as smallint))"  // max smallint
-    check_fold_consistency "printf('%d', cast(-32768 as smallint))" // min smallint
-    check_fold_consistency "printf('%d', 2147483647)"  // max int
-    check_fold_consistency "printf('%d', -2147483648)" // min int
-    check_fold_consistency "printf('%ld', cast(9223372036854775807 as bigint))"  // max bigint
-    check_fold_consistency "printf('%ld', cast(-9223372036854775808 as bigint))" // min bigint
+    order_qt_integer_boundary_values "select printf('%d', cast(127 as tinyint))"  // max tinyint
+    order_qt_integer_boundary_values "select printf('%d', cast(-128 as tinyint))" // min tinyint
+    order_qt_integer_boundary_values "select printf('%d', cast(32767 as smallint))"  // max smallint
+    order_qt_integer_boundary_values "select printf('%d', cast(-32768 as smallint))" // min smallint
+    order_qt_integer_boundary_values "select printf('%d', 2147483647)"  // max int
+    order_qt_integer_boundary_values "select printf('%d', -2147483648)" // min int
+    order_qt_integer_boundary_values "select printf('%ld', cast(9223372036854775807 as bigint))"  // max bigint
+    order_qt_integer_boundary_values "select printf('%ld', cast(-9223372036854775808 as bigint))" // min bigint
     
     // Float precision and special values
-    check_fold_consistency "printf('%e', cast(0.0000001 as float))"
-    check_fold_consistency "printf('%E', 1000000.0)"
-    check_fold_consistency "printf('%.2f', cast(999999.999 as float))"
+    order_qt_float_precision_and_special_values "select printf('%e', cast(0.0000001 as float))"
+    order_qt_float_precision_and_special_values "select printf('%E', 1000000.0)"
+    order_qt_float_precision_and_special_values "select printf('%.2f', cast(999999.999 as float))"
     
     // String formatting with various lengths
-    check_fold_consistency "printf('%s', '')"  // empty string
-    check_fold_consistency "printf('%20s', 'short')"  // right-aligned padding
-    check_fold_consistency "printf('%-20s', 'short')" // left-aligned padding
-    check_fold_consistency "printf('%s', 'very_long_string_that_tests_buffer_handling')"
-    check_fold_consistency '''printf('%s', '特殊字符!@#$%^&*()')''' // special characters
+    order_qt_string_formatting_with_various_lengths "select printf('%s', '')"  // empty string
+    order_qt_string_formatting_with_various_lengths "select printf('%20s', 'short')"  // right-aligned padding
+    order_qt_string_formatting_with_various_lengths "select printf('%-20s', 'short')" // left-aligned padding
+    order_qt_string_formatting_with_various_lengths "select printf('%s', 'very_long_string_that_tests_buffer_handling')"
+    order_qt_string_formatting_with_various_lengths '''select printf('%s', '特殊字符!@#$%^&*()')''' // special characters
     
     // Multiple arguments and mixed formats
-    check_fold_consistency "printf('%d-%s-%.2f', 100, 'test', 3.14)"
-    check_fold_consistency "printf('%d %d %d %d %d', 1, 2, 3, 4, 5)"
-    check_fold_consistency "printf('%s=%d, %s=%f', 'int', 42, 'pi', 3.14159)"
+    order_qt_multiple_arguments_and_mixed_formats "select printf('%d-%s-%.2f', 100, 'test', 3.14)"
+    order_qt_multiple_arguments_and_mixed_formats "select printf('%d %d %d %d %d', 1, 2, 3, 4, 5)"
+    order_qt_multiple_arguments_and_mixed_formats "select printf('%s=%d, %s=%f', 'int', 42, 'pi', 3.14159)"
     
     // Format string variations
-    check_fold_consistency "printf('no formats')"
-    check_fold_consistency "printf('%%')" // escape %
-    check_fold_consistency "printf('%%%d%%', 100)" // mixed literal % and format
-    check_fold_consistency "printf('%s%s%s', 'a', 'b', 'c')" // consecutive formats
+    order_qt_format_string_variations "select printf('no formats')"
+    order_qt_format_string_variations "select printf('%%')" // escape %
+    order_qt_format_string_variations "select printf('%%%d%%', 100)" // mixed literal % and format
+    order_qt_format_string_variations "select printf('%s%s%s', 'a', 'b', 'c')" // consecutive formats
     
     // Decimal number formatting
-    check_fold_consistency "printf('%.2f', cast(123.456 as decimal(10,3)))"
-    check_fold_consistency "printf('%.4f', cast(-987.654321 as decimal(10,6)))"
-    check_fold_consistency "printf('%10.2f', cast(0.01 as decimal(10,2)))"
+    order_qt_decimal_number_formatting "select printf('%.2f', cast(123.456 as decimal(10,3)))"
+    order_qt_decimal_number_formatting "select printf('%.4f', cast(-987.654321 as decimal(10,6)))"
+    order_qt_decimal_number_formatting "select printf('%10.2f', cast(0.01 as decimal(10,2)))"
     
     // Complex combinations
-    check_fold_consistency "printf('Int: %d, Str: %s, Float: %.2f, Hex: %x', 255, 'test', 3.14159, 255)"
-    check_fold_consistency "printf('Padding test: [%10d] [%-10d] [%010d]', 123, 123, 123)"
-    check_fold_consistency "printf('Mixed width: %*d %*s', 5, 10, 10, 'test')"
+    order_qt_complex_combinations "select printf('Int: %d, Str: %s, Float: %.2f, Hex: %x', 255, 'test', 3.14159, 255)"
+    order_qt_complex_combinations "select printf('Padding test: [%10d] [%-10d] [%010d]', 123, 123, 123)"
+    order_qt_complex_combinations "select printf('Mixed width: %*d %*s', 5, 10, 10, 'test')"
     
     // Edge cases
-    check_fold_consistency "printf('%100s', 'overflow_test')" // large width
-    check_fold_consistency "printf('%s %s %s %s %s', 'a', 'b', 'c', 'd', 'e')" // many arguments
-    check_fold_consistency '''printf('%1$d %1$d %1$d', 123)''' // same argument multiple times
-    check_fold_consistency "printf('%d %o %x %X', 123, 123, 123, 123)" // different integer formats
+    order_qt_edge_cases "select printf('%100s', 'overflow_test')" // large width
+    order_qt_edge_cases "select printf('%s %s %s %s %s', 'a', 'b', 'c', 'd', 'e')" // many arguments
+    order_qt_edge_cases '''select printf('%1$d %1$d %1$d', 123)''' // same argument multiple times
+    order_qt_edge_cases "select printf('%d %o %x %X', 123, 123, 123, 123)" // different integer formats
 
     // Null handling
-    check_fold_consistency "printf(null)"
-    check_fold_consistency "printf('%d %o %x %X', null, null, null, null)"
+    order_qt_null_handling "select printf(null)"
+    order_qt_null_handling "select printf('%d %o %x %X', null, null, null, null)"
 
     /// error cases:
     test {
@@ -162,5 +162,10 @@ suite("test_printf") {
     test {
         sql """ select printf('format failed %d', 3.0) """
         exception "Function printf failed to format string: format failed %d, error: invalid type specifier"
+    }
+
+    test {
+        sql """ select printf('format complex type %d', map(1, 2)) """
+        exception "Function printf does not support printf type: Map"
     }
 }

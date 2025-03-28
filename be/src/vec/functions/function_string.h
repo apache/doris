@@ -4634,9 +4634,10 @@ public:
             // Store the format arguments
             fmt::dynamic_format_arg_store<fmt::printf_context> store;
             for (int j = 1; j < num_element; ++j) {
-                auto data = cols[j]->get_data_at(index_check_const(i, cols_const[j]));
                 auto type = block.get_by_position(arguments[j]).type;
-                RETURN_IF_ERROR(handle_format_arg(data, type, store));
+                RETURN_IF_ERROR(cehck_format_type(type));
+                auto data = cols[j]->get_data_at(index_check_const(i, cols_const[j]));
+                handle_format_arg(data, type, store);
             }
             // Format the string
             try {
@@ -4652,33 +4653,41 @@ public:
     }
 
 private:
-    static Status handle_format_arg(const StringRef& data, const DataTypePtr& type,
-                                    fmt::dynamic_format_arg_store<fmt::printf_context>& store) {
+    static Status cehck_format_type(const DataTypePtr& type) {
         switch (type->get_type_id()) {
         case TypeIndex::Int64:
-            store.push_back(get_value_from_data<int64_t>(data));
-            return Status::OK();
         case TypeIndex::Int32:
-            store.push_back(get_value_from_data<int32_t>(data));
-            return Status::OK();
         case TypeIndex::Int16:
-            store.push_back(get_value_from_data<int16_t>(data));
-            return Status::OK();
         case TypeIndex::Int8:
-            store.push_back(get_value_from_data<int8_t>(data));
-            return Status::OK();
         case TypeIndex::Float64:
-            store.push_back(get_value_from_data<double>(data));
-            return Status::OK();
         case TypeIndex::Float32:
-            store.push_back(get_value_from_data<float>(data));
-            return Status::OK();
         case TypeIndex::String:
-            store.push_back(data.to_string());
             return Status::OK();
         default:
             return Status::InvalidArgument("Function {} does not support printf type: {}", name,
                                            type->get_name());
+        }
+    }
+
+    static void handle_format_arg(const StringRef& data, const DataTypePtr& type,
+                                  fmt::dynamic_format_arg_store<fmt::printf_context>& store) {
+        switch (type->get_type_id()) {
+        case TypeIndex::Int64:
+            store.push_back(get_value_from_data<int64_t>(data));
+        case TypeIndex::Int32:
+            store.push_back(get_value_from_data<int32_t>(data));
+        case TypeIndex::Int16:
+            store.push_back(get_value_from_data<int16_t>(data));
+        case TypeIndex::Int8:
+            store.push_back(get_value_from_data<int8_t>(data));
+        case TypeIndex::Float64:
+            store.push_back(get_value_from_data<double>(data));
+        case TypeIndex::Float32:
+            store.push_back(get_value_from_data<float>(data));
+        case TypeIndex::String:
+            store.push_back(data.to_string());
+        default:
+            __builtin_unreachable();
         }
     }
 
