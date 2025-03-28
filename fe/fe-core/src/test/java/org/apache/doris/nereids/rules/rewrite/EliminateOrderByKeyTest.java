@@ -36,7 +36,7 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
         createTable("create table test.test_unique_order_by2(a int not null, b int not null, c int, d int) "
                 + "unique key(a,b) distributed by hash(a) properties('replication_num'='1');");
         connectContext.setDatabase("test");
-        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION,DEFER_MATERIALIZE_TOP_N_RESULT");
     }
 
     @Test
