@@ -37,7 +37,6 @@ github:
     - hadoop
     - dbt
     - database
-
   enabled_merge_buttons:
     squash:  true
     merge:   false
@@ -64,12 +63,10 @@ github:
           - Need_2_Approval
           - Cloud UT (Doris Cloud UT)
           - performance (Doris Performance)
-
       required_pull_request_reviews:
         dismiss_stale_reviews: true
         require_code_owner_reviews: true
         required_approving_review_count: 1
-
     branch-3.0:
       required_status_checks:
         # if strict is true, means "Require branches to be up to date before merging".
@@ -92,7 +89,6 @@ github:
           require_code_owner_reviews: true
           required_approving_review_count: 1
           dismiss_stale_reviews: true
-
     branch-2.1:
       required_status_checks:
         # strict means "Require branches to be up to date before merging".
@@ -113,7 +109,6 @@ github:
           require_code_owner_reviews: true
           required_approving_review_count: 1
           dismiss_stale_reviews: true
-
     branch-2.0:
       required_status_checks:
       # if strict is true, means "Require branches to be up to date before merging".
@@ -129,8 +124,7 @@ github:
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
-
-        required_pull_request_reviews:
+      required_pull_request_reviews:
           dismiss_stale_reviews: true
           required_approving_review_count: 1
 
@@ -140,10 +134,10 @@ github:
     - freemandealer
     - shuke987
     - wm1581066
+    - KassieZ
     - yujun777
     - doris-robot
     - LiBinfeng-01
 
 notifications:
     pullrequests_status:  commits@doris.apache.org
-
