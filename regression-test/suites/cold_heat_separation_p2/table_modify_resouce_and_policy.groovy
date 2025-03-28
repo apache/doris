@@ -227,7 +227,7 @@ suite("table_modify_resouce") {
     """
 
 
-    def tablets2 = sql """
+    def tablets2 = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     // [8] local data size, [9] remote data size
@@ -317,7 +317,7 @@ suite("table_modify_resouce") {
     log.info( "test all remote size not zero")
     for (int i = 0; i < tablets2.size(); i++) {
         fetchDataSize(sizes, tablets2[i])
-        assertTrue(sizes[1] > 0)
+        assertTrue(sizes[1] > 0, tablets2[i].TabletId + " remote size is " + sizes[1] + ", no greater than 0, MetaUrl is " + tablets2[i].MetaUrl)
     }
 
 

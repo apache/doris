@@ -218,11 +218,6 @@ suite("add_drop_partition") {
         );
     """
 
-    try_sql """
-    create storage policy tmp_policy
-    PROPERTIES( "storage_resource" = "add_resource", "cooldown_ttl" = "300");
-    """
-
     // can not set to one policy with different resource
     try {
         sql """alter table ${tableName} set ("storage_policy" = "add_policy");"""
