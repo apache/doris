@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -44,8 +45,12 @@ public class AlterUserCommand extends AlterCommand {
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        alterUserInfo.validate();
+        validate();
         Env.getCurrentEnv().getAuth().alterUser(alterUserInfo);
+    }
+
+    public void validate() throws UserException {
+        alterUserInfo.validate();
     }
 
     @Override
