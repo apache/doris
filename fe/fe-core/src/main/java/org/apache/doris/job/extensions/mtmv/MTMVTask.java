@@ -351,17 +351,15 @@ public class MTMVTask extends AbstractTask {
         return true;
     }
 
+    /**
+     * The reason for overriding the parent class is to add synchronized protection
+     */
     @Override
     public synchronized boolean cancel(boolean needWaitCancelComplete) throws JobException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("mtmv task cancel, taskId: {}", super.getTaskId());
         }
-        boolean res = super.cancel(needWaitCancelComplete);
-        if (!res) {
-            return false;
-        }
-        after();
-        return true;
+        return super.cancel(needWaitCancelComplete);
     }
 
     @Override
@@ -369,6 +367,7 @@ public class MTMVTask extends AbstractTask {
         if (executor != null) {
             executor.cancel(new Status(TStatusCode.CANCELLED, "mtmv task cancelled"), needWaitCancelComplete);
         }
+        after();
     }
 
     @Override
