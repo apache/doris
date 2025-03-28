@@ -18,11 +18,12 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.datasource.PartitionColumnsCache;
 import org.apache.doris.datasource.SchemaCacheValue;
 
 import java.util.List;
 
-public class IcebergSchemaCacheValue extends SchemaCacheValue {
+public class IcebergSchemaCacheValue extends SchemaCacheValue implements PartitionColumnsCache {
 
     private final List<Column> partitionColumns;
 
@@ -31,6 +32,7 @@ public class IcebergSchemaCacheValue extends SchemaCacheValue {
         this.partitionColumns = partitionColumns;
     }
 
+    @Override
     public List<Column> getPartitionColumns() {
         return partitionColumns;
     }
