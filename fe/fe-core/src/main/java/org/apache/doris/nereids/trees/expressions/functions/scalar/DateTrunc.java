@@ -89,7 +89,7 @@ public class DateTrunc extends ScalarFunction
                     .getStringValue().toLowerCase();
             if (!LEGAL_TIME_UNIT.contains(constParam)) {
                 throw new AnalysisException("date_trunc function time unit param only support argument is "
-                        + String.join("|", LEGAL_TIME_UNIT);
+                        + String.join("|", LEGAL_TIME_UNIT));
             }
         }
     }
