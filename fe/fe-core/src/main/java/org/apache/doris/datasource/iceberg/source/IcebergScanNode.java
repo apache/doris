@@ -72,6 +72,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.time.DateTimeException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -251,7 +252,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         });
     }
 
-    private TableScan createTableScan() throws UserException {
+    private TableScan createTableScan() {
         if (icebergTableScan != null) {
             return icebergTableScan;
         }
@@ -353,6 +354,10 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
 
+        if (createTableScan().snapshot() == null) {
+            return false;
+        }
+
         if (!sessionVariable.getEnableExternalTableBatchMode()) {
             return false;
         }
@@ -369,25 +374,24 @@ public class IcebergScanNode extends FileQueryScanNode {
                     return true;
                 }
             }
-        } catch (UserException | IOException e) {
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
         return false;
     }
 
-    public Long getSpecifiedSnapshot() throws UserException {
+    public Long getSpecifiedSnapshot() {
         TableSnapshot tableSnapshot = getQueryTableSnapshot();
         if (tableSnapshot != null) {
             TableSnapshot.VersionType type = tableSnapshot.getType();
-            try {
-                if (type == TableSnapshot.VersionType.VERSION) {
-                    return tableSnapshot.getVersion();
-                } else {
-                    long timestamp = TimeUtils.timeStringToLong(tableSnapshot.getTime(), TimeUtils.getTimeZone());
-                    return SnapshotUtil.snapshotIdAsOfTime(icebergTable, timestamp);
+            if (type == TableSnapshot.VersionType.VERSION) {
+                return tableSnapshot.getVersion();
+            } else {
+                long timestamp = TimeUtils.timeStringToLong(tableSnapshot.getTime(), TimeUtils.getTimeZone());
+                if (timestamp < 0) {
+                    throw new DateTimeException("can't parse time: " + tableSnapshot.getTime());
                 }
-            } catch (IllegalArgumentException e) {
-                throw new UserException(e);
+                return SnapshotUtil.snapshotIdAsOfTime(icebergTable, timestamp);
             }
         }
         return null;
@@ -470,12 +474,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private long getCountFromSnapshot() {
-        Long specifiedSnapshot;
-        try {
-            specifiedSnapshot = getSpecifiedSnapshot();
-        } catch (UserException e) {
-            return -1;
-        }
+        Long specifiedSnapshot = getSpecifiedSnapshot();
 
         Snapshot snapshot = specifiedSnapshot == null
                 ? icebergTable.currentSnapshot() : icebergTable.snapshot(specifiedSnapshot);
