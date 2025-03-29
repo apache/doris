@@ -26,6 +26,8 @@
 namespace doris {
 class TDescribeTablesParams;
 class TDescribeTablesResult;
+class TFetchOutlineInfoRequest;
+class TFetchOutlineInfoResult;
 class TFetchRoutineLoadJobRequest;
 class TFetchRoutineLoadJobResult;
 class TGetDbsParams;
@@ -90,6 +92,10 @@ public:
     static Status fetch_routine_load_job(const std::string& ip, const int32_t port,
                                          const TFetchRoutineLoadJobRequest& request,
                                          TFetchRoutineLoadJobResult* result);
+
+    static Status fetch_outline_info(const std::string& ip, const int32_t port,
+                                         const TFetchOutlineInfoRequest& request,
+                                         TFetchOutlineInfoResult* result);
 };
 
 } // namespace doris

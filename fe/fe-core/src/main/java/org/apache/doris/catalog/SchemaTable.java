@@ -620,7 +620,14 @@ public class SchemaTable extends Table {
                                     .column("CURRENT_ABORT_TASK_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .build())
-            )
+            ).put("optimizer_sql_plan_outline",
+                new SchemaTable(SystemIdGenerator.getNextId(), "optimizer_sql_plan_outline", TableType.SCHEMA,
+                    builder().column("OUTLINE_NAME", ScalarType.createStringType())
+                        .column("VISIBLE_SIGNATURE", ScalarType.createStringType())
+                        .column("SQL_ID", ScalarType.createStringType())
+                        .column("SQL_TEXT", ScalarType.createStringType())
+                        .column("OUTLINE_TARGET", ScalarType.createStringType())
+                        .column("OUTLINE_DATA", ScalarType.createStringType()).build()))
             .build();
 
     private boolean fetchAllFe = false;

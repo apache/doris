@@ -411,6 +411,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.OutlineInfo;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
@@ -554,6 +555,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateOutlineCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
@@ -578,6 +580,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropOutlineCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
@@ -1847,7 +1850,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         CreateRoutineLoadInfo createRoutineLoadInfo = new CreateRoutineLoadInfo(jobLabelInfo, tableName,
                 loadPropertyMap, properties, type, customProperties, mergeType, comment);
         return new CreateRoutineLoadCommand(createRoutineLoadInfo);
+    }
 
+    @Override
+    public Command visitCreateOutline(DorisParser.CreateOutlineContext ctx) {
+        String outlineName = stripQuotes(ctx.outline_name.getText());
+        boolean isReplace = ctx.REPLACE() != null;
+        OutlineInfo info = new OutlineInfo(outlineName, "visibleSignature", "sqlId",
+                "sqlText", "outlineTarget", "outlineData");
+        return new CreateOutlineCommand(info, isReplace);
+    }
+
+    @Override
+    public Command visitDropOutline(DorisParser.DropOutlineContext ctx) {
+        String outlineName = stripQuotes(ctx.outline_name.getText());
+        boolean isExists = ctx.EXISTS() != null;
+        return new DropOutlineCommand(isExists, outlineName);
     }
 
     @Override
@@ -3454,7 +3472,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * visitor and only takes care of typing (We assume that the visitor returns an Expression here).
      */
     private Expression getExpression(ParserRuleContext ctx) {
-        return typedVisit(ctx);
+        Expression result = typedVisit(ctx);
+        if (result instanceof Literal) {
+            ConnectContext.get().getStatementContext().getConstantExpressionMap()
+                    .put(Pair.of(ctx.start.getStartIndex(), ctx.start.getStopIndex()), result);
+        }
+        return result;
     }
 
     private LogicalPlan withExplain(LogicalPlan inputPlan, ExplainContext ctx) {
