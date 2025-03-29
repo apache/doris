@@ -17,31 +17,32 @@
 
 #pragma once
 
-#include <unicode/utext.h>
+#include "token_filter.h"
 
-#include "CLucene.h" // IWYU pragma: keep
-#include "CLucene/analysis/AnalysisHeader.h"
+namespace doris::segment_v2::inverted_index {
 
-using namespace lucene::analysis;
-
-namespace doris::segment_v2 {
-
-class BasicTokenizer : public Tokenizer {
+class ASCIIFoldingFilter : public DorisTokenFilter {
 public:
-    BasicTokenizer();
-    BasicTokenizer(bool lowercase, bool ownReader);
-    ~BasicTokenizer() override = default;
+    ASCIIFoldingFilter(const TokenStreamPtr& in) : DorisTokenFilter(in), _output(512, 0) {}
+    ~ASCIIFoldingFilter() override = default;
 
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
+    Token* next(Token* t) override;
+    void reset() override;
 
-    void cut();
+    static int32_t fold_to_ascii(const char* in, int32_t input_pos, char* out, int32_t output_pos,
+                                 int32_t length);
 
 private:
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
-};
+    void fold_to_ascii(const char* in, int32_t length);
+    bool need_to_preserve(const char* in, int32_t input_length);
 
-} // namespace doris::segment_v2
+    std::string _state;
+    Token _t1;
+
+    bool _preserve_original;
+    int32_t _output_pos;
+    std::string _output;
+};
+using ASCIIFoldingFilterPtr = std::shared_ptr<ASCIIFoldingFilter>;
+
+} // namespace doris::segment_v2::inverted_index
