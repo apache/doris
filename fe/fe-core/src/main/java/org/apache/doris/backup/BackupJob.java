@@ -342,7 +342,9 @@ public class BackupJob extends AbstractJob {
 
     @Override
     public synchronized void replayRun() {
-        // nothing to do
+        if (state == BackupJobState.SAVE_META) {
+            saveMetaInfo(true);
+        }
     }
 
     @Override
@@ -438,7 +440,7 @@ public class BackupJob extends AbstractJob {
                 waitingAllUploadingFinished();
                 break;
             case SAVE_META:
-                saveMetaInfo();
+                saveMetaInfo(false);
                 break;
             case UPLOAD_INFO:
                 uploadMetaAndJobInfoFile();
@@ -827,7 +829,7 @@ public class BackupJob extends AbstractJob {
         }
     }
 
-    private void saveMetaInfo() {
+    private void saveMetaInfo(boolean replay) {
         String createTimeStr = TimeUtils.longToTimeString(createTime,
                 TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         // local job dir: backup/repo__repo_id/label__createtime/
@@ -885,6 +887,10 @@ public class BackupJob extends AbstractJob {
             localJobInfoFilePath = jobInfoFile.getAbsolutePath();
         } catch (Exception e) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to save meta info and job info file: " + e.getMessage());
+            return;
+        }
+
+        if (replay) {
             return;
         }
 
