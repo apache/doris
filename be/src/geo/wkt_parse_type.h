@@ -29,6 +29,8 @@ struct GeoCoordinate {
 
 struct GeoCoordinateList {
     void add(const GeoCoordinate& coordinate) { list.push_back(coordinate); }
+    void add(double x, double y) { list.emplace_back(x, y); }
+    void clear() { list.clear(); }
     std::vector<GeoCoordinate> list;
 };
 
