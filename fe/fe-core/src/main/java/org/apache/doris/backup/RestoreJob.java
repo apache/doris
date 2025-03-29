@@ -664,6 +664,9 @@ public class RestoreJob extends AbstractJob {
 
         // Check and prepare meta objects.
         Map<Long, AgentBatchTask> batchTaskPerTable = new HashMap<>();
+
+        // The tables that are restored but not committed, because the table name may be changed.
+        List<Table> stagingRestoreTables = Lists.newArrayList();
         db.readLock();
         try {
             for (Map.Entry<String, BackupOlapTableInfo> olapTableEntry : jobInfo.backupOlapTableObjects.entrySet()) {
@@ -846,7 +849,7 @@ public class RestoreJob extends AbstractJob {
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("put remote table {} to restoredTbls", remoteOlapTbl.getName());
                     }
-                    restoredTbls.add(remoteOlapTbl);
+                    stagingRestoreTables.add(remoteOlapTbl);
                 }
             } // end of all restore olap tables
 
@@ -875,7 +878,7 @@ public class RestoreJob extends AbstractJob {
                     String srcDbName = jobInfo.dbName;
                     remoteView.resetViewDefForRestore(srcDbName, db.getName());
                     remoteView.resetIdsForRestore(env);
-                    restoredTbls.add(remoteView);
+                    stagingRestoreTables.add(remoteView);
                 }
             }
 
@@ -896,7 +899,7 @@ public class RestoreJob extends AbstractJob {
                     }
                 } else {
                     remoteOdbcTable.resetIdsForRestore(env);
-                    restoredTbls.add(remoteOdbcTable);
+                    stagingRestoreTables.add(remoteOdbcTable);
                 }
             }
 
@@ -929,7 +932,7 @@ public class RestoreJob extends AbstractJob {
             }
 
             // generate create replica task for all restored tables
-            for (Table restoreTbl : restoredTbls) {
+            for (Table restoreTbl : stagingRestoreTables) {
                 if (restoreTbl.getType() == TableType.OLAP) {
                     OlapTable restoreOlapTable = (OlapTable) restoreTbl;
                     for (Partition restorePart : restoreOlapTable.getPartitions()) {
@@ -955,6 +958,7 @@ public class RestoreJob extends AbstractJob {
                     tableName = tableAliasWithAtomicRestore(tableName);
                 }
                 restoreTbl.setName(tableName);
+                restoredTbls.add(restoreTbl);
             }
 
             if (LOG.isDebugEnabled()) {
