@@ -596,7 +596,11 @@ TEST(VTimestampFunctionsTest, makedate_test) {
                         {{2021, 0}, Null()},
                         {{2021, -10}, Null()},
                         {{-1, 3}, Null()},
-                        {{12345, 3}, Null()}};
+                        {{12345, 3}, Null()},
+                        {{0, 0}, Null()},
+                        {{0, 1}, str_to_date_time("0000-01-01", false)},
+                        {{0, 100}, str_to_date_time("0000-04-09", false)},
+                        {{0, 366}, str_to_date_time("0000-12-31", false)}};
 
     static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
 }
@@ -1453,7 +1457,7 @@ TEST(VTimestampFunctionsTest, from_days_test) {
 
     {
         std::cout << "test date 0000-03-01" << std::endl;
-        DataSet data_set = {{{60}, str_to_date_time("0000-03-01", false)}, {{0}, Null()}};
+        DataSet data_set = {{{60}, str_to_date_time("0000-02-29", false)}, {{0}, Null()}};
 
         static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
     }
