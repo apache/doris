@@ -48,4 +48,9 @@ suite("fold_constant_date_arithmatic") {
     testFoldConst("select str_to_date('31/12/2020 23:59', '%d/%m/%Y %H:%i');")
     testFoldConst("select str_to_date('31/12/2020 11:59 PM', '%d/%m/%Y %h:%i %p');")
     testFoldConst("select str_to_date('20201231T235959', '%Y%m%dT%H%i%s');")
+
+    testFoldConst("select unix_timestamp('1970-01-01','%Y-%m-%d');")
+    testFoldConst("select unix_timestamp('1969-12-31','%Y-%m-%d');")
+    testFoldConst("select from_unixtime(0.000000);")
+    testFoldConst("select from_unixtime(-1.000000);")
 }

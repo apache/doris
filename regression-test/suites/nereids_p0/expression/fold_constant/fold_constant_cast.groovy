@@ -31,6 +31,7 @@ suite("fold_constant_cast") {
     testFoldConst("SELECT CAST(CAST(-123.456 AS DOUBLE) AS STRING)")
     testFoldConst("SELECT CAST(CAST(0.001 AS DOUBLE) AS STRING)")
     testFoldConst("SELECT CAST(CAST(-0.001 AS DOUBLE) AS STRING)")
+// be and fe use different strategy of scientific notation, so it does not look the same
 //    testFoldConst("SELECT CAST(CAST(1e+10 AS DOUBLE) AS STRING)")
 //    testFoldConst("SELECT CAST(CAST(1e-10 AS DOUBLE) AS STRING)")
 //    testFoldConst("SELECT CAST(CAST(-1e+10 AS DOUBLE) AS STRING)")

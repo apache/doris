@@ -559,9 +559,7 @@ public class DateTimeExtractAndTransform {
         }
         Duration duration = Duration.between(
                 specialLowerBound,
-                dateTime.atZone(DateUtils.getTimeZone())
-                        .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
-                        .toLocalDateTime());
+                dateTime);
         if (duration.getNano() == 0) {
             return String.valueOf(duration.getSeconds());
         } else {
