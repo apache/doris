@@ -98,6 +98,14 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         return metadataOps.listTableNames(dbName);
     }
 
+    @Override
+    public void onClose() {
+        super.onClose();
+        if (null != catalog) {
+            catalog = null;
+        }
+    }
+
     protected void initS3Param(Configuration conf) {
         Map<String, String> properties = catalogProperty.getHadoopProperties();
         conf.set(Constants.AWS_CREDENTIALS_PROVIDER, PropertyConverter.getAWSCredentialsProviders(properties));
