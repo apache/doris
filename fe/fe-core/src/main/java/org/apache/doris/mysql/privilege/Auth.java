@@ -1247,6 +1247,15 @@ public class Auth implements Writable {
         }
     }
 
+    public String getInitCatalog(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getInitCatalog(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public String getWorkloadGroup(String qualifiedUser) {
         readLock();
         try {
