@@ -165,8 +165,6 @@ private:
     Status _load(bool use_page_cache, bool kept_in_memory, std::unique_ptr<IndexedColumnMetaPB>,
                  OlapReaderStatistics* index_load_stats);
 
-    int64_t get_metadata_size() const override;
-
 private:
     DorisCallOnce<Status> _load_once;
     // TODO: yyq, we shoud remove file_reader from here.

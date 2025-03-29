@@ -178,12 +178,7 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
         _pb_meta_size += _page_zone_maps[i].ByteSizeLong();
     }
 
-    update_metadata_size();
     return Status::OK();
-}
-
-int64_t ZoneMapIndexReader::get_metadata_size() const {
-    return sizeof(ZoneMapIndexReader) + _pb_meta_size;
 }
 
 ZoneMapIndexReader::~ZoneMapIndexReader() = default;

@@ -128,14 +128,7 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     }
     _ordinals[_num_pages] = _num_values;
 
-    update_metadata_size();
-
     return Status::OK();
-}
-
-int64_t OrdinalIndexReader::get_metadata_size() const {
-    return sizeof(OrdinalIndexReader) + _ordinals.capacity() * sizeof(ordinal_t) +
-           _pages.capacity() * sizeof(PagePointer);
 }
 
 OrdinalPageIndexIterator OrdinalIndexReader::seek_at_or_before(ordinal_t ordinal) {

@@ -58,10 +58,6 @@ static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_pk_bytes_per_second
 
 using strings::Substitute;
 
-int64_t IndexedColumnReader::get_metadata_size() const {
-    return sizeof(IndexedColumnReader) + _meta.ByteSizeLong();
-}
-
 Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory,
                                  OlapReaderStatistics* index_load_stats) {
     _use_page_cache = use_page_cache;
@@ -99,7 +95,6 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory,
     }
     _num_values = _meta.num_values();
 
-    update_metadata_size();
     return Status::OK();
 }
 

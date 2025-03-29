@@ -143,16 +143,23 @@ public:
         return g_segment_estimate_mem_bytes.get_value();
     }
 
+    friend class MetadataAdderTest;
+
 protected:
     MetadataAdder(const MetadataAdder& other);
+
+    MetadataAdder(MetadataAdder&& other);
 
     virtual ~MetadataAdder();
 
     virtual int64_t get_metadata_size() const { return sizeof(T); }
 
-    void update_metadata_size();
+    void update_metadata_memory_size();
 
+    // currently we just count sizeof(class)'s memory, so no operation here.
     MetadataAdder<T>& operator=(const MetadataAdder<T>& other) = default;
+
+    MetadataAdder<T>& operator=(MetadataAdder<T>&& other) = default;
 
     int64_t _current_meta_size {0};
 
@@ -163,6 +170,13 @@ protected:
 
 template <typename T>
 MetadataAdder<T>::MetadataAdder(const MetadataAdder<T>& other) {
+    this->_current_meta_size = other._current_meta_size;
+    add_num(1);
+    add_mem_size(this->_current_meta_size);
+}
+
+template <typename T>
+MetadataAdder<T>::MetadataAdder(MetadataAdder&& other) {
     this->_current_meta_size = other._current_meta_size;
     add_num(1);
     add_mem_size(this->_current_meta_size);
@@ -182,9 +196,10 @@ MetadataAdder<T>::~MetadataAdder() {
 }
 
 template <typename T>
-void MetadataAdder<T>::update_metadata_size() {
+void MetadataAdder<T>::update_metadata_memory_size() {
     int64_t old_size = _current_meta_size;
     _current_meta_size = get_metadata_size();
+    DCHECK(_current_meta_size > 0);
     int64_t size_diff = _current_meta_size - old_size;
 
     add_mem_size(size_diff);
