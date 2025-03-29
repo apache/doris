@@ -19,7 +19,10 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 import org.apache.doris.regression.suite.SuiteCluster
 
-suite("test_build_index_with_clone_by_docker"){
+suite("test_build_index_with_clone_by_docker", 'docker'){
+    if (isCloudMode()) {
+        return 
+    }
     def timeout = 300000
     def delta_time = 1000
     def alter_res = "null"

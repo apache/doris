@@ -17,7 +17,7 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite('test_min_load_replica_num_simple') {
+suite('test_min_load_replica_num_simple', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs.add('tablet_checker_interval_ms=1000')
     docker(options) {

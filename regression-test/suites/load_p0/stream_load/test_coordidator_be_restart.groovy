@@ -18,7 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.http.NoHttpResponseException
 
-suite('test_coordidator_be_restart') {
+suite('test_coordidator_be_restart', 'docker') {
     def options = new ClusterOptions()
     options.cloudMode = false
     options.enableDebugPoints()
