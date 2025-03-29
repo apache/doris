@@ -287,6 +287,74 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, SinkEosAndSpill) {
     ASSERT_TRUE(sink_local_state->_dependency->_ready.load());
 }
 
+TEST_F(PartitionedHashJoinSinkOperatorTest, SinkEosAndSpillWakeupEarly) {
+    auto [_, sink_operator] = _helper.create_operators();
+
+    auto shared_state = std::make_shared<MockPartitionedHashJoinSharedState>();
+
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
+            le_state_map;
+    LocalSinkStateInfo sink_info {.task_idx = 0,
+                                  .parent_profile = _helper.runtime_profile.get(),
+                                  .shared_state = shared_state.get(),
+                                  .le_state_map = le_state_map,
+                                  .tsink = TDataSink()};
+    auto st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
+    ASSERT_TRUE(st.ok()) << "Setup local state failed: " << st.to_string();
+
+    st = sink_operator->init(sink_operator->_tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "Init failed: " << st.to_string();
+
+    sink_operator->_inner_sink_operator->_child = nullptr;
+    sink_operator->_inner_probe_operator->_build_side_child = nullptr;
+    sink_operator->_inner_probe_operator->_child = nullptr;
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "Open failed: " << st.to_string();
+
+    auto* sink_local_state = reinterpret_cast<PartitionedHashJoinSinkLocalState*>(
+            _helper.runtime_state->get_sink_local_state());
+    ASSERT_TRUE(sink_local_state != nullptr) << "no sink local state";
+
+    st = sink_local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "Open failed: " << st.to_string();
+
+    auto read_dependency =
+            Dependency::create_shared(sink_operator->operator_id(), sink_operator->node_id(),
+                                      "HashJoinBuildReadDependency", false);
+    shared_state->source_deps.emplace_back(read_dependency);
+
+    vectorized::Block block;
+
+    // sink empty block
+    sink_local_state->_shared_state->need_to_spill = false;
+    ASSERT_EQ(read_dependency->_ready.load(), false);
+    st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
+    ASSERT_TRUE(st.ok()) << "Sink failed: " << st.to_string();
+
+    block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+
+    // sink non-empty block
+    st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
+    ASSERT_TRUE(st.ok()) << "Sink failed: " << st.to_string();
+
+    sink_local_state->_shared_state->need_to_spill = true;
+    ASSERT_EQ(read_dependency->_ready.load(), false);
+    st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
+    ASSERT_TRUE(st.ok()) << "Sink failed: " << st.to_string();
+
+    while (sink_local_state->_spill_dependency->_ready.load() == false) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    _helper.runtime_state->get_task()->set_wake_up_early();
+
+    ASSERT_EQ(read_dependency->_ready.load(), false);
+    st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
+    ASSERT_TRUE(st.ok()) << "Sink failed: " << st.to_string();
+
+    ASSERT_TRUE(sink_local_state->_dependency->_ready.load());
+}
+
 TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemoryEmpty) {
     auto [_, sink_operator] = _helper.create_operators();
 

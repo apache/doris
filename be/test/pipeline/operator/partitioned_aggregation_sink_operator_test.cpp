@@ -144,9 +144,8 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithEmptyEOS) {
     ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
 
     auto shared_state = sink_operator->create_shared_state();
-    auto* dep = shared_state->create_source_dependency(source_operator->operator_id(),
-                                                       source_operator->node_id(),
-                                                       "PartitionedAggSinkTestDep");
+    shared_state->create_source_dependency(source_operator->operator_id(),
+                                           source_operator->node_id(), "PartitionedAggSinkTestDep");
 
     LocalSinkStateInfo info {.task_idx = 0,
                              .parent_profile = _helper.runtime_profile.get(),
@@ -157,7 +156,8 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithEmptyEOS) {
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
 
-    auto* local_state = _helper.runtime_state->get_sink_local_state();
+    auto* local_state = reinterpret_cast<PartitionedAggSinkLocalState*>(
+            _helper.runtime_state->get_sink_local_state());
     ASSERT_TRUE(local_state != nullptr);
 
     st = local_state->open(_helper.runtime_state.get());
@@ -177,7 +177,10 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithEmptyEOS) {
     block.clear_column_data();
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
-    ASSERT_FALSE(dep->is_blocked_by());
+
+    while (local_state->_spill_dependency->is_blocked_by()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
 
     st = sink_operator->close(_helper.runtime_state.get(), st);
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
@@ -313,8 +316,79 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillAndEmptyEOS) {
     block.clear_column_data();
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
-    ASSERT_FALSE(local_state->_spill_dependency->is_blocked_by());
+
+    while (local_state->_spill_dependency->is_blocked_by()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     ASSERT_FALSE(dep->is_blocked_by());
+
+    st = sink_operator->close(_helper.runtime_state.get(), st);
+    ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
+}
+
+TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillAndWakeupEarly) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+    ASSERT_TRUE(source_operator != nullptr);
+    ASSERT_TRUE(sink_operator != nullptr);
+
+    const auto tnode = _helper.create_test_plan_node();
+    auto st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
+
+    auto shared_state = sink_operator->create_shared_state();
+    shared_state->create_source_dependency(source_operator->operator_id(),
+                                           source_operator->node_id(), "PartitionedAggSinkTestDep");
+
+    LocalSinkStateInfo info {.task_idx = 0,
+                             .parent_profile = _helper.runtime_profile.get(),
+                             .sender_id = 0,
+                             .shared_state = shared_state.get(),
+                             .le_state_map = {},
+                             .tsink = TDataSink()};
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+    auto* local_state = reinterpret_cast<PartitionedAggSinkLocalState*>(
+            _helper.runtime_state->get_sink_local_state());
+    ASSERT_TRUE(local_state != nullptr);
+
+    st = local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
+            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
+
+    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt32>(
+            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
+
+    st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
+    ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
+
+    ASSERT_GT(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
+
+    auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
+            local_state->_runtime_state->get_sink_local_state());
+    ASSERT_GT(inner_sink_local_state->_get_hash_table_size(), 0);
+
+    st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
+    ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
+
+    while (local_state->_spill_dependency->is_blocked_by()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    ASSERT_EQ(inner_sink_local_state->_get_hash_table_size(), 0);
+
+    _helper.runtime_state->get_task()->set_wake_up_early();
+
+    block.clear_column_data();
+    st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
+    ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
+
+    ASSERT_FALSE(local_state->_spill_dependency->is_blocked_by());
 
     st = sink_operator->close(_helper.runtime_state.get(), st);
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
@@ -398,7 +472,10 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillLargeData) {
     block.clear_column_data();
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
-    ASSERT_FALSE(local_state->_spill_dependency->is_blocked_by());
+    while (local_state->_spill_dependency->is_blocked_by()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
     ASSERT_FALSE(dep->is_blocked_by());
 
     st = sink_operator->close(_helper.runtime_state.get(), st);

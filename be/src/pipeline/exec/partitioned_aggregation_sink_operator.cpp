@@ -147,6 +147,8 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
     });
     RETURN_IF_ERROR(_agg_sink_operator->sink(runtime_state, in_block, false));
 
+    const auto wake_up_early = state->get_task()->wake_up_early();
+
     size_t revocable_size = 0;
     int64_t query_mem_limit = 0;
     if (eos) {
@@ -159,15 +161,8 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
                 local_state._shared_state->is_spilled, PrettyPrinter::print_bytes(query_mem_limit),
                 PrettyPrinter::print_bytes(revocable_size));
 
-        if (local_state._shared_state->is_spilled) {
-            if (revocable_mem_size(state) > 0) {
-                RETURN_IF_ERROR(revoke_memory(state, nullptr));
-            } else {
-                for (auto& partition : local_state._shared_state->spill_partitions) {
-                    RETURN_IF_ERROR(partition->finish_current_spilling(eos));
-                }
-                local_state._dependency->set_ready_to_read();
-            }
+        if (local_state._shared_state->is_spilled && !wake_up_early) {
+            return revoke_memory(state, nullptr);
         } else {
             local_state._dependency->set_ready_to_read();
         }

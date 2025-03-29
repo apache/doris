@@ -150,8 +150,14 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
     int64_t data_size = local_state._shared_state->in_mem_shared_state->sorter->data_size();
     COUNTER_SET(local_state._memory_used_counter, data_size);
 
+    const auto wake_up_early = state->get_task()->wake_up_early();
+
     if (eos) {
         if (local_state._shared_state->is_spilled) {
+            if (wake_up_early) {
+                return Status::OK();
+            }
+
             if (revocable_mem_size(state) > 0) {
                 RETURN_IF_ERROR(revoke_memory(state, nullptr));
             } else {
