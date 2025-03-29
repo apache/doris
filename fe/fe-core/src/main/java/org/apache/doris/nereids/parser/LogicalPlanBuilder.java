@@ -794,6 +794,10 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
+import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ResumeDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.SyncJobName;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
@@ -6369,6 +6373,44 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitStopDataSyncJob(DorisParser.StopDataSyncJobContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        int size = nameParts.size();
+        String jobName = nameParts.get(size - 1);
+        String dbName = null;
+        if (size >= 2) {
+            dbName = nameParts.get(size - 2);
+        }
+        SyncJobName syncJobName = new SyncJobName(jobName, dbName);
+        return new StopDataSyncJobCommand(syncJobName);
+    }
+
+    @Override
+    public LogicalPlan visitResumeDataSyncJob(DorisParser.ResumeDataSyncJobContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        int size = nameParts.size();
+        String jobName = nameParts.get(size - 1);
+        String dbName = null;
+        if (size >= 2) {
+            dbName = nameParts.get(size - 2);
+        }
+        SyncJobName syncJobName = new SyncJobName(jobName, dbName);
+        return new ResumeDataSyncJobCommand(syncJobName);
+    }
+
+    @Override
+    public LogicalPlan visitPauseDataSyncJob(DorisParser.PauseDataSyncJobContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        int size = nameParts.size();
+        String jobName = nameParts.get(size - 1);
+        String dbName = null;
+        if (size >= 2) {
+            dbName = nameParts.get(size - 2);
+        }
+        SyncJobName syncJobName = new SyncJobName(jobName, dbName);
+        return new PauseDataSyncJobCommand(syncJobName);
+    }
+
     public LogicalPlan visitDropAnalyzeJob(DorisParser.DropAnalyzeJobContext ctx) {
         long jobId = Long.parseLong(ctx.INTEGER_VALUE().getText());
         return new DropAnalyzeJobCommand(jobId);
