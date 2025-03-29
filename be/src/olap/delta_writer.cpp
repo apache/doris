@@ -235,11 +235,6 @@ Status DeltaWriter::_safe_get_file_size(const std::string& file_path, int64_t* f
     CHECK(file_size != nullptr) << "Null output parameter in safe_get_file_size";
 
     try {
-        if (!std::filesystem::exists(file_path)) {
-            LOG(WARNING) << "File does not exist: " << file_path;
-            return Status::NotFound("File not found: " + file_path);
-        }
-
         *file_size = std::filesystem::file_size(file_path);
         return Status::OK();
     } catch (const std::filesystem::filesystem_error& e) {
