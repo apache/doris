@@ -563,6 +563,8 @@ public:
 
     void clear_rowset_cache_version();
 
+    std::set<RowsetId> get_rowset_cache_version();
+
     class AggCachePolicy : public LRUCachePolicy {
     public:
         AggCachePolicy(size_t capacity)
