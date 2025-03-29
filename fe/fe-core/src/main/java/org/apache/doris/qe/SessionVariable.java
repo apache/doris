@@ -2174,6 +2174,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
+    public static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
+    @VariableMgr.VarAttr(
+            name = ENABLE_EXTERNAL_TABLE_BATCH_MODE,
+            description = {"使能外表的batch mode功能", "Enable the batch mode function of the external table."},
+            needForward = true)
+    public boolean enableExternalTableBatchMode = true;
+
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
         if (ignoreRuntimeFilterIds.isEmpty()) {
@@ -4661,5 +4668,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableLocalMergeSort() {
         return enableLocalMergeSort;
+    }
+
+    public boolean getEnableExternalTableBatchMode() {
+        return enableExternalTableBatchMode;
     }
 }
