@@ -404,7 +404,8 @@ public class HiveMetaStoreCache {
             } catch (Exception e) {
                 LOG.warn("unknown scheme in path: " + finalLocation, e);
             }
-            FileInputFormat.setInputPaths(jobConf, finalLocation.get());
+            // NOTICE: the setInputPaths has 2 overloads, the 2nd arg should be Path not String
+            FileInputFormat.setInputPaths(jobConf, finalLocation.getPath());
             try {
                 FileCacheValue result = getFileCache(finalLocation.get(), key.inputFormat, jobConf,
                         key.getPartitionValues(), key.bindBrokerName);
