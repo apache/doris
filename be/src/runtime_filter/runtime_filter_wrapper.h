@@ -41,6 +41,29 @@ public:
         DISABLED // This state indicates that the rf is deprecated, used in cases such as reach max_in_num / join spill / meet rpc error
     };
 
+    struct FilterState {
+    public:
+        FilterState() : _state(State::UNINITED) {}
+        FilterState(State state_) : _state(state_) {}
+        FilterState(State state, std::string& reason) : _state(state), _reason(reason) {}
+
+        bool is_valid() const { return _state != State::DISABLED && _state != State::IGNORED; }
+        bool ready() const { return _state == State::READY; }
+        State state() const { return _state; }
+
+        std::string to_string() {
+            std::string result = RuntimeFilterWrapper::to_string(_state);
+            if (!_reason.empty()) {
+                result += fmt::format(", Reason = {}", _reason);
+            }
+            return result;
+        }
+
+    private:
+        State _state;
+        std::string _reason;
+    };
+
     // Called by consumer / producer
     RuntimeFilterWrapper(const RuntimeFilterParams* params);
     // Called by merger
@@ -49,7 +72,7 @@ public:
             : _column_return_type(column_type),
               _filter_type(type),
               _filter_id(filter_id),
-              _state(state),
+              _state(std::make_unique<FilterState>(state)),
               _max_in_num(max_in_num) {}
 
     Status init(const size_t runtime_size);
@@ -58,7 +81,7 @@ public:
     template <class T>
     Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data);
 
-    bool is_valid() const { return _state != State::DISABLED && _state != State::IGNORED; }
+    bool is_valid() const { return _state->is_valid(); }
     int filter_id() const { return _filter_id; }
     bool build_bf_by_runtime_size() const;
 
@@ -87,18 +110,21 @@ public:
 
     std::string debug_string() const;
 
-    void set_state(State state, std::string reason = "") {
-        if (_state == State::DISABLED) {
+    void set_state(const FilterState state) {
+        if (!_state->is_valid()) {
             return;
-        } else if (state == State::DISABLED) {
-            _reason = reason;
         }
-        _state = state;
-        _reason = reason;
+        _state = std::make_unique<FilterState>(std::move(state));
     }
-    State get_state() const { return _state; }
+    void set_state(State state, std::string reason = "") {
+        if (!_state->is_valid()) {
+            return;
+        }
+        _state = std::make_unique<FilterState>(state, reason);
+    }
+    State get_state() const { return _state->state(); }
     void check_state(std::vector<State> assumed_states) const {
-        if (!check_state_impl<RuntimeFilterWrapper>(_state, assumed_states)) {
+        if (!check_state_impl<RuntimeFilterWrapper>(_state->state(), assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "wrapper meet invalid state, {}, assumed_states is {}", debug_string(),
                             states_to_string<RuntimeFilterWrapper>(assumed_states));
@@ -131,14 +157,13 @@ private:
     const PrimitiveType _column_return_type; // column type
     const RuntimeFilterType _filter_type;
     const uint32_t _filter_id;
-    std::atomic<State> _state;
+    std::unique_ptr<FilterState> _state = std::make_unique<FilterState>();
     const int32_t _max_in_num;
 
     std::shared_ptr<MinMaxFuncBase> _minmax_func;
     std::shared_ptr<HybridSetBase> _hybrid_set;
     std::shared_ptr<BloomFilterFuncBase> _bloom_filter_func;
     std::shared_ptr<BitmapFilterFuncBase> _bitmap_filter_func;
-    std::string _reason;
 };
 #include "common/compile_check_end.h"
 } // namespace doris

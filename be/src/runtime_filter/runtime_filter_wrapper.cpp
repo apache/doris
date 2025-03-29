@@ -151,19 +151,18 @@ bool RuntimeFilterWrapper::build_bf_by_runtime_size() const {
 }
 
 Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
-    if (other->_state == State::IGNORED || _state == State::DISABLED) {
-        return Status::OK();
-    }
-    if (other->_state == State::DISABLED) {
-        if (_hybrid_set) {
-            _hybrid_set->clear();
+    if (!other->is_valid() || !is_valid()) {
+        if (other->_state->state() == State::DISABLED) {
+            if (_hybrid_set) {
+                _hybrid_set->clear();
+            }
+            set_state(*other->_state);
         }
-        set_state(State::DISABLED, other->_reason);
         return Status::OK();
     }
 
-    DCHECK(_state != State::IGNORED);
-    DCHECK(other->_state == State::READY);
+    DCHECK(_state->state() != State::IGNORED);
+    DCHECK(other->_state->state() == State::READY);
     DCHECK(_filter_type == other->_filter_type);
 
     switch (_filter_type) {
@@ -579,11 +578,11 @@ std::string RuntimeFilterWrapper::debug_string() const {
                                ? fmt::format("{}({})", filter_type_to_string(_filter_type),
                                              filter_type_to_string(get_real_type()))
                                : filter_type_to_string(_filter_type);
-    auto result = fmt::format("[id: {}, state: {}, type: {}, column_type: {}", _filter_id,
-                              states_to_string<RuntimeFilterWrapper>({_state}), type_string,
-                              type_to_string(_column_return_type));
+    auto result =
+            fmt::format("[id: {}, state: {}, type: {}, column_type: {}", _filter_id,
+                        _state->to_string(), type_string, type_to_string(_column_return_type));
 
-    if (_state == State::READY) {
+    if (_state->ready()) {
         if (get_real_type() == RuntimeFilterType::BLOOM_FILTER) {
             result += fmt::format(
                     ", bf_size: {}, build_bf_by_runtime_size: {}", _bloom_filter_func->get_size(),
@@ -598,9 +597,6 @@ std::string RuntimeFilterWrapper::debug_string() const {
         }
     }
 
-    if (!_reason.empty()) {
-        result += fmt::format(", reason: {}", _reason);
-    }
     return result + "]";
 }
 
