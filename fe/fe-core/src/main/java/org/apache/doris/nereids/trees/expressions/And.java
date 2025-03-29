@@ -39,7 +39,7 @@ public class And extends CompoundPredicate {
         super(ImmutableList.of(left, right), "AND");
     }
 
-    public And(List<Expression> children) {
+    private And(List<Expression> children) {
         super(children, "AND");
     }
 
