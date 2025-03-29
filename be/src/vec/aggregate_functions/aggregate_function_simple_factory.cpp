@@ -75,6 +75,7 @@ void register_aggregate_function_skewness(AggregateFunctionSimpleFactory& factor
 void register_aggregate_function_kurtosis(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_approx_top_k(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_approx_top_sum(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_context_ngrams(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -129,6 +130,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_kurtosis(instance);
         register_aggregate_function_approx_top_k(instance);
         register_aggregate_function_approx_top_sum(instance);
+        register_aggregate_function_context_ngrams(instance);
     });
     return instance;
 }
