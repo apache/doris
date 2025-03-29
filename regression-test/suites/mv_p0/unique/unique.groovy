@@ -52,6 +52,11 @@ suite ("unique") {
         exception "The materialized view not support value column before key column"
     }
 
+    test {
+        sql """create materialized view kadj as select k3,k2,k1,k4,k4 from u_table;"""
+        exception "is duplicated"
+    }
+
     createMV("create materialized view kadj as select k3,k2,k1,k4 from u_table;")
 
     createMV("create materialized view kadj2 as select k1,k3,k2,length(k4) from u_table;")
