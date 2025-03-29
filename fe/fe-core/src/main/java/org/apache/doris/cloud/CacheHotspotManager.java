@@ -330,7 +330,7 @@ public class CacheHotspotManager extends MasterDaemon {
         return responseList;
     }
 
-    private Long getFileCacheCapacity(String clusterName) throws RuntimeException {
+    Long getFileCacheCapacity(String clusterName) throws RuntimeException {
         List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                                         .getBackendsByClusterName(clusterName);
         Long totalFileCache = 0L;
@@ -516,56 +516,89 @@ public class CacheHotspotManager extends MasterDaemon {
         }
     }
 
-    private Map<Long, List<Tablet>> warmUpNewClusterByTable(long jobId, String dstClusterName,
+    public List<Partition> getPartitionsFromTriple(Triple<String, String, String> tableTriple) {
+        String dbName = tableTriple.getLeft();
+        String tableName = tableTriple.getMiddle();
+        String partitionName = tableTriple.getRight();
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+        OlapTable table = (OlapTable) db.getTableNullable(tableName);
+        List<Partition> partitions = new ArrayList<>();
+        if (partitionName.length() != 0) {
+            partitions.add(table.getPartition(partitionName));
+        } else {
+            partitions.addAll(table.getPartitions());
+        }
+        return partitions;
+    }
+
+    public List<Backend> getBackendsFromCluster(String dstClusterName) {
+        return ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+        .getBackendsByClusterName(dstClusterName);
+    }
+
+    public Set<Long> getTabletIdsFromBe(long beId) {
+        return ((CloudEnv) Env.getCurrentEnv())
+                                        .getCloudTabletRebalancer()
+                                        .getSnapshotTabletsInPrimaryByBeId(beId);
+    }
+
+    public List<Tablet> getTabletsFromIndexs(List<MaterializedIndex> indexes) {
+        List<Tablet> tablets = new ArrayList<>();
+        for (MaterializedIndex index : indexes) {
+            tablets.addAll(index.getTablets());
+        }
+        return tablets;
+    }
+
+    public Map<Long, List<Tablet>> warmUpNewClusterByTable(long jobId, String dstClusterName,
             List<Triple<String, String, String>> tables,
             boolean isForce) throws RuntimeException {
         Map<Long, List<Tablet>> beToWarmUpTablets = new HashMap<>();
         Long totalFileCache = getFileCacheCapacity(dstClusterName);
         Long warmUpTotalFileCache = 0L;
+        LOG.info("Start warm up job {}, cluster {}, total cache size: {}",
+                jobId, dstClusterName, totalFileCache);
         for (Triple<String, String, String> tableTriple : tables) {
             if (warmUpTotalFileCache > totalFileCache) {
+                LOG.info("Warm up size {} exceeds total cache size {}, breaking loop",
+                        warmUpTotalFileCache, totalFileCache);
                 break;
             }
-            String dbName = tableTriple.getLeft();
-            String tableName = tableTriple.getMiddle();
-            String partitionName = tableTriple.getRight();
-            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
-            OlapTable table = (OlapTable) db.getTableNullable(tableName);
-            List<Partition> partitions = new ArrayList<>();
-            if (partitionName.length() != 0) {
-                partitions.add(table.getPartition(partitionName));
-            } else {
-                partitions.addAll(table.getPartitions());
-            }
-            List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                                            .getBackendsByClusterName(dstClusterName);
+
+            List<Partition> partitions = getPartitionsFromTriple(tableTriple);
+            LOG.info("Got {} partitions for table {}.{}.{}", partitions.size(),
+                    tableTriple.getLeft(), tableTriple.getMiddle(), tableTriple.getRight());
+            List<Backend> backends = getBackendsFromCluster(dstClusterName);
+            LOG.info("Got {} backends for cluster {}", backends.size(), dstClusterName);
             List<Partition> warmUpPartitions = new ArrayList<>();
             for (Partition partition : partitions) {
                 Long partitionSize = partition.getDataSize(true);
-                if ((warmUpTotalFileCache + partitionSize) > totalFileCache) {
-                    break;
-                }
                 warmUpTotalFileCache += partitionSize;
                 warmUpPartitions.add(partition);
+                if (warmUpTotalFileCache > totalFileCache) {
+                    LOG.info("Warm up size {} exceeds total cache size {}, current partition size {}",
+                            warmUpTotalFileCache, totalFileCache, partitionSize);
+                    break;
+                }
             }
             List<MaterializedIndex> indexes = new ArrayList<>();
             for (Partition partition : warmUpPartitions) {
                 indexes.addAll(partition.getMaterializedIndices(IndexExtState.VISIBLE));
             }
-            List<Tablet> tablets = new ArrayList<>();
-            for (MaterializedIndex index : indexes) {
-                tablets.addAll(index.getTablets());
-            }
+            LOG.info("Got {} materialized indexes for table {}.{}.{}", indexes.size(),
+                    tableTriple.getLeft(), tableTriple.getMiddle(), tableTriple.getRight());
+            List<Tablet> tablets = getTabletsFromIndexs(indexes);
+            LOG.info("Got {} tablets for table {}.{}.{}", tablets.size(),
+                    tableTriple.getLeft(), tableTriple.getMiddle(), tableTriple.getRight());
             for (Backend backend : backends) {
-                Set<Long> beTabletIds = ((CloudEnv) Env.getCurrentEnv())
-                                        .getCloudTabletRebalancer()
-                                        .getSnapshotTabletsInPrimaryByBeId(backend.getId());
+                Set<Long> beTabletIds = getTabletIdsFromBe(backend.getId());
                 List<Tablet> warmUpTablets = new ArrayList<>();
                 for (Tablet tablet : tablets) {
                     if (beTabletIds.contains(tablet.getId())) {
                         warmUpTablets.add(tablet);
                     }
                 }
+                LOG.info("Assigning {} tablets to backend {}", warmUpTablets.size(), backend.getId());
                 beToWarmUpTablets.computeIfAbsent(backend.getId(),
                         k -> new ArrayList<>()).addAll(warmUpTablets);
             }
