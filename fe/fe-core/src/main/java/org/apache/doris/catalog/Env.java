@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.AlterJobV2.JobType;
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.alter.SchemaChangeHandler;
@@ -204,6 +205,7 @@ import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
@@ -4933,6 +4935,21 @@ public class Env {
 
     public void dropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
         this.alter.processDropMaterializedView(stmt);
+    }
+
+    /*
+     * used for handling CancelAlterCommand (for client is the CANCEL ALTER
+     * command). including SchemaChangeHandler and RollupHandler
+     */
+    public void cancelAlter(CancelAlterTableCommand command) throws DdlException {
+        if (command.getAlterOpType() == AlterOpType.CANCEL_ROLLUP
+                || command.getAlterOpType() == AlterOpType.CANCEL_MV) {
+            this.getMaterializedViewHandler().cancel(command);
+        } else if (command.getAlterOpType() == AlterOpType.CANCEL_COLUMN) {
+            this.getSchemaChangeHandler().cancel(command);
+        } else {
+            throw new DdlException(command.getAlterOpType() + " does not implement yet");
+        }
     }
 
     /*
