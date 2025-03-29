@@ -31,6 +31,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTrinoConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -368,9 +370,20 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         () -> new JdbcInsertExecutor(ctx, jdbcExternalTable, label, planner,
                                 Optional.of(insertCtx.orElse((new JdbcInsertCommandContext()))), emptyInsert)
                 );
+            } else if (physicalSink instanceof PhysicalTrinoConnectorTableSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                TrinoConnectorExternalTable trinoConnectorExternalTable = (TrinoConnectorExternalTable) targetTableIf;
+                return ExecutorFactory.from(
+                        planner,
+                        dataSink,
+                        physicalSink,
+                        () -> new TrinoConnectorInsertExecutor(ctx, trinoConnectorExternalTable, label, planner,
+                                Optional.of(insertCtx.orElse((new TrinoConnectorInsertCommandContext()))), emptyInsert)
+                );
             } else {
                 // TODO: support other table types
-                throw new AnalysisException("insert into command only support [olap, hive, iceberg, jdbc] table");
+                throw new AnalysisException("insert into command only support "
+                        + "[olap, hive, iceberg, jdbc, trino_connector] table");
             }
         } catch (Throwable t) {
             Throwables.propagateIfInstanceOf(t, RuntimeException.class);

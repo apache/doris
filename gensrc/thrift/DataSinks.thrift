@@ -40,6 +40,7 @@ enum TDataSinkType {
     GROUP_COMMIT_BLOCK_SINK,
     HIVE_TABLE_SINK,
     ICEBERG_TABLE_SINK,
+    TRINO_CONNECTOR_TABLE_SINK,
 }
 
 enum TResultSinkType {
@@ -416,6 +417,18 @@ struct TIcebergTableSink {
     13: optional PlanNodes.TFileCompressType compression_type
 }
 
+struct TTrinoConnnectorTableSink {
+    1: optional string catalog_name
+    2: optional string db_name
+    3: optional string table_name
+    4: optional map<string, string> trino_connector_options
+    5: optional string trino_connector_table_handle
+    6: optional string trino_connector_column_handles
+    7: optional string trino_connector_column_metadata
+    8: optional string trino_connector_transaction_handle
+    9: optional bool use_transaction
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -430,4 +443,5 @@ struct TDataSink {
   12: optional TMultiCastDataStreamSink multi_cast_stream_sink
   13: optional THiveTableSink hive_table_sink
   14: optional TIcebergTableSink iceberg_table_sink
+  15: optional TTrinoConnnectorTableSink trino_connector_table_sink
 }

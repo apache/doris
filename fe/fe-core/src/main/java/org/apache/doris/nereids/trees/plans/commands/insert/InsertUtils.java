@@ -40,6 +40,7 @@ import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTrinoConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -572,9 +573,16 @@ public class InsertUtils {
             unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundJdbcTableSink) {
             unboundTableSink = (UnboundJdbcTableSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundTrinoConnectorTableSink) {
+            unboundTableSink = (UnboundTrinoConnectorTableSink<? extends Plan>) plan;
         } else {
             throw new AnalysisException("the root of plan should be"
-                    + " [UnboundTableSink, UnboundHiveTableSink, UnboundIcebergTableSink],"
+                    + " ["
+                    + "UnboundTableSink, "
+                    + "UnboundHiveTableSink, "
+                    + "UnboundIcebergTableSink, "
+                    + "UnboundTrinoConnectorTableSink"
+                    + "],"
                     + " but it is " + plan.getType());
         }
         return RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());

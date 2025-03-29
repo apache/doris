@@ -93,6 +93,7 @@
 #include "pipeline/exec/spill_sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_operator.h"
 #include "pipeline/exec/table_function_operator.h"
+#include "pipeline/exec/trino_connector_table_sink_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
@@ -1063,6 +1064,14 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         }
         _sink.reset(new IcebergTableSinkOperatorX(pool, next_sink_operator_id(), row_desc,
                                                   output_exprs));
+        break;
+    }
+    case TDataSinkType::TRINO_CONNECTOR_TABLE_SINK: {
+        if (!thrift_sink.__isset.trino_connector_table_sink) {
+            return Status::InternalError("Missing trino connector table sink.");
+        }
+        _sink.reset(new TrinoConnectorTableSinkOperatorX(row_desc, next_sink_operator_id(),
+                                                         output_exprs));
         break;
     }
     case TDataSinkType::JDBC_TABLE_SINK: {
