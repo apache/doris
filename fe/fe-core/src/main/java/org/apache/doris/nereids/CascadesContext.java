@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -220,8 +221,24 @@ public class CascadesContext implements ScheduleContext {
         return isTimeout;
     }
 
+    /**
+     * Init memo with plan
+     */
     public void toMemo() {
-        this.memo = new Memo(getConnectContext(), plan);
+        List<Plan> tmpPlanForLaterMvRewrite = this.getStatementContext().getTmpPlanForLaterMvRewrite();
+        // only consider result sink to avoid Insert a plan into targetGroup but differ in logical properties
+        if (!tmpPlanForLaterMvRewrite.isEmpty() && plan instanceof LogicalResultSink) {
+            // copy tmp plan for mv rewrite firstly
+            this.memo = new Memo(getConnectContext(), tmpPlanForLaterMvRewrite.get(0));
+            if (tmpPlanForLaterMvRewrite.size() > 1) {
+                for (int i = 1; i < tmpPlanForLaterMvRewrite.size(); i++) {
+                    this.memo.copyIn(tmpPlanForLaterMvRewrite.get(i), this.memo.getRoot(), false);
+                }
+            }
+            this.memo.copyIn(plan, this.memo.getRoot(), false);
+        } else {
+            this.memo = new Memo(getConnectContext(), plan);
+        }
     }
 
     public TableCollectAndHookInitializer newTableCollector() {
