@@ -37,9 +37,11 @@
 #include <utility>
 #include <vector>
 
+#include "geo/geo_common.h"
 #include "geo/geo_tobinary.h"
 #include "geo/wkb_parse.h"
 #include "geo/wkt_parse.h"
+#include "geo/wkt_parse_type.h"
 
 namespace doris {
 
@@ -54,6 +56,9 @@ GeoPolygon::~GeoPolygon() = default;
 
 GeoCircle::GeoCircle() = default;
 GeoCircle::~GeoCircle() = default;
+
+GeoMultiPolygon::GeoMultiPolygon() = default;
+GeoMultiPolygon::~GeoMultiPolygon() = default;
 
 void print_s2point(std::ostream& os, const S2Point& point) {
     S2LatLng coord(point);
@@ -234,6 +239,10 @@ std::unique_ptr<GeoShape> GeoShape::from_encoded(const void* ptr, size_t size) {
         shape = GeoCircle::create_unique();
         break;
     }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        shape = GeoMultiPolygon::create_unique();
+        break;
+    }
     default:
         return nullptr;
     }
@@ -297,6 +306,35 @@ const std::unique_ptr<GeoCoordinateListList> GeoPolygon::to_coords() const {
         coordss->add(coords.release());
     }
     return coordss;
+}
+
+const std::vector<std::unique_ptr<GeoCoordinateListList>> GeoMultiPolygon::to_coords() const {
+    std::vector<std::unique_ptr<GeoCoordinateListList>> coordsss;
+    for (const auto& polygon : _polygons) {
+        std::unique_ptr<GeoCoordinateListList> coordss(new GeoCoordinateListList);
+        for (int i = 0; i < polygon->num_loops(); ++i) {
+            std::unique_ptr<GeoCoordinateList> coords(new GeoCoordinateList());
+            S2Loop* loop = polygon->loop(i);
+            for (int j = 0; j < loop->num_vertices(); ++j) {
+                GeoCoordinate coord;
+                coord.x = std::stod(
+                        absl::StrFormat("%.13f", S2LatLng::Longitude(loop->vertex(j)).degrees()));
+                coord.y = std::stod(
+                        absl::StrFormat("%.13f", S2LatLng::Latitude(loop->vertex(j)).degrees()));
+                coords->add(coord);
+                if (j == loop->num_vertices() - 1) {
+                    coord.x = std::stod(absl::StrFormat(
+                            "%.13f", S2LatLng::Longitude(loop->vertex(0)).degrees()));
+                    coord.y = std::stod(absl::StrFormat(
+                            "%.13f", S2LatLng::Latitude(loop->vertex(0)).degrees()));
+                    coords->add(coord);
+                }
+            }
+            coordss->add(coords.release());
+        }
+        coordsss.push_back(std::move(coordss));
+    }
+    return coordsss;
 }
 
 std::string GeoPoint::to_string() const {
@@ -490,6 +528,15 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
         const GeoPolygon* other = (const GeoPolygon*)rhs;
         return _polygon->Contains(*other->polygon());
     }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        const GeoMultiPolygon* other = (const GeoMultiPolygon*)rhs;
+        for (const auto& polygon : other->polygons()) {
+            if (!polygon->Contains(*polygon)) {
+                return false;
+            }
+        }
+        return true;
+    }
     default:
         return false;
     }
@@ -505,6 +552,94 @@ int GeoPolygon::numLoops() const {
 
 S2Loop* GeoPolygon::getLoop(int i) const {
     return const_cast<S2Loop*>(_polygon->loop(i));
+}
+
+GeoParseStatus GeoMultiPolygon::from_coords(const std::vector<GeoCoordinateListList>& list) {
+    _polygons.clear();
+    for (const auto& coords_list : list) {
+        std::unique_ptr<S2Polygon> polygon;
+        auto status = to_s2polygon(coords_list, &polygon);
+        if (status != GEO_PARSE_OK) {
+            return status;
+        }
+        _polygons.push_back(std::move(polygon));
+    }
+    return GEO_PARSE_OK;
+}
+
+bool GeoMultiPolygon::contains(const GeoShape* rhs) const {
+    switch (rhs->type()) {
+    case GEO_SHAPE_POINT: {
+        const GeoPoint* point = (const GeoPoint*)rhs;
+        for (const auto& polygon : this->_polygons) {
+            if (polygon->Contains(*point->point())) {
+                return true;
+            }
+        }
+        return false;
+    }
+    default:
+        return false;
+    }
+}
+
+std::string GeoMultiPolygon::as_wkt() const {
+    std::stringstream ss;
+    ss << "MULTIPOLYGON (";
+    for (size_t i = 0; i < _polygons.size(); ++i) {
+        if (i != 0) {
+            ss << ", ";
+        }
+        ss << "(";
+        const S2Polygon* polygon = _polygons[i].get();
+        for (int j = 0; j < polygon->num_loops(); ++j) {
+            if (j != 0) {
+                ss << ", ";
+            }
+            ss << "(";
+            const S2Loop* loop = polygon->loop(j);
+            for (int k = 0; k < loop->num_vertices(); ++k) {
+                if (k != 0) {
+                    ss << ", ";
+                }
+                print_s2point(ss, loop->vertex(k));
+            }
+            ss << ", ";
+            print_s2point(ss, loop->vertex(0));
+            ss << ")";
+        }
+        ss << ")";
+    }
+    ss << ")";
+    return ss.str();
+}
+
+void GeoMultiPolygon::encode(std::string* buf) {
+    Encoder encoder;
+    encoder.Ensure(sizeof(size_t));
+    encoder.put_varint32(_polygons.size());
+    for (const auto& polygon : _polygons) {
+        polygon->Encode(&encoder);
+    }
+    buf->append(encoder.base(), encoder.length());
+}
+
+bool GeoMultiPolygon::decode(const void* data, size_t size) {
+    Decoder decoder(data, size);
+    uint32_t num_polygons;
+    if (!decoder.get_varint32(&num_polygons)) {
+        return false;
+    }
+
+    _polygons.clear();
+    for (uint32_t i = 0; i < num_polygons; ++i) {
+        auto polygon = std::make_unique<S2Polygon>();
+        if (!polygon->Decode(&decoder) || !polygon->IsValid()) {
+            return false;
+        }
+        _polygons.push_back(std::move(polygon));
+    }
+    return true;
 }
 
 GeoParseStatus GeoCircle::init(double lng, double lat, double radius_meter) {
