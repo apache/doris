@@ -24,6 +24,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -68,7 +69,7 @@ public class NereidsParserTest extends ParserTestBase {
     public void testParseMultipleError() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "SELECT b FROM test SELECT a FROM test;";
-        Assertions.assertThrowsExactly(ParseException.class, () -> nereidsParser.parseMultiple(sql));
+        Assertions.assertThrowsExactly(SyntaxParseException.class, () -> nereidsParser.parseMultiple(sql));
     }
 
     @Test
@@ -88,7 +89,7 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testErrorListener() {
         parsePlan("select * from t1 where a = 1 illegal_symbol")
-                .assertThrowsExactly(ParseException.class)
+                .assertThrowsExactly(SyntaxParseException.class)
                 .assertMessageEquals("\nextraneous input 'illegal_symbol' expecting {<EOF>, ';'}(line 1, pos 29)\n");
     }
 
@@ -137,7 +138,7 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertEquals(((LogicalAggregate<?>) logicalPlan).getOutputExpressions().size(), 3);
 
         String windowSql3 = "select rank() over from t1";
-        parsePlan(windowSql3).assertThrowsExactly(ParseException.class)
+        parsePlan(windowSql3).assertThrowsExactly(SyntaxParseException.class)
                     .assertMessageContains("mismatched input 'from' expecting '('");
     }
 
@@ -372,7 +373,7 @@ public class NereidsParserTest extends ParserTestBase {
 
         // invalid hint position
         parsePlan("select * from [shuffle] t1 join t2 on t1.keyy=t2.keyy")
-                .assertThrowsExactly(ParseException.class);
+                .assertThrowsExactly(SyntaxParseException.class);
 
         // invalid hint content
         parsePlan("select * from t1 join [bucket] t2 on t1.keyy=t2.keyy")
@@ -386,7 +387,7 @@ public class NereidsParserTest extends ParserTestBase {
         // invalid multiple hints
 
         parsePlan("select * from t1 join [shuffle,broadcast] t2 on t1.keyy=t2.keyy")
-                .assertThrowsExactly(ParseException.class);
+                .assertThrowsExactly(SyntaxParseException.class);
     }
 
     @Test
