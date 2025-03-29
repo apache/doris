@@ -30,8 +30,10 @@
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/data_dir.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -261,6 +263,35 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
         EXPECT_EQ(missing_version[3].first, 12);
         EXPECT_EQ(missing_version[3].second, 12);
     }
+}
+
+TEST_F(CumulativeCompactionTest, TestShouldDelayBigTask) {
+    // Initialize storage engine and thread pool
+    EngineOptions options;
+    StorageEngine storage_engine(options);
+    EXPECT_EQ(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+                      .set_min_threads(1)
+                      .set_max_threads(2)
+                      .build(&storage_engine._cumu_compaction_thread_pool),
+              Status::OK());
+
+    // Configure parameters
+    config::min_threads_for_cumu_delay_strategy = 3;
+    config::cumu_delay_strategy_row_num = 10;
+
+    // Set thread pool max threads
+    EXPECT_EQ(storage_engine._cumu_compaction_thread_pool->set_max_threads(3), Status::OK());
+
+    storage_engine._cumu_compaction_thread_pool_used_threads = 2;
+    EXPECT_EQ(storage_engine._should_delay_big_task(), false);
+
+    storage_engine._cumu_compaction_thread_pool_used_threads = 3;
+    storage_engine._cumu_compaction_thread_pool_small_tasks_running = 1;
+    EXPECT_EQ(storage_engine._should_delay_big_task(), false);
+
+    storage_engine._cumu_compaction_thread_pool_used_threads = 3;
+    storage_engine._cumu_compaction_thread_pool_small_tasks_running = 0;
+    EXPECT_EQ(storage_engine._should_delay_big_task(), true);
 }
 
 } // namespace doris
