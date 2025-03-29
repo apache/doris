@@ -44,9 +44,6 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 
-using std::string;
-using std::vector;
-
 namespace doris {
 
 AgentServer::AgentServer(ExecEnv* exec_env, const ClusterInfo* cluster_info)

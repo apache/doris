@@ -43,7 +43,6 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "io/fs/file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"

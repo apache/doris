@@ -28,7 +28,6 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 
-#include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
