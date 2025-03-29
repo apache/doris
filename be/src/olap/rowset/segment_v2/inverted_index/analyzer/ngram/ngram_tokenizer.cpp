@@ -127,7 +127,7 @@ std::pair<int32_t, int32_t> NGramTokenizer::to_code_points(const char* char_buff
     for (; i < char_length && write_pos < buffer.size();) {
         UChar32 c = U_UNASSIGNED;
         U8_NEXT(char_buffer, i, char_length, c);
-        if (c == U_SENTINEL) {
+        if (c < 0) {
             continue;
         }
         buffer[write_pos++] = c;

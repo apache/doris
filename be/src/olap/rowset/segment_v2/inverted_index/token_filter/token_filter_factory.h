@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "common/exception.h"
 #include "olap/rowset/segment_v2/inverted_index/setting.h"
 #include "token_filter.h"
 
@@ -28,6 +27,7 @@ public:
     TokenFilterFactory() = default;
     virtual ~TokenFilterFactory() = default;
 
+    virtual void initialize(const Settings& args) = 0;
     virtual TokenFilterPtr create(const TokenStreamPtr& in) = 0;
 };
 

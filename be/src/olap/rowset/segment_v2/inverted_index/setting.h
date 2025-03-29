@@ -17,12 +17,117 @@
 
 #pragma once
 
+#include <unicode/utf8.h>
+
+#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/split.hpp>
+#include <boost/algorithm/string/trim.hpp>
+#include <memory>
+#include <regex>
 #include <unordered_map>
-#include <variant>
+#include <utility>
+
+#include "common/exception.h"
 
 namespace doris::segment_v2::inverted_index {
 
-using Object = std::variant<bool, int32_t, std::string, std::vector<std::string>>;
-using Settings = std::unordered_map<std::string, Object>;
+class Settings {
+public:
+    Settings() = default;
+    Settings(std::unordered_map<std::string, std::string> args) : _args(std::move(args)) {}
+    ~Settings() = default;
+
+    void set(const std::string& key, const std::string& value) {
+        _args.insert(std::make_pair(key, value));
+    }
+
+    bool empty() const { return _args.empty(); }
+
+    bool get_bool(const std::string& key, bool default_value) const {
+        auto it = _args.find(key);
+        if (it != _args.end()) {
+            std::string value = it->second;
+            std::transform(value.begin(), value.end(), value.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            if (value == "true" || value == "1") {
+                return true;
+            } else if (value == "false" || value == "0") {
+                return false;
+            }
+        }
+        return default_value;
+    }
+
+    int32_t get_int(const std::string& key, int32_t default_value) const {
+        auto it = _args.find(key);
+        if (it != _args.end()) {
+            try {
+                size_t pos;
+                int num = std::stoi(it->second, &pos);
+                if (pos == it->second.size()) {
+                    return num;
+                }
+            } catch (...) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "stoi failed (invalid argument or out of range): " + it->second);
+            }
+        }
+        return default_value;
+    }
+
+    std::string get_string(const std::string& key) const {
+        auto it = _args.find(key);
+        if (it != _args.end()) {
+            return it->second;
+        }
+        return "";
+    }
+
+    std::vector<std::string> get_word_list(const std::string& key) const {
+        std::vector<std::string> lists;
+        auto it = _args.find(key);
+        if (it != _args.end()) {
+            boost::split(lists, it->second, boost::is_any_of(","));
+        }
+        return lists;
+    }
+
+    std::vector<std::string> get_entry_list(const std::string& key) const {
+        std::vector<std::string> lists;
+        auto it = _args.find(key);
+        if (it != _args.end()) {
+            static std::regex pattern(R"(\[([^\]]+)\])");
+            std::smatch match;
+            std::sregex_iterator iter(it->second.begin(), it->second.end(), pattern);
+            std::sregex_iterator end;
+            for (; iter != end; ++iter) {
+                if (iter->size() > 1) {
+                    lists.emplace_back((*iter)[1].str());
+                }
+            }
+        }
+        return lists;
+    }
+
+    std::unordered_set<std::string> get_word_set(const std::string& key) const {
+        std::unordered_set<std::string> sets;
+        auto it = _args.find(key);
+        if (it != _args.end()) {
+            std::vector<std::string> lists;
+            boost::split(lists, it->second, boost::is_any_of(","));
+            for (auto& str : lists) {
+                boost::trim(str);
+                if (!str.empty()) {
+                    sets.insert(str);
+                }
+            }
+            sets.insert(lists.begin(), lists.end());
+        }
+        return sets;
+    }
+
+private:
+    std::unordered_map<std::string, std::string> _args;
+};
 
 } // namespace doris::segment_v2::inverted_index

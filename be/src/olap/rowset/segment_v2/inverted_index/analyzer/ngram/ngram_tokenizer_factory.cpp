@@ -24,16 +24,8 @@ namespace doris::segment_v2::inverted_index {
 std::unordered_map<std::string, CharMatcherPtr> NGramTokenizerFactory::MATCHERS;
 
 void NGramTokenizerFactory::initialize(const Settings& settings) {
-    if (settings.contains("min_gram")) {
-        _min_gram = std::get<int32_t>(settings.at("min_gram"));
-    } else {
-        _min_gram = NGramTokenizer::DEFAULT_MIN_NGRAM_SIZE;
-    }
-    if (settings.contains("max_gram")) {
-        _max_gram = std::get<int32_t>(settings.at("max_gram"));
-    } else {
-        _max_gram = NGramTokenizer::DEFAULT_MAX_NGRAM_SIZE;
-    }
+    _min_gram = settings.get_int("min_gram", NGramTokenizer::DEFAULT_MIN_NGRAM_SIZE);
+    _max_gram = settings.get_int("max_gram", NGramTokenizer::DEFAULT_MAX_NGRAM_SIZE);
     int32_t ngram_diff = _max_gram - _min_gram;
     if (ngram_diff > 1) {
         throw Exception(
@@ -62,11 +54,7 @@ CharMatcherPtr NGramTokenizerFactory::parse_token_chars(const Settings& settings
     if (settings.empty()) {
         return nullptr;
     }
-    auto iter = settings.find("token_chars");
-    if (iter == settings.end()) {
-        return nullptr;
-    }
-    auto characters = std::get<std::vector<std::string>>(iter->second);
+    auto characters = settings.get_word_list("token_chars");
     if (characters.empty()) {
         return nullptr;
     }
@@ -78,12 +66,11 @@ CharMatcherPtr NGramTokenizerFactory::parse_token_chars(const Settings& settings
             if (character != "custom") {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Unknown token type: " + character);
             }
-            auto iter = settings.find("custom_token_chars");
-            if (iter == settings.end()) {
+            auto custom_token_chars = settings.get_string("custom_token_chars");
+            if (custom_token_chars.empty()) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "Token type: 'custom' requires setting `custom_token_chars`");
             }
-            auto custom_token_chars = std::get<std::string>(iter->second);
             auto custom_matcher = std::make_shared<CustomMatcher>(custom_token_chars);
             builder.add(custom_matcher);
         } else {

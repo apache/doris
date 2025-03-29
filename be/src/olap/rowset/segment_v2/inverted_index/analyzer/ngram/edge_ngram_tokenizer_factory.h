@@ -30,16 +30,8 @@ public:
     ~EdgeNGramTokenizerFactory() = default;
 
     void initialize(const Settings& settings) {
-        if (settings.contains("min_gram")) {
-            _min_gram = std::get<int32_t>(settings.at("min_gram"));
-        } else {
-            _min_gram = EdgeNGramTokenizer::DEFAULT_MIN_NGRAM_SIZE;
-        }
-        if (settings.contains("max_gram")) {
-            _max_gram = std::get<int32_t>(settings.at("max_gram"));
-        } else {
-            _max_gram = EdgeNGramTokenizer::DEFAULT_MAX_NGRAM_SIZE;
-        }
+        _min_gram = settings.get_int("min_gram", EdgeNGramTokenizer::DEFAULT_MIN_NGRAM_SIZE);
+        _max_gram = settings.get_int("max_gram", EdgeNGramTokenizer::DEFAULT_MAX_NGRAM_SIZE);
         _matcher = NGramTokenizerFactory::parse_token_chars(settings);
     }
 

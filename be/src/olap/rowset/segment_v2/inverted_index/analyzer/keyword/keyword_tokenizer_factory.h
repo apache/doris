@@ -28,11 +28,7 @@ public:
     ~KeywordTokenizerFactory() = default;
 
     void initialize(const Settings& settings) {
-        if (settings.contains("max_token_len")) {
-            _max_token_len = std::get<int32_t>(settings.at("max_token_len"));
-        } else {
-            _max_token_len = KeywordTokenizer::DEFAULT_BUFFER_SIZE;
-        }
+        _max_token_len = settings.get_int("max_token_len", KeywordTokenizer::DEFAULT_BUFFER_SIZE);
         if (_max_token_len > KeywordTokenizer::MAX_TOKEN_LENGTH_LIMIT || _max_token_len <= 0) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "maxTokenLen must be greater than 0 and less than " +

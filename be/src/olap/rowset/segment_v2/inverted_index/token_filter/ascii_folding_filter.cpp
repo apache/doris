@@ -34,7 +34,7 @@ Token* ASCIIFoldingFilter::next(Token* t) {
         for (int32_t i = 0; i < length; i++) {
             UChar32 c = U_UNASSIGNED;
             U8_NEXT(buffer, i, length, c);
-            if (c == U_SENTINEL) {
+            if (c < 0) {
                 continue;
             }
             if (c >= 0x0080) {
@@ -82,7 +82,7 @@ int32_t ASCIIFoldingFilter::fold_to_ascii(const char* in, int32_t input_pos, cha
     for (int32_t pos = input_pos; pos < end; ++pos) {
         UChar32 c = U_UNASSIGNED;
         U8_NEXT(in, pos, end, c);
-        if (c == U_SENTINEL) {
+        if (c < 0) {
             continue;
         }
 

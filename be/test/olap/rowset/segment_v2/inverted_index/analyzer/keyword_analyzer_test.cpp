@@ -1,7 +1,9 @@
 
 #include <gtest/gtest.h>
 
-#include "olap/rowset/segment_v2/inverted_index/analyzer.h"
+#include <unordered_map>
+
+#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/keyword/keyword_tokenizer_factory.h"
 
 namespace doris::segment_v2 {
@@ -29,8 +31,9 @@ std::vector<std::string> tokenize(KeywordTokenizerFactory& factory, const std::s
 }
 
 TEST(KeywordTokenizerTest, BasicTokenization) {
-    Settings settings;
-    settings["max_token_len"] = 256;
+    std::unordered_map<std::string, std::string> args;
+    args["max_token_len"] = "256";
+    Settings settings(args);
     KeywordTokenizerFactory factory;
     factory.initialize(settings);
 
@@ -40,8 +43,9 @@ TEST(KeywordTokenizerTest, BasicTokenization) {
 }
 
 TEST(KeywordTokenizerTest, BufferSizeLimit) {
-    Settings settings;
-    settings["max_token_len"] = 5;
+    std::unordered_map<std::string, std::string> args;
+    args["max_token_len"] = "5";
+    Settings settings(args);
     KeywordTokenizerFactory factory;
     factory.initialize(settings);
 
@@ -53,8 +57,9 @@ TEST(KeywordTokenizerTest, BufferSizeLimit) {
 TEST(KeywordTokenizerTest, InvalidBufferSize) {
     bool exception_thrown = false;
     try {
-        Settings settings;
-        settings["max_token_len"] = -1;
+        std::unordered_map<std::string, std::string> args;
+        args["max_token_len"] = "-1";
+        Settings settings(args);
         KeywordTokenizerFactory factory;
         factory.initialize(settings);
     } catch (...) {
@@ -64,8 +69,9 @@ TEST(KeywordTokenizerTest, InvalidBufferSize) {
 
     exception_thrown = false;
     try {
-        Settings settings;
-        settings["max_token_len"] = 100000;
+        std::unordered_map<std::string, std::string> args;
+        args["max_token_len"] = "100000";
+        Settings settings(args);
         KeywordTokenizerFactory factory;
         factory.initialize(settings);
     } catch (...) {
@@ -75,8 +81,9 @@ TEST(KeywordTokenizerTest, InvalidBufferSize) {
 }
 
 TEST(KeywordTokenizerTest, FactoryCreatesValidTokenizer) {
-    Settings settings;
-    settings["max_token_len"] = 256;
+    std::unordered_map<std::string, std::string> args;
+    args["max_token_len"] = "256";
+    Settings settings(args);
     KeywordTokenizerFactory factory;
     factory.initialize(settings);
 
@@ -86,8 +93,9 @@ TEST(KeywordTokenizerTest, FactoryCreatesValidTokenizer) {
 }
 
 TEST(KeywordTokenizerTest, EmptyInput) {
-    Settings settings;
-    settings["max_token_len"] = 256;
+    std::unordered_map<std::string, std::string> args;
+    args["max_token_len"] = "256";
+    Settings settings(args);
     KeywordTokenizerFactory factory;
     factory.initialize(settings);
 
@@ -97,8 +105,9 @@ TEST(KeywordTokenizerTest, EmptyInput) {
 }
 
 TEST(KeywordTokenizerTest, LongInput) {
-    Settings settings;
-    settings["max_token_len"] = 16383;
+    std::unordered_map<std::string, std::string> args;
+    args["max_token_len"] = "256";
+    Settings settings(args);
     KeywordTokenizerFactory factory;
     factory.initialize(settings);
 

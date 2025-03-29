@@ -27,7 +27,7 @@ public:
     LowerCaseFilterFactory() = default;
     ~LowerCaseFilterFactory() override = default;
 
-    void initialize(const Settings& settings) {}
+    void initialize(const Settings& settings) override {}
 
     TokenFilterPtr create(const TokenStreamPtr& in) override {
         return std::make_shared<LowerCaseFilter>(in);

@@ -27,10 +27,8 @@ public:
     ASCIIFoldingFilterFactory() = default;
     ~ASCIIFoldingFilterFactory() override = default;
 
-    void initialize(const Settings& settings) {
-        if (settings.contains("preserve_original")) {
-            _preserve_original = std::get<bool>(settings.at("preserve_original"));
-        }
+    void initialize(const Settings& settings) override {
+        _preserve_original = settings.get_bool("preserve_original", false);
     }
 
     TokenFilterPtr create(const TokenStreamPtr& in) override {

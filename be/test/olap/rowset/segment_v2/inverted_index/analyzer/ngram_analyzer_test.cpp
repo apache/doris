@@ -19,6 +19,7 @@
 
 #include <cstdio>
 #include <fstream>
+#include <unordered_map>
 
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ngram/ngram_tokenizer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ngram/ngram_tokenizer_factory.h"
@@ -60,9 +61,10 @@ TEST(NGramTokenizerTest, DefaultMinMaxValues) {
 
 TEST(NGramTokenizerTest, ValidMinMaxDifference) {
     NGramTokenizerFactory factory;
-    Settings settings;
-    settings["min_gram"] = 2;
-    settings["max_gram"] = 3;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = 2;
+    args["max_gram"] = 3;
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "apple");
@@ -75,9 +77,10 @@ TEST(NGramTokenizerTest, InvalidMinMaxDifference) {
     bool exception_thrown = false;
     try {
         NGramTokenizerFactory factory;
-        Settings settings;
-        settings["min_gram"] = 1;
-        settings["max_gram"] = 3;
+        std::unordered_map<std::string, std::string> args;
+        args["min_gram"] = 1;
+        args["max_gram"] = 3;
+        Settings settings(args);
         factory.initialize(settings);
     } catch (...) {
         exception_thrown = true;
@@ -87,8 +90,9 @@ TEST(NGramTokenizerTest, InvalidMinMaxDifference) {
 
 TEST(NGramTokenizerTest, SymbolCharactersHandling) {
     NGramTokenizerFactory factory;
-    Settings settings;
-    settings["token_chars"] = std::vector<std::string> {"symbol"};
+    std::unordered_map<std::string, std::string> args;
+    args["token_chars"] = "symbol";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "a$c#d");
@@ -99,10 +103,11 @@ TEST(NGramTokenizerTest, SymbolCharactersHandling) {
 
 TEST(NGramTokenizerTest, MixedCharacterTypes) {
     NGramTokenizerFactory factory;
-    Settings settings;
-    settings["min_gram"] = 2;
-    settings["max_gram"] = 2;
-    settings["token_chars"] = std::vector<std::string> {"letter", "digit"};
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "2";
+    args["max_gram"] = "2";
+    args["token_chars"] = "letter, digit";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "vm01");
@@ -113,10 +118,11 @@ TEST(NGramTokenizerTest, MixedCharacterTypes) {
 
 TEST(NGramTokenizerTest, FullTokenizationFlow) {
     NGramTokenizerFactory factory;
-    Settings settings;
-    settings["min_gram"] = 3;
-    settings["max_gram"] = 3;
-    settings["token_chars"] = std::vector<std::string> {"letter"};
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "3";
+    args["max_gram"] = "3";
+    args["token_chars"] = "letter";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "big_data");
@@ -127,8 +133,9 @@ TEST(NGramTokenizerTest, FullTokenizationFlow) {
 
 TEST(NGramTokenizerTest, EmptyTokenCharsSettings) {
     NGramTokenizerFactory factory;
-    Settings settings;
-    settings["token_chars"] = std::vector<std::string> {};
+    std::unordered_map<std::string, std::string> args;
+    args["token_chars"] = "";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "a1b2c3");
@@ -138,9 +145,10 @@ TEST(NGramTokenizerTest, EmptyTokenCharsSettings) {
 
 TEST(NGramTokenizerTest, CJKMultiCharacterHandling) {
     NGramTokenizerFactory factory;
-    Settings settings;
-    settings["min_gram"] = 2;
-    settings["max_gram"] = 2;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "2";
+    args["max_gram"] = "2";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "日本語");
@@ -151,9 +159,10 @@ TEST(NGramTokenizerTest, CJKMultiCharacterHandling) {
 
 TEST(NGramTokenizerTest, MaxGramExceedsInputLength) {
     NGramTokenizerFactory factory;
-    Settings settings;
-    settings["min_gram"] = 3;
-    settings["max_gram"] = 4;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "3";
+    args["max_gram"] = "4";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "hi");
@@ -163,9 +172,10 @@ TEST(NGramTokenizerTest, MaxGramExceedsInputLength) {
 
 TEST(NGramTokenizerTest, CustomTokenCharsWithSpecialSymbols) {
     NGramTokenizerFactory factory;
-    Settings settings;
-    settings["token_chars"] = std::vector<std::string> {"custom"};
-    settings["custom_token_chars"] = "éè";
+    std::unordered_map<std::string, std::string> args;
+    args["token_chars"] = "custom";
+    args["custom_token_chars"] = "éè";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "caféè");
@@ -176,8 +186,9 @@ TEST(NGramTokenizerTest, CustomTokenCharsWithSpecialSymbols) {
 
 TEST(NGramTokenizerTest, PunctuationHandling) {
     NGramTokenizerFactory factory;
-    Settings settings;
-    settings["token_chars"] = std::vector<std::string> {"punctuation"};
+    std::unordered_map<std::string, std::string> args;
+    args["token_chars"] = "punctuation";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "Hello, world!");
@@ -188,10 +199,11 @@ TEST(NGramTokenizerTest, PunctuationHandling) {
 
 TEST(NGramTokenizerTest, WhitespaceTokenization) {
     NGramTokenizerFactory factory;
-    Settings settings;
-    settings["min_gram"] = 1;
-    settings["max_gram"] = 1;
-    settings["token_chars"] = std::vector<std::string> {"whitespace"};
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "1";
+    args["max_gram"] = "1";
+    args["token_chars"] = "whitespace";
+    Settings settings(args);
     factory.initialize(settings);
     auto tokenizer = factory.create();
     auto tokens = tokenize(factory, "a b  c   d");

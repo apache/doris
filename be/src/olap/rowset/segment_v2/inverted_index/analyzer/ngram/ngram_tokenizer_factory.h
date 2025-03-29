@@ -17,9 +17,6 @@
 
 #pragma once
 
-#include <memory>
-#include <unordered_map>
-
 #include "char_matcher.h"
 #include "ngram_tokenizer.h"
 #include "olap/rowset/segment_v2/inverted_index/setting.h"
