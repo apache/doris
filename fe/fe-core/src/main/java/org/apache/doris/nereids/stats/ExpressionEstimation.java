@@ -95,6 +95,8 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
@@ -121,11 +123,23 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
      * returned columnStat is newly created or a copy of stats
      */
     public static ColumnStatistic estimate(Expression expression, Statistics stats) {
-        ColumnStatistic columnStatistic = expression.accept(INSTANCE, stats);
-        if (columnStatistic == null) {
-            return ColumnStatistic.UNKNOWN;
+        try {
+            ColumnStatistic columnStatistic = expression.accept(INSTANCE, stats);
+            if (columnStatistic == null) {
+                return ColumnStatistic.UNKNOWN;
+            }
+            return columnStatistic;
+        } catch (Exception e) {
+            // in regression test, feDebug is true so that the exception is thrown in order to detect problems.
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().feDebug) {
+                throw e;
+            }
+            int sizeByte = expression.getDataType().width();
+            if (expression.getDataType().isStringType()) {
+                sizeByte = Math.max(1, Math.min(sizeByte, CharacterType.DEFAULT_WIDTH));
+            }
+            return ColumnStatistic.UNKNOWN.withAvgSizeByte(sizeByte);
         }
-        return columnStatistic;
     }
 
     @Override
