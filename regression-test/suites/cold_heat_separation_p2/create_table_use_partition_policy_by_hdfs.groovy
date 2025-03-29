@@ -90,13 +90,13 @@ suite("create_table_use_partition_policy_by_hdfs") {
     def load_lineitem_table = {
         stream_load_one_part("00")
         stream_load_one_part("01")
-        def tablets = sql """
+        def tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
         """
         while (tablets[0].LocalDataSize == "0") {
             log.info( "test local size is zero, sleep 10s")
             sleep(10000)
-            tablets = sql """
+            tablets = sql_return_maparray """
             SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
             """
         }

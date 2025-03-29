@@ -187,7 +187,7 @@ suite("create_table_use_policy_by_hdfs") {
     load_lineitem_table()
 
     // show tablets from table, 获取第一个tablet的 LocalDataSize1
-    tablets = sql_return_maparray """
+    def tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")

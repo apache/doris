@@ -141,13 +141,8 @@ suite("load_colddata_to_hdfs") {
         PROPERTIES (
             "type"="hdfs",
             "fs.defaultFS"="${hdfsFs}",
-            "hadoop.username"="hive",
-            "hadoop.password"="hive",
-            "dfs.nameservices" = "my_ha",
-            "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
-            "dfs.namenode.rpc-address.my_ha.my_namenode1" = "127.0.0.1:10000",
-            "dfs.namenode.rpc-address.my_ha.my_namenode2" = "127.0.0.1:10000",
-            "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+            "hadoop.username"="${getHdfsUser()}",
+            "hadoop.password"="${getHdfsPasswd()}"
         );
     """
 
@@ -191,7 +186,7 @@ suite("load_colddata_to_hdfs") {
     load_lineitem_table()
 
     // show tablets from table, 获取第一个tablet的 LocalDataSize1
-    tablets = sql_return_maparray """
+    def tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")

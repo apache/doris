@@ -138,12 +138,7 @@ suite("table_modify_resouce_by_hdfs") {
             "type"="hdfs",
             "fs.defaultFS"="${getHdfsFs()}",
             "hadoop.username"="${getHdfsUser()}",
-            "hadoop.password"="${getHdfsPasswd()}",
-            "dfs.nameservices" = "my_ha",
-            "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
-            "dfs.namenode.rpc-address.my_ha.my_namenode1" = "127.0.0.1:10000",
-            "dfs.namenode.rpc-address.my_ha.my_namenode2" = "127.0.0.1:10000",
-            "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+            "hadoop.password"="${getHdfsPasswd()}"
         );
     """
 
@@ -315,7 +310,7 @@ suite("table_modify_resouce_by_hdfs") {
     log.info( "test all remote size not zero")
     for (int i = 0; i < tablets2.size(); i++) {
         fetchDataSize(sizes, tablets2[i])
-        assertTrue(sizes[1] > 0)
+        assertTrue(sizes[1] > 0, tablets2[i].TabletId + " remote size is " + sizes[1] + ", no greater than 0, MetaUrl is " + tablets2[i].MetaUrl)
     }
 
 
