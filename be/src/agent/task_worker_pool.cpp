@@ -1875,14 +1875,17 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 .error(status);
     } else {
         if (!config::disable_auto_compaction &&
-            !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+            (!config::enable_compaction_pause_on_high_memory ||
+             !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE))) {
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
                     if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                         tablet->published_count.fetch_add(1);
                         int64_t published_count = tablet->published_count.load();
-                        if (tablet->exceed_version_limit(config::max_tablet_version_num * 2 / 3) &&
+                        if (tablet->exceed_version_limit(
+                                    config::max_tablet_version_num *
+                                    config::load_trigger_compaction_version_percent / 100) &&
                             published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
                                     tablet, CompactionType::CUMULATIVE_COMPACTION, true, false);
