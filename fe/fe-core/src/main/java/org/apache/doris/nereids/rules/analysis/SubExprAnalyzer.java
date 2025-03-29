@@ -95,6 +95,7 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause with offset > 0 "
                     + analyzedResult.getLogicalPlan());
         }
+        checkNoCorrelatedSlotsInJoinConjuncts(analyzedResult);
         return new Exists(analyzedResult.getLogicalPlan(),
                 analyzedResult.getCorrelatedSlots(), exists.isNot());
     }
@@ -110,6 +111,7 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
         checkNoCorrelatedSlotsUnderAgg(analyzedResult);
+        checkNoCorrelatedSlotsInJoinConjuncts(analyzedResult);
         checkRootIsLimit(analyzedResult);
 
         return new InSubquery(
@@ -188,6 +190,14 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         }
     }
 
+    private void checkNoCorrelatedSlotsInJoinConjuncts(AnalyzedResult analyzedResult) {
+        if (analyzedResult.hasCorrelatedSlotsInJoinConjuncts()) {
+            throw new AnalysisException(
+                    "Unsupported correlated subquery with correlated slot in join conjuncts "
+                            + analyzedResult.getLogicalPlan());
+        }
+    }
+
     private void checkRootIsLimit(AnalyzedResult analyzedResult) {
         if (!analyzedResult.isCorrelated()) {
             return;
@@ -249,6 +259,12 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                             ImmutableSet.copyOf(correlatedSlots), LogicalAggregate.class);
         }
 
+        public boolean hasCorrelatedSlotsInJoinConjuncts() {
+            return correlatedSlots.isEmpty() ? false
+                    : hasCorrelatedSlotsInNode(logicalPlan,
+                    ImmutableSet.copyOf(correlatedSlots), LogicalJoin.class);
+        }
+
         private static <T> boolean hasCorrelatedSlotsUnderNode(Plan rootPlan,
                                                                ImmutableSet<Slot> slots, Class<T> clazz) {
             ArrayDeque<Plan> planQueue = new ArrayDeque<>();
@@ -257,6 +273,26 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                 Plan plan = planQueue.poll();
                 if (plan.getClass().equals(clazz)) {
                     if (plan.containsSlots(slots)) {
+                        return true;
+                    }
+                } else {
+                    for (Plan child : plan.children()) {
+                        planQueue.add(child);
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static <T> boolean hasCorrelatedSlotsInNode(Plan rootPlan,
+                                                               ImmutableSet<Slot> slots, Class<T> clazz) {
+            ArrayDeque<Plan> planQueue = new ArrayDeque<>();
+            planQueue.add(rootPlan);
+            while (!planQueue.isEmpty()) {
+                Plan plan = planQueue.poll();
+                if (plan.getClass().equals(clazz)) {
+                    if (plan.getExpressions().stream().anyMatch(expression -> !Sets
+                            .intersection(slots, expression.getInputSlots()).isEmpty())) {
                         return true;
                     }
                 } else {
