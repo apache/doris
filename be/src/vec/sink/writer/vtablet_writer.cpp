@@ -116,7 +116,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
             std::shared_ptr<VNodeChannel> channel;
             auto it = _node_channels.find(replica_node_id);
             // when we prepare for TableSink or incremental open tablet, we need init
-            if (it == _node_cx`hannels.end()) {
+            if (it == _node_channels.end()) {
                 // NodeChannel is not added to the _parent->_pool.
                 // Because the deconstruction of NodeChannel may take a long time to wait rpc finish.
                 // but the ObjectPool will hold a spin lock to delete objects.
