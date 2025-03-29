@@ -1336,7 +1336,9 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
     query_id.__set_lo(queryid.lo);
     if (auto q_ctx = get_query_ctx(query_id)) {
         SCOPED_ATTACH_TASK(q_ctx.get());
-        std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
+        if (!q_ctx->get_merge_controller_handler()) {
+            return Status::InternalError("Merge filter failed: Merge controller handler is null");
+        }
         return q_ctx->get_merge_controller_handler()->merge(q_ctx, request, attach_data);
     } else {
         return Status::EndOfFile(
