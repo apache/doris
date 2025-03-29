@@ -1804,10 +1804,18 @@ class Suite implements GroovyInterceptable {
         List<List<Object>> resultExpected = sql(foldSql)
         logger.info("result expected: " + resultExpected.toString())
 
-        String errorMsg = OutputUtils.checkOutput(resultExpected.iterator(), resultByFoldConstant.iterator(),
+        String errorMsg = null
+        try {
+            errorMsg = OutputUtils.checkOutput(resultExpected.iterator(), resultByFoldConstant.iterator(),
                     { row -> OutputUtils.toCsvString(row as List<Object>) },
                     { row ->  OutputUtils.toCsvString(row) },
                     "check output failed", meta)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Check output failed, sql:\n${foldSql}. error message: \n${errorMsg}", t)
+        }
+        if (errorMsg != null) {
+            throw new IllegalStateException(errorMsg);
+        }
     }
 
     String getJobName(String dbName, String mtmvName) {
