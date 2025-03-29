@@ -38,7 +38,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_map").add("array_filter").add("array_exists").add("array_sortby")
             .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
-            .add("array_split").add("array_reverse_split")
+            .add("array_split").add("array_reverse_split").add("array_reduce")
             .build();
     // The functions in this set are all normal array functions when implemented initially.
     // and then wants add lambda expr as the input param, so we rewrite it to contains an array_map lambda function
@@ -275,6 +275,32 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             }
             fnName = new FunctionName(null, "element_at");
             fn = getBuiltinFunction(fnName.getFunction(), argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("array_reduce")) {
+            if (fnParams.exprs() == null || fnParams.exprs().size() < 2) {
+                throw new AnalysisException("The " + fnName.getFunction() + " function must have at least two params");
+            }
+            // we always put the lambda expr at last position during the parser to get param type first,
+            // so here need change the lambda expr to the first args position for BE.
+            // array_reduce(x->x>1,[1,2,3]) ---> array_reduce([1,2,3], x->x>1) --->
+            // array_reduce(x->x>1, [1,2,3])
+            if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
+                Type lastType = argTypes[childSize - 1];
+                Expr lastChild = getChild(childSize - 1);
+                for (int i = childSize - 1; i > 0; --i) {
+                    argTypes[i] = getChild(i - 1).getType();
+                    this.setChild(i, getChild(i - 1));
+                }
+                argTypes[0] = lastType;
+                this.setChild(0, lastChild);
+            }
+
+            Expr lambda = this.children.get(0);
+            if (!(lambda instanceof LambdaFunctionExpr)) {
+                throw new AnalysisException("array_reduce must use lambda as first input params, now is"
+                        + lambda.debugString());
+            }
+            fn = new Function(fnName, Arrays.asList(argTypes), ArrayType.create(lambda.getChild(0).getType(), true),
+                    true, true, NullableMode.CUSTOM);
         }
         if (fn == null) {
             LOG.warn("fn {} not exists", this.toSqlImpl());
