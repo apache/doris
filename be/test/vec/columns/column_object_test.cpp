@@ -21,6 +21,8 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include "vec/json/path_in_data.h"
+
 namespace doris::vectorized {
 
 class ColumnObjectTest : public ::testing::Test {};
@@ -160,11 +162,11 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
 
         Field result1;
         dst_column->get(0, result1);
-        EXPECT_EQ(result1.get<VariantMap>().at("").get<Int64>(), 123);
+        EXPECT_EQ(result1.get<VariantMap>().at({}).get<Int64>(), 123);
 
         Field result2;
         dst_column->get(1, result2);
-        EXPECT_EQ(result2.get<VariantMap>().at("").get<Int64>(), 456);
+        EXPECT_EQ(result2.get<VariantMap>().at({}).get<Int64>(), 456);
     }
 
     // Test case 2: Insert from scalar variant source to non-empty destination of same type
@@ -201,9 +203,9 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         dst_column->get(1, result2);
         dst_column->get(2, result3);
 
-        EXPECT_EQ(result1.get<VariantMap>().at("").get<Int64>(), 789);
-        EXPECT_EQ(result2.get<VariantMap>().at("").get<Int64>(), 456);
-        EXPECT_EQ(result3.get<VariantMap>().at("").get<Int64>(), 123);
+        EXPECT_EQ(result1.get<VariantMap>().at({}).get<Int64>(), 789);
+        EXPECT_EQ(result2.get<VariantMap>().at({}).get<Int64>(), 456);
+        EXPECT_EQ(result3.get<VariantMap>().at({}).get<Int64>(), 123);
     }
 
     // Test case 3: Insert from non-scalar or different type source (fallback to try_insert)
@@ -214,13 +216,13 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         // Create a map with {"a": 123}
         Field field_map = VariantMap();
         auto& map1 = field_map.get<VariantMap&>();
-        map1["a"] = 123;
+        map1[PathInData("a")] = 123;
         src_column->try_insert(field_map);
 
         // Create another map with {"b": "hello"}
         field_map = VariantMap();
         auto& map2 = field_map.get<VariantMap&>();
-        map2["b"] = String("hello");
+        map2[PathInData("b")] = String("hello");
         src_column->try_insert(field_map);
 
         src_column->finalize();
@@ -249,8 +251,8 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         const auto& result1_map = result1.get<const VariantMap&>();
         const auto& result2_map = result2.get<const VariantMap&>();
 
-        EXPECT_EQ(result1_map.at("b").get<const String&>(), "hello");
-        EXPECT_EQ(result2_map.at("a").get<Int64>(), 123);
+        EXPECT_EQ(result1_map.at(PathInData("b")).get<const String&>(), "hello");
+        EXPECT_EQ(result2_map.at(PathInData("a")).get<Int64>(), 123);
     }
 }
 
