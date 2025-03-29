@@ -1675,8 +1675,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     + request.isSetDbId() + " id: " + Long.toString(request.isSetDbId() ? request.getDbId() : 0)
                     + " fullDbName: " + fullDbName);
         }
-        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2
-                : Config.try_commit_lock_timeout_seconds * 1000;
+        long thriftRpcTimeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 0;
+        long timeoutMs = Math.max(thriftRpcTimeoutMs,
+                (Config.try_commit_lock_timeout_seconds + Config.publish_version_timeout_second)  * 1000);
         List<Table> tables = queryLoadCommitTables(request, db);
         return Env.getCurrentGlobalTransactionMgr()
                 .commitAndPublishTransaction(db, tables, request.getTxnId(),
@@ -1788,9 +1789,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // Step 4: get timeout
-        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2
-                : Config.try_commit_lock_timeout_seconds * 1000;
-
+        long thriftRpcTimeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 0;
+        long timeoutMs = Math.max(thriftRpcTimeoutMs,
+                (Config.try_commit_lock_timeout_seconds + Config.publish_version_timeout_second)  * 1000);
         // Step 5: commit and publish
         if (request.isSetTxnInsert() && request.isTxnInsert()) {
             List<Long> subTxnIds = new ArrayList<>();
