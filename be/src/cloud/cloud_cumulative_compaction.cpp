@@ -279,13 +279,15 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     });
 
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
+    DeleteBitmapPtr pre_rowsets_delete_bitmap = nullptr;
     int64_t initiator = this->initiator();
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
+        std::vector<RowsetId> pre_rowset_ids;
         RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaction(
                 _input_rowsets, _output_rowset, *_rowid_conversion, compaction_type(),
                 _stats.merged_rows, _stats.filtered_rows, initiator, output_rowset_delete_bitmap,
-                _allow_delete_in_cumu_compaction));
+                _allow_delete_in_cumu_compaction, pre_rowsets_delete_bitmap, pre_rowset_ids));
         LOG_INFO("update delete bitmap in CloudCumulativeCompaction, tablet_id={}, range=[{}-{}]",
                  _tablet->tablet_id(), _input_rowsets.front()->start_version(),
                  _input_rowsets.back()->end_version())
@@ -297,6 +299,9 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                 .tag("number_output_delete_bitmap",
                      output_rowset_delete_bitmap->delete_bitmap.size());
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        for (const auto& rowset_id : pre_rowset_ids) {
+            compaction_job->add_pre_rowset_ids(rowset_id.to_string());
+        }
     }
 
     DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.trigger_abort_job_failed", {
@@ -367,6 +372,9 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         if (output_rowset_delete_bitmap) {
             _tablet->tablet_meta()->delete_bitmap().merge(*output_rowset_delete_bitmap);
         }
+        if (pre_rowsets_delete_bitmap) {
+            _tablet->tablet_meta()->delete_bitmap().merge(*pre_rowsets_delete_bitmap);
+        }
         if (stats.base_compaction_cnt() >= cloud_tablet()->base_compaction_cnt()) {
             cloud_tablet()->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                                     stats.num_rows(), stats.data_size());
@@ -377,6 +385,10 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
         RETURN_IF_ERROR(process_old_version_delete_bitmap());
     }
+    DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset", {
+        LOG(INFO) << "delete_expired_stale_rowsets for tablet=" << _tablet->tablet_id();
+        static_cast<CloudTablet*>(_tablet.get())->delete_expired_stale_rowsets();
+    });
     return Status::OK();
 }
 
