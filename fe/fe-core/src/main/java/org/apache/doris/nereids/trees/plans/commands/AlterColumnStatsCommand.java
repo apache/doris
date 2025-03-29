@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -122,10 +121,13 @@ public class AlterColumnStatsCommand extends AlterCommand {
         StatisticsRepository.alterColumnStatistics(this);
     }
 
-    private void validate(ConnectContext ctx) throws UserException {
+    /**
+     * validate
+     */
+    public void validate(ConnectContext ctx) throws UserException {
         if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
-                + "in your FE conf file");
+                + " in your FE conf file");
         }
 
         // check table name
@@ -177,8 +179,7 @@ public class AlterColumnStatsCommand extends AlterCommand {
             indexId = idxId;
         }
 
-        Column column = table.getColumn(columnName);
-        if (column == null || !column.getName().equals(columnName)) {
+        if (table.getColumn(columnName) == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
         }
 
