@@ -962,7 +962,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true, checker = "checkBatchSize", needForward = true)
-    public int batchSize = 4064;
+    public int batchSize = 4;
 
     // 16352 + 16 + 16 = 16384
     @VariableMgr.VarAttr(name = BROKER_LOAD_BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
@@ -2561,10 +2561,10 @@ public class SessionVariable implements Serializable, Writable {
 
         if (Config.fuzzy_test_type.equals("p0")) {
             if (random.nextInt(2) == 1) {
-                this.batchSize = 4064;
+                this.batchSize = 4;
                 this.enableFoldConstantByBe = true;
             } else {
-                this.batchSize = 1024;
+                this.batchSize = 1;
                 this.enableFoldConstantByBe = false;
             }
 
