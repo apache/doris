@@ -31,7 +31,8 @@ public:
                       const TupleDescriptor* output_tuple_desc,
                       const RowDescriptor* output_row_descriptor,
                       const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
-                      int64_t limit_, bool ignore_data_distribution)
+                      int64_t limit_, bool ignore_data_distribution,
+                      std::shared_ptr<doris::vectorized::TaskHandle> task_handle)
             : vectorized::ScannerContext(
                       state, parent, output_tuple_desc, output_row_descriptor, scanners, limit_,
                       ignore_data_distribution,
@@ -45,7 +46,7 @@ public:
                                             */
                       // so we set is_file_scan_operator to true
                       // so that _max_thread_num will be same like before for engine except for pipelineX
-                      true) {}
+                      true, task_handle) {}
 };
 
 class PipXScannerContext final : public vectorized::ScannerContext {
@@ -57,10 +58,11 @@ public:
                        const RowDescriptor* output_row_descriptor,
                        const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
                        int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency,
-                       bool ignore_data_distribution, bool is_file_scan_operator)
+                       bool ignore_data_distribution, bool is_file_scan_operator,
+                       std::shared_ptr<doris::vectorized::TaskHandle> task_handle)
             : vectorized::ScannerContext(state, output_tuple_desc, output_row_descriptor, scanners,
                                          limit_, ignore_data_distribution, is_file_scan_operator,
-                                         local_state) {
+                                         task_handle, local_state) {
         _dependency = dependency;
     }
 

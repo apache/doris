@@ -53,6 +53,8 @@ class ScannerDelegate;
 class VScanNode;
 class ScannerScheduler;
 class SimplifiedScanScheduler;
+class TaskExecutor;
+class TaskHandle;
 
 class ScanTask {
 public:
@@ -60,6 +62,10 @@ public:
         _query_thread_context.init();
         DorisMetrics::instance()->scanner_task_cnt->increment(1);
     }
+
+    ScanTask(QueryThreadContext query_thread_context,
+             std::weak_ptr<ScannerDelegate> delegate_scanner)
+            : _query_thread_context(query_thread_context), scanner(delegate_scanner) {}
 
     ~ScanTask() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
@@ -108,6 +114,7 @@ public:
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
                    bool ignore_data_distribution, bool is_file_scan_operator,
+                   std::shared_ptr<doris::vectorized::TaskHandle> task_handle,
                    pipeline::ScanLocalStateBase* local_state = nullptr);
 
     ~ScannerContext() override {
@@ -142,7 +149,8 @@ public:
     // set the next scanned block to `ScanTask::current_block`
     // set the error state to `ScanTask::status`
     // set the `eos` to `ScanTask::eos` if there is no more data in current scanner
-    Status submit_scan_task(std::shared_ptr<ScanTask> scan_task);
+    //Status submit_scan_task(std::shared_ptr<ScanTask> scan_task);
+    Status submit_scan_task(std::weak_ptr<ScannerDelegate> scanner);
 
     // append the running scanner and its cached block to `_blocks_queue`
     virtual void append_block_to_queue(std::shared_ptr<ScanTask> scan_task);
@@ -153,6 +161,8 @@ public:
     bool done() const { return _is_finished || _should_stop; }
     bool is_finished() { return _is_finished.load(); }
     bool should_stop() { return _should_stop.load(); }
+
+    std::shared_ptr<TaskHandle> task_handle() const { return _task_handle; }
 
     virtual std::string debug_string();
 
@@ -171,6 +181,8 @@ public:
 
     int batch_size() const { return _batch_size; }
 
+    QueryThreadContext query_thread_context() const { return _query_thread_context; }
+
     // the unique id of this context
     std::string ctx_id;
     TUniqueId _query_id;
@@ -184,6 +196,7 @@ protected:
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<ScannerDelegate>>& scanners_, int64_t limit_,
                    bool ignore_data_distribution, bool is_file_scan_operator,
+                   std::shared_ptr<doris::vectorized::TaskHandle> task_handle,
                    pipeline::ScanLocalStateBase* local_state);
 
     /// Four criteria to determine whether to increase the parallelism of the scanners
@@ -236,6 +249,7 @@ protected:
     QueryThreadContext _query_thread_context;
     bool _ignore_data_distribution = false;
     bool _is_file_scan_operator;
+    std::shared_ptr<doris::vectorized::TaskHandle> _task_handle;
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;
