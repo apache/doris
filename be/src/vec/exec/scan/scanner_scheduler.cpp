@@ -70,7 +70,8 @@ Status ScannerScheduler::init(ExecEnv* env) {
 }
 
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
-                                std::shared_ptr<ScanTask> scan_task) {
+                                std::weak_ptr<ScannerDelegate> scanner) {
+    auto scan_task = std::make_shared<ScanTask>(scanner);
     if (ctx->done()) {
         return Status::OK();
     }
@@ -96,13 +97,17 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
             }();
 
             if (!status.ok()) {
-                scanner_ref->set_status(status);
+                scanner_ref-- > set_status(status);
                 ctx->push_back_scan_task(scanner_ref);
+                return true;
             }
+            return scanner_ref->is_eos();
         };
         SimplifiedScanTask simple_scan_task = {work_func, ctx};
         return scan_sched->submit_scan_task(simple_scan_task);
     };
+    SimplifiedScanTask simple_scan_task = {work_func, ctx};
+    return scan_sched->submit_scan_task(simple_scan_task);
 
     Status submit_status = sumbit_task();
     if (!submit_status.ok()) {
@@ -357,6 +362,27 @@ int ScannerScheduler::get_remote_scan_thread_num() {
 
 int ScannerScheduler::get_remote_scan_thread_queue_size() {
     return config::doris_remote_scanner_thread_pool_queue_size;
+}
+
+Result<SharedListenableFuture<Void>> ScannerSplitRunner::process_for(std::chrono::nanoseconds) {
+    _started = true;
+    bool is_completed = _scan_func();
+    if (is_completed) {
+        _completion_future.set_value(Void {});
+    }
+    return SharedListenableFuture<Void>::create_ready(Void {});
+}
+
+bool ScannerSplitRunner::is_finished() {
+    return _completion_future.is_done();
+}
+
+Status ScannerSplitRunner::finished_status() {
+    return _completion_future.get_status();
+}
+
+bool ScannerSplitRunner::is_started() const {
+    return _started.load();
 }
 
 } // namespace doris::vectorized

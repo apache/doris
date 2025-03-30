@@ -115,6 +115,16 @@ Status ScannerContext::init() {
     } else {
         _scanner_scheduler = _state->get_query_ctx()->get_remote_scan_scheduler();
     }
+    std::shared_ptr<TaskExecutor> task_executor = nullptr;
+    if (thread_token) {
+        task_executor = _state->exec_env()->scanner_scheduler()->limited_scan_task_executor();
+    } else {
+        task_executor = _scanner_scheduler->task_executor();
+    }
+    vectorized::TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
+    _task_handle = DORIS_TRY(task_executor->create_task(
+            task_id, []() { return 0.0; }, config::task_executor_initial_split_concurrency,
+            std::chrono::milliseconds(100), std::nullopt));
 #endif
     // _max_bytes_in_queue controls the maximum memory that can be used by a single scan operator.
     // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
@@ -195,10 +205,29 @@ Status ScannerContext::init() {
     COUNTER_SET(_local_state->_max_scan_concurrency, (int64_t)_max_scan_concurrency);
     COUNTER_SET(_local_state->_min_scan_concurrency, (int64_t)_min_scan_concurrency);
 
+    //std::unique_lock<std::mutex> l(_transfer_lock);
+    //RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
+
     std::unique_lock<std::mutex> l(_transfer_lock);
-    RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
+    for (const std::weak_ptr<ScannerDelegate>& scanner : _all_scanners) {
+        RETURN_IF_ERROR(submit_scan_task(scanner, l));
+    }
 
     return Status::OK();
+}
+
+ScannerContext::~ScannerContext() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
+    _tasks_queue.clear();
+    vectorized::BlockUPtr block;
+    while (_free_blocks.try_dequeue(block)) {
+        // do nothing
+    }
+    block.reset();
+    DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
+    if (_task_handle) {
+        static_cast<void>(_scanner_scheduler->task_executor()->remove_task(_task_handle));
+    }
 }
 
 vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
@@ -231,15 +260,16 @@ void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
     }
 }
 
-Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task,
+Status ScannerContext::submit_scan_task(std::weak_ptr<ScannerDelegate> scanner,
                                         std::unique_lock<std::mutex>& /*transfer_lock*/) {
     // increase _num_finished_scanners no matter the scan_task is submitted successfully or not.
     // since if submit failed, it will be added back by ScannerContext::push_back_scan_task
     // and _num_finished_scanners will be reduced.
     // if submit succeed, it will be also added back by ScannerContext::push_back_scan_task
     // see ScannerScheduler::_scanner_scan.
+
     _num_scheduled_scanners++;
-    return _scanner_scheduler_global->submit(shared_from_this(), scan_task);
+    return _scanner_scheduler_global->submit(shared_from_this(), scanner);
 }
 
 void ScannerContext::clear_free_blocks() {
@@ -325,11 +355,11 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             if (scan_task->is_eos()) {
                 // 1. if eos, record a finished scanner.
                 _num_finished_scanners++;
-                RETURN_IF_ERROR(
-                        _scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
+                //RETURN_IF_ERROR(
+                //        _scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
             } else {
-                RETURN_IF_ERROR(
-                        _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l));
+                //RETURN_IF_ERROR(
+                //        _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l));
             }
         }
     }
@@ -357,7 +387,8 @@ Status ScannerContext::validate_block_schema(Block* block) {
         auto& data = block->get_by_position(index++);
         if (data.column->is_nullable() != data.type->is_nullable()) {
             return Status::Error<ErrorCode::INVALID_SCHEMA>(
-                    "column(name: {}) nullable({}) does not match type nullable({}), slot(id: {}, "
+                    "column(name: {}) nullable({}) does not match type nullable({}), slot(id: "
+                    "{}, "
                     "name:{})",
                     data.name, data.column->is_nullable(), data.type->is_nullable(), slot->id(),
                     slot->col_name());
@@ -387,6 +418,10 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
         }
     }
     _tasks_queue.clear();
+    if (_task_handle) {
+        static_cast<void>(_scanner_scheduler->task_executor()->remove_task(_task_handle));
+        _task_handle = nullptr;
+    }
     // TODO yiguolei, call mark close to scanners
     if (state->enable_profile()) {
         std::stringstream scanner_statistics;
@@ -527,7 +562,8 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
 
     bool first_pull = true;
 
-    while (margin-- > 0) {
+    //while (margin-- > 0) {
+    while (true) {
         std::shared_ptr<ScanTask> task_to_run;
         const int32_t current_concurrency =
                 _tasks_queue.size() + _num_scheduled_scanners + tasks_to_submit.size();
@@ -574,7 +610,7 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
                               _pending_scanners.size());
 
     for (auto& scan_task_iter : tasks_to_submit) {
-        Status submit_status = submit_scan_task(scan_task_iter, transfer_lock);
+        Status submit_status = submit_scan_task(scan_task_iter->scanner, transfer_lock);
         if (!submit_status.ok()) {
             _process_status = submit_status;
             _set_scanner_done();
@@ -589,7 +625,8 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
         std::shared_ptr<ScanTask> current_scan_task, int32_t current_concurrency) {
     if (current_concurrency >= _max_scan_concurrency) {
         VLOG_DEBUG << fmt::format(
-                "ScannerContext {} current concurrency {} >= _max_scan_concurrency {}, skip pull",
+                "ScannerContext {} current concurrency {} >= _max_scan_concurrency {}, skip "
+                "pull",
                 ctx_id, current_concurrency, _max_scan_concurrency);
         return nullptr;
     }
