@@ -402,7 +402,7 @@ public class StringArithmetic {
      * Executable arithmetic functions ConcatWs
      */
     @ExecFunction(name = "concat_ws")
-    public static Expression concatWsVarcharVarchar(StringLikeLiteral first, VarcharLiteral... second) {
+    public static Expression concatWsVarcharVarchar(StringLikeLiteral first, StringLikeLiteral... second) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < second.length - 1; i++) {
             sb.append(second[i].getValue());
@@ -469,7 +469,7 @@ public class StringArithmetic {
      * Executable arithmetic functions md5
      */
     @ExecFunction(name = "md5sum")
-    public static Expression md5Sum(VarcharLiteral... first) {
+    public static Expression md5Sum(StringLikeLiteral... first) {
         try {
             // Step 1: Create a MessageDigest instance for MD5
             MessageDigest md = MessageDigest.getInstance("MD5");
@@ -611,7 +611,7 @@ public class StringArithmetic {
      * Executable arithmetic functions field
      */
     @ExecFunction(name = "field")
-    public static Expression fieldVarchar(StringLikeLiteral first, VarcharLiteral... second) {
+    public static Expression fieldVarchar(StringLikeLiteral first, StringLikeLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
 
