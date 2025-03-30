@@ -94,10 +94,6 @@ using FunctionMicroSecToDateTime = TimestampToDateTime<MicroSec>;
 using FunctionMilliSecToDateTime = TimestampToDateTime<MilliSec>;
 using FunctionSecToDateTime = TimestampToDateTime<Sec>;
 
-using FunctionMonthsBetweenDate = FunctionMonthsBetween<ColumnDateV2, DateV2ValueType, UInt32>;
-using FunctionMonthsBetweenDateTime =
-        FunctionMonthsBetween<ColumnDateTimeV2, DateTimeV2ValueType, UInt64>;
-
 void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddSeconds>();
     factory.register_function<FunctionAddMinutes>();
@@ -140,8 +136,7 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMicroSecToDateTime>();
     factory.register_function<FunctionMilliSecToDateTime>();
     factory.register_function<FunctionSecToDateTime>();
-    factory.register_function<FunctionMonthsBetweenDate>();
-    factory.register_function<FunctionMonthsBetweenDateTime>();
+    factory.register_function<FunctionMonthsBetween>();
 
     // alias
     factory.register_alias("days_add", "date_add");

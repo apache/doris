@@ -998,7 +998,6 @@ protected:
     }
 };
 
-template <typename ColumnType, typename DateValueType, typename NativeType>
 class FunctionMonthsBetween : public IFunction {
 public:
     static constexpr auto name = "months_between";
@@ -1014,6 +1013,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         CHECK_EQ(arguments.size(), 3);
         auto res = ColumnFloat64::create();
+        res->reserve(input_rows_count);
 
         bool col_const[3];
         ColumnPtr argument_columns[3];
@@ -1023,13 +1023,13 @@ public:
         default_preprocess_parameter_columns(argument_columns, col_const, {0, 1, 2}, block,
                                              arguments);
 
-        const auto& date1_col = *assert_cast<const ColumnType*>(argument_columns[0].get());
-        const auto& date2_col = *assert_cast<const ColumnType*>(argument_columns[1].get());
+        const auto& date1_col = *assert_cast<const ColumnDateV2*>(argument_columns[0].get());
+        const auto& date2_col = *assert_cast<const ColumnDateV2*>(argument_columns[1].get());
         const auto& round_off_col = *assert_cast<const ColumnBool*>(argument_columns[2].get());
 
         auto calc_months_between = [](const auto& date1, const auto& date2, bool round_off) {
-            auto dtv1 = binary_cast<NativeType, DateV2Value<DateValueType>>(date1);
-            auto dtv2 = binary_cast<NativeType, DateV2Value<DateValueType>>(date2);
+            auto dtv1 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date1);
+            auto dtv2 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date2);
             double months_between = (dtv1.daynr() - dtv2.daynr()) / 31.0;
             // rounded to 8 digits unless roundOff=false.
             if (round_off) {
