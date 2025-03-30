@@ -18,7 +18,7 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 import org.apache.doris.regression.suite.SuiteCluster
 
-suite("test_create_table_exception") {
+suite("test_create_table_exception", "docker") {
     def options = new ClusterOptions()
     options.enableDebugPoints()
     options.setFeNum(3)

@@ -33,6 +33,7 @@ import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
+import org.apache.doris.regression.RegressionTest
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
@@ -262,6 +263,11 @@ class Suite implements GroovyInterceptable {
     public void docker(ClusterOptions options = new ClusterOptions(), Closure actionSupplier) throws Exception {
         if (context.config.excludeDockerTest) {
             return
+        }
+
+        if (RegressionTest.getGroupExecType(group) != RegressionTest.GroupExecType.DOCKER) {
+            throw new Exception("Need to add 'docker' to docker suite's belong groups, "
+                    + "see example demo_p0/docker_action.groovy")
         }
 
         boolean pipelineIsCloud = isCloudMode()
@@ -1398,6 +1404,13 @@ class Suite implements GroovyInterceptable {
     }
 
     DebugPoint GetDebugPoint() {
+        def execType = RegressionTest.getGroupExecType(group);
+        if (execType != RegressionTest.GroupExecType.SINGLE
+            && execType != RegressionTest.GroupExecType.DOCKER) {
+            throw new Exception("Debug point must use in nonConcurrent suite or docker suite, "
+                    + "need add 'nonConcurrent' or 'docker' to suite's belong groups, "
+                    + "see example demo_p0/debugpoint_action.groovy.")
+        }
         return debugPoint
     }
 

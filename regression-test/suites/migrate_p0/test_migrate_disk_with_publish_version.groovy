@@ -18,7 +18,10 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 
-suite('test_migrate_disk_with_publish_version') {
+suite('test_migrate_disk_with_publish_version', 'docker') {
+    if (isCloudMode()) {
+        return
+    }
     def checkTabletOnHDD = { isOnHdd ->
         sleep 5000
 
