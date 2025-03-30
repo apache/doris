@@ -100,9 +100,9 @@ TEST(StringOPTest, testStringPushOperations) {
 
 TEST(StringOPTest, testPushValueStringReservedAndAllowOverFlow) {
     // Create expected result column with various string types
-    std::vector<std::string> expected_strings = {"", "abc", "中文测试", "", "   ", "!@#$%^&*()",
-                                                 "1234567890", "xxxxxx",
-                                                 "a", "   ", "!@#$%^&*()"};
+    std::vector<std::string> expected_strings = {"",    "abc",        "中文测试",   "",
+                                                 "   ", "!@#$%^&*()", "1234567890", "xxxxxx",
+                                                 "a",   "   ",        "!@#$%^&*()"};
     std::vector<uint8_t> null_flags = {false, false, false, true,  false, false,
                                        false, false, false, false, false}; // The fourth one is NULL
 
