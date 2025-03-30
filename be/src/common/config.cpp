@@ -635,7 +635,7 @@ DEFINE_Int32(num_cores, "0");
 DEFINE_Bool(ignore_broken_disk, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
-DEFINE_mInt32(memory_maintenance_sleep_time_ms, "20");
+DEFINE_mInt32(memory_maintenance_sleep_time_ms, "50");
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
@@ -1258,6 +1258,9 @@ DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 // Ingest binlog with persistent connection
 DEFINE_Bool(enable_ingest_binlog_with_persistent_connection, "false");
 
+// Log ingest binlog elapsed threshold, -1 is disabled
+DEFINE_mInt64(ingest_binlog_elapsed_threshold_ms, "-1");
+
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
@@ -1450,7 +1453,7 @@ DEFINE_Bool(enable_table_size_correctness_check, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
-DEFINE_mInt32(compaction_num_per_round, "1");
+DEFINE_mInt32(compaction_num_per_round, "4");
 
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");

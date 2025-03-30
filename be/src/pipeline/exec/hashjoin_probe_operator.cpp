@@ -73,15 +73,21 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(JoinProbeLocalState::open(state));
 
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
+    Status res;
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
                 using JoinOpType = std::decay_t<decltype(join_op_variants)>;
-                _process_hashtable_ctx_variants->emplace<ProcessHashTableProbe<JoinOpType::value>>(
-                        this, state->batch_size());
+                if constexpr (JoinOpType::value == TJoinOp::CROSS_JOIN) {
+                    res = Status::InternalError("hash join do not support cross join");
+                } else {
+                    _process_hashtable_ctx_variants
+                            ->emplace<ProcessHashTableProbe<JoinOpType::value>>(
+                                    this, state->batch_size());
+                }
             },
             _shared_state->join_op_variants,
             vectorized::make_bool_variant(p._have_other_join_conjunct));
-    return Status::OK();
+    return res;
 }
 
 void HashJoinProbeLocalState::prepare_for_next() {
@@ -221,7 +227,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                             st = process_hashtable_ctx.process(
                                     arg,
                                     local_state._null_map_column
-                                            ? &local_state._null_map_column->get_data()
+                                            ? local_state._null_map_column->get_data().data()
                                             : nullptr,
                                     mutable_join_block, &temp_block,
                                     cast_set<uint32_t>(local_state._probe_block.rows()),

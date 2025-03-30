@@ -15,12 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gen_cpp/PlanNodes_types.h>
+package org.apache.doris.nereids.trees.plans.commands;
 
-#include "process_hash_table_probe_impl.h"
+import org.apache.doris.analysis.StmtType;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
-namespace doris::pipeline {
+/**
+ * base class for all kill commands
+ */
+public abstract class KillCommand extends Command implements ForwardWithSync {
+    public KillCommand(PlanType type) {
+        super(type);
+    }
 
-INSTANTIATION_FOR(TJoinOp::CROSS_JOIN);
+    @Override
+    public StmtType stmtType() {
+        return StmtType.KILL;
+    }
 
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        doRun(ctx, executor);
+    }
+
+    public abstract void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception;
 }

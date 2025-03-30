@@ -50,18 +50,14 @@ struct ProcessHashTableProbe {
 
     void probe_side_output_column(vectorized::MutableColumns& mcol, int size, bool all_match_one);
 
-    template <typename HashTableType>
-    Status process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
-                   vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
-                   uint32_t probe_rows, bool is_mark_join);
-
     // Only process the join with no other join conjunct, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe
-    template <typename HashTableType, bool is_mark_join>
-    Status do_process(HashTableType& hash_table_ctx, const uint8_t* null_map,
-                      vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
-                      uint32_t probe_rows);
+    template <typename HashTableType>
+    Status process(HashTableType& hash_table_ctx, const uint8_t* null_map,
+                   vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
+                   uint32_t probe_rows, bool is_mark_join);
+
     // In the presence of other join conjunct, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different

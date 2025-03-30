@@ -21,7 +21,7 @@ under the License.
 
 	1. mvn clean install -U
     2. mvn package
-	3. java --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED -cp java-0.1.jar doris.arrowflight.demo.Main "sql" "fe_ip" "fe_arrow_flight_port" "fe_query_port"
+	3. java --add-opens=java.base/java.nio=ALL-UNNAMED -cp target/java-0.1.jar doris.arrowflight.demo.Main "sql" "fe_ip" "fe_arrow_flight_port" "fe_query_port"
 
 # What can this demo do:
 
@@ -33,3 +33,14 @@ under the License.
 
     Section 6.2 of https://github.com/apache/doris/issues/25514 is the performance test
     results of the doris arrow flight sql using java.
+
+# Notes
+
+    If the following error occurs:
+    - `module java.base does not "opens java.nio" to unnamed module`
+    - `module java.base does not "opens java.nio" to org.apache.arrow.memory.core`
+    - `java.lang.NoClassDefFoundError: Could not initialize class org.apache.arrow.memory.util.MemoryUtil (Internal; Prepare)`
+
+    First, add `--add-opens=java.base/java.nio=ALL-UNNAMED` to `JAVA_OPTS_FOR_JDK_17` in fe/conf/fe.conf. Then add `--add-opens=java.base/java.nio=ALL-UNNAMED` in the Java command. If debugging in IntelliJ IDEA, add `--add-opens=java.base/java.nio=ALL-UNNAMED` in `Build and run` of `Run/Debug Configurations`.
+
+    For more details, refer to [JDBC Connector with Arrow Flight SQL] and [Java Usage] in the document https://doris.apache.org/zh-CN/docs/dev/db-connect/arrow-flight-sql-connect
