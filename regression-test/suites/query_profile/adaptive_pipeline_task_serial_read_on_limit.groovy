@@ -65,7 +65,20 @@ def verifyProfileContent = { stmt, serialReadOnLimit ->
     if (serialReadOnLimit) {
         return profileContent.contains("- MaxScannerThreadNum: 1") == true
     } else {
-        return !profileContent.contains("- MaxScannerThreadNum: 1") == true
+        if !(profileContent.contains("- MaxScannerThreadNum: 1")) {
+            return true
+        }
+        // Split profileContext by using "\n"
+        // Count the number of lines that contains "MaxScannerThreadNum"
+        def lines = profileContent.split("\n")
+        def count = 0
+        for (def line : lines) {
+            if (line.contains("MaxScannerThreadNum")) {
+                count++
+            }
+        }
+        // For multiple backends, there should be more than one line that contains "MaxScannerThreadNum".
+        return count > 1
     }
 }
 
