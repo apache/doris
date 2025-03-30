@@ -56,6 +56,8 @@ class Scanner;
 class ScannerDelegate;
 class ScannerScheduler;
 class SimplifiedScanScheduler;
+class TaskExecutor;
+class TaskHandle;
 
 class ScanTask {
 public:
@@ -63,6 +65,10 @@ public:
         _resource_ctx = thread_context()->resource_ctx();
         DorisMetrics::instance()->scanner_task_cnt->increment(1);
     }
+
+    ScanTask(std::shared_ptr<ResourceContext> resource_ctx,
+             std::weak_ptr<ScannerDelegate> delegate_scanner)
+            : _resource_ctx(std::move(resource_ctx)), scanner(delegate_scanner) {}
 
     ~ScanTask() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
@@ -114,16 +120,7 @@ public:
                    int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency,
                    int num_parallel_instances);
 
-    ~ScannerContext() override {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
-        _tasks_queue.clear();
-        vectorized::BlockUPtr block;
-        while (_free_blocks.try_dequeue(block)) {
-            // do nothing
-        }
-        block.reset();
-        DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
-    }
+    ~ScannerContext() override;
     Status init();
 
     vectorized::BlockUPtr get_free_block(bool force);
@@ -146,7 +143,7 @@ public:
     // set the next scanned block to `ScanTask::current_block`
     // set the error state to `ScanTask::status`
     // set the `eos` to `ScanTask::eos` if there is no more data in current scanner
-    Status submit_scan_task(std::shared_ptr<ScanTask> scan_task, std::unique_lock<std::mutex>&);
+    Status submit_scan_task(std::weak_ptr<ScannerDelegate> scanner, std::unique_lock<std::mutex>&);
 
     // Push back a scan task.
     void push_back_scan_task(std::shared_ptr<ScanTask> scan_task);
@@ -155,6 +152,10 @@ public:
     bool done() const { return _is_finished || _should_stop; }
 
     std::string debug_string();
+
+    std::shared_ptr<TaskHandle> task_handle() const { return _task_handle; }
+
+    std::shared_ptr<ResourceContext> resource_ctx() const { return _resource_ctx; }
 
     RuntimeState* state() { return _state; }
 
@@ -237,6 +238,7 @@ protected:
     std::shared_ptr<ResourceContext> _resource_ctx;
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
     const int _parallism_of_scan_operator;
+    std::shared_ptr<doris::vectorized::TaskHandle> _task_handle;
 
     std::atomic<int64_t> _block_memory_usage = 0;
 

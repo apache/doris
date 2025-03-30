@@ -15,17 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gmock/gmock.h>
+#pragma once
+#include <memory>
+#include <string>
 
 #include "common/status.h"
-#include "vec/exec/scan/scanner_scheduler.h"
+#include "vec/exec/executor/listenable_future.h"
 
-namespace doris::vectorized {
-class MockScannerScheduler : ScannerScheduler {
+namespace doris {
+namespace vectorized {
+
+class SplitRunner {
 public:
-    MockScannerScheduler() = default;
-
-    MOCK_METHOD2(submit,
-                 Status(std::shared_ptr<ScannerContext>, std::weak_ptr<ScannerDelegate> scanner));
+    virtual ~SplitRunner() = default;
+    virtual Status init() = 0;
+    virtual Result<SharedListenableFuture<Void>> process_for(std::chrono::nanoseconds duration) = 0;
+    virtual void close(const Status& status) = 0;
+    virtual bool is_finished() = 0;
+    virtual Status finished_status() = 0;
+    virtual std::string get_info() const = 0;
 };
-} // namespace doris::vectorized
+
+} // namespace vectorized
+} // namespace doris
