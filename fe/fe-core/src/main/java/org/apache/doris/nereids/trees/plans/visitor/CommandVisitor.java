@@ -112,6 +112,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowClustersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowColumnHistogramStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
@@ -822,6 +823,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowConvertLscCommand(ShowConvertLSCCommand showConvertLSCCommand, C context) {
         return visitCommand(showConvertLSCCommand, context);
+    }
+
+    default R visitShowClustersCommand(ShowClustersCommand showClustersCommand, C context) {
+        return visitCommand(showClustersCommand, context);
     }
 
     default R visitSwitchCommand(SwitchCommand switchCommand, C context) {

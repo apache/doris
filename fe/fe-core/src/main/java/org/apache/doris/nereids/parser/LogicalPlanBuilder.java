@@ -302,6 +302,7 @@ import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackupContext;
 import org.apache.doris.nereids.DorisParser.ShowBrokerContext;
 import org.apache.doris.nereids.DorisParser.ShowCharsetContext;
+import org.apache.doris.nereids.DorisParser.ShowClustersContext;
 import org.apache.doris.nereids.DorisParser.ShowCollationContext;
 import org.apache.doris.nereids.DorisParser.ShowColumnHistogramStatsContext;
 import org.apache.doris.nereids.DorisParser.ShowConfigContext;
@@ -619,6 +620,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowClustersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowColumnHistogramStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
@@ -6374,6 +6376,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDropExpiredStats(DorisParser.DropExpiredStatsContext ctx) {
         return new DropExpiredStatsCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowClusters(ShowClustersContext ctx) {
+        boolean showComputeGroups = ctx.COMPUTE() != null;
+        return new ShowClustersCommand(showComputeGroups);
     }
 
     @Override
