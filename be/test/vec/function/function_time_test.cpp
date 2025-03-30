@@ -1773,4 +1773,16 @@ TEST(VTimestampFunctionsTest, seconds_sub_v2_test) {
     }
 }
 
+TEST(VTimestampFunctionsTest, year_of_week_test) {
+    std::string func_name = "year_of_week";
+    {
+        InputTypeSet input_types = {TypeIndex::DateV2};
+        DataSet data_set = {{{std::string("2005-01-01")}, int16_t(2004)},
+                            {{std::string("2008-12-30")}, int16_t(2009)},
+                            {{std::string("12008-12-30")}, Null()},
+                            {{Null()}, Null()}};
+        static_cast<void>(check_function<DataTypeInt16, true>(func_name, input_types, data_set));
+    }
+}
+
 } // namespace doris::vectorized
