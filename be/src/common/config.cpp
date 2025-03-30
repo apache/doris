@@ -293,6 +293,25 @@ DEFINE_Int32(be_service_threads, "64");
 // The pipeline task has a high concurrency, therefore reducing its report frequency
 DEFINE_mInt32(pipeline_status_report_interval, "10");
 DEFINE_mInt32(pipeline_task_exec_time_slice, "100");
+
+DEFINE_Int32(task_executor_initial_split_concurrency, "-1");
+DEFINE_Validator(task_executor_initial_split_concurrency, [](const int config) -> bool {
+    if (config == -1) {
+        CpuInfo::init();
+        task_executor_initial_split_concurrency = std::max(48, CpuInfo::num_cores() * 2);
+    }
+    return true;
+});
+
+DEFINE_Int32(task_executor_min_concurrency_per_task, "3");
+DEFINE_Int32(task_executor_max_concurrency_per_task, "-1");
+DEFINE_Validator(task_executor_max_concurrency_per_task, [](const int config) -> bool {
+    if (config == -1) {
+        task_executor_max_concurrency_per_task = std::numeric_limits<int>::max();
+    }
+    return true;
+});
+
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
