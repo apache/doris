@@ -138,6 +138,8 @@ public interface TableIf {
 
     void setNewFullSchema(List<Column> newSchema);
 
+    void setAccessTime();
+
     Column getColumn(String name);
 
     default int getBaseColumnIdxByName(String colName) {
@@ -177,6 +179,8 @@ public interface TableIf {
     long getIndexLength();
 
     long getLastCheckTime();
+
+    long getAccessTime();
 
     String getComment(boolean escapeQuota);
 
