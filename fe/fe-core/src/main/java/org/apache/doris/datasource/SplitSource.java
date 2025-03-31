@@ -99,21 +99,19 @@ public class SplitSource {
                     if (splitCollection != null) {
                         splitCollection.forEach(assignmentSplitInfo -> {
                             TScanRangeLocations scanRangeLocation = assignmentSplitInfo.getScanRangeLocation();
-                            if (sv.showSplitProfileInfo()) {
+                            if (sv.showSplitProfileInfo() && executor != null) {
                                 int splitId = splitAssignment.getSplitId();
                                 scanRangeLocation.getScanRange().getExtScanRange()
                                         .getFileScanRange().getRanges().forEach(range -> range.setSplitId(splitId));
                                 assignmentSplitInfo.setSplitId(splitId);
-                                if (executor != null) {
-                                    executor.getSummaryProfile()
-                                            .setSplitProfileInfo(
-                                                    backend,
-                                                    assignmentSplitInfo.getSplitProfileInfo());
-                                    executor.getSummaryProfile()
-                                            .setSplitWeightProfileInfoMap(
-                                                    backend,
-                                                    assignmentSplitInfo.getSplitWeight());
-                                }
+                                executor.getSummaryProfile()
+                                        .setSplitProfileInfo(
+                                                backend,
+                                                assignmentSplitInfo.getSplitProfileInfo());
+                                executor.getSummaryProfile()
+                                        .setSplitWeightProfileInfoMap(
+                                                backend,
+                                                assignmentSplitInfo.getSplitWeight());
                             }
                             scanRanges.add(scanRangeLocation);
                         });

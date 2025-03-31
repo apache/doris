@@ -102,7 +102,7 @@ public class SplitAssignment {
     private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
         for (Backend backend : batch.keySet()) {
             Collection<Split> splits = batch.get(backend);
-            List<AssignmentSplitInfoIf> assignmentEmptySplitInfos = new ArrayList<>(splits.size());
+            List<AssignmentSplitInfoIf> assignmentSplitInfoIfs = new ArrayList<>(splits.size());
             for (Split split : splits) {
                 TScanRangeLocations scanRange = splitToScanRange.getScanRange(
                         backend, locationProperties, split, pathPartitionKeys);
@@ -112,12 +112,12 @@ public class SplitAssignment {
                 } else {
                     assignmentEmptySplitInfo = AssignmentEmptySplitInfo.create(scanRange);
                 }
-                assignmentEmptySplitInfos.add(assignmentEmptySplitInfo);
+                assignmentSplitInfoIfs.add(assignmentEmptySplitInfo);
             }
             if (!assignment.computeIfAbsent(
                     backend,
                     be -> new LinkedBlockingQueue<>())
-                    .offer(assignmentEmptySplitInfos)) {
+                    .offer(assignmentSplitInfoIfs)) {
                 throw new UserException("Failed to offer batch split");
             }
         }

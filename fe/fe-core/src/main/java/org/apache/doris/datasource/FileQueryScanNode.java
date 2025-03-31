@@ -387,18 +387,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
                             splitToScanRange(backend, locationProperties, split, pathPartitionKeys);
                     scanRangeLocations.add(tScanRangeLocations);
                     totalFileSize += split.getLength();
-                    if (executor != null) {
-                        AssignmentSplitInfoIf assignmentSplitInfo;
-                        if (sessionVariable.showSplitProfileInfo()) {
-                            assignmentSplitInfo = split.toAssignmentSplitInfo(tScanRangeLocations);
-                            int id = splitId;
-                            tScanRangeLocations.getScanRange().getExtScanRange()
-                                    .getFileScanRange().getRanges().forEach(range -> range.setSplitId(id));
-                            assignmentSplitInfo.setSplitId(id);
-                            splitId++;
-                        } else {
-                            assignmentSplitInfo = AssignmentEmptySplitInfo.create(tScanRangeLocations);
-                        }
+                    if (sessionVariable.showSplitProfileInfo() && executor != null) {
+                        AssignmentSplitInfoIf assignmentSplitInfo = split.toAssignmentSplitInfo(tScanRangeLocations);
+                        int id = splitId;
+                        tScanRangeLocations.getScanRange().getExtScanRange()
+                                .getFileScanRange().getRanges().forEach(range -> range.setSplitId(id));
+                        assignmentSplitInfo.setSplitId(id);
+                        splitId++;
+
                         executor.getSummaryProfile()
                                 .setSplitProfileInfo(
                                     backend,
