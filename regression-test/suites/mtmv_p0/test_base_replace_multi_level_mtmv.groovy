@@ -127,13 +127,46 @@ suite("test_base_replace_multi_level_mtmv","mtmv") {
     sql """
         ALTER TABLE ${tableName1} REPLACE WITH TABLE ${tableName2} PROPERTIES('swap' = 'true');
         """
-    order_qt_drop_t1_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
-    order_qt_drop_t1_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
-    order_qt_drop_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
-    order_qt_drop_t1_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
+    order_qt_replace_t1_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
+    order_qt_replace_t1_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
+    order_qt_replace_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
+    order_qt_replace_t1_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
 
     mv_not_part_in(querySql, mvName2)
     mv_not_part_in(querySql, mvName1)
     mv_not_part_in(querySql, mvName3)
     mv_not_part_in(querySql, mvName4)
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName1} auto
+        """
+    waitingMTMVTaskFinishedByMvName(mvName1)
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName2} auto
+        """
+    waitingMTMVTaskFinishedByMvName(mvName2)
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName3} auto
+        """
+    waitingMTMVTaskFinishedByMvName(mvName3)
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName4} auto
+        """
+    waitingMTMVTaskFinishedByMvName(mvName4)
+
+    order_qt_refresh_t1_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
+    order_qt_refresh_t1_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
+    order_qt_refresh_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
+    order_qt_refresh_t1_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
+
+
+    mv_rewrite_success_without_check_chosen(querySql, mvName1)
+    mv_rewrite_success_without_check_chosen(querySql, mvName2)
+    mv_rewrite_success_without_check_chosen(querySql, mvName3)
+    mv_rewrite_success_without_check_chosen(querySql, mvName4)
+
+
 }
