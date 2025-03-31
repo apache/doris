@@ -389,7 +389,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     totalFileSize += split.getLength();
                     if (executor != null) {
                         AssignmentSplitInfoIf assignmentSplitInfo;
-                        if (sessionVariable.enableProfile()) {
+                        if (sessionVariable.showSplitProfileInfo()) {
                             assignmentSplitInfo = split.toAssignmentSplitInfo(tScanRangeLocations);
                             int id = splitId;
                             tScanRangeLocations.getScanRange().getExtScanRange()

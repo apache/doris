@@ -107,8 +107,7 @@ public class SplitAssignment {
                 TScanRangeLocations scanRange = splitToScanRange.getScanRange(
                         backend, locationProperties, split, pathPartitionKeys);
                 AssignmentSplitInfoIf assignmentEmptySplitInfo;
-                // TODO mmc 判断是否使能了profile
-                if (sv.enableProfile()) {
+                if (sv.showSplitProfileInfo()) {
                     assignmentEmptySplitInfo = split.toAssignmentSplitInfo(scanRange);
                 } else {
                     assignmentEmptySplitInfo = AssignmentEmptySplitInfo.create(scanRange);

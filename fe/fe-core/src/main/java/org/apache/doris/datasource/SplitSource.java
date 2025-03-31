@@ -95,16 +95,11 @@ public class SplitSource {
                     if (splitCollection != null) {
                         splitCollection.forEach(assignmentSplitInfo -> {
                             TScanRangeLocations scanRangeLocation = assignmentSplitInfo.getScanRangeLocation();
-                            // TODO mmc 如果有profile，就设置id
-                            if (sv.enableProfile()) {
+                            if (sv.showSplitProfileInfo()) {
                                 int splitId = splitAssignment.getSplitId();
-                                // TODO mmc 往scanRangeLocation里面设置splitid
-//                                scanRangeLocation.setSplit_id(splitId);
                                 scanRangeLocation.getScanRange().getExtScanRange()
                                         .getFileScanRange().getRanges().forEach(range -> range.setSplitId(splitId));
                                 assignmentSplitInfo.setSplitId(splitId);
-                                // TODO mmc  splitProfileInfo这个好像不需要？
-//                                splitProfileInfo.offer(assignmentSplitInfo.getSplitProfileInfo());
                                 StmtExecutor executor = ConnectContext.get().getExecutor();
                                 if (executor != null) {
                                     executor.getSummaryProfile()

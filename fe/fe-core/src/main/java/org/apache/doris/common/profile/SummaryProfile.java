@@ -189,9 +189,8 @@ public class SummaryProfile {
             NEREIDS_BE_FOLD_CONST_TIME,
             SPLITS_ASSIGNMENT,
             SPLITS_ASSIGNMENT_WEIGHT,
-            SPLITS_ASSIGNMENT_SPLIT_INFO,
-            // TODO mmc 这里换下顺序
-            NEREIDS_GARBAGE_COLLECT_TIME
+            NEREIDS_GARBAGE_COLLECT_TIME,
+            SPLITS_ASSIGNMENT_SPLIT_INFO
     );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
