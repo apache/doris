@@ -44,11 +44,14 @@ public class CreateOutlineCommand extends Command implements ForwardWithSync {
 
     private final LogicalPlan query;
 
-    public CreateOutlineCommand(String outlineName, boolean ignoreExist, LogicalPlan query) {
+    private final String originalQuery;
+
+    public CreateOutlineCommand(String outlineName, boolean ignoreExist, LogicalPlan query, String originalQuery) {
         super(PlanType.CREATE_OUTLINE_COMMAND);
         this.outlineName = outlineName;
         this.ignoreExist = ignoreExist;
         this.query = query;
+        this.originalQuery = originalQuery;
     }
 
     @Override
@@ -63,7 +66,7 @@ public class CreateOutlineCommand extends Command implements ForwardWithSync {
         executor.setPlanner(planner);
         executor.checkBlockRules();
         OutlineInfo outlineInfo = new OutlineInfo(outlineName, "visibleSignature", "sqlId",
-                "sqlText", "outlineTarget", "outlineData");
+            originalQuery, "outlineTarget", "outlineData");
         OutlineMgr.createOutlineInternal(outlineInfo, ignoreExist, false);
     }
 

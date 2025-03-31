@@ -1877,12 +1877,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.query().size() == 1) {
             // only on query is declared
             LogicalPlan logicalPlan = visitQuery(ctx.query().get(0));
-            return new CreateOutlineCommand(outlineName, isReplace, logicalPlan);
+            String originalQuery = ctx.query().get(0).start.getInputStream()
+                .getText(new org.antlr.v4.runtime.misc.Interval(ctx.query().get(0).start.getStartIndex(), ctx.query().get(0).stop.getStopIndex()));
+            return new CreateOutlineCommand(outlineName, isReplace, logicalPlan, originalQuery);
         } else if (ctx.query().size() == 2) {
             // on query to query
         }
 
-        return new CreateOutlineCommand(outlineName, isReplace, null);
+        return new CreateOutlineCommand(outlineName, isReplace, null, "originalQuery");
     }
 
     @Override
