@@ -138,20 +138,37 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
     };
 
     RETURN_IF_ERROR(fill_column([this](auto tablet) { return _backend_id; }, 0));
-    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->table_id(); }, 1));
-    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->replica_id(); }, 2));
-    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->partition_id(); }, 3));
+    RETURN_IF_ERROR(fill_column(
+            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->table_id(); }, 1));
+    RETURN_IF_ERROR(fill_column(
+            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->replica_id(); }, 2));
+    RETURN_IF_ERROR(fill_column(
+            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->partition_id(); }, 3));
     RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_path(); }, 4));
-    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->tablet_local_size(); }, 5));
-    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->tablet_remote_size(); }, 6));
-    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return static_cast<int64_t>(tablet->tablet_meta()->version_count()); }, 7));
-    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->get_all_segments_size(); }, 8));
-    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->tablet_columns_num(); }, 9));
-    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return static_cast<int64_t>(tablet->row_size()); }, 10));
-    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->get_compaction_score(); }, 11));
-    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return CompressKind_Name(tablet->compress_kind()); }, 12));
-    RETURN_IF_ERROR(fill_boolean_column([](TabletSharedPtr tablet) { return tablet->is_used(); }, 13));
-    RETURN_IF_ERROR(fill_boolean_column([](TabletSharedPtr tablet) { return tablet->is_alter_failed(); }, 14));
+    RETURN_IF_ERROR(fill_column(
+            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->tablet_local_size(); }, 5));
+    RETURN_IF_ERROR(fill_column(
+            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->tablet_remote_size(); }, 6));
+    RETURN_IF_ERROR(fill_column(
+            [](TabletSharedPtr tablet) {
+                return static_cast<int64_t>(tablet->tablet_meta()->version_count());
+            },
+            7));
+    RETURN_IF_ERROR(fill_column(
+            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->get_all_segments_size(); },
+            8));
+    RETURN_IF_ERROR(fill_column(
+            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->tablet_columns_num(); }, 9));
+    RETURN_IF_ERROR(fill_column(
+            [](TabletSharedPtr tablet) { return static_cast<int64_t>(tablet->row_size()); }, 10));
+    RETURN_IF_ERROR(
+            fill_column([](TabletSharedPtr tablet) { return tablet->get_compaction_score(); }, 11));
+    RETURN_IF_ERROR(fill_column(
+            [](TabletSharedPtr tablet) { return CompressKind_Name(tablet->compress_kind()); }, 12));
+    RETURN_IF_ERROR(
+            fill_boolean_column([](TabletSharedPtr tablet) { return tablet->is_used(); }, 13));
+    RETURN_IF_ERROR(fill_boolean_column(
+            [](TabletSharedPtr tablet) { return tablet->is_alter_failed(); }, 14));
 
     _tablets_idx += fill_tablets_num;
     return Status::OK();
