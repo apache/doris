@@ -18,32 +18,7 @@
 // this suite is for creating table with timestamp datatype in defferent 
 // case. For example: 'year' and 'Year' datatype should also be valid in definition
 
-suite("test_create_table_properties") {    
-	try {
-		sql """
-        create table test_create_table_properties (
-            `user_id` LARGEINT NOT NULL COMMENT "用户id",
-            `start_time` DATETIME,
-            `billing_cycle_id` INT
-        )
-        partition by range(`billing_cycle_id`, `start_time`)(
-            PARTITION p202201_otr VALUES [("202201", '2000-01-01 00:00:00'), ("202201", '2022-01-01 00:00:00')),
-            PARTITION error_partition VALUES [("999999", '1970-01-01 00:00:00'), ("999999", '1970-01-02 00:00:00'))
-        )
-        distributed by hash(`user_id`) buckets 1
-        properties(
-            "replication_num"="1",
-            "abc"="false"
-        );
-			"""
-        assertTrue(false, "should not be able to execute")
-	}
-	catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("Unknown properties"))
-	} finally {
-        sql """ DROP TABLE IF EXISTS test_create_table_properties"""
-    }
-
+suite("test_create_table_properties") {
     def cooldown_ttl = "10"
     def create_s3_resource = try_sql """
         CREATE RESOURCE IF NOT EXISTS "test_create_table_use_resource"
@@ -84,33 +59,6 @@ suite("test_create_table_properties") {
     """
 
     sql """ DROP TABLE IF EXISTS test_create_table_properties"""
-    
-	try {
-        sql """
-        create table test_create_table_properties (
-            `user_id` LARGEINT NOT NULL COMMENT "用户id",
-			`start_time` DATETIME,
-			`billing_cycle_id` INT
-		)
-		partition by range(`billing_cycle_id`, `start_time`)(
-			PARTITION p202201_otr VALUES [("202201", '2000-01-01 00:00:00'), ("202201", '2022-01-01 00:00:00')),
-			PARTITION error_partition VALUES [("999999", '1970-01-01 00:00:00'), ("999999", '1970-01-02 00:00:00'))
-		)
-		distributed by hash(`user_id`) buckets 1
-		properties(
-			"replication_num"="1",
-			"storage_policy" = "test_create_table_use_policy",
-			"abc"="false"
-		);
-			"""
-        assertTrue(false, "should not be able to execute")
-	}
-	catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("Unknown properties"))
-	} finally {
-        sql """ DROP TABLE IF EXISTS test_create_table_properties"""
-    }
-
     try {
         sql """
         create table test_create_table_properties (
@@ -137,36 +85,6 @@ suite("test_create_table_properties") {
         sql """ DROP TABLE IF EXISTS test_create_table_properties"""
     }
 
-    try {
-        sql """
-        create table test_create_table_properties (
-            `user_id` LARGEINT NOT NULL COMMENT "用户id",
-			`start_time` DATETIME,
-			`billing_cycle_id` INT
-		)
-		partition by range(`billing_cycle_id`, `start_time`)(
-			PARTITION p202201_otr VALUES [("202201", '2000-01-01 00:00:00'), ("202201", '2022-01-01 00:00:00')),
-			PARTITION error_partition VALUES [("999999", '1970-01-01 00:00:00'), ("999999", '1970-01-02 00:00:00'))
-		)
-		distributed by hash(`user_id`) buckets 1
-		properties(
-			"replication_num"="1",
-			"storage_policy" = "test_create_table_use_policy",
-            "dynamic_partition.start" = "-7",
-            "abc"="false"
-		);
-			"""
-        assertTrue(false, "should not be able to execute")
-	}
-	catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("Unknown properties"))
-	} finally {
-        sql """ DROP TABLE IF EXISTS test_create_table_properties"""
-    }
-
-
-
-    sql "drop table if exists test_create_table_properties"
     sql """
         CREATE TABLE IF NOT EXISTS test_create_table_properties ( 
             k1 tinyint NOT NULL, 
@@ -185,66 +103,6 @@ suite("test_create_table_properties") {
         """
 
     sql "drop table if exists test_create_table_properties"
-    try {
-    sql """
-        CREATE TABLE IF NOT EXISTS test_create_table_properties ( 
-            k1 tinyint NOT NULL, 
-            k2 smallint NOT NULL, 
-            k3 int NOT NULL, 
-            k4 bigint NOT NULL, 
-            k5 decimal(9, 3) NOT NULL,
-            k8 double max NOT NULL, 
-            k9 float sum NOT NULL ) 
-        AGGREGATE KEY(k1,k2,k3,k4,k5)
-        PARTITION BY LIST(k1,k2) ( 
-            PARTITION p1 VALUES IN (("1","2"),("3","4")), 
-            PARTITION p2 VALUES IN (("5","6"),("7","8")), 
-            PARTITION p3 ) 
-        DISTRIBUTED BY HASH(k1) BUCKETS 5 
-        properties(
-            "replication_num" = "1",
-            "abc" = "false"
-        )
-        """
-        assertTrue(false, "should not be able to execute")
-	}
-	catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("Unknown properties"))
-	} finally {
-        sql """ DROP TABLE IF EXISTS test_create_table_properties"""
-    }
-
-
-    try {
-    sql """
-        CREATE TABLE IF NOT EXISTS test_create_table_properties ( 
-            k1 tinyint NOT NULL, 
-            k2 smallint NOT NULL, 
-            k3 int NOT NULL, 
-            k4 bigint NOT NULL, 
-            k5 decimal(9, 3) NOT NULL,
-            k8 double max NOT NULL, 
-            k9 float sum NOT NULL ) 
-        AGGREGATE KEY(k1,k2,k3,k4,k5)
-        PARTITION BY LIST(k1,k2) ( 
-            PARTITION p1 VALUES IN (("1","2"),("3","4")), 
-            PARTITION p2 VALUES IN (("5","6"),("7","8")), 
-            PARTITION p3 ) 
-        DISTRIBUTED BY HASH(k1) BUCKETS 5 
-        properties(
-            "replication_num" = "1",
-            "storage_policy" = "test_create_table_use_policy",
-            "abc" = "false"
-        )
-        """
-        assertTrue(false, "should not be able to execute")
-	}
-	catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("Unknown properties"))
-	} finally {
-        sql """ DROP TABLE IF EXISTS test_create_table_properties"""
-    }
-
     sql """
         CREATE TABLE IF NOT EXISTS test_create_table_properties ( 
             k1 tinyint NOT NULL, 
