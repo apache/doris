@@ -114,7 +114,8 @@ public class SimpleOptimizer extends DefaultPlanRewriter<Void> {
                 olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
                 Optional.empty(),
                 olapScan.getLogicalProperties(),
-                olapScan.getTableSample());
+                olapScan.getTableSample(),
+                olapScan.getOperativeSlots());
     }
 
     @Override
