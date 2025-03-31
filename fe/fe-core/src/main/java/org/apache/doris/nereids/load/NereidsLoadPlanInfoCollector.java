@@ -192,9 +192,9 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                 }
             }
 
-            // for (Map.Entry<SlotId, SlotId> entry : destSlotIdToSrcSlotIdWithoutTrans.entrySet()) {
-            //     params.putToDestSidToSrcSidWithoutTrans(entry.getKey().asInt(), entry.getValue().asInt());
-            // }
+            for (Map.Entry<SlotId, SlotId> entry : destSlotIdToSrcSlotIdWithoutTrans.entrySet()) {
+                params.putToDestSidToSrcSidWithoutTrans(entry.getKey().asInt(), entry.getValue().asInt());
+            }
 
             params.setStrictMode(fileGroupInfo.isStrictMode());
 
