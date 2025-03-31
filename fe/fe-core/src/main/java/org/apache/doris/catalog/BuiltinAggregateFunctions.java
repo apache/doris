@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.DSHllCountDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitOr;
@@ -140,6 +141,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(MultiDistinctSum.class, "multi_distinct_sum"),
             agg(MultiDistinctSum0.class, "multi_distinct_sum0"),
             agg(Ndv.class, "approx_count_distinct", "ndv"),
+            agg(DSHllCountDistinct.class, "ds_hll_count_distinct"),
             agg(OrthogonalBitmapExprCalculate.class, "orthogonal_bitmap_expr_calculate"),
             agg(OrthogonalBitmapExprCalculateCount.class, "orthogonal_bitmap_expr_calculate_count"),
             agg(OrthogonalBitmapIntersect.class, "orthogonal_bitmap_intersect"),

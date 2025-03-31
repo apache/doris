@@ -538,6 +538,12 @@ PUGIXML_NAME=pugixml-1.15.tar.gz
 PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
+# datasketches
+DATASKETCHES_DOWNLOAD="https://github.com/apache/datasketches-cpp/archive/refs/tags/5.2.0.tar.gz"
+DATASKETCHES_NAME="datasketches-cpp-5.2.0.tar.gz"
+DATASKETCHES_SOURCE="datasketches-cpp-5.2.0"
+DATASKETCHES_MD5SUM="f6d606295cac2bdd6231ee0e8cf00313"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -618,6 +624,7 @@ export TP_ARCHIVES=(
     'ICU'
     'JINDOFS'
     'PUGIXML'
+    'DATASKETCHES'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

@@ -187,3 +187,12 @@
 -- !select_histogram_k13_all_null --
 {"num_buckets":0,"buckets":[]}
 
+-- !ds_hll_count_distinct --
+0	0	6	0	0	0	0	0	0	0	0	0	0	0
+
+-- !ds_hll_count_distinct_p2 --
+0	0	6	0	0	0	0	0	0	0	0	0	0	0
+
+-- !ds_hll_count_distinct_p3 --
+0	0	6	0	0	0	0	0	0	0	0	0	0	0
+
