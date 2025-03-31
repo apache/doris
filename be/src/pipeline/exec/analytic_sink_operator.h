@@ -178,6 +178,15 @@ class AnalyticSinkOperatorX final : public DataSinkOperatorX<AnalyticSinkLocalSt
 public:
     AnalyticSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
                           const DescriptorTbl& descs, bool require_bucket_distribution);
+
+#ifdef BE_TEST
+    AnalyticSinkOperatorX(ObjectPool* pool)
+            : _pool(pool),
+              _buffered_tuple_id(0),
+              _is_colocate(false),
+              _require_bucket_distribution(false) {}
+#endif
+
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<AnalyticSinkLocalState>::_name);

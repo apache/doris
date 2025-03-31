@@ -814,8 +814,7 @@ DEFINE_mInt32(zone_map_row_num_threshold, "20");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-// Default to turn off aws sdk log, because aws sdk errors that need to be cared will be output through Doris logs
-DEFINE_Int32(aws_log_level, "0");
+DEFINE_Int32(aws_log_level, "2");
 
 // the buffer size when read data from remote storage like s3
 DEFINE_mInt32(remote_storage_read_buffer_mb, "16");
@@ -1111,6 +1110,8 @@ DEFINE_mBool(inverted_index_compaction_enable, "true");
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
 DEFINE_mBool(inverted_index_ram_dir_enable, "true");
+// wheather index by RAM directory when base compaction
+DEFINE_mBool(inverted_index_ram_dir_enable_when_base_compaction, "true");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1465,6 +1466,11 @@ DEFINE_mInt32(schema_dict_cache_capacity, "4096");
 DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
 DEFINE_mBool(enable_mow_verbose_log, "false");
+
+DEFINE_mInt32(tablet_sched_delay_time_ms, "5000");
+DEFINE_mInt32(load_trigger_compaction_version_percent, "66");
+DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
+DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
 // clang-format off
 #ifdef BE_TEST
