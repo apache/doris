@@ -574,11 +574,12 @@ bool RuntimeFilterWrapper::contain_null() const {
     return false;
 }
 
-std::string RuntimeFilterWrapper::debug_string() const {
+std::string RuntimeFilterWrapper::debug_string() {
     auto type_string = _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER
                                ? fmt::format("{}({})", filter_type_to_string(_filter_type),
                                              filter_type_to_string(get_real_type()))
                                : filter_type_to_string(_filter_type);
+    std::shared_lock<std::shared_mutex> rlock(_rwlock);
     auto result = fmt::format("[id: {}, state: {}, type: {}, column_type: {}", _filter_id,
                               states_to_string<RuntimeFilterWrapper>({_state}), type_string,
                               type_to_string(_column_return_type));
