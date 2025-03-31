@@ -103,8 +103,9 @@ public interface MTMVHookService {
      * Triggered when baseTable is altered
      *
      * @param table
+     * @param isReplace
      */
-    void alterTable(Table table, String oldTableName);
+    void alterTable(Table table, String oldTableName, boolean isReplace);
 
     /**
      * Triggered when pause mtmv

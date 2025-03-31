@@ -131,11 +131,11 @@ public class MTMVService implements EventListener {
         }
     }
 
-    public void alterTable(Table table, String oldTableName) {
+    public void alterTable(Table table, String oldTableName, boolean isReplace) {
         Objects.requireNonNull(table);
         LOG.info("alterTable, tableName: {}", table.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.alterTable(table, oldTableName);
+            mtmvHookService.alterTable(table, oldTableName, isReplace);
         }
     }
 

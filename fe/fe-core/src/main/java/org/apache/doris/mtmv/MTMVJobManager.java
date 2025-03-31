@@ -189,7 +189,7 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void alterTable(Table table, String oldTableName) {
+    public void alterTable(Table table, String oldTableName, boolean isReplace) {
 
     }
 

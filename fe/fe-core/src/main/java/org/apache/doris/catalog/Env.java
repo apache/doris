@@ -4996,8 +4996,13 @@ public class Env {
                 }
 
                 db.unregisterTable(oldTableName);
+                if (table instanceof MTMV) {
+                    Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
+                }
                 db.registerTable(table);
-
+                if (table instanceof MTMV) {
+                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, db.getId());
+                }
                 TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), oldTableName,
                         newTableName);
                 editLog.logTableRename(tableInfo);
@@ -5030,8 +5035,14 @@ public class Env {
             try {
                 String tableName = table.getName();
                 db.unregisterTable(tableName);
+                if (table instanceof MTMV) {
+                    Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
+                }
                 table.setName(newTableName);
                 db.registerTable(table);
+                if (table instanceof MTMV) {
+                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, dbId);
+                }
                 LOG.info("replay rename table[{}] to {}", tableName, newTableName);
             } finally {
                 table.writeUnlock();

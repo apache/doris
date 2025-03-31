@@ -341,7 +341,8 @@ public class Alter {
             throw new DdlException("Invalid alter operations: " + currentAlterOps);
         }
         if (needChangeMTMVState(alterClauses)) {
-            Env.getCurrentEnv().getMtmvService().alterTable(olapTable, oldTableName);
+            Env.getCurrentEnv().getMtmvService()
+                    .alterTable(olapTable, oldTableName, currentAlterOps.hasReplaceTableOp());
         }
         return needProcessOutsideTableLock;
     }
@@ -716,7 +717,6 @@ public class Alter {
             throws UserException {
         ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
         String newTblName = clause.getTblName();
-        String origTblName = origTable.getName();
         Table newTable = db.getTableOrMetaException(newTblName);
         if (newTable.getType() == TableType.MATERIALIZED_VIEW) {
             throw new DdlException("replace table[" + newTblName + "] cannot be a materialized view");
@@ -724,11 +724,6 @@ public class Alter {
         boolean swapTable = clause.isSwapTable();
         boolean isForce = clause.isForce();
         processReplaceTable(db, origTable, newTblName, swapTable, isForce);
-        if (swapTable) {
-            Env.getCurrentEnv().getMtmvService().alterTable(db.getTableOrMetaException(origTblName), newTblName);
-        } else {
-            Env.getCurrentEnv().getMtmvService().dropTable(db.getTableOrMetaException(origTblName));
-        }
     }
 
     public void processReplaceTable(Database db, OlapTable origTable, String newTblName,
@@ -809,16 +804,26 @@ public class Alter {
         String newTblName = newTbl.getName();
         // drop origin table and new table
         db.unregisterTable(oldTblName);
+        if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
+            Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) origTable);
+        }
         db.unregisterTable(newTblName);
-
+        if (newTbl.getType() == TableType.MATERIALIZED_VIEW) {
+            Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) newTbl);
+        }
         // rename new table name to origin table name and add it to database
         newTbl.checkAndSetName(oldTblName, false);
         db.registerTable(newTbl);
-
+        if (newTbl.getType() == TableType.MATERIALIZED_VIEW) {
+            Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) newTbl, db.getId());
+        }
         if (swapTable) {
             // rename origin table name to new table name and add it to database
             origTable.checkAndSetName(newTblName, false);
             db.registerTable(origTable);
+            if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) origTable, db.getId());
+            }
         } else {
 
             // not swap, the origin table is not used anymore, need to drop all its tablets.
@@ -828,9 +833,11 @@ public class Alter {
             } else {
                 Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
             }
-
             if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
                 Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) origTable);
+                if (!isReplay) {
+                    Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) origTable);
+                }
             }
         }
     }

@@ -256,15 +256,16 @@ public class MTMVRelationManager implements MTMVHookService {
      * update mtmv status to `SCHEMA_CHANGE`
      *
      * @param table
+     * @param isReplace
      */
     @Override
-    public void alterTable(Table table, String oldTableName) {
+    public void alterTable(Table table, String oldTableName, boolean isReplace) {
         BaseTableInfo baseTableInfo = new BaseTableInfo(table);
-        baseTableInfo.setTableName(oldTableName);
-        if (table instanceof MTMV) {
-            removeMTMV(baseTableInfo);
-            refreshMTMVCache(((MTMV) table).getRelation(), new BaseTableInfo(table));
+        // when replace, need deal two table
+        if (isReplace) {
+            processBaseTableChange(baseTableInfo, "The base table has been updated:");
         }
+        baseTableInfo.setTableName(oldTableName);
         processBaseTableChange(baseTableInfo, "The base table has been updated:");
     }
 
