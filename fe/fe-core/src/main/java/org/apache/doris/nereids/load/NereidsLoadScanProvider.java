@@ -330,6 +330,10 @@ public class NereidsLoadScanProvider {
             String columnName = importColumnDesc.getColumnName();
             Column tblColumn = tbl.getColumn(columnName);
             if (tblColumn != null) {
+                if (tblColumn.getGeneratedColumnInfo() != null) {
+                    // the generated column will be handled by bindSink
+                    continue;
+                }
                 hasColumnFromTable = true;
             }
             String realColName;
@@ -376,7 +380,16 @@ public class NereidsLoadScanProvider {
         }
         if (!hasColumnFromTable) {
             // we should add at least one column for target table to make bindSink happy
-            Column column = tbl.getBaseSchema().get(0);
+            Column column = null;
+            for (Column col : tbl.getBaseSchema()) {
+                if (col.getGeneratedColumnInfo() == null) {
+                    column = col;
+                    break;
+                }
+            }
+            if (column == null) {
+                throw new DdlException(String.format("can't find non-generated column in table %s", tbl.getName()));
+            }
             context.exprMap.put(column.getName(), new NullLiteral(DataType.fromCatalogType(column.getType())));
         }
     }
