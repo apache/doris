@@ -373,7 +373,7 @@ supportedShowStatement
     | SHOW FRONTENDS name=identifier?                                               #showFrontends
     | SHOW DATABASE databaseId=INTEGER_VALUE                                        #showDatabaseId
     | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
-        ((FROM | IN) database=multipartIdentifier)? (LIKE STRING_LITERAL)?          #showColumns    
+        ((FROM | IN) database=multipartIdentifier)? wildWhere?          #showColumns    
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
     | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters    
