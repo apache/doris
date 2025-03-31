@@ -51,8 +51,6 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
 
     _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                   "HashJoinBuildSpillDependency", true);
-    state->get_task()->add_spill_dependency(_spill_dependency.get());
-
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
 
     _partition_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillPartitionTime", 1);
@@ -182,7 +180,8 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
     if (auto* tmp_sink_state = _shared_state->inner_runtime_state->get_sink_local_state()) {
         inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(tmp_sink_state);
     }
-    _shared_state->inner_shared_state->hash_table_variants.reset();
+    DCHECK_EQ(_shared_state->inner_shared_state->hash_table_variant_vector.size(), 1);
+    _shared_state->inner_shared_state->hash_table_variant_vector.front().reset();
     if (inner_sink_state) {
         COUNTER_UPDATE(_memory_used_counter,
                        -(inner_sink_state->_hash_table_memory_usage->value() +

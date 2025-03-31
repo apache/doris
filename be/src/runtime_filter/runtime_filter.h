@@ -82,6 +82,8 @@ public:
     }
 
     virtual std::string debug_string() const = 0;
+    std::shared_ptr<RuntimeFilterWrapper> wrapper() const { return _wrapper; }
+    void set_wrapper(std::shared_ptr<RuntimeFilterWrapper> wrapper) { _wrapper = wrapper; }
 
 protected:
     RuntimeFilter(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc)

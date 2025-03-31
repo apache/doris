@@ -53,13 +53,13 @@ class RuntimeState;
 
 namespace doris::pipeline {
 
-PipelineTask::PipelineTask(
-        PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
-        PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
-        std::map<int,
-                 std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-                le_state_map,
-        int task_idx)
+PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
+                           PipelineFragmentContext* fragment_context,
+                           RuntimeProfile* parent_profile,
+                           std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                                   std::vector<std::shared_ptr<Dependency>>>>
+                                   shared_state_map,
+                           int task_idx)
         : _index(task_id),
           _pipeline(pipeline),
           _opened(false),
@@ -70,7 +70,7 @@ PipelineTask::PipelineTask(
           _source(_operators.front().get()),
           _root(_operators.back().get()),
           _sink(pipeline->sink_shared_pointer()),
-          _le_state_map(std::move(le_state_map)),
+          _shared_state_map(std::move(shared_state_map)),
           _task_idx(task_idx),
           _execution_dep(state->get_query_ctx()->get_execution_dependency()),
           _memory_sufficient_dependency(
@@ -96,9 +96,9 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
     });
     {
         // set sink local state
-        LocalSinkStateInfo info {_task_idx,     _task_profile.get(),
-                                 sender_id,     get_sink_shared_state().get(),
-                                 _le_state_map, tsink};
+        LocalSinkStateInfo info {_task_idx,         _task_profile.get(),
+                                 sender_id,         get_sink_shared_state().get(),
+                                 _shared_state_map, tsink};
         RETURN_IF_ERROR(_sink->setup_local_state(_state, info));
     }
 
@@ -108,7 +108,7 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
         LocalStateInfo info {parent_profile, _scan_ranges, get_op_shared_state(op->operator_id()),
-                             _le_state_map, _task_idx};
+                             _shared_state_map, _task_idx};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
     }
@@ -132,6 +132,7 @@ Status PipelineTask::_extract_dependencies() {
     std::vector<std::vector<Dependency*>> read_dependencies;
     std::vector<Dependency*> write_dependencies;
     std::vector<Dependency*> finish_dependencies;
+    std::vector<Dependency*> spill_dependencies;
     read_dependencies.resize(_operators.size());
     size_t i = 0;
     for (auto& op : _operators) {
@@ -144,6 +145,9 @@ Status PipelineTask::_extract_dependencies() {
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             finish_dependencies.push_back(fin_dep);
+        }
+        if (auto* spill_dependency = local_state->spill_dependency()) {
+            spill_dependencies.push_back(spill_dependency);
         }
         i++;
     }
@@ -159,12 +163,16 @@ Status PipelineTask::_extract_dependencies() {
         if (fin_dep) {
             finish_dependencies.push_back(fin_dep);
         }
+        if (auto* spill_dependency = local_state->spill_dependency()) {
+            spill_dependencies.push_back(spill_dependency);
+        }
     }
     {
         std::unique_lock<std::mutex> lc(_dependency_lock);
         read_dependencies.swap(_read_dependencies);
         write_dependencies.swap(_write_dependencies);
         finish_dependencies.swap(_finish_dependencies);
+        spill_dependencies.swap(_spill_dependencies);
     }
     return Status::OK();
 }
@@ -238,6 +246,12 @@ bool PipelineTask::_wait_to_start() {
 }
 
 bool PipelineTask::_is_pending_finish() {
+    // Spilling may be in progress if eos is true.
+    for (auto* dep : _spill_dependencies) {
+        if (dep->is_blocked_by(this)) {
+            return true;
+        }
+    }
     for (auto* dep : _finish_dependencies) {
         if (dep->is_blocked_by(this)) {
             return true;
@@ -455,7 +469,7 @@ Status PipelineTask::execute(bool* done) {
 
             if (workload_group && _state->get_query_ctx()->enable_reserve_memory() &&
                 reserve_size > 0) {
-                auto st = thread_context()->try_reserve_memory(reserve_size);
+                auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(reserve_size);
 
                 COUNTER_UPDATE(_memory_reserve_times, 1);
                 if (!st.ok() && !_state->enable_force_spill()) {
@@ -509,7 +523,8 @@ Status PipelineTask::execute(bool* done) {
                 !(wake_up_early() || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
                 status = sink_reserve_size != 0
-                                 ? thread_context()->try_reserve_memory(sink_reserve_size)
+                                 ? thread_context()->thread_mem_tracker_mgr->try_reserve(
+                                           sink_reserve_size)
                                  : Status::OK();
 
                 auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
@@ -589,7 +604,7 @@ Status PipelineTask::finalize() {
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
     _sink_shared_state.reset();
     _op_shared_states.clear();
-    _le_state_map.clear();
+    _shared_state_map.clear();
     return Status::OK();
 }
 
@@ -681,6 +696,12 @@ std::string PipelineTask::debug_string() {
     for (size_t j = 0; j < _filter_dependencies.size(); j++, i++) {
         fmt::format_to(debug_string_buffer, "{}. {}\n", i,
                        _filter_dependencies[j]->debug_string(i + 1));
+    }
+
+    fmt::format_to(debug_string_buffer, "\nSpill Dependency Information: \n");
+    for (size_t j = 0; j < _spill_dependencies.size(); j++, i++) {
+        fmt::format_to(debug_string_buffer, "{}. {}\n", i,
+                       _spill_dependencies[j]->debug_string(i + 1));
     }
 
     fmt::format_to(debug_string_buffer, "Finish Dependency Information: \n");

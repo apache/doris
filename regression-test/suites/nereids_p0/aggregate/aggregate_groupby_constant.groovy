@@ -18,6 +18,7 @@
 suite("aggregate_groupby_constant") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "set disable_nereids_rules='prune_empty_partition'"
 
     sql """ DROP TABLE IF EXISTS table_500_undef_partitions2_keys3_properties4_distributed_by5; """
     sql """
@@ -47,4 +48,29 @@ suite("aggregate_groupby_constant") {
                     OR table1 . `col_int_undef_signed` <> NULL )
             GROUP BY  field1,field2
             ORDER BY  field1,field2 LIMIT 10000;"""
+
+    sql """
+        SELECT
+            IF(
+                t.`col_varchar_10__undef_signed` IN ('女'),
+                (
+                    TIMESTAMPDIFF(
+                        YEAR,
+                        NOW(),
+                        NOW()
+                    )
+                ),
+                1
+            ) AS x0,
+            TIMESTAMPDIFF(
+                YEAR,
+                NOW(),
+                NOW()
+            ) AS x1
+        FROM
+        table_500_undef_partitions2_keys3_properties4_distributed_by5 AS t
+        GROUP BY
+            x0,
+            x1;
+    """
 }

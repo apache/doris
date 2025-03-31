@@ -262,6 +262,12 @@ public:
     void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
     uint32_t index_unique_id() const { return _index_unique_id; }
 
+    virtual void collect_slot_column_ids(std::set<int>& column_ids) const {
+        for (auto child : _children) {
+            child->collect_slot_column_ids(column_ids);
+        }
+    }
+
 protected:
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {

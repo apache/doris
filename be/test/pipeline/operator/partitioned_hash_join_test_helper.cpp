@@ -154,10 +154,11 @@ PartitionedHashJoinTestHelper::create_operators() {
     sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
 
     // Setup task and state
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
     pipeline_task = std::make_shared<PipelineTask>(probe_pipeline, 0, runtime_state.get(), nullptr,
-                                                   nullptr, le_state_map, 0);
+                                                   nullptr, shared_state_map, 0);
     runtime_state->set_task(pipeline_task.get());
     return {probe_operator, sink_operator};
 }

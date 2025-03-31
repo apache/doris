@@ -15,15 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gtest/gtest.h>
+
 #include <string>
 
-#include "common/status.h"
 #include "function_test_util.h"
-#include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
@@ -113,8 +112,15 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         Array vec1 = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
                       ut_type::DECIMALFIELD(0.0)};
         Array vec2 = {ut_type::DECIMALFIELD(17014116.67)};
-        DataSet data_set = {
-                {{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)}};
+
+        Array vec3 = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
+                      Null()};
+        Array vec4 = {ut_type::DECIMALFIELD(-17014116.67)};
+        Array vec5 = {ut_type::DECIMALFIELD(-17014116.68)};
+        DataSet data_set = {{{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()},
+                            {{vec1, Null()}, Null()}, {{empty_arr, vec1}, UInt8(0)},
+                            {{vec3, vec4}, UInt8(1)}, {{vec3, vec5}, Null()},
+                            {{vec4, vec3}, UInt8(1)}, {{vec5, vec3}, Null()}};
 
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
@@ -127,10 +133,49 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         Array vec1 = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
         Array vec2 = {Field(String("abc", 3))};
         Array vec3 = {Field(String("", 0))};
-        DataSet data_set = {{{vec1, vec2}, UInt8(1)},
-                            {{vec1, vec3}, UInt8(1)},
-                            {{Null(), vec1}, Null()},
-                            {{empty_arr, vec1}, UInt8(0)}};
+        Array vec4 = {Field(String("abc", 3)), Null()};
+        Array vec5 = {Field(String("abcd", 4)), Null()};
+        DataSet data_set = {{{vec1, vec2}, UInt8(1)}, {{vec1, vec3}, UInt8(1)},
+                            {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)},
+                            {{vec4, vec1}, UInt8(1)}, {{vec1, vec5}, Null()},
+                            {{vec1, vec4}, UInt8(1)}, {{vec5, vec1}, Null()}};
+
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
+    }
+
+    // arrays_overlap(Array<Decimal128V2>, Array<Decimal128V2>), Non-nullable
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2, TypeIndex::Array,
+                                    TypeIndex::Decimal128V2};
+
+        Array vec1 = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
+                      ut_type::DECIMALFIELD(0.0)};
+        Array vec2 = {ut_type::DECIMALFIELD(17014116.67)};
+
+        Array vec3 = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67)};
+        Array vec4 = {ut_type::DECIMALFIELD(-17014116.67)};
+        Array vec5 = {ut_type::DECIMALFIELD(-17014116.68)};
+        DataSet data_set = {{{vec1, vec2}, UInt8(1)}, {{empty_arr, vec1}, UInt8(0)},
+                            {{vec3, vec4}, UInt8(1)}, {{vec3, vec5}, UInt8(0)},
+                            {{vec4, vec3}, UInt8(1)}, {{vec5, vec3}, UInt8(0)}};
+
+        static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
+    }
+
+    // arrays_overlap(Array<String>, Array<String>), Non-nullable
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::Array,
+                                    TypeIndex::String};
+
+        Array vec1 = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
+        Array vec2 = {Field(String("abc", 3))};
+        Array vec3 = {Field(String("", 0))};
+        Array vec4 = {Field(String("abc", 3))};
+        Array vec5 = {Field(String("abcd", 4))};
+        DataSet data_set = {{{vec1, vec2}, UInt8(1)},      {{vec1, vec3}, UInt8(1)},
+                            {{empty_arr, vec1}, UInt8(0)}, {{vec4, vec1}, UInt8(1)},
+                            {{vec1, vec5}, UInt8(0)},      {{vec1, vec4}, UInt8(1)},
+                            {{vec5, vec1}, UInt8(0)}};
 
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }

@@ -120,11 +120,11 @@ supportedJobStatement
             |
             (AT (atTime=STRING_LITERAL | CURRENT_TIMESTAMP)))
         commentSpec?
-        DO supportedDmlStatement                                                               #createScheduledJob
-   | PAUSE JOB wildWhere?                                                                      #pauseJob
-   | DROP JOB (IF EXISTS)? wildWhere?                                                          #dropJob
-   | RESUME JOB wildWhere?                                                                     #resumeJob
-   | CANCEL TASK wildWhere?                                                                    #cancelJobTask
+        DO supportedDmlStatement                                                                                                             #createScheduledJob
+   | PAUSE JOB WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                                #pauseJob
+   | DROP JOB (IF EXISTS)? WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                    #dropJob
+   | RESUME JOB WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                               #resumeJob
+   | CANCEL TASK WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL) AND (taskIdKey=identifier) EQ (taskIdValue=INTEGER_VALUE)    #cancelJobTask
    ;
 constraintStatement
     : ALTER TABLE table=multipartIdentifier
@@ -283,6 +283,7 @@ supportedShowStatement
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
     | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
+    | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
     | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL? limitClause?                     #showLoadProfile
     | SHOW CREATE REPOSITORY FOR identifier                                         #showCreateRepository
     | SHOW VIEW
@@ -341,6 +342,8 @@ supportedShowStatement
     | SHOW FULL? VIEWS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showViews
     | SHOW TABLE STATUS ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTableStatus
     | SHOW (DATABASES | SCHEMAS) (FROM catalog=identifier)? wildWhere?              #showDatabases
+    | SHOW TABLETS FROM tableName=multipartIdentifier partitionSpec?
+        wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
     ;
 
 supportedLoadStatement
@@ -399,11 +402,8 @@ unsupportedShowStatement
         sortClause? limitClause?                                                    #showAlterTable
     | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
         wildWhere? sortClause? limitClause?                                         #showPartitions
-    | SHOW TABLETS FROM tableName=multipartIdentifier partitionSpec?
-        wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
-    | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
     | SHOW FULL? BUILTIN? FUNCTIONS
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showFunctions
     | SHOW GLOBAL FULL? FUNCTIONS wildWhere?                                        #showGlobalFunctions
@@ -745,15 +745,15 @@ supportedStatsStatement
         columns=identifierList? partitionSpec?                                  #dropStats
     | DROP CACHED STATS tableName=multipartIdentifier                           #dropCachedStats
     | DROP EXPIRED STATS                                                        #dropExpiredStats
-    ;
-
-unsupportedStatsStatement
-    : DROP ANALYZE JOB INTEGER_VALUE                                            #dropAanalyzeJob
     | KILL ANALYZE jobId=INTEGER_VALUE                                          #killAnalyzeJob
+    | DROP ANALYZE JOB INTEGER_VALUE                                            #dropAnalyzeJob
     | SHOW TABLE STATS tableName=multipartIdentifier
         partitionSpec? columnList=identifierList?                               #showTableStats
     | SHOW TABLE STATS tableId=INTEGER_VALUE                                    #showTableStats
-    | SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
+    ;
+
+unsupportedStatsStatement
+    : SHOW COLUMN CACHED? STATS tableName=multipartIdentifier
         columnList=identifierList? partitionSpec?                               #showColumnStats
     | SHOW ANALYZE TASK STATUS jobId=INTEGER_VALUE                              #showAnalyzeTask
     ;

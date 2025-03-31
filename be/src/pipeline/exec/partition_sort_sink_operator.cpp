@@ -151,7 +151,8 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             }
             local_state._value_places[i]->_blocks.clear();
             RETURN_IF_ERROR(sorter->prepare_for_read());
-            std::unique_lock<std::mutex> lc(local_state._shared_state->prepared_finish_lock);
+            INJECT_MOCK_SLEEP(std::unique_lock<std::mutex> lc(
+                    local_state._shared_state->prepared_finish_lock));
             sorter->set_prepared_finish();
             // iff one sorter have data, then could set source ready to read
             local_state._dependency->set_ready_to_read();

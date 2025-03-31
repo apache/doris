@@ -2503,40 +2503,24 @@ public class SessionVariable implements Serializable, Writable {
             this.enableSyncRuntimeFilterSize = false;
         }
 
-        /*
-        switch (randomInt) {
-            case 0:
-                this.spillSortBytesThreshold = 0;
-                break;
-            case 1:
-                this.spillSortBytesThreshold = 1;
-                this.spillAggregationPartitionCount = 6;
-                break;
-            case 2:
-                this.spillSortBytesThreshold = 1024 * 1024;
-                this.spillAggregationPartitionCount = 8;
-                break;
-            default:
-                this.spillSortBytesThreshold = 100 * 1024 * 1024 * 1024;
-                this.spillAggregationPartitionCount = 4;
-                break;
-        }
-        */
         switch (random.nextInt(4)) {
             case 0:
-                this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                this.runtimeFilterType = TRuntimeFilterType.IN.getValue();
                 break;
             case 1:
-                this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                this.runtimeFilterType = TRuntimeFilterType.BLOOM.getValue();
                 break;
             case 2:
-                this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                this.runtimeFilterType = TRuntimeFilterType.IN_OR_BLOOM.getValue();
                 break;
             case 3:
-                this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
                 break;
             default:
                 break;
+        }
+
+        if (random.nextBoolean()) {
+            this.runtimeFilterType |= TRuntimeFilterType.MIN_MAX.getValue();
         }
 
         switch (random.nextInt(3)) {
@@ -2551,7 +2535,6 @@ public class SessionVariable implements Serializable, Writable {
                 this.fragmentTransmissionCompressionCodec = "none";
         }
 
-        this.runtimeFilterType = 1 << randomInt;
         this.enableParallelScan = random.nextInt(2) == 0;
         this.enableRuntimeFilterPrune = (randomInt % 10) == 0;
         this.enableRuntimeFilterPartitionPrune = (randomInt % 2) == 0;
@@ -3307,11 +3290,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean allowedRuntimeFilterType(TRuntimeFilterType type) {
-        return (runtimeFilterType & type.getValue()) != 0;
-    }
-
-    public boolean isRuntimeFilterTypeEnabled(TRuntimeFilterType type) {
-        return (runtimeFilterType & type.getValue()) == type.getValue();
+        return RuntimeFilterTypeHelper.allowedRuntimeFilterType(runtimeFilterType, type);
     }
 
     public void setRuntimeFilterType(int runtimeFilterType) {
