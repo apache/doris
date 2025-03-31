@@ -80,8 +80,8 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
         EXPECT_TRUE(sink->set_child(_child_op));
     }
 
-    void create_window_type(bool has_window_start, bool has_window_end, 
-        TAnalyticWindow temp_window) {
+    void create_window_type(bool has_window_start, bool has_window_end,
+                            TAnalyticWindow temp_window) {
         sink->_window = temp_window;
         sink->_has_window_start = has_window_start;
         sink->_has_window_end = has_window_end;
@@ -314,7 +314,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction3) {
     TAnalyticWindowBoundary window_end;
     window_end.type = TAnalyticWindowBoundaryType::CURRENT_ROW;
     temp_window.__set_window_end(window_end);
-    create_window_type(false,true, temp_window);
+    create_window_type(false, true, temp_window);
     create_local_state();
     // test with row_number agg function and has window: _get_next_for_unbounded_rows
 
@@ -384,12 +384,11 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction4) {
     TAnalyticWindowBoundary window_start;
     window_start.type = TAnalyticWindowBoundaryType::PRECEDING;
     window_start.__set_rows_offset_value(1);
-    std::cout << "window_start.rows_offset_value: " << window_start.__isset.rows_offset_value << std::endl;
     temp_window.__set_window_start(window_start);
     TAnalyticWindowBoundary window_end;
     window_end.type = TAnalyticWindowBoundaryType::CURRENT_ROW;
     temp_window.__set_window_end(window_end);
-    create_window_type(true,true, temp_window);
+    create_window_type(true, true, temp_window);
     create_local_state();
     // test with row_number agg function and has window: _get_next_for_unbounded_rows
 
@@ -434,7 +433,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction4) {
 
     {
         int row_count = 0;
-        std::vector<int64_t> data_vals   {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+        std::vector<int64_t> data_vals {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
         std::vector<int64_t> expect_vals {0, 1, 3, 5, 7, 9, 11, 13, 15, 17}; //sum
         for (int i = 0; i < 5; i++) {
             compare_block_result(row_count, data_vals, expect_vals);
@@ -459,12 +458,11 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction5) {
     TAnalyticWindowBoundary window_start;
     window_start.type = TAnalyticWindowBoundaryType::PRECEDING;
     window_start.__set_rows_offset_value(1);
-    std::cout << "window_start.rows_offset_value: " << window_start.__isset.rows_offset_value << std::endl;
     temp_window.__set_window_start(window_start);
     TAnalyticWindowBoundary window_end;
     window_end.type = TAnalyticWindowBoundaryType::CURRENT_ROW;
     temp_window.__set_window_end(window_end);
-    create_window_type(true,true, temp_window);
+    create_window_type(true, true, temp_window);
     create_local_state();
     // test with row_number agg function and has window: _get_next_for_unbounded_rows
 
@@ -509,7 +507,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction5) {
 
     {
         int row_count = 0;
-        std::vector<int64_t> data_vals   {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+        std::vector<int64_t> data_vals {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
         std::vector<int64_t> expect_vals {0, 1, 3, 5, 7, 9, 11, 13, 15, 17}; //sum
         for (int i = 0; i < 5; i++) {
             compare_block_result(row_count, data_vals, expect_vals);
