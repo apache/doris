@@ -1110,6 +1110,8 @@ DEFINE_mBool(inverted_index_compaction_enable, "true");
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
 DEFINE_mBool(inverted_index_ram_dir_enable, "true");
+// wheather index by RAM directory when base compaction
+DEFINE_mBool(inverted_index_ram_dir_enable_when_base_compaction, "true");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
