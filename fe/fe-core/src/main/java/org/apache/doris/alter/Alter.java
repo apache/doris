@@ -723,6 +723,11 @@ public class Alter {
         boolean swapTable = clause.isSwapTable();
         boolean isForce = clause.isForce();
         processReplaceTable(db, origTable, newTblName, swapTable, isForce);
+        if (swapTable) {
+            Env.getCurrentEnv().getMtmvService().alterTable(newTable, origTable.getName());
+        } else {
+            Env.getCurrentEnv().getMtmvService().dropTable(newTable);
+        }
     }
 
     public void processReplaceTable(Database db, OlapTable origTable, String newTblName,
