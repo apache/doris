@@ -74,6 +74,18 @@ public class FunctionRegistry {
         afterRegisterBuiltinFunctions(name2BuiltinBuilders);
     }
 
+    public Map<String, List<FunctionBuilder>> getName2BuiltinBuilders() {
+        return name2BuiltinBuilders;
+    }
+
+    public String getGlobalFunctionDbName() {
+        return GLOBAL_FUNCTION;
+    }
+
+    public Map<String, Map<String, List<FunctionBuilder>>> getName2UdfBuilders() {
+        return name2UdfBuilders;
+    }
+
     // this function is used to test.
     // for example, you can create child class of FunctionRegistry and clear builtin functions or add more functions
     // in this method
