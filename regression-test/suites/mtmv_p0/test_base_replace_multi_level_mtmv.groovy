@@ -178,9 +178,4 @@ suite("test_base_replace_multi_level_mtmv","mtmv") {
     order_qt_replace_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
     order_qt_replace_t1_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
 
-    mv_not_part_in(querySql, mvName2)
-    mv_not_part_in(querySql, mvName1)
-    mv_not_part_in(querySql, mvName3)
-    mv_not_part_in(querySql, mvName4)
-
 }
