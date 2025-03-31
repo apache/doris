@@ -19,6 +19,7 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -44,6 +45,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -139,14 +141,13 @@ public class SqlCacheContext {
             setCannotProcessExpression(true);
             return;
         }
-
+        TableVersion tableVersion = new TableVersion(tableIf.getId(),
+                tableIf instanceof OlapTable ? ((OlapTable) tableIf).getVisibleVersion() : 0L,
+                tableIf.getType());
+        tableVersion.setColumns(tableIf.getFullSchema());
         usedTables.put(
                 new FullTableName(database.getCatalog().getName(), database.getFullName(), tableIf.getName()),
-                new TableVersion(
-                        tableIf.getId(),
-                        tableIf instanceof OlapTable ? ((OlapTable) tableIf).getVisibleVersion() : 0L,
-                        tableIf.getType()
-                )
+                tableVersion
         );
     }
 
@@ -462,9 +463,11 @@ public class SqlCacheContext {
         public final FullTableName fullTableName;
         public final long latestVersion;
         public final List<Long> scanPartitions = Lists.newArrayList();
+        public final Map<Long, Long> scanPartitionIdToVersion = Maps.newHashMap();
 
-        public void addScanPartition(Long partitionId) {
+        public void addScanPartition(Long partitionId, Long partitionVersion) {
             this.scanPartitions.add(partitionId);
+            this.scanPartitionIdToVersion.put(partitionId, partitionVersion);
         }
     }
 
@@ -475,6 +478,28 @@ public class SqlCacheContext {
         public final long id;
         public final long version;
         public final TableType type;
+        public final List<ColumnSection> columns = new ArrayList<>();
+
+        /** deep copy some column */
+        public void setColumns(List<Column> columns) {
+            for (Column column : columns) {
+                if (column == null) {
+                    continue;
+                }
+                this.columns.add(new ColumnSection(column.hashCode(),
+                        new StringBuilder(column.getName()).toString(),
+                        new StringBuilder(column.getType().toString()).toString()));
+            }
+        }
+    }
+
+    /** partial column */
+    @lombok.Data
+    @lombok.AllArgsConstructor
+    public static class ColumnSection {
+        private int hashCode;
+        private String name;
+        private String type;
     }
 
     /** CacheKeyType */
