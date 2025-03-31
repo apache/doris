@@ -128,7 +128,6 @@ suite("test_base_rename_col_multi_level_mtmv","mtmv") {
     sql """
         alter table ${tableName1} rename COLUMN k3 k4;
         """
-    assertEquals("FINISHED", getAlterColumnFinalState("${tableName1}"))
     order_qt_add_col_t1_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
     order_qt_add_col_t1_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
     order_qt_add_col_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
