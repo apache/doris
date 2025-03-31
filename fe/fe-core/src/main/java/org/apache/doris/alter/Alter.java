@@ -716,6 +716,7 @@ public class Alter {
             throws UserException {
         ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
         String newTblName = clause.getTblName();
+        String origTblName = origTable.getName();
         Table newTable = db.getTableOrMetaException(newTblName);
         if (newTable.getType() == TableType.MATERIALIZED_VIEW) {
             throw new DdlException("replace table[" + newTblName + "] cannot be a materialized view");
@@ -724,9 +725,9 @@ public class Alter {
         boolean isForce = clause.isForce();
         processReplaceTable(db, origTable, newTblName, swapTable, isForce);
         if (swapTable) {
-            Env.getCurrentEnv().getMtmvService().alterTable(newTable, origTable.getName());
+            Env.getCurrentEnv().getMtmvService().alterTable(db.getTableOrMetaException(origTblName), newTblName);
         } else {
-            Env.getCurrentEnv().getMtmvService().dropTable(newTable);
+            Env.getCurrentEnv().getMtmvService().dropTable(db.getTableOrMetaException(origTblName));
         }
     }
 
