@@ -757,11 +757,15 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
                     iter->second);
         }
     }
-    auto ms_lock_id = lock_id == -1 ? txn_id : lock_id;
     // lock_id != -1 means this is in an explict txn
+    bool is_explicit_txn = (lock_id != -1);
+    auto ms_lock_id = !is_explicit_txn ? txn_id : lock_id;
+    // TODO: change for explicit txn
+    int64_t version_to_check = !is_explicit_txn ? cur_version : cur_version;
+
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, ms_lock_id, LOAD_INITIATOR_ID,
                                                             new_delete_bitmap.get(), txn_id,
-                                                            (lock_id != -1)));
+                                                            is_explicit_txn, version_to_check));
     return Status::OK();
 }
 

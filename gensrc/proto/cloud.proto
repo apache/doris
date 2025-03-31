@@ -1424,9 +1424,9 @@ message UpdateDeleteBitmapRequest {
     optional int64 txn_id = 13;
 
     // for load txn only
-    //   - if this is not in explicit txn, `cur_version` is txn's version to publish
-    //   - if this is in a explicit txn, `cur_version` is the first sub txn's version to publish
-    optional int64 cur_version = 14;
+    //   - if this is not in explicit txn, `version_to_check` is txn's version to publish
+    //   - if this is in a explicit txn, `version_to_check` is the first sub txn's version to publish
+    optional int64 version_to_check = 14;
 }
 
 message UpdateDeleteBitmapResponse {

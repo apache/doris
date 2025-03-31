@@ -87,7 +87,9 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
 
     std::vector<NodeInfo> nodes;
     std::string err = rc_mgr->get_node(cloud_unique_id, &nodes);
-    { TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err); }
+    {
+        TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err);
+    }
     std::string instance_id;
     if (!err.empty()) {
         // cache can't find cloud_unique_id, so degraded by parse cloud_unique_id
@@ -284,7 +286,9 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
             response->set_version(version_pb.version());
             response->add_version_update_time_ms(version_pb.update_time_ms());
         }
-        { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
+        {
+            TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
+        }
         return;
     } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         msg = "not found";
@@ -1849,6 +1853,62 @@ static bool remove_pending_delete_bitmap(MetaServiceCode& code, std::string& msg
     return true;
 }
 
+static bool check_partition_version_when_update_delete_bitmap(
+        MetaServiceCode& code, std::string& msg, std::unique_ptr<Transaction>& txn,
+        std::string& instance_id, int64_t txn_id, int64_t table_id, int64_t partition_id,
+        int64_t tablet_id, const UpdateDeleteBitmapRequest* request) {
+    // Get db id with txn id
+    std::string index_val;
+    const std::string index_key = txn_index_key({instance_id, txn_id});
+    auto err = txn->get(index_key, &index_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get db id, txn_id={} err={}", txn_id, err);
+        LOG(WARNING) << msg;
+        return false;
+    }
+
+    TxnIndexPB index_pb;
+    if (!index_pb.ParseFromString(index_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("failed to parse txn_index_pb, txn_id={}", txn_id);
+        LOG(WARNING) << msg;
+        return false;
+    }
+
+    DCHECK(index_pb.has_tablet_index() == true);
+    DCHECK(index_pb.tablet_index().has_db_id() == true);
+    int64_t db_id = index_pb.tablet_index().db_id();
+
+    std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
+    std::string ver_val;
+    err = txn->get(ver_key, &ver_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get partition version, err={}", err);
+        LOG(WARNING) << msg << " txn_id=" << txn_id;
+        return false;
+    }
+    VersionPB version_pb;
+    if (!version_pb.ParseFromString(ver_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("failed to parse version_pb, txn_id={}, key={}", txn_id, hex(ver_key));
+        LOG(WARNING) << msg;
+        return false;
+    }
+    DCHECK(version_pb.has_version());
+    if (version_pb.has_version() && version_pb.version() + 1 != request->version_to_check()) {
+        msg = fmt::format(
+                "check version failed when update_delete_bitmap, txn={}, table_id={}, "
+                "partition_id={}, tablet_id={}, found partition's max version is {}, but "
+                "request version is {}",
+                txn_id, table_id, partition_id, tablet_id, version_pb.version(),
+                request->version_to_check());
+        return false;
+    }
+    return true;
+}
+
 void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* controller,
                                            const UpdateDeleteBitmapRequest* request,
                                            UpdateDeleteBitmapResponse* response,
@@ -1873,6 +1933,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     uint64_t fdb_txn_size = 0;
     auto table_id = request->table_id();
     auto tablet_id = request->tablet_id();
+    auto partition_id = request->partition_id();
 
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -1908,7 +1969,16 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         }
     }
 
-    // 3. store all pending delete bitmap for this txn
+    // 3. check if partition's version matches
+    if (request->has_version_to_check()) {
+        if (!check_partition_version_when_update_delete_bitmap(code, msg, txn, instance_id,
+                                                               request->txn_id(), table_id,
+                                                               partition_id, tablet_id, request)) {
+            return;
+        }
+    }
+
+    // 4. store all pending delete bitmap for this txn
     PendingDeleteBitmapPB delete_bitmap_keys;
     for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
         MetaDeleteBitmapInfo key_info {instance_id, tablet_id, request->rowset_ids(i),
@@ -1984,7 +2054,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         }
     }
 
-    // 4. Update delete bitmap for curent txn
+    // 5. Update delete bitmap for curent txn
     size_t current_key_count = 0;
     size_t current_value_count = 0;
     size_t total_key_count = 0;
