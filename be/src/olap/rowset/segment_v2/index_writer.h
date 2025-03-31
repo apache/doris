@@ -48,8 +48,7 @@ class XIndexFileWriter;
 class IndexColumnWriter {
 public:
     static Status create(const Field* field, std::unique_ptr<IndexColumnWriter>* res,
-                         XIndexFileWriter* index_file_writer,
-                         const TabletIndex* inverted_index);
+                         XIndexFileWriter* index_file_writer, const TabletIndex* inverted_index);
     virtual Status init() = 0;
 
     IndexColumnWriter() = default;
@@ -64,7 +63,7 @@ public:
                                     size_t count) = 0;
 
     virtual Status add_nulls(uint32_t count) = 0;
-    virtual Status add_array_nulls(uint32_t row_id) = 0;
+    virtual Status add_array_nulls(const uint8_t* null_map, size_t num_rows) = 0;
 
     virtual Status finish() = 0;
 
@@ -104,9 +103,7 @@ public:
         return _tmp_file_dirs[cur_index % _tmp_file_dirs.size()];
     };
 
-    ~TmpFileDirs(){
-        std::cout << "TmpFileDirs destroyed!" << std::endl;
-    }
+    ~TmpFileDirs() { std::cout << "TmpFileDirs destroyed!" << std::endl; }
 
 private:
     std::vector<io::Path> _tmp_file_dirs;

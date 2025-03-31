@@ -70,7 +70,7 @@ public:
     Result<InvertedIndexDirectoryMap> get_all_directories();
     // open file v2, init _stream
     int64_t get_inverted_file_size() const { return _stream == nullptr ? 0 : _stream->length(); }
-    friend InvertedIndexFileWriter;
+    friend XIndexFileWriter;
 
 protected:
     Status _init_from(int32_t read_buffer_size, const io::IOContext* io_ctx);

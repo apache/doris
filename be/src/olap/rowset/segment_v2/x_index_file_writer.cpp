@@ -40,25 +40,23 @@ Status XIndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_dirs) {
 }
 
 Status XIndexFileWriter::_insert_directory_into_map(int64_t index_id,
-                                                           const std::string& index_suffix,
-                                                           std::shared_ptr<DorisFSDirectory> dir) {
+                                                    const std::string& index_suffix,
+                                                    std::shared_ptr<DorisFSDirectory> dir) {
     auto key = std::make_pair(index_id, index_suffix);
     auto [it, inserted] = _indices_dirs.emplace(key, std::move(dir));
     if (!inserted) {
-        LOG(ERROR) << "XIndexFileWriter::open attempted to insert a duplicate key: ("
-                   << key.first << ", " << key.second << ")";
+        LOG(ERROR) << "XIndexFileWriter::open attempted to insert a duplicate key: (" << key.first
+                   << ", " << key.second << ")";
         LOG(ERROR) << "Directories already in map: ";
         for (const auto& entry : _indices_dirs) {
             LOG(ERROR) << "Key: (" << entry.first.first << ", " << entry.first.second << ")";
         }
-        return Status::InternalError(
-                "XIndexFileWriter::open attempted to insert a duplicate dir");
+        return Status::InternalError("XIndexFileWriter::open attempted to insert a duplicate dir");
     }
     return Status::OK();
 }
 
-Result<std::shared_ptr<DorisFSDirectory>> XIndexFileWriter::open(
-        const TabletIndex* index_meta) {
+Result<std::shared_ptr<DorisFSDirectory>> XIndexFileWriter::open(const TabletIndex* index_meta) {
     auto local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
             _tmp_dir, _rowset_id, _seg_id, index_meta->index_id(), index_meta->get_index_suffix());
     bool can_use_ram_dir = true;
@@ -74,8 +72,7 @@ Result<std::shared_ptr<DorisFSDirectory>> XIndexFileWriter::open(
 }
 
 Status XIndexFileWriter::delete_index(const TabletIndex* index_meta) {
-    DBUG_EXECUTE_IF("XIndexFileWriter::delete_index_index_meta_nullptr",
-                    { index_meta = nullptr; });
+    DBUG_EXECUTE_IF("XIndexFileWriter::delete_index_index_meta_nullptr", { index_meta = nullptr; });
     if (!index_meta) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT>("Index metadata is null.");
     }
@@ -166,8 +163,8 @@ Status XIndexFileWriter::add_into_searcher_cache() {
     return Status::OK();
 }
 
-Result<std::unique_ptr<IndexSearcherBuilder>>
-XIndexFileWriter::_construct_index_searcher_builder(const DorisCompoundReader* dir) {
+Result<std::unique_ptr<IndexSearcherBuilder>> XIndexFileWriter::_construct_index_searcher_builder(
+        const DorisCompoundReader* dir) {
     std::vector<std::string> files;
     dir->list(&files);
     auto reader_type = InvertedIndexReaderType::FULLTEXT;
@@ -253,8 +250,8 @@ void XIndexFileWriter::sort_files(std::vector<FileInfo>& file_infos) {
 }
 
 void XIndexFileWriter::copyFile(const char* fileName, lucene::store::Directory* dir,
-                                       lucene::store::IndexOutput* output, uint8_t* buffer,
-                                       int64_t bufferLength) {
+                                lucene::store::IndexOutput* output, uint8_t* buffer,
+                                int64_t bufferLength) {
     lucene::store::IndexInput* tmp = nullptr;
     CLuceneError err;
     auto open = dir->openInput(fileName, tmp, err);
@@ -289,8 +286,7 @@ void XIndexFileWriter::copyFile(const char* fileName, lucene::store::Directory* 
 
     int64_t end_ptr = output->getFilePointer();
     int64_t diff = end_ptr - start_ptr;
-    DBUG_EXECUTE_IF("XIndexFileWriter::copyFile_diff_not_equals_length",
-                    { diff = length - 10; });
+    DBUG_EXECUTE_IF("XIndexFileWriter::copyFile_diff_not_equals_length", { diff = length - 10; });
     if (diff != length) {
         std::ostringstream errMsg;
         errMsg << "Difference in the output file offsets " << diff
@@ -397,8 +393,7 @@ Status XIndexFileWriter::write() {
 }
 
 // Helper function implementations
-std::vector<FileInfo> XIndexFileWriter::prepare_sorted_files(
-        lucene::store::Directory* directory) {
+std::vector<FileInfo> XIndexFileWriter::prepare_sorted_files(lucene::store::Directory* directory) {
     std::vector<std::string> files;
     directory->list(&files);
 
@@ -420,7 +415,7 @@ std::vector<FileInfo> XIndexFileWriter::prepare_sorted_files(
 }
 
 void XIndexFileWriter::add_index_info(int64_t index_id, const std::string& index_suffix,
-                                             int64_t compound_file_size) {
+                                      int64_t compound_file_size) {
     InvertedIndexFileInfo_IndexInfo index_info;
     index_info.set_index_id(index_id);
     index_info.set_index_suffix(index_suffix);
@@ -469,8 +464,7 @@ std::pair<int64_t, int32_t> XIndexFileWriter::calculate_header_length(
 
 std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
           std::unique_ptr<lucene::store::IndexOutput>>
-XIndexFileWriter::create_output_stream_v1(int64_t index_id,
-                                                 const std::string& index_suffix) {
+XIndexFileWriter::create_output_stream_v1(int64_t index_id, const std::string& index_suffix) {
     io::Path cfs_path(InvertedIndexDescriptor::get_index_file_path_v1(_index_path_prefix, index_id,
                                                                       index_suffix));
     auto idx_path = cfs_path.parent_path();
@@ -481,8 +475,7 @@ XIndexFileWriter::create_output_stream_v1(int64_t index_id,
     std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir_ptr(out_dir);
 
     auto* out = out_dir->createOutput(idx_name.c_str());
-    DBUG_EXECUTE_IF("XIndexFileWriter::write_v1_out_dir_createOutput_nullptr",
-                    { out = nullptr; });
+    DBUG_EXECUTE_IF("XIndexFileWriter::write_v1_out_dir_createOutput_nullptr", { out = nullptr; });
     if (out == nullptr) {
         LOG(WARNING) << "XIndexFileWriter::create_output_stream_v1 error: CompoundDirectory "
                         "output is nullptr.";
@@ -494,10 +487,9 @@ XIndexFileWriter::create_output_stream_v1(int64_t index_id,
 }
 
 void XIndexFileWriter::write_header_and_data_v1(lucene::store::IndexOutput* output,
-                                                       const std::vector<FileInfo>& sorted_files,
-                                                       lucene::store::Directory* directory,
-                                                       int64_t header_length,
-                                                       int32_t header_file_count) {
+                                                const std::vector<FileInfo>& sorted_files,
+                                                lucene::store::Directory* directory,
+                                                int64_t header_length, int32_t header_file_count) {
     output->writeVInt(sorted_files.size());
     int64_t data_offset = header_length;
     const int64_t buffer_length = 16384;
@@ -656,7 +648,7 @@ void XIndexFileWriter::write_index_headers_and_metadata(
 }
 
 void XIndexFileWriter::copy_files_data(lucene::store::IndexOutput* output,
-                                              const std::vector<FileMetadata>& file_metadata) {
+                                       const std::vector<FileMetadata>& file_metadata) {
     const int64_t buffer_length = 16384;
     uint8_t buffer[buffer_length];
 

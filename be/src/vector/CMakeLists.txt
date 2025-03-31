@@ -18,19 +18,20 @@
 # where to put generated libraries
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/vector")
 
-find_package(OpenMP REQUIRED)
-if (OpenMP_FOUND)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-endif()
+set(HEADER_FILES
+        vector_index.h
+        stream_wrapper.h
+)
 
-set(CMAKE_COMPILE_WARNING_AS_ERROR OFF)
-add_compile_options(-Wno-error=attributes)
-add_compile_options(-Wno-deprecated-copy)
-add_compile_options(-Wno-reorder)
-add_compile_options(-Wno-unused-but-set-variable)
-add_compile_options(-Wno-error=unused-variable)
+# Use INTERFACE library type for header-only libraries
+add_library(vector INTERFACE)
 
+# Make the headers available to targets that link against the vector library
+target_include_directories(vector INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include>
+)
 
-file(GLOB_RECURSE SRC_FILES  *.cpp)
-add_library(vector STATIC ${SRC_FILES})
+# If you need to install these headers
+# install(FILES ${HEADER_FILES} DESTINATION include/vector)
 

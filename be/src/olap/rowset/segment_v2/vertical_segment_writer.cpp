@@ -48,9 +48,9 @@
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
@@ -226,16 +226,13 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         // TODO support multiple inverted index
     }
 
-    if (const auto& index = tablet_schema->ann_index(column);
-        index != nullptr) {
+    if (const auto& index = tablet_schema->ann_index(column); index != nullptr) {
         opts.ann_index = index;
         opts.need_ann_index = true;
         DCHECK(_x_index_file_writer != nullptr);
         opts.x_index_file_writer = _x_index_file_writer;
         // TODO support multiple inverted index
     }
-
-    
 
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \

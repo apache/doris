@@ -43,10 +43,10 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
 #include "olap/storage_engine.h"
@@ -232,7 +232,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         // TODO support multiple inverted index
     }
 
-     // indexes for this column
+    // indexes for this column
     if (const auto& index = schema->ann_index(column); index != nullptr) {
         opts.ann_index = index;
         opts.need_ann_index = true;
@@ -1041,7 +1041,7 @@ Status SegmentWriter::finalize_columns_data() {
     _num_rows_written = 0;
 
     for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->finish());  //给索引收尾
+        RETURN_IF_ERROR(column_writer->finish()); //给索引收尾
     }
     RETURN_IF_ERROR(_write_data());
 

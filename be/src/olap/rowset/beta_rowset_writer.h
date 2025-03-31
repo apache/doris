@@ -42,8 +42,8 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_creator.h"
-#include "segment_v2/x_index_file_writer.h"
 #include "segment_v2/segment.h"
+#include "segment_v2/x_index_file_writer.h"
 #include "util/spinlock.h"
 
 namespace doris {
@@ -132,8 +132,7 @@ public:
     Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
                               FileType file_type = FileType::SEGMENT_FILE) override;
 
-    Status create_x_index_file_writer(uint32_t segment_id,
-                                             XIndexFileWriterPtr* writer) override;
+    Status create_x_index_file_writer(uint32_t segment_id, XIndexFileWriterPtr* writer) override;
 
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                        TabletSchemaSPtr flush_schema) override;

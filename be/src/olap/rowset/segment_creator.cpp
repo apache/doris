@@ -143,8 +143,7 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
 
     XIndexFileWriterPtr x_index_file_writer;
     if (_context.tablet_schema->has_extra_index()) {
-        RETURN_IF_ERROR(
-                _context.file_writer_creator->create(segment_id, &x_index_file_writer));
+        RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, &x_index_file_writer));
     }
 
     segment_v2::SegmentWriterOptions writer_options;
@@ -181,8 +180,7 @@ Status SegmentFlusher::_create_segment_writer(
 
     XIndexFileWriterPtr x_index_file_writer;
     if (_context.tablet_schema->has_extra_index()) {
-        RETURN_IF_ERROR(
-                _context.file_writer_creator->create(segment_id, &x_index_file_writer));
+        RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, &x_index_file_writer));
     }
 
     segment_v2::VerticalSegmentWriterOptions writer_options;

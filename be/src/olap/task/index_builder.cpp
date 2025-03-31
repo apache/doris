@@ -24,11 +24,11 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
-#include "olap/rowset/segment_v2/index_writer.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
@@ -328,8 +328,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 for (auto& index_meta : _dropped_inverted_indexes) {
                     RETURN_IF_ERROR(x_index_file_writer->delete_index(&index_meta));
                 }
-                _x_index_file_writers.emplace(seg_ptr->id(),
-                                                     std::move(x_index_file_writer));
+                _x_index_file_writers.emplace(seg_ptr->id(), std::move(x_index_file_writer));
             }
             for (auto&& [seg_id, inverted_index_writer] : _x_index_file_writers) {
                 auto st = inverted_index_writer->close();
@@ -451,8 +450,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             }
 
             // DO NOT forget inverted_index_file_writer for the segment, otherwise, original inverted index will be deleted.
-            _inverted_index_file_writers.emplace(seg_ptr->id(),
-                                                 std::move(inverted_index_file_writer));
+            _x_index_file_writers.emplace(seg_ptr->id(), std::move(x_index_file_writer));
             if (return_columns.empty()) {
                 // no columns to read
                 continue;

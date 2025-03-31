@@ -427,35 +427,30 @@ public:
 
     bool has_ann_index() const {
         for (const auto& index : _indexes) {
-            if (index.index_type() == IndexType::ANN) {
+            if (index->index_type() == IndexType::ANN) {
                 return true;
             }
         }
         return false;
     }
 
-    bool has_extra_index(){
-        return has_inverted_index() || has_ann_index();
-    }
+    bool has_extra_index() { return has_inverted_index() || has_ann_index(); }
 
     bool has_inverted_index_with_index_id(int64_t index_id) const;
     // Check whether this column supports inverted index
     // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
     const TabletIndex* inverted_index(const TabletColumn& col) const;
-    
 
     // Regardless of whether this column supports inverted index
     // TabletIndex information will be returned as long as it exists.
     const TabletIndex* inverted_index(int32_t col_unique_id,
                                       const std::string& suffix_path = "") const;
-    
+
     const TabletIndex* ann_index(const TabletColumn& col) const;
-    
 
     // Regardless of whether this column supports inverted index
     // TabletIndex information will be returned as long as it exists.
-    const TabletIndex* ann_index(int32_t col_unique_id,
-                                      const std::string& suffix_path = "") const;
+    const TabletIndex* ann_index(int32_t col_unique_id, const std::string& suffix_path = "") const;
 
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;

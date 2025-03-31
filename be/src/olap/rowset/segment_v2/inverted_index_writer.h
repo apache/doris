@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/index_writer.h"
-
 #include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/analysis/LanguageBasedAnalyzer.h>
 #include <CLucene/util/bkd/bkd_writer.h>
@@ -32,6 +30,7 @@
 #include <vector>
 
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/index_writer.h"
 
 #ifdef __clang__
 #pragma clang diagnostic push
@@ -51,12 +50,13 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/collection_value.h"
@@ -65,7 +65,6 @@
 #include "util/faststring.h"
 #include "util/slice.h"
 #include "util/string_util.h"
-#include "olap/rowset/segment_v2/index_writer.h"
 
 namespace doris::segment_v2 {
 
@@ -75,25 +74,24 @@ public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
     explicit InvertedIndexColumnWriter(const std::string& field_name,
-                                      XIndexFileWriter* index_file_writer,
-                                      const TabletIndex* index_meta,
-                                      const bool single_field = true);
+                                       XIndexFileWriter* index_file_writer,
+                                       const TabletIndex* index_meta,
+                                       const bool single_field = true);
 
     ~InvertedIndexColumnWriter() override;
 
     Status init() override;
 
-    Status add_array_values(size_t field_size, const void* value_ptr,
-                            const uint8_t* null_map, const uint8_t* offsets_ptr,
-                            size_t count) override;
+    Status add_array_values(size_t field_size, const void* value_ptr, const uint8_t* null_map,
+                            const uint8_t* offsets_ptr, size_t count) override;
 
     Status add_nulls(uint32_t count) override;
-    Status add_array_nulls(uint32_t row_id) override;
+    Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override;
 
     Status add_array_values(size_t field_size, const CollectionValue* values,
                             size_t count) override;
 
-    Status add_values(const std::string fn, const void* values, size_t count) override;    
+    Status add_values(const std::string fn, const void* values, size_t count) override;
 
     Status finish() override;
 
@@ -143,4 +141,4 @@ private:
     uint32_t _ignore_above;
 };
 
-}
+} // namespace doris::segment_v2

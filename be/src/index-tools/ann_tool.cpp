@@ -40,25 +40,24 @@
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
+#include "common/signal_handler.h"
 #include "gutil/strings/strip.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "olap/options.h"
+#include "olap/rowset/segment_v2/ann_index_writer.h"
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/tablet_schema.h"
-#include "io/fs/file_system.h"
-#include "vector/diskann_vector_index.h"
-#include "vector/vector_index.h"
-#include "olap/rowset/segment_v2/ann_index_writer.h"
-
-#include "olap/options.h"
-#include "common/signal_handler.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
-#include "io/fs/file_writer.h"
+#include "vector/diskann_vector_index.h"
+#include "vector/vector_index.h"
 
 using doris::segment_v2::DorisCompoundReader;
 using doris::segment_v2::DorisFSDirectoryFactory;
@@ -76,33 +75,30 @@ using doris::io::FileSystem;
 
 #include "io/fs/path.h"
 
-
 const std::string& file_dir = "/home/users/clz/run/test_diskann/123456_0.idx";
-std::filesystem::path  index_data_path(file_dir);
+std::filesystem::path index_data_path(file_dir);
 
 int index_id = 100;
-std::string rowset_id="rowset_id";
+std::string rowset_id = "rowset_id";
 int seg_id = 0;
 
-
-std::shared_ptr<FileSystem> get_local_file_filesystem(){
+std::shared_ptr<FileSystem> get_local_file_filesystem() {
     return doris::io::global_local_filesystem();
 }
 
-void test_add(){
+void test_add() {
     auto fs = get_local_file_filesystem();
     int index_id = 100;
 
     doris::io::FileWriterPtr file_writer;
 
     auto st = doris::io::global_local_filesystem()->create_file(file_dir, &file_writer);
-    if(!st.ok()){
-        std::cerr<<"failed create_file" << file_dir << std::endl;
+    if (!st.ok()) {
+        std::cerr << "failed create_file" << file_dir << std::endl;
     }
     std::unique_ptr<XIndexFileWriter> index_file_writer = std::make_unique<XIndexFileWriter>(
-            fs,
-            index_data_path.parent_path(),
-            rowset_id, seg_id, doris::InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+            fs, index_data_path.parent_path(), rowset_id, seg_id,
+            doris::InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
     doris::TabletIndexPB index_pb;
 
@@ -110,49 +106,48 @@ void test_add(){
     TabletIndex index_meta;
     index_meta.init_from_pb(index_pb);
     index_meta._index_type = doris::IndexType::ANN;
-    index_meta._properties["index_type"]="diskann";
-    index_meta._properties["metric_type"]="l2";
-    index_meta._properties["dim"]="7";
-    index_meta._properties["max_degree"]="32";
-    index_meta._properties["search_list"]="100";
+    index_meta._properties["index_type"] = "diskann";
+    index_meta._properties["metric_type"] = "l2";
+    index_meta._properties["dim"] = "7";
+    index_meta._properties["max_degree"] = "32";
+    index_meta._properties["search_list"] = "100";
 
-
-    std::string field_name="word_embeding";
-    std::unique_ptr<AnnIndexColumnWriter>  ann_writer = std::make_unique<AnnIndexColumnWriter>(
+    std::string field_name = "word_embeding";
+    std::unique_ptr<AnnIndexColumnWriter> ann_writer = std::make_unique<AnnIndexColumnWriter>(
             field_name, index_file_writer.get(), &index_meta, true);
     st = ann_writer->init();
     if (!st.ok()) {
         std::cout << "failed to ann_writer->init()" << std::endl;
-        return ;
+        return;
     }
 
     //writer
     int field_size = 4;
-    float value[14]={1,2,3,4,5,6,7,7,6,5,4,3,2,1};
-    int64_t offsets[3]={0,7,14};
-    st = ann_writer->add_array_values(field_size, (const void*)value, nullptr, (const uint8_t*)offsets, 2);
+    float value[14] = {1, 2, 3, 4, 5, 6, 7, 7, 6, 5, 4, 3, 2, 1};
+    int64_t offsets[3] = {0, 7, 14};
+    st = ann_writer->add_array_values(field_size, (const void*)value, nullptr,
+                                      (const uint8_t*)offsets, 2);
     if (!st.ok()) {
         std::cout << "failed to ann_writer->add_array_values" << std::endl;
-        return ;
+        return;
     }
 
     //finish
     st = ann_writer->finish();
     if (!st.ok()) {
         std::cout << "failed to ann_writer->finish" << std::endl;
-        return ;
+        return;
     }
 
-    //save to disk 
+    //save to disk
     st = index_file_writer->close();
     if (!st.ok()) {
         std::cout << "failed to indexwriter->close" << std::endl;
-        return ;
+        return;
     }
 }
 
-
-void init_env(){
+void init_env() {
     doris::CpuInfo::init();
     doris::DiskInfo::init();
     doris::MemInfo::init();
@@ -160,13 +155,13 @@ void init_env(){
     string custom_conffile = "/home/users/clz/run/be_1.conf";
     if (!doris::config::init(custom_conffile.c_str(), true, false, true)) {
         fprintf(stderr, "error read custom config file. \n");
-        return ;
+        return;
     }
 
     std::vector<doris::StorePath> paths;
-    std::string storage="/home/users/clz/run/storage";
-    std::string spill="/home/users/clz/run/splill";
-    std::string broken_storage_path="/home/users/clz/run/broken";
+    std::string storage = "/home/users/clz/run/storage";
+    std::string spill = "/home/users/clz/run/splill";
+    std::string broken_storage_path = "/home/users/clz/run/broken";
 
     auto olap_res = doris::parse_conf_store_paths(storage, &paths);
     if (!olap_res) {
@@ -177,8 +172,7 @@ void init_env(){
     std::vector<doris::StorePath> spill_paths;
     olap_res = doris::parse_conf_store_paths(spill, &spill_paths);
     if (!olap_res) {
-        LOG(ERROR) << "parse config spill storage path failed, path="
-                   << spill;
+        LOG(ERROR) << "parse config spill storage path failed, path=" << spill;
         exit(-1);
     }
     std::set<std::string> broken_paths;
@@ -283,31 +277,32 @@ void init_env(){
 
     // init exec env
     //auto* exec_env(doris::ExecEnv::GetInstance());
-    doris::Status status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, broken_paths);
-    if(!status.ok()){
+    doris::Status status =
+            doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, broken_paths);
+    if (!status.ok()) {
         std::cout << "init fail" << std::endl;
     }
 }
 
-void test_search(){
+void test_search() {
     auto fs = get_local_file_filesystem();
     auto index_file_reader = std::make_unique<InvertedIndexFileReader>(
-                    fs, "/home/users/clz/run/test_diskann/123456_0", doris::InvertedIndexStorageFormatPB::V2);
+            fs, "/home/users/clz/run/test_diskann/123456_0",
+            doris::InvertedIndexStorageFormatPB::V2);
     auto st = index_file_reader->init(4096);
     if (!st.ok()) {
-        std::cout << "failed to index_file_reader->init"  << st << std::endl;
-        return ;
+        std::cout << "failed to index_file_reader->init" << st << std::endl;
+        return;
     }
     doris::TabletIndexPB index_pb;
     index_pb.set_index_id(index_id);
     TabletIndex index_meta;
     index_meta.init_from_pb(index_pb);
-  
 
     auto ret = index_file_reader->open(&index_meta);
     if (!ret.has_value()) {
         std::cerr << "InvertedIndexFileReader open error:" << ret.error() << std::endl;
-        return ;
+        return;
     }
     using T = std::decay_t<decltype(ret)>;
     std::shared_ptr<DorisCompoundReader> dir = std::forward<T>(ret).value();
@@ -316,11 +311,12 @@ void test_search(){
     st = vindex->load(VectorIndex::Metric::L2);
     if (!st.ok()) {
         std::cout << "failed to vindex->load" << std::endl;
-        return ;
+        return;
     }
-    float query_vec[7]={1,2,3,4,5,6,7};
+    float query_vec[7] = {1, 2, 3, 4, 5, 6, 7};
     SearchResult result;
-    std::shared_ptr<DiskannSearchParameter>  searchParams = std::make_shared<DiskannSearchParameter>();
+    std::shared_ptr<DiskannSearchParameter> searchParams =
+            std::make_shared<DiskannSearchParameter>();
     searchParams->with_search_list(100);
     searchParams->with_beam_width(2);
 
@@ -333,11 +329,12 @@ void test_search(){
     st = vindex->search(query_vec, 5, &result, searchParams.get());
     if (!st.ok()) {
         std::cout << "failed to vindex->search" << std::endl;
-        return ;
+        return;
     }
-    if(result.has_rows()){
-        for(int i=0;i<result.row_count();i++){
-            std::cout << "idx:" << result.get_id(i) << ", distance:" << result.get_distance(i) << std::endl;
+    if (result.has_rows()) {
+        for (int i = 0; i < result.row_count(); i++) {
+            std::cout << "idx:" << result.get_id(i) << ", distance:" << result.get_distance(i)
+                      << std::endl;
         }
     }
 }
@@ -350,11 +347,11 @@ int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
     init_env();
     std::string command = argv[1];
-    if(command=="add"){
+    if (command == "add") {
         test_add();
-    }else if(command=="search"){
+    } else if (command == "search") {
         test_search();
-    }else{
+    } else {
         std::cout << "unkonw command" << std::endl;
     }
     return 0;

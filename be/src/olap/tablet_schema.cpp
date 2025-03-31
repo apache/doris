@@ -1473,21 +1473,19 @@ const TabletIndex* TabletSchema::inverted_index(int32_t col_unique_id,
 }
 
 const TabletIndex* TabletSchema::ann_index(int32_t col_unique_id,
-                                                const std::string& suffix_path) const {
+                                           const std::string& suffix_path) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].index_type() == IndexType::ANN) {
-            for (int32_t id : _indexes[i].col_unique_ids()) {
+        if (_indexes[i]->index_type() == IndexType::ANN) {
+            for (int32_t id : _indexes[i]->col_unique_ids()) {
                 if (id == col_unique_id &&
-                    _indexes[i].get_index_suffix() == escape_for_path_name(suffix_path)) {
-                    return &(_indexes[i]);
+                    _indexes[i]->get_index_suffix() == escape_for_path_name(suffix_path)) {
+                    return _indexes[i].get();
                 }
             }
         }
     }
     return nullptr;
 }
-
-
 
 const TabletIndex* TabletSchema::inverted_index(const TabletColumn& col) const {
     // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index

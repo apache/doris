@@ -48,7 +48,6 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "olap/rowset/segment_v2/index_writer.h"
 
 namespace doris::segment_v2 {
 
@@ -483,8 +482,8 @@ Status ScalarColumnWriter::init() {
             });
 
             RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.x_index_file_writer,
-                                                              _opts.inverted_index));
+                                                      _opts.x_index_file_writer,
+                                                      _opts.inverted_index));
         } while (false);
     }
     if (_opts.need_bloom_filter) {
@@ -898,16 +897,15 @@ Status ArrayColumnWriter::init() {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
             RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.x_index_file_writer,
-                                                              _opts.inverted_index));
+                                                      _opts.x_index_file_writer,
+                                                      _opts.inverted_index));
         }
     }
-    if(_opts.need_ann_index){
+    if (_opts.need_ann_index) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
             RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_ann_index_builder,
-                                                              _opts.x_index_file_writer,
-                                                              _opts.ann_index));
+                                                      _opts.x_index_file_writer, _opts.ann_index));
         }
     }
     return Status::OK();

@@ -1934,6 +1934,8 @@ build_faiss() {
         "-DCMAKE_BUILD_TYPE=Release"
         "-DFAISS_ENABLE_GPU=OFF"
         "-DFAISS_ENABLE_PYTHON=OFF"
+        "-DFAISS_ENABLE_EXTRAS=OFF"
+        "-DBUILD_TESTING=OFF"
     )
 
     echo "Building faiss at $(pwd) with cmake parameters: ${FAISS_CMAKE_OPTIONS[*]}"

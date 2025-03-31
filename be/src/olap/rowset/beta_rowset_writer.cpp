@@ -194,8 +194,7 @@ InvertedIndexFileCollection::~InvertedIndexFileCollection() = default;
 
 Status InvertedIndexFileCollection::add(int seg_id, XIndexFileWriterPtr&& index_writer) {
     std::lock_guard lock(_lock);
-    if (_x_index_file_writers.find(seg_id) != _x_index_file_writers.end())
-            [[unlikely]] {
+    if (_x_index_file_writers.find(seg_id) != _x_index_file_writers.end()) [[unlikely]] {
         DCHECK(false);
         return Status::InternalError("The seg_id already exists, seg_id is {}", seg_id);
     }
@@ -219,9 +218,8 @@ InvertedIndexFileCollection::inverted_index_file_info(int seg_id_offset) {
 
     Status st;
     std::vector<const InvertedIndexFileInfo*> idx_file_info(_x_index_file_writers.size());
-    bool succ = std::all_of(
-            _x_index_file_writers.begin(), _x_index_file_writers.end(),
-            [&](auto&& it) {
+    bool succ =
+            std::all_of(_x_index_file_writers.begin(), _x_index_file_writers.end(), [&](auto&& it) {
                 auto&& [seg_id, writer] = it;
 
                 int idx = seg_id - seg_id_offset;
@@ -984,8 +982,8 @@ Status BaseBetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWri
             fmt::format("failed to create file = {}, file type = {}", segment_path, file_type));
 }
 
-Status BaseBetaRowsetWriter::create_x_index_file_writer(
-        uint32_t segment_id, XIndexFileWriterPtr* index_file_writer) {
+Status BaseBetaRowsetWriter::create_x_index_file_writer(uint32_t segment_id,
+                                                        XIndexFileWriterPtr* index_file_writer) {
     RETURN_IF_ERROR(RowsetWriter::create_x_index_file_writer(segment_id, index_file_writer));
     // used for inverted index format v1
     (*index_file_writer)->set_file_writer_opts(_context.get_file_writer_options());

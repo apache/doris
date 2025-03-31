@@ -96,8 +96,8 @@ public:
         return Status::NotSupported("RowsetWriter does not support create_file_writer");
     }
 
-    virtual Status create_x_index_file_writer(
-            uint32_t segment_id, XIndexFileWriterPtr* index_file_writer) {
+    virtual Status create_x_index_file_writer(uint32_t segment_id,
+                                              XIndexFileWriterPtr* index_file_writer) {
         // Create file writer for the inverted index format v2.
         io::FileWriterPtr idx_file_v2_ptr;
         if (_context.tablet_schema->get_inverted_index_storage_format() !=

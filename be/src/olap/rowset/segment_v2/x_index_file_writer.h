@@ -54,10 +54,9 @@ public:
 
 class XIndexFileWriter {
 public:
-    XIndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
-                            std::string rowset_id, int64_t seg_id,
-                            InvertedIndexStorageFormatPB storage_format,
-                            io::FileWriterPtr file_writer = nullptr)
+    XIndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix, std::string rowset_id,
+                     int64_t seg_id, InvertedIndexStorageFormatPB storage_format,
+                     io::FileWriterPtr file_writer = nullptr)
             : _fs(std::move(fs)),
               _index_path_prefix(std::move(index_path_prefix)),
               _rowset_id(std::move(rowset_id)),
@@ -69,10 +68,11 @@ public:
         _tmp_dir = tmp_file_dir.native();
     }
 
+    virtual ~XIndexFileWriter() = default;
+
     Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
-    virtual ~InvertedIndexFileWriter() = default;
     Status add_into_searcher_cache();
     Status write();
     Status write_v1();

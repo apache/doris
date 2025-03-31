@@ -60,8 +60,8 @@
 #include "olap/rowset/segment_v2/inverted_index_compaction.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
@@ -704,16 +704,14 @@ Status Compaction::do_inverted_index_compaction() {
 
     // dest index files
     // format: rowsetId_segmentId
-    auto& x_index_file_writers = dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get())
-                                                ->x_index_file_writers();
-    DBUG_EXECUTE_IF(
-            "Compaction::do_inverted_index_compaction_x_index_file_writers_size_error",
-            { x_index_file_writers.clear(); })
+    auto& x_index_file_writers =
+            dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get())->x_index_file_writers();
+    DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_x_index_file_writers_size_error",
+                    { x_index_file_writers.clear(); })
     if (x_index_file_writers.size() != dest_segment_num) {
         LOG(WARNING) << "failed to do index compaction, dest segment num not match. tablet_id="
                      << _tablet->tablet_id() << " dest_segment_num=" << dest_segment_num
-                     << " x_index_file_writers.size()="
-                     << x_index_file_writers.size();
+                     << " x_index_file_writers.size()=" << x_index_file_writers.size();
         mark_skip_index_compaction(ctx, error_handler);
         return Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(
                 "dest segment num not match. tablet_id={} dest_segment_num={} "

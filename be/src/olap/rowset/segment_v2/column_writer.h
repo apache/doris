@@ -159,9 +159,7 @@ public:
     virtual Status write_bitmap_index() = 0;
 
     virtual Status write_inverted_index() = 0;
-    virtual Status write_ann_index() {
-        return Status::OK();
-    }
+    virtual Status write_ann_index() { return Status::OK(); }
 
     virtual Status write_bloom_filter_index() = 0;
 
