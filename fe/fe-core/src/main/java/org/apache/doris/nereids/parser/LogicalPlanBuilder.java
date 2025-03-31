@@ -5978,12 +5978,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean isFull = ctx.FULL() != null;
         List<String> nameParts = visitMultipartIdentifier(ctx.tableName);
         String databaseName = ctx.database != null ? ctx.database.getText() : null;
-        String pattern = null;
-        if (ctx.LIKE() != null) {
-            pattern = stripQuotes(ctx.STRING_LITERAL().getText());
+        String likePattern = null;
+        Expression expr = null;
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                likePattern = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
+            } else {
+                expr = (Expression) ctx.wildWhere().expression().accept(this);
+            }
         }
 
-        return new ShowColumnsCommand(isFull, new TableNameInfo(nameParts), databaseName, pattern);
+        return new ShowColumnsCommand(isFull, new TableNameInfo(nameParts), databaseName, likePattern, expr);
     }
 
     @Override

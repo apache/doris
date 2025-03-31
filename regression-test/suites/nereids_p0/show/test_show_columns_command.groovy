@@ -43,6 +43,13 @@ suite("test_show_columns_command", "nereids_p0") {
         checkNereidsExecute("""SHOW COLUMNS FROM ${dbName}.${tableName} LIKE 's%'""")
         qt_cmd("""SHOW COLUMNS FROM ${dbName}.${tableName} LIKE 's%'""")
 
+        // Test SHOW COLUMNS with WHERE clause
+        checkNereidsExecute("""SHOW COLUMNS FROM ${dbName}.${tableName} WHERE Field = 'id'""")
+        qt_cmd("""SHOW COLUMNS FROM ${dbName}.${tableName} WHERE Field = 'id'""")
+
+        // Test SHOW FULL COLUMNS with WHERE clause
+        checkNereidsExecute("""SHOW FULL COLUMNS FROM ${dbName}.${tableName} WHERE Field LIKE '%name%'""")
+
     } finally {
         sql """DROP TABLE IF EXISTS ${dbName}.${tableName}"""
         sql """DROP DATABASE IF EXISTS ${dbName}"""
