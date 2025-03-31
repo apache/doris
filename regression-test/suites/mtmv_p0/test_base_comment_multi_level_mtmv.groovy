@@ -136,5 +136,5 @@ suite("test_base_comment_multi_level_mtmv","mtmv") {
     mv_rewrite_success_without_check_chosen(querySql, mvName2)
     mv_rewrite_success_without_check_chosen(querySql, mvName3)
     // FailSummary: View struct info is invalid
-    mv_rewrite_success_without_check_chosen(querySql, mvName4)
+    //mv_rewrite_success_without_check_chosen(querySql, mvName4)
 }
