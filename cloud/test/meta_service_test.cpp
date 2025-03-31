@@ -6395,6 +6395,316 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_remove_res1.status().code(), MetaServiceCode::LOCK_EXPIRED);
 }
 
+TEST(MetaServiceTest, DeleteBitmapUpdateLockFuzzyTest1) {
+    // case 1:
+    // 1.1 lock key does not exist
+    // 1.2 compaction1 get lock in old way
+    // 1.3 sc、load、compaction get and remove lock in new or old way
+    // 1.4 compaction2 get lock in old way
+    // 1.5 if sc or load succeed，compaction1 remove lock in old way failed
+
+    brpc::Controller cntl;
+    config::use_delete_bitmap_lock_random_way = false;
+    auto meta_service = get_meta_service();
+    int64_t table_id = 1111;
+    // 1.1 compaction1 get lock in old way
+    config::use_delete_bitmap_lock_new_way = false;
+    GetDeleteBitmapUpdateLockRequest compaction_req1;
+    GetDeleteBitmapUpdateLockResponse compaction_res1;
+    compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
+    compaction_req1.set_table_id(table_id);
+    compaction_req1.add_partition_ids(123);
+    compaction_req1.set_expiration(600);
+    compaction_req1.set_lock_id(-1);
+    compaction_req1.set_initiator(100);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &compaction_req1,
+            &compaction_res1, nullptr);
+    ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
+
+    // 1.3 sc、load、compaction get and remove lock in new or old way
+    bool load_or_sc_succeed = false;
+    std::srand(std::time(0));
+    for (int i = 0; i < 10; i++) {
+        int num = std::rand() % 3;
+        LOG(INFO) << "num=" << num;
+        bool use_new = (std::rand() % 2 == 0 ? true : false);
+        config::use_delete_bitmap_lock_new_way = use_new;
+        switch (num) {
+        case 0: {
+            GetDeleteBitmapUpdateLockRequest load_req;
+            GetDeleteBitmapUpdateLockResponse load_res;
+            load_req.set_cloud_unique_id("test_cloud_unique_id");
+            load_req.set_table_id(table_id);
+            load_req.add_partition_ids(123);
+            load_req.set_expiration(5);
+            load_req.set_lock_id(111);
+            load_req.set_initiator(-1);
+            meta_service->get_delete_bitmap_update_lock(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &load_req,
+                    &load_res, nullptr);
+            if (load_res.status().code() == MetaServiceCode::OK) {
+                RemoveDeleteBitmapUpdateLockRequest load_remove_req;
+                RemoveDeleteBitmapUpdateLockResponse load_remove_res;
+                load_remove_req.set_cloud_unique_id("test_cloud_unique_id");
+                load_remove_req.set_table_id(table_id);
+                load_remove_req.set_lock_id(111);
+                load_remove_req.set_initiator(-1);
+                meta_service->remove_delete_bitmap_update_lock(
+                        reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                        &load_remove_req, &load_remove_res, nullptr);
+                if (load_remove_res.status().code() == MetaServiceCode::OK) {
+                    load_or_sc_succeed = true;
+                }
+            }
+            break;
+        }
+        case 1: {
+            GetDeleteBitmapUpdateLockRequest sc_req;
+            GetDeleteBitmapUpdateLockResponse sc_res;
+            sc_req.set_cloud_unique_id("test_cloud_unique_id");
+            sc_req.set_table_id(table_id);
+            sc_req.add_partition_ids(123);
+            sc_req.set_expiration(600);
+            sc_req.set_lock_id(-2);
+            sc_req.set_initiator(999);
+            meta_service->get_delete_bitmap_update_lock(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req, &sc_res,
+                    nullptr);
+            if (sc_res.status().code() == MetaServiceCode::OK) {
+                RemoveDeleteBitmapUpdateLockRequest sc_remove_req;
+                RemoveDeleteBitmapUpdateLockResponse sc_remove_res;
+                sc_remove_req.set_cloud_unique_id("test_cloud_unique_id");
+                sc_remove_req.set_table_id(table_id);
+                sc_remove_req.set_tablet_id(3);
+                sc_remove_req.set_lock_id(-2);
+                sc_remove_req.set_initiator(999);
+                meta_service->remove_delete_bitmap_update_lock(
+                        reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_remove_req,
+                        &sc_remove_res, nullptr);
+                if (sc_remove_res.status().code() == MetaServiceCode::OK) {
+                    load_or_sc_succeed = true;
+                }
+            }
+            break;
+        }
+        case 2: {
+            GetDeleteBitmapUpdateLockRequest compaction_req3;
+            GetDeleteBitmapUpdateLockResponse compaction_res3;
+            compaction_req3.set_cloud_unique_id("test_cloud_unique_id");
+            compaction_req3.set_table_id(table_id);
+            compaction_req3.add_partition_ids(123);
+            compaction_req3.set_expiration(600);
+            compaction_req3.set_lock_id(-1);
+            compaction_req3.set_initiator(300);
+            meta_service->get_delete_bitmap_update_lock(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &compaction_req3,
+                    &compaction_res3, nullptr);
+            if (compaction_res3.status().code() == MetaServiceCode::OK) {
+                RemoveDeleteBitmapUpdateLockRequest compaction_remove_req3;
+                RemoveDeleteBitmapUpdateLockResponse compaction_remove_res3;
+                compaction_remove_req3.set_cloud_unique_id("test_cloud_unique_id");
+                compaction_remove_req3.set_table_id(table_id);
+                compaction_remove_req3.set_tablet_id(3);
+                compaction_remove_req3.set_lock_id(-1);
+                compaction_remove_req3.set_initiator(300);
+                meta_service->remove_delete_bitmap_update_lock(
+                        reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                        &compaction_remove_req3, &compaction_remove_res3, nullptr);
+            }
+            break;
+        }
+        }
+    }
+
+    // 1.4 compaction2 get lock in old way
+    config::use_delete_bitmap_lock_new_way = false;
+    GetDeleteBitmapUpdateLockRequest compaction_req2;
+    GetDeleteBitmapUpdateLockResponse compaction_res2;
+    compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
+    compaction_req2.set_table_id(table_id);
+    compaction_req2.add_partition_ids(123);
+    compaction_req2.set_expiration(600);
+    compaction_req2.set_lock_id(-1);
+    compaction_req2.set_initiator(300);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &compaction_req2,
+            &compaction_res2, nullptr);
+
+    // 1.5 if sc or load succeed，compaction1 remove lock in old way failed
+    config::use_delete_bitmap_lock_new_way = false;
+    RemoveDeleteBitmapUpdateLockRequest compaction_remove_req1;
+    RemoveDeleteBitmapUpdateLockResponse compaction_remove_res1;
+    compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
+    compaction_remove_req1.set_table_id(table_id);
+    compaction_remove_req1.set_tablet_id(1);
+    compaction_remove_req1.set_lock_id(-1);
+    compaction_remove_req1.set_initiator(100);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &compaction_remove_req1,
+            &compaction_remove_res1, nullptr);
+    if (load_or_sc_succeed) {
+        ASSERT_EQ(compaction_remove_res1.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    } else {
+        ASSERT_EQ(compaction_remove_res1.status().code(), MetaServiceCode::OK);
+    }
+}
+
+TEST(MetaServiceTest, DeleteBitmapUpdateLockFuzzyTest2) {
+    // case 1:
+    // 1.1 lock key does not exist
+    // 1.2 compaction1 get lock in new way
+    // 1.3 sc、load、compaction get and remove lock in new or old way
+    // 1.4 compaction2 get lock in new way
+    // 1.5 if sc or load succeed，compaction1 remove lock in new way failed
+
+    brpc::Controller cntl;
+    config::use_delete_bitmap_lock_random_way = false;
+    auto meta_service = get_meta_service();
+    int64_t table_id = 2222;
+    // 1.1 compaction1 get lock in new way
+    config::use_delete_bitmap_lock_new_way = true;
+    GetDeleteBitmapUpdateLockRequest compaction_req1;
+    GetDeleteBitmapUpdateLockResponse compaction_res1;
+    compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
+    compaction_req1.set_table_id(table_id);
+    compaction_req1.add_partition_ids(123);
+    compaction_req1.set_expiration(600);
+    compaction_req1.set_lock_id(-1);
+    compaction_req1.set_initiator(100);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &compaction_req1,
+            &compaction_res1, nullptr);
+    ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
+
+    // 1.3 sc、load、compaction get and remove lock in new or old way
+    bool load_or_sc_succeed = false;
+    std::srand(std::time(0));
+    for (int i = 0; i < 10; i++) {
+        int num = std::rand() % 3;
+        LOG(INFO) << "num=" << num;
+        bool use_new = (std::rand() % 2 == 0 ? true : false);
+        config::use_delete_bitmap_lock_new_way = use_new;
+        switch (num) {
+        case 0: {
+            GetDeleteBitmapUpdateLockRequest load_req;
+            GetDeleteBitmapUpdateLockResponse load_res;
+            load_req.set_cloud_unique_id("test_cloud_unique_id");
+            load_req.set_table_id(table_id);
+            load_req.add_partition_ids(123);
+            load_req.set_expiration(5);
+            load_req.set_lock_id(111);
+            load_req.set_initiator(-1);
+            meta_service->get_delete_bitmap_update_lock(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &load_req,
+                    &load_res, nullptr);
+            if (load_res.status().code() == MetaServiceCode::OK) {
+                RemoveDeleteBitmapUpdateLockRequest load_remove_req;
+                RemoveDeleteBitmapUpdateLockResponse load_remove_res;
+                load_remove_req.set_cloud_unique_id("test_cloud_unique_id");
+                load_remove_req.set_table_id(table_id);
+                load_remove_req.set_lock_id(111);
+                load_remove_req.set_initiator(-1);
+                meta_service->remove_delete_bitmap_update_lock(
+                        reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                        &load_remove_req, &load_remove_res, nullptr);
+                if (load_remove_res.status().code() == MetaServiceCode::OK) {
+                    load_or_sc_succeed = true;
+                }
+            }
+            break;
+        }
+        case 1: {
+            GetDeleteBitmapUpdateLockRequest sc_req;
+            GetDeleteBitmapUpdateLockResponse sc_res;
+            sc_req.set_cloud_unique_id("test_cloud_unique_id");
+            sc_req.set_table_id(table_id);
+            sc_req.add_partition_ids(123);
+            sc_req.set_expiration(600);
+            sc_req.set_lock_id(-2);
+            sc_req.set_initiator(999);
+            meta_service->get_delete_bitmap_update_lock(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req, &sc_res,
+                    nullptr);
+            if (sc_res.status().code() == MetaServiceCode::OK) {
+                RemoveDeleteBitmapUpdateLockRequest sc_remove_req;
+                RemoveDeleteBitmapUpdateLockResponse sc_remove_res;
+                sc_remove_req.set_cloud_unique_id("test_cloud_unique_id");
+                sc_remove_req.set_table_id(table_id);
+                sc_remove_req.set_tablet_id(3);
+                sc_remove_req.set_lock_id(-2);
+                sc_remove_req.set_initiator(999);
+                meta_service->remove_delete_bitmap_update_lock(
+                        reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_remove_req,
+                        &sc_remove_res, nullptr);
+                if (sc_remove_res.status().code() == MetaServiceCode::OK) {
+                    load_or_sc_succeed = true;
+                }
+            }
+            break;
+        }
+        case 2: {
+            GetDeleteBitmapUpdateLockRequest compaction_req3;
+            GetDeleteBitmapUpdateLockResponse compaction_res3;
+            compaction_req3.set_cloud_unique_id("test_cloud_unique_id");
+            compaction_req3.set_table_id(table_id);
+            compaction_req3.add_partition_ids(123);
+            compaction_req3.set_expiration(600);
+            compaction_req3.set_lock_id(-1);
+            compaction_req3.set_initiator(300);
+            meta_service->get_delete_bitmap_update_lock(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &compaction_req3,
+                    &compaction_res3, nullptr);
+            if (compaction_res3.status().code() == MetaServiceCode::OK) {
+                RemoveDeleteBitmapUpdateLockRequest compaction_remove_req3;
+                RemoveDeleteBitmapUpdateLockResponse compaction_remove_res3;
+                compaction_remove_req3.set_cloud_unique_id("test_cloud_unique_id");
+                compaction_remove_req3.set_table_id(table_id);
+                compaction_remove_req3.set_tablet_id(3);
+                compaction_remove_req3.set_lock_id(-1);
+                compaction_remove_req3.set_initiator(300);
+                meta_service->remove_delete_bitmap_update_lock(
+                        reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                        &compaction_remove_req3, &compaction_remove_res3, nullptr);
+            }
+            break;
+        }
+        }
+    }
+
+    // 1.4 compaction2 get lock in new way
+    config::use_delete_bitmap_lock_new_way = true;
+    GetDeleteBitmapUpdateLockRequest compaction_req2;
+    GetDeleteBitmapUpdateLockResponse compaction_res2;
+    compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
+    compaction_req2.set_table_id(table_id);
+    compaction_req2.add_partition_ids(123);
+    compaction_req2.set_expiration(600);
+    compaction_req2.set_lock_id(-1);
+    compaction_req2.set_initiator(300);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &compaction_req2,
+            &compaction_res2, nullptr);
+
+    // 1.5 if sc or load succeed，compaction1 remove lock in new way failed
+    config::use_delete_bitmap_lock_new_way = true;
+    RemoveDeleteBitmapUpdateLockRequest compaction_remove_req1;
+    RemoveDeleteBitmapUpdateLockResponse compaction_remove_res1;
+    compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
+    compaction_remove_req1.set_table_id(table_id);
+    compaction_remove_req1.set_tablet_id(1);
+    compaction_remove_req1.set_lock_id(-1);
+    compaction_remove_req1.set_initiator(100);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &compaction_remove_req1,
+            &compaction_remove_res1, nullptr);
+    if (load_or_sc_succeed) {
+        ASSERT_EQ(compaction_remove_res1.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    } else {
+        ASSERT_EQ(compaction_remove_res1.status().code(), MetaServiceCode::OK);
+    }
+}
+
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLockNoReadStats) {
     auto meta_service = get_meta_service();
 
