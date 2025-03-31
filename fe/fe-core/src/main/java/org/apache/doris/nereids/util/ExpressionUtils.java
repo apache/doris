@@ -536,9 +536,11 @@ public class ExpressionUtils {
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
             Collection<E> exprs, Function<Expression, Expression> rewriteFunction) {
-        return exprs.stream()
-                .map(expr -> (E) expr.rewriteDownShortCircuit(rewriteFunction))
-                .collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<E> result = ImmutableList.builderWithExpectedSize(exprs.size());
+        for (E expr : exprs) {
+            result.add((E) expr.rewriteDownShortCircuit(rewriteFunction));
+        }
+        return result.build();
     }
 
     private static class ExpressionReplacer
