@@ -575,8 +575,8 @@ public class SchemaTable extends Table {
                                     .column("METRIC_VALUE", ScalarType.createStringType())
                                     .build())
             )
-            .put("routine_load_job",
-                    new SchemaTable(SystemIdGenerator.getNextId(), "routine_load_job", TableType.SCHEMA,
+            .put("routine_load_jobs",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "routine_load_jobs", TableType.SCHEMA,
                             builder().column("JOB_ID", ScalarType.createStringType())
                                     .column("JOB_NAME", ScalarType.createStringType())
                                     .column("CREATE_TIME", ScalarType.createStringType())
