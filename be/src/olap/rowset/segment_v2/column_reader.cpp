@@ -532,7 +532,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
 
         // init sparse column
         if (path.copy_pop_front().get_path() == SPARSE_COLUMN_PATH) {
-            DCHECK(column_pb.has_variant_statistics());
+            DCHECK(column_pb.has_variant_statistics()) << column_pb.DebugString();
             const auto& variant_stats = column_pb.variant_statistics();
             for (const auto& [path, size] : variant_stats.sparse_column_non_null_size()) {
                 _statistics->sparse_column_non_null_size.emplace(path, size);

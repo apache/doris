@@ -106,7 +106,10 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     // update rowset meta tablet schema if tablet schema updated
     auto rowset_schema = _context.merged_tablet_schema != nullptr ? _context.merged_tablet_schema
                                                                   : _context.tablet_schema;
-    _rowset_meta->set_tablet_schema(rowset_schema);
+    auto schema = rowset_schema->need_record_variant_extended_schema()
+                          ? rowset_schema
+                          : rowset_schema->copy_without_variant_extracted_columns();
+    _rowset_meta->set_tablet_schema(schema);
 
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
