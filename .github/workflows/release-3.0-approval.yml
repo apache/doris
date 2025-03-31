@@ -1,0 +1,33 @@
+name: Release Manager approval (dataroaring)
+
+on:
+  pull_request:
+    branches:
+      - branch-3.0
+
+jobs:
+  require-dataroaring-approval:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Release Manager approval (dataroaring)
+        id: approval-check
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { owner, repo, pull_number } = context.issue;
+            const reviews = await github.rest.pulls.listReviews({
+              owner,
+              repo,
+              pull_number,
+            });
+            
+            const approvedByDataroaring = reviews.data.some(
+              review => review.state === 'APPROVED' && review.user.login === 'dataroaring'
+            );
+
+            if (!approvedByDataroaring) {
+              core.setFailed('Pull request must be approved by release manager before merging.');
+            } else {
+              console.log('Pull request approved by release manager.');
+            }
