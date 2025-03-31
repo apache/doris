@@ -29,9 +29,15 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -40,6 +46,8 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
@@ -73,16 +81,25 @@ public class ShowColumnsCommand extends ShowCommand {
     private TableNameInfo tableNameInfo;
     private final String databaseName;
     private final String likePattern;
+    private final Expression whereClause;
 
-    public ShowColumnsCommand(boolean isFull, TableNameInfo tableNameInfo, String databaseName, String likePattern) {
+    /**
+     * SHOW COLUMNS command Constructor.
+     */
+    public ShowColumnsCommand(boolean isFull, TableNameInfo tableNameInfo, String databaseName, String likePattern,
+                Expression whereClause) {
         super(PlanType.SHOW_COLUMNS_COMMAND);
         this.isFull = isFull;
         this.tableNameInfo = tableNameInfo;
         this.databaseName = databaseName;
         this.likePattern = likePattern;
+        this.whereClause = whereClause;
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    /**
+     * SHOW COLUMNS validate.
+     */
+    public void validate(ConnectContext ctx) throws AnalysisException {
         if (!Strings.isNullOrEmpty(databaseName)) {
             tableNameInfo.setDb(databaseName);
         }
@@ -100,9 +117,51 @@ public class ShowColumnsCommand extends ShowCommand {
         }
     }
 
+    /**
+     * replaceColumnNameVisitor
+     * replace column name to real column name
+     */
+    private static class ReplaceColumnNameVisitor extends DefaultExpressionRewriter<Void> {
+        @Override
+        public Expression visitUnboundSlot(UnboundSlot slot, Void context) {
+            String name = slot.getName().toLowerCase(Locale.ROOT);
+            switch (name) {
+                case "field":
+                    return UnboundSlot.quoted("COLUMN_NAME");
+                case "type":
+                    return UnboundSlot.quoted("COLUMN_TYPE");
+                case "null":
+                    return UnboundSlot.quoted("IS_NULLABLE");
+                case "default":
+                    return UnboundSlot.quoted("COLUMN_DEFAULT");
+                case "comment":
+                    return UnboundSlot.quoted("COLUMN_COMMENT");
+                default:
+                    return slot;
+            }
+        }
+    }
+
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
+        if (whereClause != null) {
+            Expression rewritten = whereClause.accept(new ReplaceColumnNameVisitor(), null);
+            String whereCondition = " WHERE TABLE_NAME = '" + tableNameInfo.getTbl() + "' AND " + rewritten.toSql();
+            TableNameInfo info = new TableNameInfo(tableNameInfo.getCtl(), "information_schema", "columns");
+
+            List<AliasInfo> selectList = new ArrayList<>();
+            selectList.add(AliasInfo.of("COLUMN_NAME", "Field"));
+            selectList.add(AliasInfo.of("COLUMN_TYPE", "Type"));
+            selectList.add(AliasInfo.of("IS_NULLABLE", "Null"));
+            selectList.add(AliasInfo.of("COLUMN_KEY", "Key"));
+            selectList.add(AliasInfo.of("COLUMN_DEFAULT", "Default"));
+            selectList.add(AliasInfo.of("EXTRA", "Extra"));
+
+            LogicalPlan plan = Utils.buildLogicalPlan(selectList, info, whereCondition);
+            List<List<String>> rows = Utils.executePlan(ctx, executor, plan);
+            return new ShowResultSet(metaData, rows);
+        }
         List<List<String>> rows = Lists.newArrayList();
         String ctl = tableNameInfo.getCtl();
         DatabaseIf db = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(ctl)
@@ -151,6 +210,8 @@ public class ShowColumnsCommand extends ShowCommand {
         } finally {
             table.readUnlock();
         }
+
+        rows.sort(Comparator.comparing(x -> x.get(0)));
         return new ShowResultSet(metaData, rows);
     }
 
