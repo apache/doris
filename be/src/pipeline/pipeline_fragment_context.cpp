@@ -300,15 +300,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         _runtime_state->set_total_load_streams(request.total_load_streams);
         _runtime_state->set_num_local_sink(request.num_local_sink);
 
-        const auto& local_params = request.local_params[0];
-        if (local_params.__isset.runtime_filter_params) {
-            _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                    local_params.runtime_filter_params);
-        }
-        if (local_params.__isset.topn_filter_descs) {
-            _query_ctx->init_runtime_predicates(local_params.topn_filter_descs);
-        }
-
         // init fragment_instance_ids
         const auto target_size = request.local_params.size();
         _fragment_instance_ids.resize(target_size);
