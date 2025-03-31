@@ -244,7 +244,7 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
 
     @Override
     public boolean needAuditEncryption() {
-        return !createTableInfo.getEngineName().equalsIgnoreCase(CreateTableInfo.ENGINE_OLAP);
+        return !CreateTableInfo.ENGINE_OLAP.equalsIgnoreCase(createTableInfo.getEngineName());
     }
 }
 
