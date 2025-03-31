@@ -55,7 +55,7 @@ Status TableFunctionLocalState::open(RuntimeState* state) {
 
         const std::string& tf_name = _vfn_ctxs[i]->root()->fn().name.function_name;
         vectorized::TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(tf_name, state->obj_pool(), &fn));
+        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(tf_name, state->obj_pool(), &fn, state->be_exec_version()));
         fn->set_expr_context(_vfn_ctxs[i]);
         _fns.push_back(fn);
     }
@@ -266,7 +266,7 @@ Status TableFunctionOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
         auto root = ctx->root();
         const std::string& tf_name = root->fn().name.function_name;
         vectorized::TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(tf_name, _pool, &fn));
+        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(tf_name, _pool, &fn, state->be_exec_version()));
         fn->set_expr_context(ctx);
         _fns.push_back(fn);
     }
