@@ -1876,8 +1876,8 @@ static bool check_partition_version_when_update_delete_bitmap(
         return false;
     }
 
-    DCHECK(index_pb.has_tablet_index() == true);
-    DCHECK(index_pb.tablet_index().has_db_id() == true);
+    DCHECK(index_pb.has_tablet_index());
+    DCHECK(index_pb.tablet_index().has_db_id());
     int64_t db_id = index_pb.tablet_index().db_id();
 
     std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
@@ -1885,8 +1885,8 @@ static bool check_partition_version_when_update_delete_bitmap(
     err = txn->get(ver_key, &ver_val);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to get partition version, err={}", err);
-        LOG(WARNING) << msg << " txn_id=" << txn_id;
+        msg = fmt::format("failed to get partition version, txn_id={}, err={}", txn_id, err);
+        LOG(WARNING) << msg;
         return false;
     }
     VersionPB version_pb;
@@ -1897,13 +1897,14 @@ static bool check_partition_version_when_update_delete_bitmap(
         return false;
     }
     DCHECK(version_pb.has_version());
-    if (version_pb.has_version() && version_pb.version() + 1 != request->version_to_check()) {
+    if (version_pb.has_version() && version_pb.version() + 1 != request->next_visible_version()) {
+        code = MetaServiceCode::VERSION_NOT_MATCH;
         msg = fmt::format(
                 "check version failed when update_delete_bitmap, txn={}, table_id={}, "
                 "partition_id={}, tablet_id={}, found partition's max version is {}, but "
-                "request version is {}",
+                "request next_visible_version is {}",
                 txn_id, table_id, partition_id, tablet_id, version_pb.version(),
-                request->version_to_check());
+                request->next_visible_version());
         return false;
     }
     return true;
@@ -1970,7 +1971,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
 
     // 3. check if partition's version matches
-    if (request->has_version_to_check()) {
+    if (request->has_next_visible_version()) {
         if (!check_partition_version_when_update_delete_bitmap(code, msg, txn, instance_id,
                                                                request->txn_id(), table_id,
                                                                partition_id, tablet_id, request)) {

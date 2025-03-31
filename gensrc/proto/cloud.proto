@@ -1394,6 +1394,7 @@ enum MetaServiceCode {
     LOCK_EXPIRED = 8001;
     LOCK_CONFLICT = 8002;
     ROWSETS_EXPIRED = 8003;
+    VERSION_NOT_MATCH = 8004;
 
     // partial update
     ROWSET_META_NOT_FOUND = 9001;
@@ -1424,9 +1425,7 @@ message UpdateDeleteBitmapRequest {
     optional int64 txn_id = 13;
 
     // for load txn only
-    //   - if this is not in explicit txn, `version_to_check` is txn's version to publish
-    //   - if this is in a explicit txn, `version_to_check` is the first sub txn's version to publish
-    optional int64 version_to_check = 14;
+    optional int64 next_visible_version = 14;
 }
 
 message UpdateDeleteBitmapResponse {
