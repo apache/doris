@@ -181,4 +181,46 @@ public class ReplicaAllocationTest {
         dis.close();
         Files.deleteIfExists(path);
     }
+
+    @Test
+    public void testReplicaPropertyDuplicate() throws AnalysisException {
+        // the values of two replica properties are consistent
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "3");
+        properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.default: 3");
+        ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        Assert.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, replicaAlloc);
+        Assert.assertTrue(properties.isEmpty());
+
+        // the values of two replica properties with prefix are consistent
+        properties = Maps.newHashMap();
+        properties.put("dynamic_partition." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "3");
+        properties.put("dynamic_partition." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.default: 3");
+        replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
+        Assert.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, replicaAlloc);
+        Assert.assertTrue(properties.isEmpty());
+
+        // the values of two replica properties are inconsistent, throw duplicate msg
+        Map<String, String> properties2 = Maps.newHashMap();
+        properties2.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "3");
+        properties2.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.default: 2");
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "duplicate properties: [replication_num] and [replication_allocation]",
+                () -> PropertyAnalyzer.analyzeReplicaAllocation(properties2, ""));
+
+        Map<String, String> properties3 = Maps.newHashMap();
+        properties3.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "3");
+        properties3.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.zone2: 2, tag.location.zone1: 1");
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "duplicate properties: [replication_num] and [replication_allocation]",
+                () -> PropertyAnalyzer.analyzeReplicaAllocation(properties3, ""));
+
+        // the values of two replica properties with prefix are inconsistent, throw duplicate msg
+        Map<String, String> properties4 = Maps.newHashMap();
+        properties4.put("dynamic_partition." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, "3");
+        properties4.put("dynamic_partition." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.zone2: 2, tag.location.zone1: 1");
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "duplicate properties: [replication_num] and [replication_allocation]",
+                () -> PropertyAnalyzer.analyzeReplicaAllocation(properties4, "dynamic_partition"));
+    }
 }
