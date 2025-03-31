@@ -324,7 +324,14 @@ public class DataTrait {
                 }
             }
             for (Set<Slot> slotSet : uniqueSet.slotSets) {
-                if (slotSet.stream().noneMatch(ExpressionTrait::nullable)) {
+                boolean containsNullable = false;
+                for (Slot slot : slotSet) {
+                    if (slot.nullable()) {
+                        containsNullable = true;
+                        break;
+                    }
+                }
+                if (!containsNullable) {
                     res.add(slotSet);
                 }
             }
