@@ -46,6 +46,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiPredicate;
 
@@ -255,18 +256,15 @@ public class MTMVRelationManager implements MTMVHookService {
     /**
      * update mtmv status to `SCHEMA_CHANGE`
      *
-     * @param table
      * @param isReplace
      */
     @Override
-    public void alterTable(Table table, String oldTableName, boolean isReplace) {
-        BaseTableInfo baseTableInfo = new BaseTableInfo(table);
+    public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace) {
         // when replace, need deal two table
         if (isReplace) {
-            processBaseTableChange(baseTableInfo, "The base table has been updated:");
+            processBaseTableChange(newTableInfo.get(), "The base table has been updated:");
         }
-        baseTableInfo.setTableName(oldTableName);
-        processBaseTableChange(baseTableInfo, "The base table has been updated:");
+        processBaseTableChange(oldTableInfo, "The base table has been updated:");
     }
 
     @Override

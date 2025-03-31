@@ -68,6 +68,7 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
@@ -215,7 +216,8 @@ public class Alter {
 
         olapTable.checkNormalStateForAlter();
         boolean needProcessOutsideTableLock = false;
-        String oldTableName = olapTable.getName();
+        BaseTableInfo oldBaseTableInfo = new BaseTableInfo(olapTable);
+        Optional<BaseTableInfo> newBaseTableInfo = Optional.empty();
         if (currentAlterOps.checkTableStoragePolicy(alterClauses)) {
             String tableStoragePolicy = olapTable.getStoragePolicy();
             String currentStoragePolicy = currentAlterOps.getTableStoragePolicy(alterClauses);
@@ -322,8 +324,14 @@ public class Alter {
             }
         } else if (currentAlterOps.hasRenameOp()) {
             processRename(db, olapTable, alterClauses);
+            newBaseTableInfo = Optional.of(new BaseTableInfo(olapTable));
         } else if (currentAlterOps.hasReplaceTableOp()) {
             processReplaceTable(db, olapTable, alterClauses);
+            // after replace table, olapTable may still be old name, so need set it to new name
+            ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
+            String newTblName = clause.getTblName();
+            newBaseTableInfo = Optional.of(new BaseTableInfo(olapTable));
+            newBaseTableInfo.get().setTableName(newTblName);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_PROPERTY_SYNC)) {
             needProcessOutsideTableLock = true;
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_DISTRIBUTION)) {
@@ -342,7 +350,7 @@ public class Alter {
         }
         if (needChangeMTMVState(alterClauses)) {
             Env.getCurrentEnv().getMtmvService()
-                    .alterTable(olapTable, oldTableName, currentAlterOps.hasReplaceTableOp());
+                    .alterTable(oldBaseTableInfo, newBaseTableInfo, currentAlterOps.hasReplaceTableOp());
         }
         return needProcessOutsideTableLock;
     }

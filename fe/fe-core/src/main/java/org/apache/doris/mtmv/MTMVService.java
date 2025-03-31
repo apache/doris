@@ -44,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 public class MTMVService implements EventListener {
@@ -131,11 +132,11 @@ public class MTMVService implements EventListener {
         }
     }
 
-    public void alterTable(Table table, String oldTableName, boolean isReplace) {
-        Objects.requireNonNull(table);
-        LOG.info("alterTable, tableName: {}", table.getName());
+    public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace) {
+        Objects.requireNonNull(oldTableInfo);
+        LOG.info("alterTable, tableName: {}", oldTableInfo);
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.alterTable(table, oldTableName, isReplace);
+            mtmvHookService.alterTable(oldTableInfo, newTableInfo, isReplace);
         }
     }
 
