@@ -67,8 +67,7 @@ private:
     // [thread-unsafe] dispatch data to corresponding KafkaConsumerPipe
     Status dispatch(const std::string& table, const char* data, size_t size, AppendFunc cb);
 
-    template <typename ExecParam>
-    Status exec_plans(ExecEnv* exec_env, std::vector<ExecParam> params);
+    Status exec_plans(ExecEnv* exec_env, const std::vector<TPipelineFragmentParams>& params);
 
     void _set_consume_finished() { _consume_finished.store(true, std::memory_order_release); }
 

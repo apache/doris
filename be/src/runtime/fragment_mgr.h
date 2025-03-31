@@ -122,7 +122,8 @@ public:
     // execute one plan fragment
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type);
 
-    Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
+                              const TPipelineFragmentParamsList& parent);
 
     void remove_pipeline_context(std::pair<TUniqueId, int> key);
 
@@ -131,7 +132,7 @@ public:
                               const FinishCallback& cb);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
-                              const FinishCallback& cb);
+                              const FinishCallback& cb, const TPipelineFragmentParamsList& parent);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
