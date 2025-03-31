@@ -716,7 +716,7 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
 
         // In input rowsets, some rowsets may have statistics values exceeding the maximum limit,
         // which leads to inaccurate statistics
-        if (stats.size() > VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+        if (stats.size() > config::variant_max_sparse_column_statistics_size) {
             // When there is only one segment, we can ensure that the size of each path in output stats is accurate
             if (output->num_segments() == 1) {
                 for (const auto& [path, size] : stats) {
@@ -841,19 +841,19 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
             }
             // If path doesn't exist and we haven't hit the max statistics size limit,
             // add it with count 1
-            else if (count_map.size() < VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+            else if (count_map.size() < config::variant_max_sparse_column_statistics_size) {
                 count_map.emplace(sparse_path, 1);
             }
         }
     }
 
     if (stats->sparse_column_non_null_size().size() >
-        VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+        config::variant_max_sparse_column_statistics_size) {
         throw doris::Exception(
                 ErrorCode::INTERNAL_ERROR,
                 "Sparse column non null size: {} is greater than max statistics size: {}",
                 stats->sparse_column_non_null_size().size(),
-                VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
+                config::variant_max_sparse_column_statistics_size);
     }
 }
 
