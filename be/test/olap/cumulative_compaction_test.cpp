@@ -265,7 +265,7 @@ TEST_F(CumulativeCompactionTest, TestConsecutiveVersion) {
     }
 }
 
-TEST_F(CumulativeCompactionTest, TestShouldDelayBigTask) {
+TEST_F(CumulativeCompactionTest, TestShouldDelayLargeTask) {
     // Initialize storage engine and thread pool
     EngineOptions options;
     StorageEngine storage_engine(options);
@@ -283,15 +283,15 @@ TEST_F(CumulativeCompactionTest, TestShouldDelayBigTask) {
     EXPECT_EQ(storage_engine._cumu_compaction_thread_pool->set_max_threads(3), Status::OK());
 
     storage_engine._cumu_compaction_thread_pool_used_threads = 2;
-    EXPECT_EQ(storage_engine._should_delay_big_task(), false);
+    EXPECT_EQ(storage_engine._should_delay_large_task(), false);
 
     storage_engine._cumu_compaction_thread_pool_used_threads = 3;
     storage_engine._cumu_compaction_thread_pool_small_tasks_running = 1;
-    EXPECT_EQ(storage_engine._should_delay_big_task(), false);
+    EXPECT_EQ(storage_engine._should_delay_large_task(), false);
 
     storage_engine._cumu_compaction_thread_pool_used_threads = 3;
     storage_engine._cumu_compaction_thread_pool_small_tasks_running = 0;
-    EXPECT_EQ(storage_engine._should_delay_big_task(), true);
+    EXPECT_EQ(storage_engine._should_delay_large_task(), true);
 }
 
 } // namespace doris
