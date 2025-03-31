@@ -24,11 +24,13 @@ import org.apache.doris.nereids.rules.expression.rules.SupportJavaDateFormatter;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
@@ -44,11 +46,13 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateUtils;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -1186,5 +1190,23 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(DateTimeLiteral t1, DateTimeLiteral t2) {
         return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+    }
+
+    /**
+     * months_between(date1, date2, round_off)
+     */
+    @ExecFunction(name = "months_between")
+    public static Expression monthsBetween(DateV2Literal t1, DateV2Literal t2, BooleanLiteral roundOff) {
+        long yearBetween = t1.getYear() - t2.getYear();
+        long monthBetween = t1.getMonth() - t2.getMonth();
+        double dayBetween = (double) (t1.getDay() - t2.getDay());
+        int daysInMonth2 = YearMonth.of((int) t2.getYear(), (int) t2.getMonth()).lengthOfMonth();
+
+        double result = yearBetween * 12 + monthBetween + dayBetween / daysInMonth2;
+        // rounded to 8 digits unless roundOff=false.
+        if (roundOff.getValue()) {
+            result = new BigDecimal(result).setScale(8, RoundingMode.HALF_UP).doubleValue();
+        }
+        return new DoubleLiteral(result);
     }
 }
