@@ -406,8 +406,26 @@ struct ConvertImpl {
                                              IsDateV2Type<ToDataType>) {
                             DataTypeDateTimeV2::cast_to_date_v2(vec_from[i], vec_to[i]);
                         } else {
-                            UInt32 scale = additions;
-                            vec_to[i] = ToFieldType(vec_from[i] / std::pow(10, 6 - scale));
+                            DCHECK(IsDateTimeV2Type<FromDataType>);
+                            DCHECK(IsDateTimeV2Type<ToDataType>);
+                            UInt32 to_scale = additions;
+                            auto from_scale = named_from.type->get_scale();
+                            auto& to_value = (DateV2Value<DateTimeV2ValueType>&)(vec_to[i]);
+                            auto from_value = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                                    vec_from[i]);
+                            UInt64 microsecond = 0;
+                            if (from_scale < to_scale) {
+                                // scale up no need to do anything
+                                microsecond = from_value.microsecond();
+                            } else {
+                                // scale down should clear the low bits to 0
+                                auto factor = (UInt64)std::pow(10, 6 - to_scale);
+                                microsecond = (from_value.microsecond() / factor) * factor;
+                            }
+                            to_value.unchecked_set_time(from_value.year(), from_value.month(),
+                                                        from_value.day(), from_value.hour(),
+                                                        from_value.minute(), from_value.second(),
+                                                        microsecond);
                         }
                     } else if constexpr (IsTimeType<ToDataType>) {
                         if constexpr (IsDateTimeType<ToDataType> && IsDateV2Type<FromDataType>) {
