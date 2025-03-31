@@ -119,4 +119,29 @@ suite("test_months_between") {
     // test across multiple leap years
     order_qt_multi_leap_years "select months_between('2020-02-29', '2024-02-29')"
     order_qt_multi_leap_years_time "select months_between('2020-02-29 23:59:59', '2024-02-29 00:00:00')"
+
+    // test case with last day of the month
+    order_qt_last_day_of_month1 "select months_between('2024-03-31', '2024-02-29')"
+    order_qt_last_day_of_month2 "select months_between('2024-03-30', '2024-02-29')"
+    order_qt_last_day_of_month3 "select months_between('2024-03-29', '2024-02-29')"
+
+    /// Fold constant
+    check_fold_consistency "months_between('2020-01-01', '2020-02-01')"
+    // Test boundary cases with fold constant
+    check_fold_consistency "months_between('0001-01-01', '0001-01-01')" // Same date at min year
+    check_fold_consistency "months_between('9999-12-31', '9999-12-31')" // Same date at max year
+    check_fold_consistency "months_between('0001-01-01', '9999-12-31')" // Min to max year
+    check_fold_consistency "months_between('9999-12-31', '0001-01-01')" // Max to min year
+    
+    // Test boundary cases with time components
+    check_fold_consistency "months_between('0001-01-01 00:00:00', '0001-01-01 23:59:59')" // Same date different times at min year
+    check_fold_consistency "months_between('9999-12-31 00:00:00', '9999-12-31 23:59:59')" // Same date different times at max year
+    
+    // Test boundary cases with round_off
+    check_fold_consistency "months_between('0001-01-01', '0001-02-01', true)" // Min year with rounding
+    check_fold_consistency "months_between('9999-12-31', '9999-11-30', false)" // Max year without rounding
+    
+    // Test boundary cases with leap years
+    check_fold_consistency "months_between('0004-02-29', '0004-03-01')" // First leap year
+    check_fold_consistency "months_between('9996-02-29', '9996-03-01')" // Last leap year
 }

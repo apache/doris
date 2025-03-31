@@ -1199,10 +1199,15 @@ public class DateTimeExtractAndTransform {
     public static Expression monthsBetween(DateV2Literal t1, DateV2Literal t2, BooleanLiteral roundOff) {
         long yearBetween = t1.getYear() - t2.getYear();
         long monthBetween = t1.getMonth() - t2.getMonth();
-        double dayBetween = (double) (t1.getDay() - t2.getDay());
+        int daysInMonth1 = YearMonth.of((int) t1.getYear(), (int) t1.getMonth()).lengthOfMonth();
         int daysInMonth2 = YearMonth.of((int) t2.getYear(), (int) t2.getMonth()).lengthOfMonth();
-
-        double result = yearBetween * 12 + monthBetween + dayBetween / daysInMonth2;
+        double dayBetween = 0;
+        if (t1.getDay() == daysInMonth1 && t2.getDay() == daysInMonth2) {
+            dayBetween = 0;
+        } else {
+            dayBetween = (t1.getDay() - t2.getDay()) / 31.0;
+        }
+        double result = yearBetween * 12 + monthBetween + dayBetween;
         // rounded to 8 digits unless roundOff=false.
         if (roundOff.getValue()) {
             result = new BigDecimal(result).setScale(8, RoundingMode.HALF_UP).doubleValue();

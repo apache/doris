@@ -1032,13 +1032,24 @@ public:
             auto dtv2 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date2);
             auto year_between = dtv1.year() - dtv2.year();
             auto months_between = dtv1.month() - dtv2.month();
-            auto days_between = static_cast<double>(dtv1.day() - dtv2.day());
+            auto days_in_month1 = S_DAYS_IN_MONTH[dtv1.month()];
+            if (UNLIKELY(is_leap(dtv1.year()) && dtv1.month() == 2)) {
+                days_in_month1 = 29;
+            }
             auto days_in_month2 = S_DAYS_IN_MONTH[dtv2.month()];
             if (UNLIKELY(is_leap(dtv2.year()) && dtv2.month() == 2)) {
                 days_in_month2 = 29;
             }
+            double days_between = 0;
+            // if date1 and date2 are all the last day of the month, days_between is 0
+            if (UNLIKELY(dtv1.day() == days_in_month1 && dtv2.day() == days_in_month2)) {
+                days_between = 0;
+            } else {
+                days_between = (dtv1.day() - dtv2.day()) / (double)31.0;
+            }
+
             // calculate months between
-            double result = year_between * 12 + months_between + days_between / days_in_month2;
+            double result = year_between * 12 + months_between + days_between;
             // rounded to 8 digits unless roundOff=false.
             if (round_off) {
                 result = round(result * 100000000) / 100000000;
