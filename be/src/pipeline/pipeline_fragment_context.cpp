@@ -201,6 +201,11 @@ void PipelineFragmentContext::cancel(const Status reason) {
     if (reason.is<ErrorCode::MEM_LIMIT_EXCEEDED>() || reason.is<ErrorCode::MEM_ALLOC_FAILED>()) {
         print_profile("cancel pipeline, reason: " + reason.to_string());
     }
+
+    if (auto error_url = get_load_error_url(); !error_url.empty()) {
+        _query_ctx->set_load_error_url(error_url);
+    }
+
     _query_ctx->cancel(reason, _fragment_id);
     if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
@@ -1794,6 +1799,23 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
     }
 }
 
+std::string PipelineFragmentContext::get_load_error_url() {
+    if (const auto& str = _runtime_state->get_error_log_file_path(); !str.empty()) {
+        return to_load_error_http_path(str);
+    }
+    for (auto& task_states : _task_runtime_states) {
+        for (auto& task_state : task_states) {
+            if (!task_state) {
+                continue;
+            }
+            if (const auto& str = task_state->get_error_log_file_path(); !str.empty()) {
+                return to_load_error_http_path(str);
+            }
+        }
+    }
+    return "";
+}
+
 Status PipelineFragmentContext::send_report(bool done) {
     Status exec_status = _query_ctx->exec_status();
     // If plan is done successfully, but _is_report_success is false,
@@ -1824,6 +1846,10 @@ Status PipelineFragmentContext::send_report(bool done) {
         }
     }
 
+    std::string load_eror_url = _query_ctx->get_load_error_url().empty()
+                                        ? get_load_error_url()
+                                        : _query_ctx->get_load_error_url();
+
     ReportStatusRequest req {exec_status,
                              runtime_states,
                              done || !exec_status.ok(),
@@ -1833,6 +1859,7 @@ Status PipelineFragmentContext::send_report(bool done) {
                              TUniqueId(),
                              -1,
                              _runtime_state.get(),
+                             load_eror_url,
                              [this](const Status& reason) { cancel(reason); }};
 
     return _report_status_cb(
