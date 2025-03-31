@@ -370,8 +370,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // gather to one instance
             exchangeNode.setNumInstances(1);
         } else if (targetDistribution instanceof DistributionSpecAllSingleton) {
-            // instances number = BE number. assign one by one later.
-            int aliveBENumber = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true).size();
+            // instances number = BE number. assign one by one later. FIXME: use which one?
+            int aliveBENumber = Env.getCurrentSystemInfo().getAllBackendIds(true).size();
             exchangeNode.setNumInstances(aliveBENumber);
         } else { // not change instances
             exchangeNode.setNumInstances(upstreamFragment.getPlanRoot().getNumInstances());

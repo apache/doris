@@ -43,7 +43,9 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
     // now key_output_expr_slots size only 1
     auto input_block = _dict_input_block.to_block();
 
-    input_block.replace_if_overflow();
+    for (auto& data : input_block) {
+        data.column = std::move(*data.column).mutate()->convert_column_if_overflow();
+    }
 
     vectorized::ColumnsWithTypeAndName key_data;
 

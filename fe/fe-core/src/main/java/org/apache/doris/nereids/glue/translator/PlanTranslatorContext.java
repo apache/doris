@@ -28,6 +28,7 @@ import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -68,6 +69,11 @@ import javax.annotation.Nullable;
 public class PlanTranslatorContext {
     private final ConnectContext connectContext;
     private final List<PlanFragment> planFragments = Lists.newArrayList();
+    // when we translate a expression of a fragment, sometimes we need to mark its' related dictionary to find right BE
+    // when we dispatch instances. but the expression's belonging fragment sometimes in planFragments
+    // 
+    private PlanFragment fragmentVisitSupplier = null;
+    private Dictionary dictionaryVisitSupplier = null;
 
     private final DescriptorTable descTable = new DescriptorTable();
 

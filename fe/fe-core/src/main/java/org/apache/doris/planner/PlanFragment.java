@@ -27,6 +27,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.trees.plans.distribute.NereidsSpecifyInstances;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
 import org.apache.doris.qe.ConnectContext;
@@ -163,6 +164,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public TQueryCacheParam queryCacheParam;
     private int numBackends = 0;
+
+    // when ExpressionTranslator visited a dict_get function, it will set the related dictionary in its belonging
+    // fragment. so we can choose the correct BE when we assign the job of this fragment.
+    private Dictionary visitedDictionary;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -502,6 +507,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public void setBucketNum(int bucketNum) {
         this.bucketNum = bucketNum;
+    }
+
+    public Dictionary getVisitedDictionary() {
+        return visitedDictionary;
+    }
+
+    public void setVisitedDictionary(Dictionary visitedDictionary) {
+        this.visitedDictionary = visitedDictionary;
     }
 
     public boolean hasNullAwareLeftAntiJoin() {
