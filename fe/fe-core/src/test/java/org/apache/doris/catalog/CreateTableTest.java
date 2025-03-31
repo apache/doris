@@ -1082,4 +1082,76 @@ public class CreateTableTest extends TestWithFeService {
                         + "\"dynamic_partition.start\" = \"-3\"\n"
                         + ");", true));
     }
+
+    @Test
+    public void testCreateTablePropertyDuplicate() throws Exception {
+        String sql = "create table test.tbl_property_duplicate\n"
+                + "(`uuid` varchar(255) NULL,\n"
+                + "`action_datetime` date NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "PARTITION BY RANGE(action_datetime)()\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"replication_num\" = \"3\",\n"
+                + "\"replication_allocation\" = \"tag.location.default: 3\"\n"
+                + ");";
+        createTable(sql);
+        Database db =
+                Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("tbl_property_duplicate");
+        Assert.assertEquals(3, table.getDefaultReplicaAllocation().getTotalReplicaNum());
+
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "duplicate properties: [replication_num] and [replication_allocation]",
+                () -> createTable("create table test.tbl_property_duplicate_invalid1\n"
+                        + "(`uuid` varchar(255) NULL,\n"
+                        + "`action_datetime` date NULL\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(uuid)\n"
+                        + "PARTITION BY RANGE(action_datetime)()\n"
+                        + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                        + "PROPERTIES\n"
+                        + "(\n"
+                        + "\"replication_num\" = \"3\",\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 2\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testCreateTablePropertyDuplicateWithNereids() throws Exception {
+        String sql = "create table test.tbl_property_duplicate_with_nereids\n"
+                + "(`uuid` varchar(255) NULL,\n"
+                + "`action_datetime` date NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "PARTITION BY RANGE(action_datetime)()\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"replication_num\" = \"3\",\n"
+                + "\"replication_allocation\" = \"tag.location.default: 3\"\n"
+                + ");";
+        createTable(sql, true);
+        Database db =
+                Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("tbl_property_duplicate_with_nereids");
+        Assert.assertEquals(3, table.getDefaultReplicaAllocation().getTotalReplicaNum());
+
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "duplicate properties: [replication_num] and [replication_allocation]",
+                () -> createTable("create table test.tbl_property_duplicate_invalid1\n"
+                        + "(`uuid` varchar(255) NULL,\n"
+                        + "`action_datetime` date NULL\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(uuid)\n"
+                        + "PARTITION BY RANGE(action_datetime)()\n"
+                        + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                        + "PROPERTIES\n"
+                        + "(\n"
+                        + "\"replication_num\" = \"3\",\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 2\"\n"
+                        + ");", true));
+    }
 }
