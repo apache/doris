@@ -90,7 +90,6 @@
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
-#include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
 
@@ -371,10 +370,19 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         // External query (flink/spark read tablets) not need to report to FE.
         return;
     }
+    int callback_retries = 10;
+    const int sleep_ms = 1000;
     Status exec_status = req.status;
     Status coord_status;
-    FrontendServiceConnection coord(_exec_env->frontend_client_cache(), req.coord_addr,
-                                    &coord_status);
+    std::unique_ptr<FrontendServiceConnection> coord = nullptr;
+    do {
+        coord = std::make_unique<FrontendServiceConnection>(_exec_env->frontend_client_cache(),
+                                                            req.coord_addr, &coord_status);
+        if (!coord_status.ok()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+        }
+    } while (!coord_status.ok() && callback_retries-- > 0);
+
     if (!coord_status.ok()) {
         std::stringstream ss;
         UniqueId uid(req.query_id.hi, req.query_id.lo);
@@ -570,21 +578,21 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     }
     try {
         try {
-            coord->reportExecStatus(res, params);
+            (*coord)->reportExecStatus(res, params);
         } catch ([[maybe_unused]] TTransportException& e) {
 #ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
                          << ", instance id: " << print_id(req.fragment_instance_id) << " to "
                          << req.coord_addr << ", err: " << e.what();
 #endif
-            rpc_status = coord.reopen();
+            rpc_status = coord->reopen();
 
             if (!rpc_status.ok()) {
                 // we need to cancel the execution of this fragment
                 req.cancel_fn(rpc_status);
                 return;
             }
-            coord->reportExecStatus(res, params);
+            (*coord)->reportExecStatus(res, params);
         }
 
         rpc_status = Status::create<false>(res.status);
@@ -609,7 +617,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
 }
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
-                                       const QuerySource query_source) {
+                                       const QuerySource query_source,
+                                       const TPipelineFragmentParamsList& parent) {
     if (params.txn_conf.need_txn) {
         std::shared_ptr<StreamLoadContext> stream_load_ctx =
                 std::make_shared<StreamLoadContext>(_exec_env);
@@ -638,10 +647,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         RETURN_IF_ERROR(
                 _exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, stream_load_ctx));
 
-        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
+        RETURN_IF_ERROR(
+                _exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx, parent));
         return Status::OK();
     } else {
-        return exec_plan_fragment(params, query_source, empty_function);
+        return exec_plan_fragment(params, query_source, empty_function, parent);
     }
 }
 
@@ -820,7 +830,8 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
 }
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
-                                       QuerySource query_source, const FinishCallback& cb) {
+                                       QuerySource query_source, const FinishCallback& cb,
+                                       const TPipelineFragmentParamsList& parent) {
     VLOG_ROW << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
@@ -831,7 +842,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(
             _get_or_create_query_ctx(params, params.query_id, true, query_source, query_ctx));
-    SCOPED_ATTACH_TASK(query_ctx.get());
+    SCOPED_SWITCH_RESOURCE_CONTEXT(query_ctx.get()->resource_ctx());
     int64_t duration_ns = 0;
     std::shared_ptr<pipeline::PipelineFragmentContext> context =
             std::make_shared<pipeline::PipelineFragmentContext>(
@@ -852,14 +863,20 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
+    if (parent.__isset.runtime_filter_info) {
+        auto info = parent.runtime_filter_info;
+        if (info.__isset.runtime_filter_params &&
+            !info.runtime_filter_params.rid_to_runtime_filter.empty()) {
+            auto handler = std::make_shared<RuntimeFilterMergeControllerEntity>(
+                    RuntimeFilterParamsContext::create(context->get_runtime_state()));
+            RETURN_IF_ERROR(handler->init(params.query_id, info.runtime_filter_params));
+            query_ctx->set_merge_controller_handler(handler);
 
-    if (params.local_params[0].__isset.runtime_filter_params &&
-        !params.local_params[0].runtime_filter_params.rid_to_runtime_filter.empty()) {
-        auto handler = std::make_shared<RuntimeFilterMergeControllerEntity>(
-                RuntimeFilterParamsContext::create(context->get_runtime_state()));
-        RETURN_IF_ERROR(
-                handler->init(params.query_id, params.local_params[0].runtime_filter_params));
-        query_ctx->set_merge_controller_handler(handler);
+            query_ctx->runtime_filter_mgr()->set_runtime_filter_params(info.runtime_filter_params);
+        }
+        if (info.__isset.topn_filter_descs) {
+            query_ctx->init_runtime_predicates(info.topn_filter_descs);
+        }
     }
 
     {
@@ -1265,7 +1282,9 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     exec_fragment_params.__set_query_options(query_options);
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();
-    return exec_plan_fragment(exec_fragment_params, QuerySource::EXTERNAL_CONNECTOR);
+
+    TPipelineFragmentParamsList mocked;
+    return exec_plan_fragment(exec_fragment_params, QuerySource::EXTERNAL_CONNECTOR, mocked);
 }
 
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,

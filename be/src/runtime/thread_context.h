@@ -342,6 +342,9 @@ public:
 
 class AttachTask {
 public:
+    // you must use ResourceCtx or MemTracker initialization.
+    explicit AttachTask() = delete;
+
     explicit AttachTask(const std::shared_ptr<ResourceContext>& rc);
 
     // Shortcut attach task, initialize an empty resource context, and set the memory tracker.

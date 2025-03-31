@@ -29,7 +29,6 @@
 
 #include "common/exception.h"
 #include "common/logging.h"
-#include "gutil/map-util.h"
 #include "gutil/port.h"
 #include "gutil/strings/substitute.h"
 #include "util/debug/sanitizer_scopes.h"
@@ -403,7 +402,9 @@ void ThreadPool::shutdown() {
 std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode, int max_concurrency) {
     std::lock_guard<std::mutex> l(_lock);
     std::unique_ptr<ThreadPoolToken> t(new ThreadPoolToken(this, mode, max_concurrency));
-    InsertOrDie(&_tokens, t.get());
+    if (!_tokens.insert(t.get()).second) {
+        throw Exception(Status::InternalError("duplicate token"));
+    }
     return t;
 }
 
@@ -539,7 +540,9 @@ void ThreadPool::wait() {
 void ThreadPool::dispatch_thread() {
     std::unique_lock<std::mutex> l(_lock);
     debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
-    InsertOrDie(&_threads, Thread::current_thread());
+    if (!_threads.insert(Thread::current_thread()).second) {
+        throw Exception(Status::InternalError("duplicate token"));
+    }
     DCHECK_GT(_num_threads_pending_start, 0);
     _num_threads++;
     _num_threads_pending_start--;
@@ -688,7 +691,7 @@ Status ThreadPool::create_thread() {
 
 void ThreadPool::check_not_pool_thread_unlocked() {
     Thread* current = Thread::current_thread();
-    if (ContainsKey(_threads, current)) {
+    if (_threads.contains(current)) {
         throw Exception(
                 Status::FatalError("Thread belonging to thread pool {} with "
                                    "name {} called pool function that would result in deadlock",
