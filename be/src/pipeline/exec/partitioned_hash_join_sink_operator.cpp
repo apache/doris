@@ -164,12 +164,7 @@ size_t PartitionedHashJoinSinkLocalState::get_reserve_mem_size(RuntimeState* sta
 }
 
 Dependency* PartitionedHashJoinSinkLocalState::finishdependency() {
-    if (auto* tmp_sink_state = _shared_state->inner_runtime_state->get_sink_local_state()) {
-        auto* inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(tmp_sink_state);
-        return inner_sink_state->finishdependency();
-    }
-    DCHECK(false) << "Should not reach here!";
-    return nullptr;
+    return _finish_dependency.get();
 }
 
 Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
@@ -197,6 +192,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
         // therefore, all runtime filters are temporarily disabled.
         RETURN_IF_ERROR(inner_sink_state->_runtime_filter_producer_helper->skip_process(
                 _shared_state->inner_runtime_state.get()));
+        _finish_dependency->set_ready();
     }
 
     if (build_block.rows() <= 1) {
@@ -547,6 +543,8 @@ Status PartitionedHashJoinSinkLocalState::_setup_internal_operator(RuntimeState*
     DCHECK(probe_local_state != nullptr);
     RETURN_IF_ERROR(probe_local_state->open(state));
     RETURN_IF_ERROR(sink_local_state->open(state));
+
+    _finish_dependency = sink_local_state->finishdependency()->shared_from_this();
 
     /// Set these two values after all the work is ready.
     _shared_state->inner_shared_state = std::move(inner_shared_state);
