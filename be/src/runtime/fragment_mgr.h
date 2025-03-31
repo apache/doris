@@ -216,6 +216,7 @@ private:
     scoped_refptr<Thread> _cancel_thread;
     // every job is a pool
     std::unique_ptr<ThreadPool> _thread_pool;
+    std::unique_ptr<FifoThreadPool> _thread_pool_for_prepare;
 
     std::shared_ptr<MetricEntity> _entity;
     UIntGauge* timeout_canceled_fragment_count = nullptr;
