@@ -330,10 +330,6 @@ public class NereidsLoadScanProvider {
             String columnName = importColumnDesc.getColumnName();
             Column tblColumn = tbl.getColumn(columnName);
             if (tblColumn != null) {
-                if (tblColumn.getGeneratedColumnInfo() != null) {
-                    // the generated column will be handled by bindSink
-                    continue;
-                }
                 hasColumnFromTable = true;
             }
             String realColName;
@@ -343,9 +339,11 @@ public class NereidsLoadScanProvider {
                 realColName = tblColumn.getName();
             }
             if (importColumnDesc.getExpr() != null) {
-                Expression expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
-                replaceMap.put(new UnboundSlot(realColName), expr);
-                context.exprMap.put(realColName, expr);
+                if (tblColumn.getGeneratedColumnInfo() == null) {
+                    Expression expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
+                    replaceMap.put(new UnboundSlot(realColName), expr);
+                    context.exprMap.put(realColName, expr);
+                }
             } else {
                 Column slotColumn;
                 if (formatType(fileGroup.getFileFormat()) == TFileFormatType.FORMAT_ARROW) {
