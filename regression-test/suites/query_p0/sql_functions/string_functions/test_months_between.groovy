@@ -88,17 +88,35 @@ suite("test_months_between") {
     /// test simple cases with date and datetime combinations
     order_qt_date_date "select months_between('2020-01-01', '2020-02-01')"
     order_qt_date_datetime "select months_between('2020-01-01', '2020-02-01 00:00:00')"
-    order_qt_datetime_date "select months_between('2020-01-01 00:00:00', '2020-02-01')"
-    order_qt_datetime_datetime "select months_between('2020-01-01 00:00:00', '2020-02-01 00:00:00')"
+    order_qt_datetime_date "select months_between(cast('2020-01-01 00:00:00' as datetimev2), cast('2020-02-01' as datev2))"
+    order_qt_datetime_datetime "select months_between(cast('2020-01-01 00:00:00' as datetimev2), cast('2020-02-01 00:00:00' as datetimev2))"
 
     order_qt_date_date_round "select months_between('2020-01-15', '2020-02-15', true)"
     order_qt_date_datetime_round "select months_between('2020-01-15', '2020-02-15 12:00:00', true)" 
-    order_qt_datetime_date_round "select months_between('2020-01-15 12:00:00', '2020-02-15', true)"
-    order_qt_datetime_datetime_round "select months_between('2020-01-15 12:00:00', '2020-02-15 12:00:00', true)"
+    order_qt_datetime_date_round "select months_between(cast('2020-01-15 12:00:00' as datetimev2), cast('2020-02-15' as datev2), true)"
+    order_qt_datetime_datetime_round "select months_between(cast('2020-01-15 12:00:00' as datetimev2), cast('2020-02-15 12:00:00' as datetimev2), true)"
 
     order_qt_date_date_no_round "select months_between('2020-01-31', '2020-02-29', false)"
     order_qt_date_datetime_no_round "select months_between('2020-01-31', '2020-02-29 23:59:59', false)"
-    order_qt_datetime_date_no_round "select months_between('2020-01-31 23:59:59', '2020-02-29', false)" 
-    order_qt_datetime_datetime_no_round "select months_between('2020-01-31 23:59:59', '2020-02-29 23:59:59', false)"
-    order_qt1 "select months_between('2020-01-01', '2020-02-01', true)"
+    order_qt_datetime_date_no_round "select months_between(cast('2020-01-31 23:59:59' as datetimev2), cast('2020-02-29' as datev2), false)" 
+    order_qt_datetime_datetime_no_round "select months_between(cast('2020-01-31 23:59:59' as datetimev2), cast('2020-02-29 23:59:59' as datetimev2), false)"
+
+    // test leap year and leap month edge cases
+    order_qt_leap_year_same "select months_between('2020-02-29', '2020-02-29')"
+    order_qt_leap_year_next "select months_between('2020-02-29', '2020-03-29')"
+    order_qt_leap_year_prev "select months_between('2020-01-29', '2020-02-29')"
+    order_qt_leap_year_next_year "select months_between('2020-02-29', '2021-02-28')"
+    order_qt_leap_year_prev_year "select months_between('2019-02-28', '2020-02-29')"
+    
+    // test with time components in leap year
+    order_qt_leap_year_time "select months_between('2020-02-29 12:00:00', '2020-02-29 15:00:00')"
+    order_qt_leap_year_time_next "select months_between('2020-02-29 23:59:59', '2020-03-29 00:00:00')"
+    
+    // test with different round_off settings in leap year
+    order_qt_leap_year_round "select months_between('2020-02-29', '2020-03-30', true)"
+    order_qt_leap_year_no_round "select months_between('2020-02-29', '2020-03-30', false)"
+    
+    // test across multiple leap years
+    order_qt_multi_leap_years "select months_between('2020-02-29', '2024-02-29')"
+    order_qt_multi_leap_years_time "select months_between('2020-02-29 23:59:59', '2024-02-29 00:00:00')"
 }

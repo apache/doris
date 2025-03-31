@@ -1030,12 +1030,20 @@ public:
         auto calc_months_between = [](const auto& date1, const auto& date2, bool round_off) {
             auto dtv1 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date1);
             auto dtv2 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date2);
-            double months_between = (dtv1.daynr() - dtv2.daynr()) / 31.0;
+            auto year_between = dtv1.year() - dtv2.year();
+            auto months_between = dtv1.month() - dtv2.month();
+            auto days_between = static_cast<double>(dtv1.day() - dtv2.day());
+            auto days_in_month2 = S_DAYS_IN_MONTH[dtv2.month()];
+            if (UNLIKELY(is_leap(dtv2.year()) && dtv2.month() == 2)) {
+                days_in_month2 = 29;
+            }
+            // calculate months between
+            double result = year_between * 12 + months_between + days_between / days_in_month2;
             // rounded to 8 digits unless roundOff=false.
             if (round_off) {
-                months_between = round(months_between * 100000000) / 100000000;
+                result = round(result * 100000000) / 100000000;
             }
-            return months_between;
+            return result;
         };
 
         // only handle all const case
