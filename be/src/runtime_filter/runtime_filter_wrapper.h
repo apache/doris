@@ -49,8 +49,8 @@ public:
             : _column_return_type(column_type),
               _filter_type(type),
               _filter_id(filter_id),
-              _state(state),
-              _max_in_num(max_in_num) {}
+              _max_in_num(max_in_num),
+              _state(state) {}
 
     Status init(const size_t runtime_size);
     Status insert(const vectorized::ColumnPtr& column, size_t start);
@@ -85,19 +85,21 @@ public:
 
     bool contain_null() const;
 
-    std::string debug_string() const;
+    std::string debug_string();
 
     void set_state(State state, std::string reason = "") {
         if (_state == State::DISABLED) {
             return;
-        } else if (state == State::DISABLED) {
-            _reason = reason;
+        }
+        std::unique_lock<std::shared_mutex> wlock(_rwlock);
+        if (_state == State::DISABLED) {
+            return;
         }
         _state = state;
         _reason = reason;
     }
     State get_state() const { return _state; }
-    void check_state(std::vector<State> assumed_states) const {
+    void check_state(std::vector<State> assumed_states) {
         if (!check_state_impl<RuntimeFilterWrapper>(_state, assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "wrapper meet invalid state, {}, assumed_states is {}", debug_string(),
@@ -131,14 +133,19 @@ private:
     const PrimitiveType _column_return_type; // column type
     const RuntimeFilterType _filter_type;
     const uint32_t _filter_id;
-    std::atomic<State> _state;
     const int32_t _max_in_num;
 
     std::shared_ptr<MinMaxFuncBase> _minmax_func;
     std::shared_ptr<HybridSetBase> _hybrid_set;
     std::shared_ptr<BloomFilterFuncBase> _bloom_filter_func;
     std::shared_ptr<BitmapFilterFuncBase> _bitmap_filter_func;
+
+    // Wrapper is the core structure of runtime filter. If filter is local, wrapper may be shared
+    // by producer and consumer. To avoid read-write conflict, we need a rwlock to ensure operations
+    // on state is thread-safe.
+    std::atomic<State> _state;
     std::string _reason;
+    std::shared_mutex _rwlock;
 };
 #include "common/compile_check_end.h"
 } // namespace doris
