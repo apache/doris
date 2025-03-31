@@ -346,6 +346,16 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
     cancel_all_pipeline_context(new_status, fragment_id);
 }
 
+void QueryContext::set_load_error_url(std::string error_url) {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    _load_error_url = error_url;
+}
+
+std::string QueryContext::get_load_error_url() {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    return _load_error_url;
+}
+
 void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
     {
