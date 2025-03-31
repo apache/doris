@@ -966,9 +966,6 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "asinh")
     public static Expression asinh(DoubleLiteral first) {
-        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, true, true)) {
-            return new NullLiteral(DoubleType.INSTANCE);
-        }
         return checkOutputBoundary(new DoubleLiteral(FastMath.asinh(first.getValue())));
     }
 
