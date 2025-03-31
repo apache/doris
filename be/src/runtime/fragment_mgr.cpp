@@ -371,10 +371,19 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         // External query (flink/spark read tablets) not need to report to FE.
         return;
     }
+    int callback_retries = 10;
+    const int sleep_ms = 1000;
     Status exec_status = req.status;
     Status coord_status;
-    FrontendServiceConnection coord(_exec_env->frontend_client_cache(), req.coord_addr,
-                                    &coord_status);
+    std::unique_ptr<FrontendServiceConnection> coord = nullptr;
+    do {
+        coord = std::make_unique<FrontendServiceConnection>(_exec_env->frontend_client_cache(),
+                                                            req.coord_addr, &coord_status);
+        if (!coord_status.ok()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+        }
+    } while (!coord_status.ok() && callback_retries-- > 0);
+
     if (!coord_status.ok()) {
         std::stringstream ss;
         UniqueId uid(req.query_id.hi, req.query_id.lo);
@@ -570,21 +579,21 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     }
     try {
         try {
-            coord->reportExecStatus(res, params);
+            (*coord)->reportExecStatus(res, params);
         } catch ([[maybe_unused]] TTransportException& e) {
 #ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
                          << ", instance id: " << print_id(req.fragment_instance_id) << " to "
                          << req.coord_addr << ", err: " << e.what();
 #endif
-            rpc_status = coord.reopen();
+            rpc_status = coord->reopen();
 
             if (!rpc_status.ok()) {
                 // we need to cancel the execution of this fragment
                 req.cancel_fn(rpc_status);
                 return;
             }
-            coord->reportExecStatus(res, params);
+            (*coord)->reportExecStatus(res, params);
         }
 
         rpc_status = Status::create<false>(res.status);
