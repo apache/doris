@@ -771,7 +771,7 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
         if (compaction_type == CompactionType::BASE_COMPACTION) {
             last_failure_ms = tablet_ptr->last_base_compaction_failure_time();
         }
-        if (now_ms - last_failure_ms <= 5000) {
+        if (now_ms - last_failure_ms <= config::tablet_sched_delay_time_ms) {
             VLOG_DEBUG << "Too often to check compaction, skip it. "
                        << "compaction_type=" << compaction_type_str
                        << ", last_failure_time_ms=" << last_failure_ms
