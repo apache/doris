@@ -90,7 +90,7 @@ struct SortOperatorTest : public ::testing::Test {
                                      .parent_profile = &profile,
                                      .sender_id = 0,
                                      .shared_state = shared_state.get(),
-                                     .le_state_map = {},
+                                     .shared_state_map = {},
                                      .tsink = TDataSink {}};
             EXPECT_TRUE(sink_local_state_uptr->init(state.get(), info).ok());
             state->emplace_sink_local_state(0, std::move(sink_local_state_uptr));
@@ -102,7 +102,7 @@ struct SortOperatorTest : public ::testing::Test {
             LocalStateInfo info {.parent_profile = &profile,
                                  .scan_ranges = {},
                                  .shared_state = shared_state.get(),
-                                 .le_state_map = {},
+                                 .shared_state_map = {},
                                  .task_idx = 0};
 
             EXPECT_TRUE(source_local_state_uptr->init(state.get(), info).ok());
