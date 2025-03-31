@@ -1117,7 +1117,7 @@ Status OrcReader::set_fill_columns(
         }
     }
 
-    if (!_has_complex_type && _enable_lazy_mat && !_lazy_read_ctx.predicate_columns.first.empty() &&
+    if (_enable_lazy_mat && !_lazy_read_ctx.predicate_columns.first.empty() &&
         !_lazy_read_ctx.lazy_read_columns.empty()) {
         _lazy_read_ctx.can_lazy_read = true;
     }
