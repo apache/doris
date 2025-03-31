@@ -115,154 +115,43 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
     size_t fill_idx_begin = _tablets_idx;
     size_t fill_idx_end = _tablets_idx + fill_tablets_num;
     std::vector<void*> datas(fill_tablets_num);
-    // BACKEND_ID
-    {
-        int64_t src = _backend_id;
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            datas[i - fill_idx_begin] = &src;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
-    }
-    // TABLET_ID
-    {
-        std::vector<int64_t> srcs(fill_tablets_num);
+
+    auto fill_column = [&](auto&& get_value, size_t column_index) {
+        using ValueType = std::decay_t<decltype(get_value(std::declval<TabletSharedPtr>()))>;
+        std::vector<ValueType> srcs(fill_tablets_num);
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = tablet->tablet_meta()->table_id();
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
+            srcs[i - fill_idx_begin] = get_value(tablet);
+            datas[i - fill_idx_begin] = &srcs[i - fill_idx_begin];
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
-    }
-    // REPLICA_ID
-    {
-        std::vector<int64_t> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = tablet->tablet_meta()->replica_id();
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
-    }
-    // PARTITION_ID
-    {
-        std::vector<int64_t> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = tablet->tablet_meta()->partition_id();
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
-    }
-    // TABLET_PATH
-    {
-        std::vector<std::string> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = tablet->tablet_path();
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
-    }
-    // TABLET_LOCAL_SIZE
-    {
-        std::vector<int64_t> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = tablet->tablet_meta()->tablet_local_size();
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
-    }
-    // TABLET_REMOTE_SIZE
-    {
-        std::vector<int64_t> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = tablet->tablet_meta()->tablet_remote_size();
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, datas));
-    }
-    // VERSION_COUNT
-    {
-        std::vector<int64_t> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = static_cast<int64_t>(tablet->tablet_meta()->version_count());
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
-    }
-    // SEGMENT_COUNT
-    {
-        std::vector<int64_t> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = tablet->tablet_meta()->get_all_segments_size();
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 8, datas));
-    }
-    // NUM_COLUMNS
-    {
-        std::vector<int64_t> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = tablet->tablet_meta()->tablet_columns_num();
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, datas));
-    }
-    // ROW_SIZE
-    {
-        std::vector<int64_t> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = static_cast<int64_t>(tablet->row_size());
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, datas));
-    }
-    // COMPACTION_SCORE
-    {
-        std::vector<int32_t> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = tablet->get_compaction_score();
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
-    }
-    // COMPRESS_KIND
-    {
-        std::vector<std::string> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = CompressKind_Name(tablet->compress_kind());
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
-    }
-    // IS_USED
-    {
+        return fill_dest_column_for_range(block, column_index, datas);
+    };
+
+    auto fill_boolean_column = [&](auto&& get_value, size_t column_index) {
         std::vector<int8_t> srcs(fill_tablets_num);
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = tablet->is_used();
+            srcs[i - fill_idx_begin] = get_value(tablet);
             datas[i - fill_idx_begin] = &srcs[i - fill_idx_begin];
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, datas));
-    }
-    // IS_ALTER_FAILED
-    {
-        std::vector<int8_t> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = tablet->is_alter_failed();
-            datas[i - fill_idx_begin] = &srcs[i - fill_idx_begin];
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 14, datas));
-    }
+        return fill_dest_column_for_range(block, column_index, datas);
+    };
+
+    RETURN_IF_ERROR(fill_column([this](auto tablet) { return _backend_id; }, 0));
+    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->table_id(); }, 1));
+    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->replica_id(); }, 2));
+    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->partition_id(); }, 3));
+    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_path(); }, 4));
+    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->tablet_local_size(); }, 5));
+    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->tablet_remote_size(); }, 6));
+    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return static_cast<int64_t>(tablet->tablet_meta()->version_count()); }, 7));
+    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->get_all_segments_size(); }, 8));
+    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_meta()->tablet_columns_num(); }, 9));
+    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return static_cast<int64_t>(tablet->row_size()); }, 10));
+    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->get_compaction_score(); }, 11));
+    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return CompressKind_Name(tablet->compress_kind()); }, 12));
+    RETURN_IF_ERROR(fill_boolean_column([](TabletSharedPtr tablet) { return tablet->is_used(); }, 13));
+    RETURN_IF_ERROR(fill_boolean_column([](TabletSharedPtr tablet) { return tablet->is_alter_failed(); }, 14));
 
     _tablets_idx += fill_tablets_num;
     return Status::OK();
