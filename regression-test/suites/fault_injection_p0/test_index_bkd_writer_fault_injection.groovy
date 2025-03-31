@@ -29,7 +29,7 @@ suite("test_index_bkd_writer_fault_injection", "nonConcurrent") {
             `hobbies` text NULL,
             `score` int(11) NULL,
             index index_name (name) using inverted,
-            index index_hobbies (hobbies) using inverted properties("parser"="english"),
+            index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
             index index_score (score) using inverted
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)

@@ -134,10 +134,10 @@ public:
     virtual ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
-    Status new_iterator(ColumnIterator** iterator);
-    Status new_array_iterator(ColumnIterator** iterator);
-    Status new_struct_iterator(ColumnIterator** iterator);
-    Status new_map_iterator(ColumnIterator** iterator);
+    Status new_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
+    Status new_array_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
+    Status new_struct_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
+    Status new_map_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
     Status new_agg_state_iterator(ColumnIterator** iterator);
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
@@ -767,10 +767,6 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
-
-    Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        return Status::NotSupported("Not supported next_batch_of_zone_map");
-    }
 
     ordinal_t get_current_ordinal() const override {
         if (_sibling_iter) {

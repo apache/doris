@@ -19,6 +19,8 @@ import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_schema_change_add_key_column", "nonConcurrent") {
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
     def tableName = "test_schema_change_add_key_column"
 
     def getAlterTableState = {
@@ -32,7 +34,7 @@ suite("test_schema_change_add_key_column", "nonConcurrent") {
     def getTabletStatus = { rowsetNum, lastRowsetSegmentNum ->
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
         logger.info("tablets: ${tablets}")
-        assertEquals(1, tablets.size())
+        assertTrue(tablets.size() >= 1)
         String compactionUrl = ""
         for (Map<String, String> tablet : tablets) {
             compactionUrl = tablet["CompactionStatus"]

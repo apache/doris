@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.SchemaTable;
@@ -29,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Frontend;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -61,9 +63,13 @@ public class SchemaScanNode extends ScanNode {
     /**
      * Constructs node to scan given data files of table 'tbl'.
      */
-    public SchemaScanNode(PlanNodeId id, TupleDescriptor desc) {
+    public SchemaScanNode(PlanNodeId id, TupleDescriptor desc,
+                          String schemaCatalog, String schemaDb, String schemaTable) {
         super(id, desc, "SCAN SCHEMA", StatisticalType.SCHEMA_SCAN_NODE);
         this.tableName = desc.getTable().getName();
+        this.schemaCatalog = schemaCatalog;
+        this.schemaDb = schemaDb;
+        this.schemaTable = schemaTable;
     }
 
     public String getTableName() {
@@ -165,5 +171,24 @@ public class SchemaScanNode extends ScanNode {
     @Override
     public int getNumInstances() {
         return 1;
+    }
+
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        StringBuilder output = new StringBuilder();
+        output.append(prefix).append("TABLE: ").append(getSchemaDb()).append(".").append(getTableName());
+        output.append("\n");
+        if (!conjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        }
+        if (!runtimeFilters.isEmpty()) {
+            output.append(prefix).append("runtime filters: ");
+            output.append(getRuntimeFilterExplainString(false));
+        }
+        output.append(prefix).append(String.format("cardinality=%s", cardinality))
+                .append(String.format(", avgRowSize=%s", avgRowSize)).append(String.format(", numNodes=%s", numNodes));
+        output.append("\n");
+        return output.toString();
     }
 }

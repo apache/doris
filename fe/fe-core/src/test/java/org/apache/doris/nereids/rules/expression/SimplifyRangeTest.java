@@ -22,8 +22,13 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
+import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDesc;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -60,6 +65,24 @@ public class SimplifyRangeTest extends ExpressionRewrite {
     }
 
     @Test
+    public void testRangeInference() {
+        ValueDesc valueDesc = getValueDesc("TA IS NULL");
+        Assertions.assertInstanceOf(UnknownValue.class, valueDesc);
+        List<ValueDesc> sourceValues = ((UnknownValue) valueDesc).getSourceValues();
+        Assertions.assertEquals(0, sourceValues.size());
+        Assertions.assertEquals("TA IS NULL", valueDesc.getReference().toSql());
+
+        valueDesc = getValueDesc("TA IS NULL AND TB IS NULL AND NULL");
+        Assertions.assertInstanceOf(UnknownValue.class, valueDesc);
+        sourceValues = ((UnknownValue) valueDesc).getSourceValues();
+        Assertions.assertEquals(3, sourceValues.size());
+        Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(0));
+        Assertions.assertInstanceOf(EmptyValue.class, sourceValues.get(1));
+        Assertions.assertEquals("TA", sourceValues.get(0).getReference().toSql());
+        Assertions.assertEquals("TB", sourceValues.get(1).getReference().toSql());
+    }
+
+    @Test
     public void testSimplify() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
             bottomUp(SimplifyRange.INSTANCE)
@@ -68,8 +91,15 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA > 3 or TA > null", "TA > 3 OR NULL");
         assertRewrite("TA > 3 or TA < null", "TA > 3 OR NULL");
         assertRewrite("TA > 3 or TA = null", "TA > 3 OR NULL");
+        assertRewrite("TA > 3 or TA = 3 or TA < null", "TA >= 3 OR NULL");
+        assertRewrite("TA < 10 or TA in (1, 2, 3, 11, 12, 13)", "TA in (11, 12, 13) OR TA < 10");
+        assertRewrite("TA < 10 or TA in (1, 2, 3, 10, 11, 12, 13) or TA > 13 or TA < 10 or TA in (1, 2, 3, 10, 11, 12, 13) or TA > 13",
+                "TA in (11, 12) OR TA <= 10 OR TA >= 13");
         assertRewrite("TA > 3 or TA <> null", "TA > 3 or null");
         assertRewrite("TA > 3 or TA <=> null", "TA > 3 or TA <=> null");
+        assertRewrite("(TA < 1 or TA > 2) or (TA >= 0 and TA <= 3)", "TA IS NOT NULL OR NULL");
+        assertRewrite("TA between 10 and 20 or TA between 100 and 120 or TA between 15 and 25 or TA between 115 and 125",
+                "TA between 10 and 25 or TA between 100 and 125");
         assertRewriteNotNull("TA > 3 and TA > null", "TA > 3 and NULL");
         assertRewriteNotNull("TA > 3 and TA < null", "TA > 3 and NULL");
         assertRewriteNotNull("TA > 3 and TA = null", "TA > 3 and NULL");
@@ -84,16 +114,17 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA > 3 and TA < 1) or (TA > 7 and TA < 5)", "TA is null and null");
         assertRewriteNotNull("TA > 3 and TA < 1", "FALSE");
         assertRewrite("TA > 3 and TA < 1", "TA is null and null");
-        assertRewrite("TA >= 3 and TA < 3", "TA >= 3 and TA < 3");
+        assertRewrite("TA >= 3 and TA < 3", "TA is null and null");
         assertRewriteNotNull("TA = 1 and TA > 10", "FALSE");
         assertRewrite("TA = 1 and TA > 10", "TA is null and null");
-        assertRewrite("TA > 5 or TA < 1", "TA > 5 or TA < 1");
+        assertRewrite("TA >= 1 and TA <= 1", "TA = 1");
+        assertRewrite("TA > 5 or TA < 1", "TA < 1 or TA > 5");
         assertRewrite("TA > 5 or TA > 1 or TA > 10", "TA > 1");
         assertRewrite("TA > 5 or TA > 1 or TA < 10", "TA is not null or null");
         assertRewriteNotNull("TA > 5 or TA > 1 or TA < 10", "TRUE");
         assertRewrite("TA > 5 and TA > 1 and TA > 10", "TA > 10");
         assertRewrite("TA > 5 and TA > 1 and TA < 10", "TA > 5 and TA < 10");
-        assertRewrite("TA > 1 or TA < 1", "TA > 1 or TA < 1");
+        assertRewrite("TA > 1 or TA < 1", "TA < 1 or TA > 1");
         assertRewrite("TA > 1 or TA < 10", "TA is not null or null");
         assertRewriteNotNull("TA > 1 or TA < 10", "TRUE");
         assertRewrite("TA > 5 and TA < 10", "TA > 5 and TA < 10");
@@ -108,7 +139,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA > 10 or TA > 20) and (TB > 10 and TB > 20)", "TA > 10 and TB > 20");
         assertRewrite("((TB > 30 and TA > 40) and TA > 20) and (TB > 10 and TB > 20)", "TB > 30 and TA > 40");
         assertRewrite("(TA > 10 and TB > 10) or (TB > 10 and TB > 20)", "TA > 10 and TB > 10 or TB > 20");
-        assertRewrite("((TA > 10 or TA > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA > 5 and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))");
+        assertRewrite("((TA > 10 or TA > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA > 5 and TB > 10) or (TB > 10 and (TB < 10 or TB > 20))");
         assertRewriteNotNull("TA in (1,2,3) and TA > 10", "FALSE");
         assertRewrite("TA in (1,2,3) and TA > 10", "TA is null and null");
         assertRewrite("TA in (1,2,3) and TA >= 1", "TA in (1,2,3)");
@@ -118,7 +149,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA in (1,2,3) and TA < 10", "TA in (1,2,3)");
         assertRewriteNotNull("TA in (1,2,3) and TA < 1", "FALSE");
         assertRewrite("TA in (1,2,3) and TA < 1", "TA is null and null");
-        assertRewrite("TA in (1,2,3) or TA < 1", "TA in (1,2,3) or TA < 1");
+        assertRewrite("TA in (1,2,3) or TA < 1", "TA in (2,3) or TA <= 1");
         assertRewrite("TA in (1,2,3) or TA in (2,3,4)", "TA in (1,2,3,4)");
         assertRewrite("TA in (1,2,3) or TA in (4,5,6)", "TA in (1,2,3,4,5,6)");
         assertRewrite("TA in (1,2,3) and TA in (4,5,6)", "TA is null and null");
@@ -146,15 +177,15 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA + TC > 3 and TA + TC < 1) or (TA + TC > 7 and TA + TC < 5)", "(TA + TC) is null and null");
         assertRewriteNotNull("TA + TC > 3 and TA + TC < 1", "FALSE");
         assertRewrite("TA + TC > 3 and TA + TC < 1", "(TA + TC) is null and null");
-        assertRewrite("TA + TC >= 3 and TA + TC < 3", "TA + TC >= 3 and TA + TC < 3");
+        assertRewrite("TA + TC >= 3 and TA + TC < 3", "TA + TC is null and null");
         assertRewriteNotNull("TA + TC = 1 and TA + TC > 10", "FALSE");
         assertRewrite("TA + TC = 1 and TA + TC > 10", "(TA + TC) is null and null");
-        assertRewrite("TA + TC > 5 or TA + TC < 1", "TA + TC > 5 or TA + TC < 1");
+        assertRewrite("TA + TC > 5 or TA + TC < 1", "TA + TC < 1 or TA + TC > 5");
         assertRewrite("TA + TC > 5 or TA + TC > 1 or TA + TC > 10", "TA + TC > 1");
         assertRewrite("TA + TC > 5 or TA + TC > 1 or TA + TC < 10", "(TA + TC) is not null or null");
         assertRewrite("TA + TC > 5 and TA + TC > 1 and TA + TC > 10", "TA + TC > 10");
         assertRewrite("TA + TC > 5 and TA + TC > 1 and TA + TC < 10", "TA + TC > 5 and TA + TC < 10");
-        assertRewrite("TA + TC > 1 or TA + TC < 1", "TA + TC > 1 or TA + TC < 1");
+        assertRewrite("TA + TC > 1 or TA + TC < 1", "TA + TC < 1 or TA + TC > 1");
         assertRewrite("TA + TC > 1 or TA + TC < 10", "(TA + TC) is not null or null");
         assertRewrite("TA + TC > 5 and TA + TC < 10", "TA + TC > 5 and TA + TC < 10");
         assertRewrite("TA + TC > 5 and TA + TC > 10", "TA + TC > 10");
@@ -167,7 +198,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA + TC > 10 or TA + TC > 20) and (TB > 10 and TB > 20)", "TA + TC > 10 and TB > 20");
         assertRewrite("((TB > 30 and TA + TC > 40) and TA + TC > 20) and (TB > 10 and TB > 20)", "TB > 30 and TA + TC > 40");
         assertRewrite("(TA + TC > 10 and TB > 10) or (TB > 10 and TB > 20)", "TA + TC > 10 and TB > 10 or TB > 20");
-        assertRewrite("((TA + TC > 10 or TA + TC > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA + TC > 5 and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))");
+        assertRewrite("((TA + TC > 10 or TA + TC > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA + TC > 5 and TB > 10) or (TB > 10 and (TB < 10 or TB > 20))");
         assertRewriteNotNull("TA + TC in (1,2,3) and TA + TC > 10", "FALSE");
         assertRewrite("TA + TC in (1,2,3) and TA + TC > 10", "(TA + TC) is null and null");
         assertRewrite("TA + TC in (1,2,3) and TA + TC >= 1", "TA + TC in (1,2,3)");
@@ -177,7 +208,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA + TC in (1,2,3) and TA + TC < 10", "TA + TC in (1,2,3)");
         assertRewriteNotNull("TA + TC in (1,2,3) and TA + TC < 1", "FALSE");
         assertRewrite("TA + TC in (1,2,3) and TA + TC < 1", "(TA + TC) is null and null");
-        assertRewrite("TA + TC in (1,2,3) or TA + TC < 1", "TA + TC in (1,2,3) or TA + TC < 1");
+        assertRewrite("TA + TC in (1,2,3) or TA + TC < 1", "TA + TC in (2,3) or TA + TC <= 1");
         assertRewrite("TA + TC in (1,2,3) or TA + TC in (2,3,4)", "TA + TC in (1,2,3,4)");
         assertRewrite("TA + TC in (1,2,3) or TA + TC in (4,5,6)", "TA + TC in (1,2,3,4,5,6)");
         assertRewriteNotNull("TA + TC in (1,2,3) and TA + TC in (4,5,6)", "FALSE");
@@ -216,11 +247,11 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewriteNotNull("AA > date '2024-01-03' and AA < date '2024-01-01'", "FALSE");
         assertRewrite("AA > date '2024-01-03' and AA < date '2024-01-01'", "AA is null and null");
         assertRewrite("AA >= date '2024-01-01' and AA < date '2024-01-01'",
-                "AA >= date '2024-01-01' and AA < date '2024-01-01'");
+                "AA IS NULL AND NULL");
         assertRewriteNotNull("AA = date '2024-01-01' and AA > date '2024-01-10'", "FALSE");
         assertRewrite("AA = date '2024-01-01' and AA > date '2024-01-10'", "AA is null and null");
         assertRewrite("AA > date '2024-01-05' or AA < date '2024-01-01'",
-                "AA > date '2024-01-05' or AA < date '2024-01-01'");
+                "AA < date '2024-01-01' or AA > date '2024-01-05'");
         assertRewrite("AA > date '2024-01-05' or AA > date '2024-01-01' or AA > date '2024-01-10'",
                 "AA > date '2024-01-01'");
         assertRewrite("AA > date '2024-01-05' or AA > date '2024-01-01' or AA < date '2024-01-10'", "AA is not null or null");
@@ -230,7 +261,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("AA > date '2024-01-05' and AA > date '2024-01-01' and AA < date '2024-01-10'",
                 "AA > date '2024-01-05' and AA < date '2024-01-10'");
         assertRewrite("AA > date '2024-01-05' or AA < date '2024-01-05'",
-                "AA > date '2024-01-05' or AA < date '2024-01-05'");
+                "AA < date '2024-01-05' or AA > date '2024-01-05'");
         assertRewrite("AA > date '2024-01-01' or AA < date '2024-01-10'", "AA is not null or null");
         assertRewriteNotNull("AA > date '2024-01-01' or AA < date '2024-01-10'", "TRUE");
         assertRewrite("AA > date '2024-01-05' and AA < date '2024-01-10'",
@@ -260,7 +291,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("AA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') and AA < date '2024-01-01'",
                 "AA is null and null");
         assertRewrite("AA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or AA < date '2024-01-01'",
-                "AA in (date '2024-01-01',date '2024-01-02',date '2024-01-03') or AA < date '2024-01-01'");
+                "AA in (date '2024-01-02',date '2024-01-03') or AA <= date '2024-01-01'");
         assertRewrite("AA in (date '2024-01-01',date '2024-01-02') or AA in (date '2024-01-02', date '2024-01-03')",
                 "AA in (date '2024-01-01',date '2024-01-02',date '2024-01-03')");
         assertRewriteNotNull("AA in (date '2024-01-01',date '2024-01-02') and AA in (date '2024-01-03', date '2024-01-04')",
@@ -296,11 +327,11 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewriteNotNull("CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 01:00:00'", "FALSE");
         assertRewrite("CA > timestamp '2024-01-03 00:00:10' and CA < timestamp '2024-01-01 01:00:00'", "CA is null and null");
         assertRewrite("CA >= timestamp '2024-01-01 00:00:10' and CA < timestamp '2024-01-01 00:00:10'",
-                "CA >= timestamp '2024-01-01 00:00:10' and CA < timestamp '2024-01-01 00:00:10'");
+                "CA is null and null");
         assertRewriteNotNull("CA = timestamp '2024-01-01 10:00:10' and CA > timestamp '2024-01-10 00:00:10'", "FALSE");
         assertRewrite("CA = timestamp '2024-01-01 10:00:10' and CA > timestamp '2024-01-10 00:00:10'", "CA is null and null");
         assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-01 00:00:10'",
-                "CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-01 00:00:10'");
+                "CA < timestamp '2024-01-01 00:00:10' or CA > timestamp '2024-01-05 00:00:10'");
         assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA > timestamp '2024-01-01 00:00:10' or CA > timestamp '2024-01-10 00:00:10'",
                 "CA > timestamp '2024-01-01 00:00:10'");
         assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA > timestamp '2024-01-01 00:00:10' or CA < timestamp '2024-01-10 00:00:10'", "CA is not null or null");
@@ -310,7 +341,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("CA > timestamp '2024-01-05 00:00:10' and CA > timestamp '2024-01-01 00:00:10' and CA < timestamp '2024-01-10 00:00:10'",
                 "CA > timestamp '2024-01-05 00:00:10' and CA < timestamp '2024-01-10 00:00:10'");
         assertRewrite("CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-05 00:00:10'",
-                "CA > timestamp '2024-01-05 00:00:10' or CA < timestamp '2024-01-05 00:00:10'");
+                "CA < timestamp '2024-01-05 00:00:10' or CA > timestamp '2024-01-05 00:00:10'");
         assertRewrite("CA > timestamp '2024-01-01 00:02:10' or CA < timestamp '2024-01-10 00:02:10'", "CA is not null or null");
         assertRewriteNotNull("CA > timestamp '2024-01-01 00:00:00' or CA < timestamp '2024-01-10 00:00:00'", "TRUE");
         assertRewrite("CA > timestamp '2024-01-05 01:00:00' and CA < timestamp '2024-01-10 01:00:00'",
@@ -363,14 +394,20 @@ public class SimplifyRangeTest extends ExpressionRewrite {
                 "(CA is null and null) OR CB < timestamp '2024-01-05 00:50:00'");
     }
 
-    @Test
+    private ValueDesc getValueDesc(String expression) {
+        Map<String, Slot> mem = Maps.newHashMap();
+        Expression parseExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
+        parseExpression = typeCoercion(parseExpression);
+        return (new RangeInference()).getValue(parseExpression, context);
+    }
+
     private void assertRewrite(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
         needRewriteExpression = typeCoercion(needRewriteExpression);
         Expression expectedExpression = replaceUnboundSlot(PARSER.parseExpression(expected), mem);
         expectedExpression = typeCoercion(expectedExpression);
-        Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
+        Expression rewrittenExpression = sortChildren(executor.rewrite(needRewriteExpression, context));
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
 
@@ -443,5 +480,21 @@ public class SimplifyRangeTest extends ExpressionRewrite {
             default:
                 return BigIntType.INSTANCE;
         }
+    }
+
+    private Expression sortChildren(Expression expression) {
+        if (expression instanceof InPredicate) {
+            return ((InPredicate) expression).sortOptions();
+        }
+        List<Expression> children = Lists.newArrayList();
+        boolean hasNewChildren = false;
+        for (Expression child : expression.children()) {
+            Expression newChild = sortChildren(child);
+            if (newChild != child) {
+                hasNewChildren = true;
+            }
+            children.add(newChild);
+        }
+        return hasNewChildren ? expression.withChildren(children) : expression;
     }
 }

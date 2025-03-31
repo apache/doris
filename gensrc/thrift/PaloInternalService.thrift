@@ -27,7 +27,6 @@ include "Planner.thrift"
 include "DataSinks.thrift"
 include "Data.thrift"
 include "RuntimeProfile.thrift"
-include "PaloService.thrift"
 
 // constants for TQueryOptions.num_nodes
 const i32 NUM_NODES_ALL = 0
@@ -89,37 +88,37 @@ enum TSerdeDialect {
 // Query options that correspond to PaloService.PaloQueryOptions,
 // with their respective defaults
 struct TQueryOptions {
-  1: optional bool abort_on_error = 0
+  1: optional bool abort_on_error = 0 // Deprecated
   2: optional i32 max_errors = 0
-  3: optional bool disable_codegen = 1
+  3: optional bool disable_codegen = 1 // Deprecated
   4: optional i32 batch_size = 0
   5: optional i32 num_nodes = NUM_NODES_ALL
-  6: optional i64 max_scan_range_length = 0
+  6: optional i64 max_scan_range_length = 0 // Deprecated
   7: optional i32 num_scanner_threads = 0
-  8: optional i32 max_io_buffers = 0
-  9: optional bool allow_unsupported_formats = 0
+  8: optional i32 max_io_buffers = 0 // Deprecated
+  9: optional bool allow_unsupported_formats = 0 // Deprecated
   10: optional i64 default_order_by_limit = -1
   // 11: optional string debug_action = "" // Never used
   12: optional i64 mem_limit = 2147483648
-  13: optional bool abort_on_default_limit_exceeded = 0
+  13: optional bool abort_on_default_limit_exceeded = 0 // Deprecated
   14: optional i32 query_timeout = 3600
   15: optional bool is_report_success = 0
-  16: optional i32 codegen_level = 0
+  16: optional i32 codegen_level = 0 // Deprecated
   // INT64::MAX
   17: optional i64 kudu_latest_observed_ts = 9223372036854775807 // Deprecated
   18: optional TQueryType query_type = TQueryType.SELECT
-  19: optional i64 min_reservation = 0
-  20: optional i64 max_reservation = 107374182400
-  21: optional i64 initial_reservation_total_claims = 2147483647 // TODO chenhao
-  22: optional i64 buffer_pool_limit = 2147483648
+  19: optional i64 min_reservation = 0 // Deprecated
+  20: optional i64 max_reservation = 107374182400 // Deprecated
+  21: optional i64 initial_reservation_total_claims = 2147483647 // TODO chenhao // Deprecated
+  22: optional i64 buffer_pool_limit = 2147483648 // Deprecated
 
   // The default spillable buffer size in bytes, which may be overridden by the planner.
   // Defaults to 2MB.
-  23: optional i64 default_spillable_buffer_size = 2097152;
+  23: optional i64 default_spillable_buffer_size = 2097152; //Deprecated
 
   // The minimum spillable buffer to use. The planner will not choose a size smaller than
   // this. Defaults to 64KB.
-  24: optional i64 min_spillable_buffer_size = 65536;
+  24: optional i64 min_spillable_buffer_size = 65536; //Deprecated
 
   // The maximum size of row that the query will reserve memory to process. Processing
   // rows larger than this may result in a query failure. Defaults to 512KB, e.g.
@@ -129,13 +128,13 @@ struct TQueryOptions {
   // the size of all their buffers to fit this row size, whereas others may use more
   // sophisticated strategies - e.g. reserving a small number of buffers large enough to
   // fit maximum-sized rows.
-  25: optional i64 max_row_size = 524288;
+  25: optional i64 max_row_size = 524288; //Deprecated
 
   // stream preaggregation
   26: optional bool disable_stream_preaggregations = false;
 
   // multithreaded degree of intra-node parallelism
-  27: optional i32 mt_dop = 0;
+  27: optional i32 mt_dop = 0; // Deprecated
   // if this is a query option for LOAD, load_mem_limit should be set to limit the mem comsuption
   // of load channel.
   28: optional i64 load_mem_limit = 0;
@@ -178,11 +177,11 @@ struct TQueryOptions {
   // For debug purpose, skip delete predicates when reading data
   50: optional bool skip_delete_predicate = false
 
-  51: optional bool enable_new_shuffle_hash_method
+  51: optional bool enable_new_shuffle_hash_method // deprecated
 
   52: optional i32 be_exec_version = 0
 
-  53: optional i32 partitioned_hash_join_rows_threshold = 0
+  53: optional i32 partitioned_hash_join_rows_threshold = 0 // deprecated
 
   54: optional bool enable_share_hash_table_for_broadcast_join
 
@@ -195,10 +194,11 @@ struct TQueryOptions {
 
   58: optional i32 repeat_max_num = 0 // Deprecated
 
+  // deprecated, use spill_sort_mem_limit
   59: optional i64 external_sort_bytes_threshold = 0
 
   // deprecated
-  60: optional i32 partitioned_hash_agg_rows_threshold = 0
+  60: optional i32 partitioned_hash_agg_rows_threshold = 0 // deprecated
 
   61: optional bool enable_file_cache = false
 
@@ -213,10 +213,11 @@ struct TQueryOptions {
   66: optional i32 parallel_instance = 1
   // Indicate where useServerPrepStmts enabled
   67: optional bool mysql_row_binary_format = false;
-  68: optional i64 external_agg_bytes_threshold = 0
+  // Not used anymore
+  68: optional i64 external_agg_bytes_threshold = 0 // deprecated
 
-  // partition count(1 << external_agg_partition_bits) when spill aggregation data into disk
-  69: optional i32 external_agg_partition_bits = 4
+  // Not used anymore, use spill_aggregation_partition_count
+  69: optional i32 external_agg_partition_bits = 4 // deprecated
 
   // Specify base path for file cache
   70: optional string file_cache_base_path
@@ -226,8 +227,8 @@ struct TQueryOptions {
   72: optional bool enable_orc_lazy_mat = true
 
   73: optional i64 scan_queue_mem_limit
-  // deprecated
-  74: optional bool enable_scan_node_run_serial = false;
+
+  74: optional bool enable_scan_node_run_serial = false; // deprecated
 
   75: optional bool enable_insert_strict = false;
 
@@ -235,13 +236,13 @@ struct TQueryOptions {
 
   77: optional bool truncate_char_or_varchar_columns = false
 
-  78: optional bool enable_hash_join_early_start_probe = false
+  78: optional bool enable_hash_join_early_start_probe = false // deprecated
   // non-pipelinex engine removed. always true.
   79: optional bool enable_pipeline_x_engine = true;
 
   80: optional bool enable_memtable_on_sink_node = false;
 
-  81: optional bool enable_delete_sub_predicate_v2 = false;
+  81: optional bool enable_delete_sub_predicate_v2 = false; // deprecated
 
   // A tag used to distinguish fe start epoch.
   82: optional i64 fe_process_uuid = 0;
@@ -263,7 +264,7 @@ struct TQueryOptions {
 
   91: optional bool runtime_filter_wait_infinitely = false;
 
-  92: optional i32 wait_full_block_schedule_times = 1;
+  92: optional i32 wait_full_block_schedule_times = 1; // deprecated
   
   93: optional i32 inverted_index_max_expansions = 50;
 
@@ -277,14 +278,17 @@ struct TQueryOptions {
 
   98: optional bool skip_bad_tablet = false;
   // Increase concurrency of scanners adaptively, the maxinum times to scale up
-  99: optional double scanner_scale_up_ratio = 0;
+  99: optional double scanner_scale_up_ratio = 0; //deprecated
 
   100: optional bool enable_distinct_streaming_aggregation = true;
 
+  // deprecated
   101: optional bool enable_join_spill = false
 
+  // deprecated
   102: optional bool enable_sort_spill = false
 
+  // deprecated
   103: optional bool enable_agg_spill = false
 
   104: optional i64 min_revocable_mem = 0
@@ -305,7 +309,7 @@ struct TQueryOptions {
 
   112: optional i32 max_column_reader_num = 0
 
-  113: optional bool enable_local_merge_sort = false;
+  113: optional bool enable_local_merge_sort = false; // deprecated
 
   114: optional bool enable_parallel_result_sink = false;
 
@@ -333,11 +337,9 @@ struct TQueryOptions {
   125: optional bool enable_segment_cache = true;
 
   126: optional i32 runtime_bloom_filter_max_size = 16777216;
-
   127: optional i32 in_list_value_count_threshold = 10;
-
   // We need this two fields to make sure thrift id on master is compatible with other branch.
-  128: optional bool enable_verbose_profile = false;
+  128: optional bool enable_verbose_profile = false;  // deprecated
   129: optional i32 rpc_verbose_profile_max_instance_count = 0;
 
   130: optional bool enable_adaptive_pipeline_task_serial_read_on_limit = true;
@@ -350,7 +352,7 @@ struct TQueryOptions {
   135: optional bool enable_parallel_outfile = false;
 
   136: optional bool enable_phrase_query_sequential_opt = true;
-
+  
   137: optional bool enable_auto_create_when_overwrite = false;
 
   138: optional i64 orc_tiny_stripe_threshold_bytes = 8388608;
@@ -358,11 +360,36 @@ struct TQueryOptions {
   140: optional i64 orc_max_merge_distance_bytes = 1048576;
 
   141: optional bool ignore_runtime_filter_error = false;
+
   142: optional bool enable_fixed_len_to_uint32_v2 = false;
   143: optional bool enable_shared_exchange_sink_buffer = true;
 
+
   144: optional bool enable_inverted_index_searcher_cache = true;
   145: optional bool enable_inverted_index_query_cache = true;
+  146: optional bool fuzzy_disable_runtime_filter_in_be = false; // deprecated
+
+  147: optional i32 profile_level = 1;
+
+  148: optional i32 min_scanner_concurrency = 1;
+  149: optional i32 min_scan_scheduler_concurrency = 0;
+  150: optional bool enable_runtime_filter_partition_prune = true;
+
+  // The minimum memory that an operator required to run.
+  151: optional i32 minimum_operator_memory_required_kb = 1024;
+
+  152: optional bool enable_mem_overcommit = true; // deprecated
+  153: optional i32 query_slot_count = 0;
+  154: optional bool enable_spill = false
+  155: optional bool enable_reserve_memory = true
+  156: optional i32 revocable_memory_high_watermark_percent = -1
+
+  157: optional i64 spill_sort_mem_limit = 134217728
+  158: optional i64 spill_sort_batch_bytes = 8388608
+  159: optional i32 spill_aggregation_partition_count = 32
+  160: optional i32 spill_hash_join_partition_count = 32
+  161: optional i64 low_memory_mode_buffer_limit = 33554432
+  162: optional bool dump_heap_profile_when_mem_limit_exceeded = false
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
@@ -392,18 +419,21 @@ struct TRuntimeFilterTargetParamsV2 {
 }
 
 struct TRuntimeFilterParams {
-  // Runtime filter merge instance address
+  // Runtime filter merge instance address. Used if this filter has a remote target
   1: optional Types.TNetworkAddress runtime_filter_merge_addr
 
   // deprecated
   2: optional map<i32, list<TRuntimeFilterTargetParams>> rid_to_target_param
 
   // Runtime filter ID to the runtime filter desc
+  // Used if this filter has a remote target
   3: optional map<i32, PlanNodes.TRuntimeFilterDesc> rid_to_runtime_filter
 
   // Number of Runtime filter producers
+  // Used if this filter has a remote target
   4: optional map<i32, i32> runtime_filter_builder_num
 
+  // Used if this filter has a remote target
   5: optional map<i32, list<TRuntimeFilterTargetParamsV2>> rid_to_target_paramv2
 }
 
@@ -622,11 +652,6 @@ struct TCancelPlanFragmentResult {
   1: optional Status.TStatus status
 }
 
-// fold constant expr
-struct TExprMap {
-  1: required map<string, Exprs.TExpr> expr_map
-}
-
 struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
@@ -648,9 +673,6 @@ struct TTransmitDataParams {
 
   // required in V1
   4: optional Types.TPlanNodeId dest_node_id
-
-  // required in V1
-  5: optional Data.TRowBatch row_batch
 
   // if set to true, indicates that no more row batches will be sent
   // for this dest_node_id
@@ -674,66 +696,6 @@ struct TTransmitDataResult {
 struct TTabletWithPartition {
     1: required i64 partition_id
     2: required i64 tablet_id
-}
-
-// open a tablet writer
-struct TTabletWriterOpenParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-    3: required i64 txn_id
-    4: required Descriptors.TOlapTableSchemaParam schema
-    5: required list<TTabletWithPartition> tablets
-
-    6: required i32 num_senders
-}
-
-struct TTabletWriterOpenResult {
-    1: required Status.TStatus status
-}
-
-// add batch to tablet writer
-struct TTabletWriterAddBatchParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-
-    3: required i64 packet_seq
-    4: required list<Types.TTabletId> tablet_ids
-    5: required Data.TRowBatch row_batch
-
-    6: required i32 sender_no
-}
-
-struct TTabletWriterAddBatchResult {
-    1: required Status.TStatus status
-}
-
-struct TTabletWriterCloseParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-
-    3: required i32 sender_no
-}
-
-struct TTabletWriterCloseResult {
-    1: required Status.TStatus status
-}
-
-//
-struct TTabletWriterCancelParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-
-    3: required i32 sender_no
-}
-
-struct TTabletWriterCancelResult {
-}
-
-struct TFetchDataParams {
-  1: required PaloInternalServiceVersion protocol_version
-  // required in V1
-  // query id which want to fetch data
-  2: required Types.TUniqueId fragment_instance_id
 }
 
 struct TFetchDataResult {
@@ -762,7 +724,7 @@ struct TCondition {
     // In delete condition, the different column may have same column name, need
     // using unique id to distinguish them
     4:  optional i32 column_unique_id
-    5:  optional bool marked_by_runtime_filter = false
+    5:  optional bool marked_by_runtime_filter = false // deprecated
 
     // For cloud
     1000: optional TCompoundType compound_type = TCompoundType.UNKNOWN

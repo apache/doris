@@ -15,6 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+def getMetrics = { ip, port ->
+        def dst = 'http://' + ip + ':' + port
+        def conn = new URL(dst + "/metrics").openConnection()
+        conn.setRequestMethod("GET")
+        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
+                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+        conn.setRequestProperty("Authorization", "Basic ${encoding}")
+        return conn.getInputStream().getText()
+    }
+
 suite("test_crud_wlg") {
     def table_name = "wlg_test_table"
     def table_name2 = "wlg_test_table2"
@@ -177,30 +187,6 @@ suite("test_crud_wlg") {
         exception "can not be greater than 100%"
     }
 
-    // test alter tag and type
-    test {
-        sql "alter workload group test_group properties ( 'internal_type'='13' );"
-
-        exception "internal_type can not be create or modified"
-    }
-
-    test {
-        sql "create workload group inter_wg properties('internal_type'='123');"
-        exception "internal_type can not be create or modified"
-    }
-
-    test {
-        sql "alter workload group normal properties ('tag'='123')"
-
-        exception "_internal and normal group can not set tag"
-    }
-
-    test {
-        sql "alter workload group _internal properties ('tag'='123')"
-
-        exception "_internal and normal group can not set tag"
-    }
-
     sql "alter workload group test_group properties ( 'cpu_hard_limit'='20%' );"
     qt_cpu_hard_limit_1 """ select count(1) from ${table_name} """
     qt_cpu_hard_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
@@ -338,7 +324,7 @@ suite("test_crud_wlg") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_wlg_user""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_wlg_user""";
     }
 
     connect('test_wlg_user', '12345', context.config.jdbcUrl) {
@@ -389,7 +375,7 @@ suite("test_crud_wlg") {
     sql "alter workload group test_group properties ( 'queue_timeout'='500' );"
     Thread.sleep(10000)
     test {
-        sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+        sql "select /*+SET_VAR(parallel_pipeline_task_num=1)*/ * from ${table_name};"
 
         exception "query queue timeout"
     }
@@ -436,12 +422,12 @@ suite("test_crud_wlg") {
     sql "set workload_group=normal;"
     sql "alter workload group test_group properties ( 'max_concurrency'='10' );"
     Thread.sleep(10000)
-    sql "select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ * from ${table_name};"
+    sql "select /*+SET_VAR(parallel_pipeline_task_num=1)*/ * from ${table_name};"
 
     // test workload spill property
     // 1 create group
     test {
-        sql "create workload group if not exists spill_group_test_failed properties (  'memory_low_watermark'='90%');"
+        sql "create workload group if not exists spill_group_test_failed properties (  'memory_low_watermark'='96%');"
         exception "should bigger than memory_low_watermark"
     }
     sql "create workload group if not exists spill_group_test properties (  'memory_low_watermark'='10%','memory_high_watermark'='10%');"
@@ -729,7 +715,7 @@ suite("test_crud_wlg") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_wg_priv_user2""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_wg_priv_user2""";
     }
     connect('test_wg_priv_user2', '', context.config.jdbcUrl) {
         qt_select_wgp_11 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
@@ -787,4 +773,50 @@ suite("test_crud_wlg") {
 
     sql "drop workload group if exists default_val_wg"
 
+    for (int i = 0; i < 20; i++) {
+        // 1. SHOW BACKENDS get be ip and http port
+        Map<String, String> backendId_to_backendIP = new HashMap<>();
+        Map<String, String> backendId_to_backendHttpPort = new HashMap<>();
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+        // Print above maps in logger.
+        logger.info("backendId_to_backendIP: " + backendId_to_backendIP);
+        logger.info("backendId_to_backendHttpPort: " + backendId_to_backendHttpPort);
+
+        // 2. CREATE WORKLOAD GROUP
+        sql "drop workload group if exists test_wg_metrics;"
+        sql "create workload group if not exists test_wg_metrics " +
+                "properties ( " +
+                "    'cpu_share'='10', " +
+                "    'memory_limit'='10%', " +
+                "    'enable_memory_overcommit'='true' " +
+                ");"
+        sql "set workload_group=test_wg_metrics;"
+        wg = sql("select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'test_wg_metrics' order by name;");
+        logger.info("wg: " + wg);
+
+        // 3. EXECUTE A QUERY SO THAT THE WORKLOAD GROUP IS USED
+        sql "select count(*) from numbers(\"number\"=\"100\");"
+        
+        // curl backend http port to get metrics
+        // get first backendId
+        backendId = backendId_to_backendIP.keySet().iterator().next();
+        backendIP = backendId_to_backendIP.get(backendId);
+        backendHttpPort = backendId_to_backendHttpPort.get(backendId);
+        logger.info("backendId: " + backendId + ", backendIP: " + backendIP + ", backendHttpPort: " + backendHttpPort);
+
+        // Create a for loop to get metrics 5 times
+        for (int j = 0; j < 5; j++) {
+            String metrics = getMetrics(backendIP, backendHttpPort);
+            String filteredMetrics = metrics.split('\n').findAll { line ->
+                line.startsWith('doris_be_thread_pool') && line.contains('workload_group="test_wg_metrics"') && line.contains('thread_pool_name="Scan_test_wg_metrics"')
+            }.join('\n')
+            // Filter metrics with name test_wg_metrics
+            logger.info("filteredMetrics: " + filteredMetrics);
+            List<String> lines = filteredMetrics.split('\n').findAll { it.trim() }
+            assert lines.size() == 5
+        }
+
+        sql "drop workload group if exists test_wg_metrics;"
+    }
+    sql "drop workload group if exists test_wg_metrics;"
 }

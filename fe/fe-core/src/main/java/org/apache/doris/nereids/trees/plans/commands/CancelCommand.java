@@ -17,14 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -32,14 +26,12 @@ import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Strings;
 
-import java.util.ArrayList;
 import java.util.Map;
 
 /**
@@ -58,28 +50,6 @@ public abstract class CancelCommand extends Command implements ForwardWithSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return null;
-    }
-
-    /**
-     * translate to legacy expr, which do not need complex expression and table columns
-     */
-    public Expr translateToLegacyExpr(ConnectContext ctx, Expression expression) {
-        LogicalEmptyRelation plan = new LogicalEmptyRelation(
-                ConnectContext.get().getStatementContext().getNextRelationId(),
-                new ArrayList<>());
-        CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
-                PhysicalProperties.ANY);
-        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
-        ExpressionToExpr translator = new ExpressionToExpr();
-        return expression.accept(translator, planTranslatorContext);
-    }
-
-    private static class ExpressionToExpr extends ExpressionTranslator {
-        @Override
-        public Expr visitUnboundSlot(UnboundSlot unboundSlot, PlanTranslatorContext context) {
-            String inputCol = unboundSlot.getName();
-            return new SlotRef(null, inputCol);
-        }
     }
 
     /**

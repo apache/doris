@@ -50,8 +50,8 @@
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
+#include "util/brpc_closure.h"
 #include "util/mem_info.h"
-#include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "vec/core/block.h"
@@ -105,8 +105,8 @@ Status BaseDeltaWriter::init() {
     }
     auto* t_ctx = doris::thread_context(true);
     std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
-    if (t_ctx) {
-        wg_sptr = t_ctx->workload_group().lock();
+    if (t_ctx && t_ctx->is_attach_task()) {
+        wg_sptr = t_ctx->resource_ctx()->workload_group();
     }
     RETURN_IF_ERROR(_rowset_builder->init());
     RETURN_IF_ERROR(_memtable_writer->init(
@@ -118,7 +118,7 @@ Status BaseDeltaWriter::init() {
     return Status::OK();
 }
 
-Status DeltaWriter::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) {
+Status DeltaWriter::write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) {
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }

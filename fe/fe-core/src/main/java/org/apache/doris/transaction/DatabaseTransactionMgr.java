@@ -635,7 +635,7 @@ public class DatabaseTransactionMgr {
 
                             String errMsg = String.format("Failed to commit txn %s, cause tablet %s succ replica num %s"
                                     + " < load required replica num %s. table %s, partition: [ id=%s, commit version %s"
-                                    + ", visible version %s ], this tablet detail: %s",
+                                    + ", visible version %s ], this tablet detail: %s. Please try again later.",
                                     transactionId, tablet.getId(), successReplicaNum, loadRequiredReplicaNum, tableId,
                                     partition.getId(), partition.getCommittedVersion(), partition.getVisibleVersion(),
                                     writeDetail);
@@ -659,14 +659,14 @@ public class DatabaseTransactionMgr {
                                     .collect(Collectors.toList())));
         }
         if (!tabletWriteFailedReplicas.isEmpty()) {
-            writeDetail += String.format("%s replicas write data failed: { %s }; ",
+            writeDetail += String.format("%s replicas write data failed: { %s }, please check BE log for details; ",
                     tabletWriteFailedReplicas.size(), Joiner.on(", ").join(
                             tabletWriteFailedReplicas.stream().map(replica -> replica.toStringSimple(true))
                                     .collect(Collectors.toList())));
         }
         if (!tabletVersionFailedReplicas.isEmpty()) {
             writeDetail += String.format("%s replicas write data succ but miss previous "
-                            + "version: { %s }.",
+                            + "version: { %s }, please check output of SHOW TABLET for details",
                     tabletVersionFailedReplicas.size(), Joiner.on(",").join(
                             tabletVersionFailedReplicas.stream().map(replica -> replica.toStringSimple(true))
                                     .collect(Collectors.toList())));
@@ -2260,10 +2260,11 @@ public class DatabaseTransactionMgr {
                             if (newVersion == Partition.PARTITION_INIT_VERSION + 1) {
                                 index.setRowCountReported(false);
                             }
-                            Set<Long> partitionIds = backendPartitions.get(replica.getBackendIdWithoutException());
+                            long beId = replica.getBackendIdWithoutException();
+                            Set<Long> partitionIds = backendPartitions.get(beId);
                             if (partitionIds == null) {
                                 partitionIds = Sets.newHashSet();
-                                backendPartitions.put(replica.getBackendIdWithoutException(), partitionIds);
+                                backendPartitions.put(beId, partitionIds);
                             }
                             partitionIds.add(partitionId);
                         }

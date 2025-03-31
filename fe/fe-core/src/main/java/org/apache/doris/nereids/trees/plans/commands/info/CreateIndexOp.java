@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.CreateIndexClause;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -35,7 +34,7 @@ import java.util.Map;
  */
 public class CreateIndexOp extends AlterTableOp {
     // in which table the index on, only used when alter = false
-    private TableName tableName;
+    private TableNameInfo tableName;
     // index definition class
     private IndexDefinition indexDef;
     // when alter = true, clause like: alter table add index xxxx
@@ -44,7 +43,7 @@ public class CreateIndexOp extends AlterTableOp {
     // index internal class
     private Index index;
 
-    public CreateIndexOp(TableName tableName, IndexDefinition indexDef, boolean alter) {
+    public CreateIndexOp(TableNameInfo tableName, IndexDefinition indexDef, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;
         this.indexDef = indexDef;
@@ -68,7 +67,7 @@ public class CreateIndexOp extends AlterTableOp {
         return alter;
     }
 
-    public TableName getTableName() {
+    public TableNameInfo getTableName() {
         return tableName;
     }
 
@@ -77,13 +76,17 @@ public class CreateIndexOp extends AlterTableOp {
         if (indexDef == null) {
             throw new AnalysisException("index definition expected.");
         }
+        if (tableName != null) {
+            tableName.analyze(ctx);
+        }
         indexDef.validate();
         index = indexDef.translateToCatalogStyle();
     }
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new CreateIndexClause(tableName, indexDef.translateToLegacyIndexDef(), index, alter);
+        return new CreateIndexClause(tableName != null ? tableName.transferToTableName() : null,
+                indexDef.translateToLegacyIndexDef(), index, alter);
     }
 
     @Override
@@ -101,7 +104,7 @@ public class CreateIndexOp extends AlterTableOp {
         if (alter) {
             return indexDef.toSql();
         } else {
-            return "CREATE " + indexDef.toSql(tableName.toSql());
+            return "CREATE " + indexDef.toSql(tableName != null ? tableName.toSql() : null);
         }
     }
 }

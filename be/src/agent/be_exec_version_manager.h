@@ -25,9 +25,7 @@
 
 namespace doris {
 
-constexpr inline int BITMAP_SERDE = 3;
 constexpr inline int USE_NEW_SERDE = 4;         // release on DORIS version 2.1
-constexpr inline int OLD_WAL_SERDE = 3;         // use to solve compatibility issues, see pr #32299
 constexpr inline int AGG_FUNCTION_NULLABLE = 5; // change some agg nullable property: PR #37215
 constexpr inline int VARIANT_SERDE = 6;         // change variant serde to fix PR #38413
 constexpr inline int AGGREGATION_2_1_VERSION =

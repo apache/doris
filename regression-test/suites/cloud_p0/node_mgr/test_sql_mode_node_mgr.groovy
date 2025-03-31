@@ -36,6 +36,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
         ]
         options.cloudMode = true
         options.sqlModeNodeMgr = true
+        options.connectToFollower = true
         options.waitTimeout = 0
         options.feNum = 3
         options.useFollowersMode = true
@@ -59,9 +60,48 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
     clusterOptions[3].beClusterId = false;
     clusterOptions[3].beMetaServiceEndpoint = false;
 
+    def inject_to_ms_api = { msHttpPort, key, value, check_func ->
+        httpTest {
+            op "get"
+            endpoint msHttpPort
+            uri "/MetaService/http/v1/injection_point?token=${token}&op=set&name=${key}&behavior=change_args&value=${value}"
+            check check_func
+        }
+    }
+
+    def clear_ms_inject_api = { msHttpPort, key, value, check_func ->
+        httpTest {
+            op "get"
+            endpoint msHttpPort
+            uri "/MetaService/http/v1/injection_point?token=${token}&op=clear"
+            check check_func
+        }
+    }
+
+    def enable_ms_inject_api = { msHttpPort, check_func ->
+        httpTest {
+            op "get"
+            endpoint msHttpPort
+            uri "/MetaService/http/v1/injection_point?token=${token}&op=enable"
+            check check_func
+        }
+    }
+
     for (options in clusterOptions) {
         docker(options) {
             logger.info("docker started");
+            def ms = cluster.getAllMetaservices().get(0)
+            def msHttpPort = ms.host + ":" + ms.httpPort
+            // inject point, to change MetaServiceImpl_get_cluster_set_config
+            inject_to_ms_api.call(msHttpPort, "resource_manager::set_safe_drop_time", URLEncoder.encode('[-1]', "UTF-8")) {
+            respCode, body ->
+                log.info("inject resource_manager::set_safe_drop_time resp: ${body} ${respCode}".toString()) 
+            }
+
+            enable_ms_inject_api.call(msHttpPort) {
+                respCode, body ->
+                log.info("enable inject resp: ${body} ${respCode}".toString()) 
+            }
 
             def checkFrontendsAndBackends = {
                 // Check frontends
@@ -474,6 +514,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             logger.info("Successfully decommissioned backend and verified its status")
 
             checkClusterStatus(3, 3, 8)
+
         }
     }
 

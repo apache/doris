@@ -227,6 +227,7 @@ function clean_fdb() {
         fdbcli --exec "writemode on;clearrange \x01\x10recycle\x00\x01\x10${instance_id}\x00\x01 \x01\x10recycle\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
         fdbcli --exec "writemode on;clearrange \x01\x10job\x00\x01\x10${instance_id}\x00\x01 \x01\x10job\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
         fdbcli --exec "writemode on;clearrange \x01\x10copy\x00\x01\x10${instance_id}\x00\x01 \x01\x10copy\x00\x01\x10${instance_id}\x00\xff\x00\x01" &&
+        fdbcli --exec "writemode on;clearrange \x00 \xff" &&
         rm -f /var/log/foundationdb/*; then
         echo "INFO: fdb cleaned."
     else
@@ -477,6 +478,16 @@ set_session_variable() {
     fi
 }
 
+set_default_storage_vault() {
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    cl="mysql -h127.0.0.1 -P${query_port} -uroot "
+    if ${cl} -e"set built_in_storage_vault as default storage vault;"; then
+        echo "INFO:      set built_in_storage_vault as default storage vault;"
+    else
+        echo "ERROR:     set built_in_storage_vault as default storage vault;" && return 1
+    fi
+}
+
 function reset_doris_session_variables() {
     # reset all session variables to default
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
@@ -527,18 +538,22 @@ _monitor_regression_log() {
     echo "INFO: start monitoring the log files in ${LOG_DIR} for the keyword '${KEYWORD}'"
 
     local start_row=1
+    local filepath=""
+    set +x
     # Monitor the log directory for new files and changes, only one file
     # shellcheck disable=SC2034
     inotifywait -m -e modify "${LOG_DIR}" | while read -r directory events filename; do
-        total_rows=$(wc -l "${directory}${filename}" | awk '{print $1}')
-        if [[ ${start_row} -ge ${total_rows} ]]; then
+        filepath="${directory}${filename}"
+        if [[ ! -f "${filepath}" ]]; then continue; fi
+        total_rows=$(wc -l "${filepath}" | awk '{print $1}')
+        if [[ -n ${total_rows} ]] && [[ ${start_row} -ge ${total_rows} ]]; then
             start_row=${total_rows}
         fi
         # shellcheck disable=SC2250
-        if sed -n "${start_row},\$p" "${directory}${filename}" | grep -a -q "${KEYWORD}"; then
-            matched=$(grep -a -n "${KEYWORD}" "${directory}${filename}")
+        if sed -n "${start_row},\$p" "${filepath}" | grep -a -q "${KEYWORD}"; then
+            matched=$(grep -a -n "${KEYWORD}" "${filepath}")
             start_row=$(echo "${matched}" | tail -n1 | cut -d: -f1)
-            echo "WARNING: find '${matched}' in ${directory}${filename}, run 'show processlist;' to check the connections" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
+            echo "WARNING: find '${matched}' in ${filepath}, run 'show processlist;' to check the connections" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
             mysql -h127.0.0.1 -P"${query_port}" -uroot -e'show processlist;' | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
         fi
         start_row=$((start_row + 1))
@@ -736,6 +751,34 @@ function create_warehouse() {
             \"external_endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
             \"ak\": \"${oss_ak}\",
             \"sk\": \"${oss_sk}\"
+        }
+    }"; then
+        echo
+    else
+        return 1
+    fi
+}
+
+function create_warehouse_vault() {
+    if [[ -z ${oss_ak} || -z ${oss_sk} ]]; then
+        echo "ERROR: env oss_ak and oss_sk are required." && return 1
+    fi
+
+    if curl "127.0.0.1:5000/MetaService/http/create_instance?token=greedisgood9999" -d "{
+        \"instance_id\": \"cloud_instance_0\",
+        \"name\":\"cloud_instance_0\",
+        \"user_id\":\"user-id\",
+        \"vault\": {
+            \"obj_info\": {
+                \"provider\": \"OSS\",
+                \"region\": \"oss-cn-hongkong\",
+                \"bucket\": \"doris-community-test\",
+                \"prefix\": \"cloud_regression_vault\",
+                \"endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+                \"external_endpoint\": \"oss-cn-hongkong-internal.aliyuncs.com\",
+                \"ak\": \"${oss_ak}\",
+                \"sk\": \"${oss_sk}\"
+            }
         }
     }"; then
         echo

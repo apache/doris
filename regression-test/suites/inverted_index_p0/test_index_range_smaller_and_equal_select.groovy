@@ -37,7 +37,7 @@ suite("test_index_range_smaller_and_equal_select", "inverted_index_select"){
                 INDEX name_idx(name) USING INVERTED COMMENT 'name index',
                 INDEX age_idx(age) USING INVERTED COMMENT 'age index',
                 INDEX grade_idx(grade) USING INVERTED PROPERTIES("parser"="none") COMMENT 'grade index',
-                INDEX tearchComment_idx(tearchComment) USING INVERTED PROPERTIES("parser"="english") COMMENT 'tearchComment index',
+                INDEX tearchComment_idx(tearchComment) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT 'tearchComment index',
                 INDEX studentInfo_idx(studentInfo) USING INVERTED PROPERTIES("parser"="standard") COMMENT 'studentInfo index',
                 INDEX selfComment_idx(selfComment) USING INVERTED PROPERTIES("parser"="standard") COMMENT 'studentInfo index',
                 INDEX fatherName_idx(fatherName) USING INVERTED PROPERTIES("parser"="standard") COMMENT ' fatherName index'

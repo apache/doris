@@ -66,6 +66,7 @@ suite('test_profile') {
     """
 
     sql "set enable_profile=true"
+    sql "set profile_level=2"
     def simpleSql = "select count(*) from test_profile"
     sql "${simpleSql}"
     def isRecorded = false

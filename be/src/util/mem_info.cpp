@@ -48,31 +48,10 @@
 
 namespace doris {
 
-static bvar::Adder<int64_t> memory_jemalloc_cache_bytes("memory_jemalloc_cache_bytes");
-static bvar::Adder<int64_t> memory_jemalloc_dirty_pages_bytes("memory_jemalloc_dirty_pages_bytes");
-static bvar::Adder<int64_t> memory_jemalloc_metadata_bytes("memory_jemalloc_metadata_bytes");
-static bvar::Adder<int64_t> memory_jemalloc_virtual_bytes("memory_jemalloc_virtual_bytes");
-static bvar::Adder<int64_t> memory_cgroup_usage_bytes("memory_cgroup_usage_bytes");
-static bvar::Adder<int64_t> memory_sys_available_bytes("memory_sys_available_bytes");
-static bvar::Adder<int64_t> memory_arbitrator_sys_available_bytes(
-        "memory_arbitrator_sys_available_bytes");
-static bvar::Adder<int64_t> memory_arbitrator_process_usage_bytes(
-        "memory_arbitrator_process_usage_bytes");
-static bvar::Adder<int64_t> memory_arbitrator_reserve_memory_bytes(
-        "memory_arbitrator_reserve_memory_bytes");
-static bvar::Adder<int64_t> memory_arbitrator_refresh_interval_growth_bytes(
-        "memory_arbitrator_refresh_interval_growth_bytes");
-
 bool MemInfo::_s_initialized = false;
 std::atomic<int64_t> MemInfo::_s_physical_mem = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_mem_limit = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_soft_mem_limit = std::numeric_limits<int64_t>::max();
-
-std::atomic<int64_t> MemInfo::_s_allocator_cache_mem = 0;
-std::atomic<int64_t> MemInfo::_s_allocator_metadata_mem = 0;
-std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem = std::numeric_limits<int64_t>::min();
-std::atomic<int64_t> MemInfo::_s_je_dirty_pages_mem_limit = std::numeric_limits<int64_t>::max();
-std::atomic<int64_t> MemInfo::_s_virtual_memory_used = 0;
 
 std::atomic<int64_t> MemInfo::_s_cgroup_mem_limit = std::numeric_limits<int64_t>::max();
 std::atomic<int64_t> MemInfo::_s_cgroup_mem_usage = std::numeric_limits<int64_t>::min();
@@ -85,79 +64,6 @@ int64_t MemInfo::_s_sys_mem_available_low_water_mark = std::numeric_limits<int64
 int64_t MemInfo::_s_sys_mem_available_warning_water_mark = std::numeric_limits<int64_t>::min();
 std::atomic<int64_t> MemInfo::_s_process_minor_gc_size = -1;
 std::atomic<int64_t> MemInfo::_s_process_full_gc_size = -1;
-std::mutex MemInfo::je_purge_dirty_pages_lock;
-std::condition_variable MemInfo::je_purge_dirty_pages_cv;
-std::atomic<bool> MemInfo::je_purge_dirty_pages_notify {false};
-
-void MemInfo::refresh_allocator_mem() {
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
-#elif defined(USE_JEMALLOC)
-    // jemalloc mallctl refer to : https://jemalloc.net/jemalloc.3.html
-    // https://www.bookstack.cn/read/aliyun-rds-core/4a0cdf677f62feb3.md
-    //  Check the Doris BE web page `http://ip:webserver_port/memory` to get the Jemalloc Profile.
-
-    // 'epoch' is a special mallctl -- it updates the statistics. Without it, all
-    // the following calls will return stale values. It increments and returns
-    // the current epoch number, which might be useful to log as a sanity check.
-    uint64_t epoch = 0;
-    size_t sz = sizeof(epoch);
-    jemallctl("epoch", &epoch, &sz, &epoch, sz);
-
-    // Number of extents of the given type in this arena in the bucket corresponding to page size index.
-    // Large size class starts at 16384, the extents have three sizes before 16384: 4096, 8192, and 12288, so + 3
-    int64_t dirty_pages_bytes = 0;
-    for (unsigned i = 0; i < get_je_unsigned_metrics("arenas.nlextents") + 3; i++) {
-        dirty_pages_bytes += get_je_all_arena_extents_metrics(i, "dirty_bytes");
-    }
-    _s_je_dirty_pages_mem.store(dirty_pages_bytes, std::memory_order_relaxed);
-
-    // Doris uses Jemalloc as default Allocator, Jemalloc Cache consists of two parts:
-    // - Thread Cache, cache a specified number of Pages in Thread Cache.
-    // - Dirty Page, memory Page that can be reused in all Arenas.
-    _s_allocator_cache_mem.store(get_je_all_arena_metrics("tcache_bytes") + dirty_pages_bytes,
-                                 std::memory_order_relaxed);
-    // Total number of bytes dedicated to metadata, which comprise base allocations used
-    // for bootstrap-sensitive allocator metadata structures.
-    _s_allocator_metadata_mem.store(get_je_metrics("stats.metadata"), std::memory_order_relaxed);
-    _s_virtual_memory_used.store(get_je_metrics("stats.mapped"), std::memory_order_relaxed);
-#else
-    _s_allocator_cache_mem.store(get_tc_metrics("tcmalloc.pageheap_free_bytes") +
-                                         get_tc_metrics("tcmalloc.central_cache_free_bytes") +
-                                         get_tc_metrics("tcmalloc.transfer_cache_free_bytes") +
-                                         get_tc_metrics("tcmalloc.thread_cache_free_bytes"),
-                                 std::memory_order_relaxed);
-    _s_virtual_memory_used.store(get_tc_metrics("generic.total_physical_bytes") +
-                                         get_tc_metrics("tcmalloc.pageheap_unmapped_bytes"),
-                                 std::memory_order_relaxed);
-#endif
-}
-
-void MemInfo::refresh_memory_bvar() {
-    memory_jemalloc_cache_bytes << MemInfo::allocator_cache_mem() -
-                                           memory_jemalloc_cache_bytes.get_value();
-    memory_jemalloc_dirty_pages_bytes
-            << MemInfo::je_dirty_pages_mem() - memory_jemalloc_dirty_pages_bytes.get_value();
-    memory_jemalloc_metadata_bytes
-            << MemInfo::allocator_metadata_mem() - memory_jemalloc_metadata_bytes.get_value();
-    memory_jemalloc_virtual_bytes << MemInfo::allocator_virtual_mem() -
-                                             memory_jemalloc_virtual_bytes.get_value();
-
-    memory_cgroup_usage_bytes << _s_cgroup_mem_usage - memory_cgroup_usage_bytes.get_value();
-    memory_sys_available_bytes << _s_sys_mem_available - memory_sys_available_bytes.get_value();
-
-    memory_arbitrator_sys_available_bytes
-            << GlobalMemoryArbitrator::sys_mem_available() -
-                       memory_arbitrator_sys_available_bytes.get_value();
-    memory_arbitrator_process_usage_bytes
-            << GlobalMemoryArbitrator::process_memory_usage() -
-                       memory_arbitrator_process_usage_bytes.get_value();
-    memory_arbitrator_reserve_memory_bytes
-            << GlobalMemoryArbitrator::process_reserved_memory() -
-                       memory_arbitrator_reserve_memory_bytes.get_value();
-    memory_arbitrator_refresh_interval_growth_bytes
-            << GlobalMemoryArbitrator::refresh_interval_memory_growth -
-                       memory_arbitrator_refresh_interval_growth_bytes.get_value();
-}
 
 #ifndef __APPLE__
 void MemInfo::refresh_proc_meminfo() {
@@ -275,8 +181,6 @@ void MemInfo::refresh_proc_meminfo() {
                                                                  _s_mem_limit, &is_percent));
         _s_process_full_gc_size.store(ParseUtil::parse_mem_spec(config::process_full_gc_size, -1,
                                                                 _s_mem_limit, &is_percent));
-        _s_je_dirty_pages_mem_limit.store(ParseUtil::parse_mem_spec(
-                config::je_dirty_pages_mem_limit_percent, -1, _s_mem_limit, &is_percent));
     }
 
     // 3. refresh process available memory

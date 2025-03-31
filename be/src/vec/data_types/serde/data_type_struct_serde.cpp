@@ -35,7 +35,7 @@ std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String
     size_t size = elem_serdes_ptrs.size();
     for (size_t i = 0; i < size; ++i) {
         if (elem_names[i] == name) {
-            return std::optional<size_t>(i);
+            return {i};
         }
     }
     return std::nullopt;
@@ -54,8 +54,7 @@ Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, in
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    const ColumnStruct& struct_column =
-            assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(*ptr);
+    const auto& struct_column = assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(*ptr);
     bw.write('{');
     for (int i = 0; i < struct_column.get_columns().size(); i++) {
         if (i != 0) {
@@ -159,7 +158,8 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             }
             Slice next(slice.data + start_pos, idx - start_pos);
             next.trim_prefix();
-            if (field_pos > elem_size) {
+            // field_pos should always less than elem_size, if not, we should return error
+            if (field_pos >= elem_size) {
                 // we should do column revert if error
                 for (size_t j = 0; j < field_pos; j++) {
                     struct_column.get_column(j).pop_back(1);
@@ -189,7 +189,8 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
         (key_added || !is_explicit_names)) {
         Slice next(slice.data + start_pos, idx - start_pos);
         next.trim_prefix();
-        if (field_pos > elem_size) {
+        /// field_pos should always less than elem_size, if not, we should return error
+        if (field_pos >= elem_size) {
             // we should do column revert if error
             for (size_t j = 0; j < field_pos; j++) {
                 struct_column.get_column(j).pop_back(1);
@@ -220,7 +221,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
 }
 
 Status DataTypeStructSerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
@@ -254,7 +255,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(
             if (options.escape_char != 0 && i > 0 && data[i - 1] == options.escape_char) {
                 continue;
             }
-            slices.push_back({data + from, i - from});
+            slices.emplace_back(data + from, i - from);
             from = i + 1;
         }
     }
@@ -271,7 +272,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(
 }
 
 Status DataTypeStructSerDe::deserialize_column_from_hive_text_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options, int hive_text_complex_type_delimiter_level) const {
     DESERIALIZE_COLUMN_FROM_HIVE_TEXT_VECTOR();
     return Status::OK();
@@ -284,8 +285,7 @@ Status DataTypeStructSerDe::serialize_one_cell_to_hive_text(
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    const ColumnStruct& struct_column =
-            assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(*ptr);
+    const auto& struct_column = assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(*ptr);
 
     char collection_delimiter =
             options.get_collection_delimiter(hive_text_complex_type_delimiter_level);
@@ -301,7 +301,7 @@ Status DataTypeStructSerDe::serialize_one_cell_to_hive_text(
 }
 
 void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
@@ -309,7 +309,7 @@ void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const Nul
                                                 arrow::ArrayBuilder* array_builder, int64_t start,
                                                 int64_t end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
-    auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
     for (auto r = start; r < end; ++r) {
         if (null_map != nullptr && (*null_map)[r]) {
             checkArrowStatus(builder.AppendNull(), struct_column.get_name(),
@@ -326,10 +326,10 @@ void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const Nul
 }
 
 void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                 int start, int end,
+                                                 int64_t start, int64_t end,
                                                  const cctz::time_zone& ctz) const {
     auto& struct_column = static_cast<ColumnStruct&>(column);
-    auto concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
+    const auto* concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
     DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
     for (auto i = 0; i < struct_column.tuple_size(); ++i) {
         elem_serdes_ptrs[i]->read_column_from_arrow(
@@ -342,7 +342,7 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,
                                                    int64_t row_idx, bool col_const,
                                                    const FormatOptions& options) const {
-    auto& col = assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(column);
+    const auto& col = assert_cast<const ColumnStruct&, TypeCheckOnRelease::DISABLE>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     result.open_dynamic_mode();
     if (0 != result.push_string("{", 1)) {

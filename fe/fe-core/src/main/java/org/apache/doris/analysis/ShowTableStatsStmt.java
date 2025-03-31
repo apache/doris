@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -248,7 +249,13 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.lastAnalyzeTime),
                     java.time.ZoneId.systemDefault());
         row.add(dateTime.format(formatter));
-        row.add(tableStatistic.analyzeColumns().toString());
+
+        Set<Pair<String, String>> columnsSet = tableStatistic.analyzeColumns();
+        Set<Pair<String, String>> newColumnsSet = new HashSet<>();
+        for (Pair<String, String> pair : columnsSet) {
+            newColumnsSet.add(Pair.of(Util.getTempTableDisplayName(pair.first), pair.second));
+        }
+        row.add(newColumnsSet.toString());
         row.add(tableStatistic.jobType.toString());
         row.add(String.valueOf(tableStatistic.partitionChanged.get()));
         row.add(String.valueOf(tableStatistic.userInjected));
@@ -340,5 +347,10 @@ public class ShowTableStatsStmt extends ShowStmt implements NotFallbackInParser 
             }
         }
         return new ShowResultSet(getMetaData(), result);
+    }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }

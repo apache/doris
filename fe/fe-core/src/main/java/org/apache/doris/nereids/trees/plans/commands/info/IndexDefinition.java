@@ -53,6 +53,8 @@ public class IndexDefinition {
 
     private boolean ifNotExists = false;
 
+    private PartitionNamesInfo partitionNames;
+
     /**
      * constructor for IndexDefinition
      */
@@ -95,6 +97,18 @@ public class IndexDefinition {
         }
 
         this.comment = comment;
+    }
+
+    /**
+     * constructor for build index
+     */
+    public IndexDefinition(String name, PartitionNamesInfo partitionNames) {
+        this.name = name;
+        this.indexType = IndexType.INVERTED;
+        this.partitionNames = partitionNames;
+        this.isBuildDeferred = true;
+        this.cols = null;
+        this.comment = null;
     }
 
     /**
@@ -158,18 +172,12 @@ public class IndexDefinition {
                             "ngram_bf index should have gram_size and bf_size properties");
                 }
                 try {
-                    int ngramSize = Integer.parseInt(properties.get(IndexDef.NGRAM_SIZE_KEY));
-                    int bfSize = Integer.parseInt(properties.get(IndexDef.NGRAM_BF_SIZE_KEY));
-                    if (ngramSize > 256 || ngramSize < 1) {
-                        throw new AnalysisException(
-                                "gram_size should be integer and less than 256");
-                    }
-                    if (bfSize > 65535 || bfSize < 64) {
-                        throw new AnalysisException(
-                                "bf_size should be integer and between 64 and 65535");
-                    }
-                } catch (NumberFormatException e) {
-                    throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);
+                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_SIZE_KEY, IndexDef.MIN_NGRAM_SIZE,
+                                                      IndexDef.MAX_NGRAM_SIZE);
+                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_BF_SIZE_KEY, IndexDef.MIN_BF_SIZE,
+                                                      IndexDef.MAX_BF_SIZE);
+                } catch (Exception ex) {
+                    throw new AnalysisException("invalid ngram bf index params:" + ex.getMessage(), ex);
                 }
             }
         } else {
@@ -181,6 +189,9 @@ public class IndexDefinition {
      * validate
      */
     public void validate() {
+        if (partitionNames != null) {
+            partitionNames.validate();
+        }
         if (isBuildDeferred && indexType == IndexDef.IndexType.INVERTED) {
             if (Strings.isNullOrEmpty(name)) {
                 throw new AnalysisException("index name cannot be blank.");
@@ -230,11 +241,19 @@ public class IndexDefinition {
 
     public Index translateToCatalogStyle() {
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
-                comment, null);
+                comment);
     }
 
+    /**
+     * translateToLegacyIndexDef
+     */
     public IndexDef translateToLegacyIndexDef() {
-        return new IndexDef(name, ifNotExists, cols, indexType, properties, comment);
+        if (isBuildDeferred) {
+            return new IndexDef(name, partitionNames != null ? partitionNames.translateToLegacyPartitionNames() : null,
+                    true);
+        } else {
+            return new IndexDef(name, ifNotExists, cols, indexType, properties, comment);
+        }
     }
 
     public String toSql() {

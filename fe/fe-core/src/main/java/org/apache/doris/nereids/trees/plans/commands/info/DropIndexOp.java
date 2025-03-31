@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.DropIndexClause;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
@@ -34,12 +33,12 @@ import java.util.Map;
  */
 public class DropIndexOp extends AlterTableOp {
     private final String indexName;
-    private final TableName tableName;
+    private final TableNameInfo tableName;
     private boolean ifExists;
 
     private boolean alter;
 
-    public DropIndexOp(String indexName, boolean ifExists, TableName tableName, boolean alter) {
+    public DropIndexOp(String indexName, boolean ifExists, TableNameInfo tableName, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.indexName = indexName;
         this.ifExists = ifExists;
@@ -51,7 +50,7 @@ public class DropIndexOp extends AlterTableOp {
         return indexName;
     }
 
-    public TableName getTableName() {
+    public TableNameInfo getTableName() {
         return tableName;
     }
 
@@ -73,11 +72,15 @@ public class DropIndexOp extends AlterTableOp {
         if (StringUtils.isEmpty(indexName)) {
             throw new AnalysisException("index name is excepted");
         }
+        if (tableName != null) {
+            tableName.analyze(ctx);
+        }
     }
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new DropIndexClause(indexName, ifExists, tableName, alter);
+        return new DropIndexClause(indexName, ifExists, tableName != null ? tableName.transferToTableName() : null,
+                alter);
     }
 
     @Override
@@ -95,7 +98,7 @@ public class DropIndexOp extends AlterTableOp {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DROP INDEX ").append(indexName);
         if (!alter) {
-            stringBuilder.append(" ON ").append(tableName.toSql());
+            stringBuilder.append(" ON ").append(tableName != null ? tableName.toSql() : null);
         }
         return stringBuilder.toString();
     }

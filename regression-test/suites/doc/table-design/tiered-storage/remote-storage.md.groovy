@@ -19,14 +19,16 @@ import org.junit.jupiter.api.Assertions;
 
 suite("docs/table-design/tiered-storage/remote-storage.md") {
 
+    String suffix = UUID.randomUUID().toString().substring(0, 5)
+
     def clean = {
         multi_sql """
             DROP TABLE IF EXISTS create_table_use_created_policy;
             DROP TABLE IF EXISTS create_table_not_have_policy;
             DROP TABLE IF EXISTS create_table_partition;
-            DROP STORAGE POLICY IF EXISTS test_policy;
-            DROP RESOURCE IF EXISTS 'remote_hdfs';
-            DROP RESOURCE IF EXISTS 'remote_s3';
+            DROP STORAGE POLICY IF EXISTS test_policy_${suffix};
+            DROP RESOURCE IF EXISTS 'remote_hdfs_${suffix}';
+            DROP RESOURCE IF EXISTS 'remote_s3_${suffix}';
         """
     }
 
@@ -34,10 +36,10 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
         clean()
         multi_sql """
             DROP TABLE IF EXISTS create_table_use_created_policy;
-            DROP STORAGE POLICY IF EXISTS test_policy;
-            DROP RESOURCE IF EXISTS 'remote_s3';
+            DROP STORAGE POLICY IF EXISTS test_policy_${suffix};
+            DROP RESOURCE IF EXISTS 'remote_s3_${suffix}';
 
-            CREATE RESOURCE "remote_s3"
+            CREATE RESOURCE "remote_s3_${suffix}"
             PROPERTIES
             (
                 "type" = "s3",
@@ -51,11 +53,10 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
                 "s3.connection.request.timeout" = "3000",
                 "s3.connection.timeout" = "1000"
             );
-            
-            
-            CREATE STORAGE POLICY test_policy
+
+            CREATE STORAGE POLICY test_policy_${suffix}
             PROPERTIES(
-                "storage_resource" = "remote_s3",
+                "storage_resource" = "remote_s3_${suffix}",
                 "cooldown_ttl" = "1d"
             );
             
@@ -68,7 +69,7 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
             UNIQUE KEY(k1)
             DISTRIBUTED BY HASH (k1) BUCKETS 3
             PROPERTIES(
-                "storage_policy" = "test_policy",
+                "storage_policy" = "test_policy_${suffix}",
                 "enable_unique_key_merge_on_write" = "false",
                 "replication_num" = "1"
             );
@@ -76,10 +77,10 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
 
         multi_sql """
             DROP TABLE IF EXISTS create_table_use_created_policy;
-            DROP STORAGE POLICY IF EXISTS test_policy;
-            DROP RESOURCE IF EXISTS 'remote_hdfs';
+            DROP STORAGE POLICY IF EXISTS test_policy_${suffix};
+            DROP RESOURCE IF EXISTS 'remote_hdfs_${suffix}';
 
-            CREATE RESOURCE "remote_hdfs" PROPERTIES (
+            CREATE RESOURCE "remote_hdfs_${suffix}" PROPERTIES (
                 "type"="hdfs",
                 "fs.defaultFS"="127.0.0.1:8120",
                 "hadoop.username"="hive",
@@ -91,8 +92,8 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
                 "dfs.client.failover.proxy.provider.my_ha" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
             );
 
-            CREATE STORAGE POLICY test_policy PROPERTIES (
-                    "storage_resource" = "remote_hdfs",
+            CREATE STORAGE POLICY test_policy_${suffix} PROPERTIES (
+                    "storage_resource" = "remote_hdfs_${suffix}",
                     "cooldown_ttl" = "300"
             );
 
@@ -104,7 +105,7 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
             UNIQUE KEY(k1)
             DISTRIBUTED BY HASH (k1) BUCKETS 3
             PROPERTIES(
-                "storage_policy" = "test_policy",
+                "storage_policy" = "test_policy_${suffix}",
                 "enable_unique_key_merge_on_write" = "false",
                 "replication_num" = "1"
             );
@@ -131,7 +132,7 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
             );
         """
         if (!isCloudMode()) {
-            sql """ALTER TABLE create_table_not_have_policy set ("storage_policy" = "test_policy");"""
+            sql """ALTER TABLE create_table_not_have_policy set ("storage_policy" = "test_policy_${suffix}");"""
         }
         multi_sql """
             DROP TABLE IF EXISTS create_table_partition;
@@ -154,7 +155,7 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
             );
         """
         if (!isCloudMode()) {
-            sql """ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="test_policy");"""
+            sql """ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="test_policy_${suffix}");"""
         }
     } catch (Throwable t) {
         Assertions.fail("examples in docs/table-design/tiered-storage/remote-storage.md failed to exec, please fix it", t)

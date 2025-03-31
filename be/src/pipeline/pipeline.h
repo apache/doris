@@ -148,7 +148,6 @@ private:
     std::vector<std::shared_ptr<Pipeline>> _children;
 
     PipelineId _pipeline_id;
-    int _previous_schedule_id = -1;
 
     // pipline id + operator names. init when:
     //  build_operators(), if pipeline;

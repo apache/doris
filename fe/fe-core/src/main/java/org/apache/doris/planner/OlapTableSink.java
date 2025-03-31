@@ -386,7 +386,7 @@ public class OlapTableSink extends DataSink {
                 indexes = table.getIndexes();
             }
             for (Index index : indexes) {
-                TOlapTableIndex tIndex = index.toThrift();
+                TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(table.getBaseSchema()));
                 indexDesc.add(tIndex);
             }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
@@ -408,6 +408,13 @@ public class OlapTableSink extends DataSink {
         // for backward compatibility
         schemaParam.setIsPartialUpdate(uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
         schemaParam.setUniqueKeyUpdateMode(uniqueKeyUpdateMode);
+        if (uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
+            if (table.getState() == OlapTable.OlapTableState.ROLLUP
+                    || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
+                throw new AnalysisException("Can't do partial update when table is doing schema change.");
+            }
+
+        }
         if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && table.getSequenceMapCol() != null) {
             Column seqMapCol = table.getFullSchema().stream()
                     .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))
@@ -465,7 +472,7 @@ public class OlapTableSink extends DataSink {
                 indexes = table.getIndexes();
             }
             for (Index index : indexes) {
-                TOlapTableIndex tIndex = index.toThrift();
+                TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(table.getBaseSchema()));
                 indexDesc.add(tIndex);
             }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
@@ -485,6 +492,12 @@ public class OlapTableSink extends DataSink {
         // for backward compatibility
         schemaParam.setIsPartialUpdate(uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
         schemaParam.setUniqueKeyUpdateMode(uniqueKeyUpdateMode);
+        if (uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
+            if (table.getState() == OlapTable.OlapTableState.ROLLUP
+                    || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
+                throw new AnalysisException("Can't do partial update when table is doing schema change.");
+            }
+        }
         if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS && table.getSequenceMapCol() != null) {
             Column seqMapCol = table.getFullSchema().stream()
                     .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))

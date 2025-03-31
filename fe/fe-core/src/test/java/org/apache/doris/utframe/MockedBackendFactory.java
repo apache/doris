@@ -80,8 +80,6 @@ import org.apache.doris.thrift.TSyncLoadForTabletsResponse;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletStatResult;
 import org.apache.doris.thrift.TTaskType;
-import org.apache.doris.thrift.TTransmitDataParams;
-import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
@@ -114,7 +112,7 @@ public class MockedBackendFactory {
     public static final int BE_DEFAULT_THRIFT_PORT = 9060;
     public static final int BE_DEFAULT_BRPC_PORT = 8060;
     public static final int BE_DEFAULT_HTTP_PORT = 8040;
-    public static final int BE_DEFAULT_ARROW_FLIGHT_SQL_PORT = 8070;
+    public static final int BE_DEFAULT_ARROW_FLIGHT_SQL_PORT = 8050;
 
     // create a mocked backend with customize parameters
     public static MockedBackend createBackend(String host, int heartbeatPort, int thriftPort, int brpcPort,
@@ -367,11 +365,6 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public TTransmitDataResult transmitData(TTransmitDataParams params) throws TException {
-            return null;
-        }
-
-        @Override
         public TAgentResult submitTasks(List<TAgentTaskRequest> tasks) throws TException {
             for (TAgentTaskRequest request : tasks) {
                 taskQueue.add(request);
@@ -507,13 +500,6 @@ public class MockedBackendFactory {
 
     // The default Brpc service.
     public static class DefaultPBackendServiceImpl extends PBackendServiceGrpc.PBackendServiceImplBase {
-        @Override
-        public void transmitData(InternalService.PTransmitDataParams request,
-                                 StreamObserver<InternalService.PTransmitDataResult> responseObserver) {
-            responseObserver.onNext(InternalService.PTransmitDataResult.newBuilder()
-                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
-            responseObserver.onCompleted();
-        }
 
         @Override
         public void execPlanFragment(InternalService.PExecPlanFragmentRequest request,

@@ -937,7 +937,7 @@ suite("test_stream_load_move_memtable", "p0") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ddd""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ddd""";
     }
 
     streamLoad {

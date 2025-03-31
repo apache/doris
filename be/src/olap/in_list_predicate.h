@@ -71,7 +71,7 @@ public:
             : ColumnPredicate(column_id, is_opposite),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
-        _values = std::make_shared<HybridSetType>();
+        _values = std::make_shared<HybridSetType>(false);
         for (const auto& condition : conditions) {
             T tmp;
             if constexpr (Type == TYPE_STRING || Type == TYPE_CHAR) {
@@ -95,7 +95,7 @@ public:
         CHECK(hybrid_set != nullptr);
 
         if constexpr (is_string_type(Type) || Type == TYPE_DECIMALV2 || is_date_type(Type)) {
-            _values = std::make_shared<HybridSetType>();
+            _values = std::make_shared<HybridSetType>(false);
             if constexpr (is_string_type(Type)) {
                 HybridSetBase::IteratorBase* iter = hybrid_set->begin();
                 while (iter->has_next()) {
@@ -224,8 +224,6 @@ public:
         return Status::OK();
     }
 
-    int get_filter_id() const override { return _values->get_filter_id(); }
-
     template <bool is_and>
     void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
@@ -322,6 +320,23 @@ public:
                                 sizeof(decimal12_t))) {
                         return true;
                     }
+                } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
+                    const T* value = (const T*)(iter->get_value());
+                    uint24_t date_value(value->to_olap_date());
+                    if (bf->test_bytes(
+                                const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
+                                sizeof(uint24_t))) {
+                        return true;
+                    }
+                    // DatetimeV1 using int64_t in bloom filter
+                } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
+                    const T* value = (const T*)(iter->get_value());
+                    int64_t datetime_value(value->to_olap_datetime());
+                    if (bf->test_bytes(
+                                const_cast<char*>(reinterpret_cast<const char*>(&datetime_value)),
+                                sizeof(int64_t))) {
+                        return true;
+                    }
                 } else {
                     const T* value = (const T*)(iter->get_value());
                     if (bf->test_bytes(reinterpret_cast<const char*>(value), sizeof(*value))) {
@@ -346,8 +361,6 @@ public:
     }
 
 private:
-    bool _can_ignore() const override { return _values->is_runtime_filter(); }
-
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                              uint16_t size) const override {
         int64_t new_size = 0;
@@ -534,9 +547,7 @@ private:
     }
 
     std::string _debug_string() const override {
-        std::string info =
-                "InListPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
-        return info;
+        return "InListPredicate(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
     }
 
     void _update_min_max(const T& value) {

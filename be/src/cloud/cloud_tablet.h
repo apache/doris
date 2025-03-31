@@ -26,6 +26,14 @@ namespace doris {
 
 class CloudStorageEngine;
 
+struct SyncOptions {
+    bool warmup_delta_data = false;
+    bool sync_delete_bitmap = true;
+    bool full_sync = false;
+    bool merge_schema = false;
+    int64_t query_version = -1;
+};
+
 class CloudTablet final : public BaseTablet {
 public:
     CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta);
@@ -68,7 +76,7 @@ public:
     // If `query_version` > 0 and local max_version of the tablet >= `query_version`, do nothing.
     // If 'need_download_data_async' is true, it means that we need to download the new version
     // rowsets datum async.
-    Status sync_rowsets(int64_t query_version = -1, bool warmup_delta_data = false);
+    Status sync_rowsets(const SyncOptions& options = {});
 
     // Synchronize the tablet meta from meta service.
     Status sync_meta();
@@ -210,11 +218,14 @@ public:
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
+    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
+
+    // check that if the delete bitmap in delete bitmap cache has the same cardinality with the expected_delete_bitmap's
+    Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) override;
+
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
-
-    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
     Status sync_if_not_running();
 

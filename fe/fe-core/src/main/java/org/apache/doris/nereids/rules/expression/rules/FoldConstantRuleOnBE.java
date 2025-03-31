@@ -31,6 +31,7 @@ import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -123,6 +124,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                                 .isDebugSkipFoldConstant())
                         .whenCtx(FoldConstantRuleOnBE::isEnableFoldByBe)
                         .thenApply(FoldConstantRuleOnBE::foldByBE)
+                        .toRule(ExpressionRuleType.FOLD_CONSTANT_ON_BE)
         );
     }
 
@@ -290,6 +292,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
             TQueryOptions tQueryOptions = new TQueryOptions();
             tQueryOptions.setBeExecVersion(Config.be_exec_version);
+            tQueryOptions.setEnableDecimal256(context.getSessionVariable().isEnableDecimal256());
 
             TFoldConstantParams tParams = new TFoldConstantParams(paramMap, queryGlobals);
             tParams.setVecExec(true);

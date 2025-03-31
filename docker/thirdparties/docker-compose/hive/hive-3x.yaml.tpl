@@ -21,6 +21,7 @@ version: "3.8"
 services:
   namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    restart: always
     environment:
       - CLUSTER_NAME=test
     env_file:
@@ -38,6 +39,7 @@ services:
 
   datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    restart: always
     env_file:
       - ./hadoop-hive-3x.env
     environment:
@@ -63,8 +65,10 @@ services:
     expose:
       - "${HS_PORT}"
     depends_on:
-      - datanode
-      - namenode
+      datanode:
+        condition: service_healthy
+      namenode:
+        condition: service_healthy
     healthcheck:
       test: beeline -u "jdbc:hive2://127.0.0.1:${HS_PORT}/default" -n health_check -e "show databases;"
       interval: 10s
@@ -80,13 +84,15 @@ services:
     command: /bin/bash /mnt/scripts/hive-metastore.sh
     environment:
       SERVICE_PRECONDITION: "${IP_HOST}:9870 ${IP_HOST}:9864 ${IP_HOST}:${PG_PORT}"
+      HMS_PORT: "${HMS_PORT}"
     container_name: ${CONTAINER_UID}hive3-metastore
     expose:
       - "${HMS_PORT}"
     volumes:
       - ./scripts:/mnt/scripts
     depends_on:
-      - hive-metastore-postgresql
+      hive-metastore-postgresql:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "sh", "-c", "/mnt/scripts/healthy_check.sh"]
       interval: 20s
@@ -104,11 +110,3 @@ services:
       interval: 5s
       timeout: 60s
       retries: 120
-
-  hive-hello-world:
-    image: hello-world
-    container_name: ${CONTAINER_UID}hive3-hello-world
-    depends_on:
-      hive-metastore:
-        condition: service_healthy
-    network_mode: "host"

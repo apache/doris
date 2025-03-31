@@ -15,14 +15,43 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_upgrade_lower_case_catalog_prepare", "p0,external,doris,external_docker,external_docker_doris") {
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
+
+suite("test_upgrade_lower_case_catalog_prepare", "p0,external,doris,external_docker,external_docker_doris,restart_fe") {
 
     String jdbcUrl = context.config.jdbcUrl
-    String jdbcUser = context.config.jdbcUser
-    String jdbcPassword = context.config.jdbcPassword
+    String jdbcUser = "test_upgrade_lower_case_catalog_user"
+    String jdbcPassword = "C123_567p"
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+
+    def wait_table_sync = { String db ->
+        Awaitility.await().atMost(10, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until{
+            try {
+                def res = sql "show tables from ${db}"
+                return res.size() > 0;
+            } catch (Exception e) {
+                e.printStackTrace();
+                return false;
+            }
+        }
+    }
+
+    try_sql """drop user ${jdbcUser}"""
+    sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${jdbcUser}""";
+    }
+
+    sql """grant all on *.*.* to ${jdbcUser}"""
 
     sql """drop database if exists internal.upgrade_lower_case_catalog_lower; """
     sql """drop database if exists internal.upgrade_lower_case_catalog_UPPER; """
@@ -59,29 +88,7 @@ suite("test_upgrade_lower_case_catalog_prepare", "p0,external,doris,external_doc
             "include_database_list" = "upgrade_lower_case_catalog_lower,upgrade_lower_case_catalog_UPPER"
         )"""
 
-    test {
-        sql """show databases from test_upgrade_lower_case_catalog"""
-
-        // Verification results include external_test_lower and external_test_UPPER
-        check { result, ex, startTime, endTime ->
-            def expectedDatabases = ["upgrade_lower_case_catalog_lower", "upgrade_lower_case_catalog_upper"]
-            expectedDatabases.each { dbName ->
-                assertTrue(result.collect { it[0] }.contains(dbName), "Expected database '${dbName}' not found in result")
-            }
-        }
-    }
-
-    test {
-        sql """show tables from test_upgrade_lower_case_catalog.upgrade_lower_case_catalog_lower"""
-
-        // Verification results include lower and UPPER
-        check { result, ex, startTime, endTime ->
-            def expectedTables = ["lower", "upper"]
-            expectedTables.each { tableName ->
-                assertTrue(result.collect { it[0] }.contains(tableName), "Expected table '${tableName}' not found in result")
-            }
-        }
-    }
+    wait_table_sync("test_upgrade_lower_case_catalog.upgrade_lower_case_catalog_lower")
 
     qt_sql_test_upgrade_lower_case_catalog_1 "select * from test_upgrade_lower_case_catalog.upgrade_lower_case_catalog_lower.lower"
     qt_sql_test_upgrade_lower_case_catalog_2 "select * from test_upgrade_lower_case_catalog.upgrade_lower_case_catalog_lower.upper"

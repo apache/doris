@@ -90,7 +90,7 @@ public class MTMVRelationManager implements MTMVHookService {
                 if (isMVPartitionValid(mtmv, ctx, forceConsistent)) {
                     res.add(mtmv);
                 }
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 // not throw exception to client, just ignore it
                 LOG.warn("getTable failed: {}", tableInfo.toString(), e);
             }
@@ -107,7 +107,7 @@ public class MTMVRelationManager implements MTMVHookService {
         for (BaseTableInfo tableInfo : mvInfos) {
             try {
                 mtmvs.add((MTMV) MTMVUtil.getTable(tableInfo));
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 // not throw exception to client, just ignore it
                 LOG.warn("getTable failed: {}", tableInfo.toString(), e);
             }
@@ -261,6 +261,10 @@ public class MTMVRelationManager implements MTMVHookService {
     public void alterTable(Table table, String oldTableName) {
         BaseTableInfo baseTableInfo = new BaseTableInfo(table);
         baseTableInfo.setTableName(oldTableName);
+        if (table instanceof MTMV) {
+            removeMTMV(baseTableInfo);
+            refreshMTMVCache(((MTMV) table).getRelation(), new BaseTableInfo(table));
+        }
         processBaseTableChange(baseTableInfo, "The base table has been updated:");
     }
 

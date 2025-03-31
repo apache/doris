@@ -185,6 +185,7 @@ std::unique_ptr<lucene::index::IndexWriter> InvertedIndexColumnWriter<field_type
         index_writer->setMaxFieldLength(MAX_FIELD_LEN);
         index_writer->setMergeFactor(MERGE_FACTOR);
         index_writer->setUseCompoundFile(false);
+        index_writer->setEnableCorrectTermWrite(config::enable_inverted_index_correct_term_write);
 
         return index_writer;
     }
@@ -424,7 +425,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
                 lucene::document::Field* new_field = nullptr;
                 CL_NS(analysis)::TokenStream* ts = nullptr;
                 for (auto j = start_off; j < start_off + array_elem_size; ++j) {
-                    if (null_map[j] == 1) {
+                    if (nested_null_map && nested_null_map[j] == 1) {
                         continue;
                     }
                     auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
@@ -520,7 +521,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
             for (int i = 0; i < count; ++i) {
                 auto array_elem_size = offsets[i + 1] - offsets[i];
                 for (size_t j = start_off; j < start_off + array_elem_size; ++j) {
-                    if (null_map[j] == 1) {
+                    if (nested_null_map && nested_null_map[j] == 1) {
                         continue;
                     }
                     const CppType* p = &reinterpret_cast<const CppType*>(value_ptr)[j];
@@ -668,8 +669,8 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
                                 _bkd_writer->finish(data_out.get(), index_out.get()),
                                 int(field_type));
                     } else {
-                        LOG(WARNING)
-                                << "Inverted index writer create output error occurred: nullptr";
+                        LOG(WARNING) << "Inverted index writer create output error "
+                                        "occurred: nullptr";
                         _CLTHROWA(CL_ERR_IO, "Create output error with nullptr");
                     }
                 } else if constexpr (field_is_slice_type(field_type)) {
@@ -678,9 +679,12 @@ Status InvertedIndexColumnWriter<field_type>::finish() {
                             InvertedIndexDescriptor::get_temporary_null_bitmap_file_name()));
                     write_null_bitmap(null_bitmap_out.get());
                     DBUG_EXECUTE_IF(
-                            "InvertedIndexWriter._throw_clucene_error_in_fulltext_writer_close", {
+                            "InvertedIndexWriter._throw_clucene_error_in_fulltext_"
+                            "writer_close",
+                            {
                                 _CLTHROWA(CL_ERR_IO,
-                                          "debug point: test throw error in fulltext index writer");
+                                          "debug point: test throw error in fulltext "
+                                          "index writer");
                             });
                 }
             } catch (CLuceneError& e) {

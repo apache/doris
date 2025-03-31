@@ -17,24 +17,34 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -43,9 +53,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Collection;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 public class OlapAnalysisTaskTest {
 
@@ -93,13 +103,12 @@ public class OlapAnalysisTaskTest {
     }
 
     @Test
-    public void testManualSampleNonDistributeKey(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf, @Mocked OlapTable tableIf)
-            throws Exception {
+    public void testKeyColumnUseLimitAndNot(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf, @Mocked OlapTable tableIf) {
 
         new Expectations() {
             {
                 tableIf.getRowCount();
-                result = 500;
+                result = 20000000;
                 tableIf.getId();
                 result = 30001;
                 catalogIf.getId();
@@ -113,12 +122,7 @@ public class OlapAnalysisTaskTest {
 
         new MockUp<OlapAnalysisTask>() {
             @Mock
-            public Pair<List<Long>, Long> calcActualSampleTablets() {
-                return Pair.of(Lists.newArrayList(), 100L);
-            }
-
-            @Mock
-            public ResultRow collectBasicStat() {
+            public ResultRow collectMinMax() {
                 List<String> values = Lists.newArrayList();
                 values.add("1");
                 values.add("2");
@@ -126,123 +130,29 @@ public class OlapAnalysisTaskTest {
             }
 
             @Mock
-            public void runQuery(String sql) {
-                Assertions.assertEquals("SELECT CONCAT('30001', '-', '-1', '-', 'null') "
-                        + "AS `id`, 10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, "
-                        + "-1 AS `idx_id`, 'null' AS `col_id`, NULL AS `part_id`, 500 AS"
-                        + " `row_count`, SUM(`t1`.`count`) * COUNT(1) / (SUM(`t1`.`count`)"
-                        + " - SUM(IF(`t1`.`count` = 1, 1, 0)) + SUM(IF(`t1`.`count` = 1, 1, 0))"
-                        + " * SUM(`t1`.`count`) / 500) as `ndv`, IFNULL(SUM(IF(`t1`.`column_key`"
-                        + " IS NULL, `t1`.`count`, 0)), 0) * 5.0 as `null_count`, "
-                        + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`,"
-                        + " SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
-                        + "SUM(t1.count) * 4 * 5.0 AS `data_size`, NOW() "
-                        + "FROM (     SELECT t0.`colValue` as `column_key`, COUNT(1) "
-                        + "as `count`, SUM(`len`) as `column_length`     FROM         "
-                        + "(SELECT `null` AS `colValue`, LENGTH(`null`) as `len`         "
-                        + "FROM `catalogName`.`${dbName}`.`null`"
-                        + "   limit 100) as `t0`     GROUP BY `t0`.`colValue` ) as `t1` ", sql);
-                return;
-            }
-        };
-
-        new MockUp<StatisticsUtil>() {
-            @Mock
-            public AutoCloseConnectContext buildConnectContext(boolean scanLimit) {
-                return null;
-            }
-        };
-
-        new MockUp<OlapTable>() {
-            @Mock
-            public Set<String> getDistributionColumnNames() {
-                return Sets.newHashSet();
-            }
-        };
-
-        OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
-        olapAnalysisTask.col = new Column("test", PrimitiveType.INT);
-        olapAnalysisTask.tbl = tableIf;
-        AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
-        analysisInfoBuilder.setJobType(AnalysisInfo.JobType.MANUAL);
-        olapAnalysisTask.info = analysisInfoBuilder.build();
-        olapAnalysisTask.catalog = catalogIf;
-        olapAnalysisTask.db = databaseIf;
-        olapAnalysisTask.tableSample = new TableSample(false, 100L);
-        olapAnalysisTask.doSample();
-    }
-
-    @Test
-    public void testManualSampleDistributeKey(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf, @Mocked OlapTable tableIf)
-            throws Exception {
-
-        new Expectations() {
-            {
-                tableIf.getRowCount();
-                result = 500;
-                tableIf.getId();
-                result = 30001;
-                catalogIf.getId();
-                result = 10001;
-                catalogIf.getName();
-                result = "catalogName";
-                databaseIf.getId();
-                result = 20001;
-            }
-        };
-
-        new MockUp<OlapAnalysisTask>() {
-            @Mock
-            public Pair<List<Long>, Long> calcActualSampleTablets() {
-                return Pair.of(Lists.newArrayList(), 100L);
-            }
+            protected void getSampleParams(Map<String, String> params, long tableRowCount) {}
 
             @Mock
-            public ResultRow collectBasicStat() {
-                List<String> values = Lists.newArrayList();
-                values.add("1");
-                values.add("2");
-                return new ResultRow(values);
-            }
-
-            @Mock
-            public void runQuery(String sql) {
-                Assertions.assertEquals(" SELECT CONCAT(30001, '-', -1, '-', 'null') AS `id`, "
-                        + "10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, "
-                        + "-1 AS `idx_id`, 'null' AS `col_id`, NULL AS `part_id`, "
-                        + "500 AS `row_count`, ROUND(NDV(`null`) * 5.0) as `ndv`, "
-                        + "ROUND(SUM(CASE WHEN `null` IS NULL THEN 1 ELSE 0 END) * 5.0) "
-                        + "AS `null_count`, SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, "
-                        + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
-                        + "SUM(LENGTH(`null`)) * 5.0 AS `data_size`, NOW() "
-                        + "FROM `catalogName`.`${dbName}`.`null`   limit 100", sql);
-                return;
-            }
-        };
-
-        new MockUp<StatisticsUtil>() {
-            @Mock
-            public AutoCloseConnectContext buildConnectContext(boolean scanLimit) {
-                return null;
-            }
-        };
-
-        new MockUp<OlapTable>() {
-            @Mock
-            public Set<String> getDistributionColumnNames() {
-                HashSet<String> cols = Sets.newHashSet();
-                cols.add("test");
-                return cols;
-            }
-
-            @Mock
-            public boolean isDistributionColumn(String columnName) {
+            protected boolean useLinearAnalyzeTemplate() {
                 return true;
             }
+
+                @Mock
+            public void runQuery(String sql) {
+                Assertions.assertEquals("SELECT CONCAT(30001, '-', -1, '-', 'null') AS `id`, "
+                        + "10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, -1 AS `idx_id`, "
+                        + "'null' AS `col_id`, NULL AS `part_id`, ${rowCount} AS `row_count`, "
+                        + "${ndvFunction} as `ndv`, ROUND(SUM(CASE WHEN `null` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS `null_count`, "
+                        + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
+                        + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() FROM "
+                        + "( SELECT * FROM `catalogName`.`${dbName}`.`null`  ${sampleHints} ${limit})  as t", sql);
+                return;
+            }
         };
 
         OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
-        olapAnalysisTask.col = new Column("test", PrimitiveType.STRING);
+        olapAnalysisTask.col = new Column("test", Type.fromPrimitiveType(PrimitiveType.INT),
+            true, null, null, null);
         olapAnalysisTask.tbl = tableIf;
         AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
         analysisInfoBuilder.setJobType(AnalysisInfo.JobType.MANUAL);
@@ -251,89 +161,27 @@ public class OlapAnalysisTaskTest {
         olapAnalysisTask.db = databaseIf;
         olapAnalysisTask.tableSample = new TableSample(false, 100L);
         olapAnalysisTask.doSample();
-    }
-
-    @Test
-    public void testManualSampleTwoDistributeKey(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf, @Mocked OlapTable tableIf)
-            throws Exception {
-
-        new Expectations() {
-            {
-                tableIf.getRowCount();
-                result = 500;
-                tableIf.getId();
-                result = 30001;
-                catalogIf.getId();
-                result = 10001;
-                catalogIf.getName();
-                result = "catalogName";
-                databaseIf.getId();
-                result = 20001;
-            }
-        };
 
         new MockUp<OlapAnalysisTask>() {
             @Mock
-            public Pair<List<Long>, Long> calcActualSampleTablets() {
-                return Pair.of(Lists.newArrayList(), 100L);
-            }
-
-            @Mock
-            public ResultRow collectBasicStat() {
-                List<String> values = Lists.newArrayList();
-                values.add("1");
-                values.add("2");
-                return new ResultRow(values);
-            }
-
-            @Mock
             public void runQuery(String sql) {
-                System.out.println(sql);
-                Assertions.assertEquals("SELECT CONCAT('30001', '-', '-1', '-', 'null') "
-                        + "AS `id`, 10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, "
-                        + "-1 AS `idx_id`, 'null' AS `col_id`, NULL AS `part_id`,"
-                        + " 500 AS `row_count`, SUM(`t1`.`count`) * COUNT(1) / (SUM(`t1`.`count`) "
-                        + "- SUM(IF(`t1`.`count` = 1, 1, 0)) + SUM(IF(`t1`.`count` = 1, 1, 0)) * "
-                        + "SUM(`t1`.`count`) / 500) as `ndv`, IFNULL(SUM(IF(`t1`.`column_key` "
-                        + "IS NULL, `t1`.`count`, 0)), 0) * 5.0 as `null_count`, "
-                        + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, "
-                        + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
-                        + "SUM(`column_length`) * 5.0 AS `data_size`, NOW() "
-                        + "FROM (     SELECT t0.`colValue` as `column_key`, COUNT(1) as `count`, SUM(`len`) as "
-                        + "`column_length`     FROM         (SELECT xxhash_64(SUBSTRING(CAST(`null` AS STRING), 1, 1024)) "
-                        + "AS `colValue`, LENGTH(`null`) as `len`"
-                        + "         FROM `catalogName`.`${dbName}`.`null`   limit 100) as `t0`     "
-                        + "GROUP BY `t0`.`colValue` ) as `t1` ", sql);
+                Assertions.assertEquals("SELECT CONCAT('30001', '-', '-1', '-', 'null') AS `id`, "
+                        + "10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, -1 AS `idx_id`, "
+                        + "'null' AS `col_id`, NULL AS `part_id`, ${rowCount} AS `row_count`, ${ndvFunction} as `ndv`, "
+                        + "IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.`count`, 0)), 0) * ${scaleFactor} as `null_count`, "
+                        + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
+                        + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() "
+                        + "FROM (     SELECT t0.`colValue` as `column_key`, COUNT(1) as `count`, SUM(`len`) as `column_length`     "
+                        + "FROM         (SELECT ${subStringColName} AS `colValue`, LENGTH(`null`) as `len`         "
+                        + "FROM `catalogName`.`${dbName}`.`null`  ${sampleHints} ${limit}) as `t0`     GROUP BY `t0`.`colValue` ) as `t1` ", sql);
                 return;
             }
-        };
 
-        new MockUp<StatisticsUtil>() {
             @Mock
-            public AutoCloseConnectContext buildConnectContext(boolean scanLimit) {
-                return null;
+            protected boolean useLinearAnalyzeTemplate() {
+                return false;
             }
         };
-
-        new MockUp<OlapTable>() {
-            @Mock
-            public Set<String> getDistributionColumnNames() {
-                HashSet<String> cols = Sets.newHashSet();
-                cols.add("test1");
-                cols.add("test2");
-                return cols;
-            }
-        };
-
-        OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
-        olapAnalysisTask.col = new Column("test1", PrimitiveType.STRING);
-        olapAnalysisTask.tbl = tableIf;
-        AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
-        analysisInfoBuilder.setJobType(AnalysisInfo.JobType.MANUAL);
-        olapAnalysisTask.info = analysisInfoBuilder.build();
-        olapAnalysisTask.catalog = catalogIf;
-        olapAnalysisTask.db = databaseIf;
-        olapAnalysisTask.tableSample = new TableSample(false, 100L);
         olapAnalysisTask.doSample();
     }
 
@@ -384,6 +232,424 @@ public class OlapAnalysisTaskTest {
         olapAnalysisTask.col = new Column("test", Type.fromPrimitiveType(PrimitiveType.STRING),
             false, null, null, null);
         Assertions.assertTrue(olapAnalysisTask.needLimit());
+
+        olapAnalysisTask.col = new Column("test", Type.fromPrimitiveType(PrimitiveType.STRING),
+            true, null, null, null);
+        olapAnalysisTask.setKeyColumnSampleTooManyRows(true);
+        Assertions.assertTrue(olapAnalysisTask.needLimit());
     }
 
+    @Test
+    public void testPickSamplePartition() {
+        OlapAnalysisTask task = new OlapAnalysisTask();
+        AnalysisInfoBuilder builder = new AnalysisInfoBuilder();
+        task.info = builder.setIndexId(-1L).build();
+        task.setTable(new OlapTable());
+        Partition p1 = new Partition(1, "p1", new MaterializedIndex(), new RandomDistributionInfo());
+        Partition p2 = new Partition(2, "p2", new MaterializedIndex(), new RandomDistributionInfo());
+        Partition p3 = new Partition(3, "p3", new MaterializedIndex(), new RandomDistributionInfo());
+        List<Partition> partitions = Lists.newArrayList();
+        partitions.add(p1);
+        partitions.add(p2);
+        partitions.add(p3);
+        List<Long> ids = Lists.newArrayList();
+
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 1000000000L;
+            }
+        };
+
+        long[] partitionRows = new long[3];
+        partitionRows[0] = 400000000L;
+        partitionRows[1] = 100000000L;
+        partitionRows[2] = 500000000L;
+        final int[] i = {0};
+        new MockUp<Partition>() {
+            @Mock
+            public long getRowCount() {
+                return partitionRows[i[0]++];
+            }
+
+            @Mock
+            public MaterializedIndex getIndex(long indexId) {
+                return new MaterializedIndex();
+            }
+        };
+
+        final int[] j = {0};
+        new MockUp<MaterializedIndex>() {
+            @Mock
+            public List<Long> getTabletIdsInOrder() {
+                List<Long> ret = new ArrayList<>();
+                ret.add((long) j[0]++);
+                ret.add((long) j[0]++);
+                return ret;
+            }
+        };
+        long rows = task.pickSamplePartition(partitions, ids, 0);
+        Assertions.assertEquals(900000000, rows);
+        Assertions.assertEquals(4, ids.size());
+        Assertions.assertEquals(0, ids.get(0));
+        Assertions.assertEquals(1, ids.get(1));
+        Assertions.assertEquals(2, ids.get(2));
+        Assertions.assertEquals(3, ids.get(3));
+    }
+
+    @Test
+    public void testUseLinearAnalyzeTemplate() {
+        OlapAnalysisTask task = new OlapAnalysisTask();
+        task.setPartitionColumnSampleTooManyRows(true);
+        Assertions.assertTrue(task.useLinearAnalyzeTemplate());
+
+        task.setPartitionColumnSampleTooManyRows(false);
+        task.setScanFullTable(true);
+        Assertions.assertTrue(task.useLinearAnalyzeTemplate());
+
+        task.setScanFullTable(false);
+        task.setPartitionColumnSampleTooManyRows(false);
+        new MockUp<OlapAnalysisTask>() {
+            @Mock
+            protected boolean isSingleUniqueKey() {
+                return true;
+            }
+        };
+        Assertions.assertTrue(task.useLinearAnalyzeTemplate());
+    }
+
+    @Test
+    public void testGetSampleParams() {
+        OlapAnalysisTask task = new OlapAnalysisTask();
+        Map<String, String> params = Maps.newHashMap();
+        new MockUp<OlapAnalysisTask>() {
+            @Mock
+            protected long getSampleRows() {
+                return 100;
+            }
+
+            @Mock
+            protected Pair<List<Long>, Long> getSampleTablets() {
+                List<Long> ids = Lists.newArrayList();
+                ids.add(1L);
+                ids.add(2L);
+                return Pair.of(ids, 100L);
+            }
+
+            @Mock
+            protected boolean needLimit() {
+                return false;
+            }
+
+            @Mock
+            protected boolean useLinearAnalyzeTemplate() {
+                return false;
+            }
+        };
+        task.col = new Column("test", PrimitiveType.INT);
+        task.getSampleParams(params, 10);
+        Assertions.assertTrue(task.scanFullTable());
+        Assertions.assertEquals("1", params.get("scaleFactor"));
+        Assertions.assertEquals("", params.get("sampleHints"));
+        Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
+        params.clear();
+
+        task = new OlapAnalysisTask();
+        task.col = new Column("test", PrimitiveType.INT);
+        task.getSampleParams(params, 1000);
+        Assertions.assertEquals("10.0", params.get("scaleFactor"));
+        Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
+        Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(1) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1, 1, 0)) + SUM(IF(`t1`.`count` = 1, 1, 0)) * SUM(`t1`.`count`) / 1000)", params.get("ndvFunction"));
+        Assertions.assertEquals("SUM(t1.count) * 4", params.get("dataSizeFunction"));
+        Assertions.assertEquals("`${colName}`", params.get("subStringColName"));
+        params.clear();
+
+        new MockUp<OlapAnalysisTask>() {
+            @Mock
+            protected boolean useLinearAnalyzeTemplate() {
+                return true;
+            }
+
+            @Mock
+            protected boolean isSingleUniqueKey() {
+                return false;
+            }
+        };
+
+        task = new OlapAnalysisTask();
+        task.col = new Column("test", PrimitiveType.INT);
+        task.getSampleParams(params, 1000);
+        Assertions.assertEquals("10.0", params.get("scaleFactor"));
+        Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
+        Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
+        params.clear();
+
+        new MockUp<OlapAnalysisTask>() {
+            @Mock
+            protected boolean isSingleUniqueKey() {
+                return true;
+            }
+        };
+        task = new OlapAnalysisTask();
+        task.col = new Column("test", PrimitiveType.INT);
+        task.getSampleParams(params, 1000);
+        Assertions.assertEquals("10.0", params.get("scaleFactor"));
+        Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
+        Assertions.assertEquals("1000", params.get("ndvFunction"));
+        params.clear();
+
+        new MockUp<OlapAnalysisTask>() {
+            @Mock
+            protected boolean needLimit() {
+                return true;
+            }
+
+            @Mock
+            protected long getSampleRows() {
+                return 50;
+            }
+        };
+        task = new OlapAnalysisTask();
+        task.col = new Column("test", PrimitiveType.INT);
+        task.getSampleParams(params, 1000);
+        Assertions.assertEquals("20.0", params.get("scaleFactor"));
+        Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
+        Assertions.assertEquals("1000", params.get("ndvFunction"));
+        Assertions.assertEquals("limit 50", params.get("limit"));
+        params.clear();
+
+        task = new OlapAnalysisTask();
+        task.col = new Column("test", Type.fromPrimitiveType(PrimitiveType.INT),
+            true, null, null, null);
+        task.setKeyColumnSampleTooManyRows(true);
+        task.getSampleParams(params, 2000000000);
+        Assertions.assertEquals("2.0", params.get("scaleFactor"));
+        Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
+        Assertions.assertEquals("2000000000", params.get("ndvFunction"));
+        Assertions.assertEquals("limit 1000000000", params.get("limit"));
+    }
+
+    @Test
+    public void testGetSkipPartitionId(@Mocked OlapTable tableIf) throws AnalysisException {
+        // test null partition list
+        OlapAnalysisTask task = new OlapAnalysisTask();
+        long skipPartitionId = task.getSkipPartitionId(null);
+        Assertions.assertEquals(OlapAnalysisTask.NO_SKIP_TABLET_ID, skipPartitionId);
+
+        // test empty partition list
+        List<Partition> partitions = Lists.newArrayList();
+        skipPartitionId = task.getSkipPartitionId(partitions);
+        Assertions.assertEquals(OlapAnalysisTask.NO_SKIP_TABLET_ID, skipPartitionId);
+
+        // test partition list item less than session variable partition_sample_count
+        Partition p1 = new Partition(1, "p1", new MaterializedIndex(), new RandomDistributionInfo());
+        partitions.add(p1);
+        skipPartitionId = task.getSkipPartitionId(partitions);
+        Assertions.assertEquals(OlapAnalysisTask.NO_SKIP_TABLET_ID, skipPartitionId);
+
+        partitions.clear();
+        int partitionSampleCount = StatisticsUtil.getPartitionSampleCount();
+        for (int i = 1; i <= partitionSampleCount; i++) {
+            Partition p = new Partition(i, "p" + i, new MaterializedIndex(), new RandomDistributionInfo());
+            partitions.add(p);
+        }
+
+        // Test List partition return NO_SKIP_TABLET_ID
+        new MockUp<OlapTable>() {
+            @Mock
+            public PartitionInfo getPartitionInfo() {
+                return new PartitionInfo(PartitionType.LIST);
+            }
+        };
+        task.tbl = tableIf;
+        skipPartitionId = task.getSkipPartitionId(partitions);
+        Assertions.assertEquals(OlapAnalysisTask.NO_SKIP_TABLET_ID, skipPartitionId);
+
+        // Test Unpartition return NO_SKIP_TABLET_ID
+        new MockUp<OlapTable>() {
+            @Mock
+            public PartitionInfo getPartitionInfo() {
+                return new PartitionInfo(PartitionType.UNPARTITIONED);
+            }
+        };
+        skipPartitionId = task.getSkipPartitionId(partitions);
+        Assertions.assertEquals(OlapAnalysisTask.NO_SKIP_TABLET_ID, skipPartitionId);
+
+        // Test more than 1 partition column return NO_SKIP_TABLET_ID
+        new MockUp<OlapTable>() {
+            @Mock
+            public PartitionInfo getPartitionInfo() {
+                ArrayList<Column> columns = Lists.newArrayList();
+                columns.add(new Column("col1", PrimitiveType.DATEV2));
+                columns.add(new Column("col2", PrimitiveType.DATEV2));
+                return new PartitionInfo(PartitionType.RANGE, columns);
+            }
+        };
+        skipPartitionId = task.getSkipPartitionId(partitions);
+        Assertions.assertEquals(OlapAnalysisTask.NO_SKIP_TABLET_ID, skipPartitionId);
+
+        // Test not Date type return NO_SKIP_TABLET_ID
+        new MockUp<OlapTable>() {
+            @Mock
+            public PartitionInfo getPartitionInfo() {
+                ArrayList<Column> columns = Lists.newArrayList();
+                columns.add(new Column("col1", PrimitiveType.STRING));
+                return new PartitionInfo(PartitionType.RANGE, columns);
+            }
+        };
+        skipPartitionId = task.getSkipPartitionId(partitions);
+        Assertions.assertEquals(OlapAnalysisTask.NO_SKIP_TABLET_ID, skipPartitionId);
+
+        // Test return the partition id with the oldest date range.
+        ArrayList<Column> columns = Lists.newArrayList();
+        Column col1 = new Column("col1", PrimitiveType.DATEV2);
+        columns.add(col1);
+        PartitionInfo partitionInfo = new PartitionInfo(PartitionType.RANGE, columns);
+
+        List<PartitionValue> lowKey = Lists.newArrayList();
+        lowKey.add(new PartitionValue("2025-01-01"));
+        List<PartitionValue> highKey = Lists.newArrayList();
+        highKey.add(new PartitionValue("2025-01-02"));
+        Range<PartitionKey> range1 = Range.closedOpen(PartitionKey.createPartitionKey(lowKey, columns),
+                    PartitionKey.createPartitionKey(highKey, columns));
+        RangePartitionItem item1 = new RangePartitionItem(range1);
+
+        lowKey.clear();
+        lowKey.add(new PartitionValue("2024-11-01"));
+        highKey.clear();
+        highKey.add(new PartitionValue("2024-11-02"));
+        Range<PartitionKey> range2 = Range.closedOpen(PartitionKey.createPartitionKey(lowKey, columns),
+                PartitionKey.createPartitionKey(highKey, columns));
+        RangePartitionItem item2 = new RangePartitionItem(range2);
+
+        lowKey.clear();
+        lowKey.add(new PartitionValue("2025-02-13"));
+        highKey.clear();
+        highKey.add(new PartitionValue("2025-02-14"));
+        Range<PartitionKey> range3 = Range.closedOpen(PartitionKey.createPartitionKey(lowKey, columns),
+                PartitionKey.createPartitionKey(highKey, columns));
+        RangePartitionItem item3 = new RangePartitionItem(range3);
+
+        partitionInfo.addPartition(1, false, item1, new DataProperty(TStorageMedium.HDD), null, false, false);
+        partitionInfo.addPartition(2, false, item2, new DataProperty(TStorageMedium.HDD), null, false, false);
+        partitionInfo.addPartition(3, false, item3, new DataProperty(TStorageMedium.HDD), null, false, false);
+
+        new MockUp<OlapTable>() {
+            @Mock
+            public PartitionInfo getPartitionInfo() {
+                return partitionInfo;
+            }
+        };
+        new MockUp<StatisticsUtil>() {
+            @Mock
+            public int getPartitionSampleCount() {
+                return 3;
+            }
+        };
+        partitions.clear();
+        for (int i = 1; i <= 3; i++) {
+            Partition p = new Partition(i, "p" + i, new MaterializedIndex(), new RandomDistributionInfo());
+            partitions.add(p);
+        }
+        skipPartitionId = task.getSkipPartitionId(partitions);
+        Assertions.assertEquals(2, skipPartitionId);
+
+        // Test less than partition
+        partitions.add(new Partition(4, "p4", new MaterializedIndex(), new RandomDistributionInfo()));
+        partitions.add(new Partition(5, "p5", new MaterializedIndex(), new RandomDistributionInfo()));
+        new MockUp<StatisticsUtil>() {
+            @Mock
+            public int getPartitionSampleCount() {
+                return 5;
+            }
+        };
+        highKey.clear();
+        highKey.add(new PartitionValue("2024-01-01"));
+        Range<PartitionKey> range4 = Range.lessThan(PartitionKey.createPartitionKey(highKey, columns));
+        RangePartitionItem item4 = new RangePartitionItem(range4);
+        partitionInfo.addPartition(4, false, item4, new DataProperty(TStorageMedium.HDD), null, false, false);
+        lowKey.clear();
+        lowKey.add(new PartitionValue("2024-03-13"));
+        highKey.clear();
+        highKey.add(new PartitionValue("2024-03-14"));
+        Range<PartitionKey> range5 = Range.closedOpen(PartitionKey.createPartitionKey(lowKey, columns),
+                PartitionKey.createPartitionKey(highKey, columns));
+        RangePartitionItem item5 = new RangePartitionItem(range5);
+        partitionInfo.addPartition(5, false, item5, new DataProperty(TStorageMedium.HDD), null, false, false);
+        skipPartitionId = task.getSkipPartitionId(partitions);
+        Assertions.assertEquals(4, skipPartitionId);
+    }
+
+    @Test
+    public void testGetSampleTablets(@Mocked MaterializedIndex index, @Mocked Tablet t) {
+        OlapAnalysisTask task = new OlapAnalysisTask();
+        task.tbl = new OlapTable();
+        task.col = new Column("col1", PrimitiveType.STRING);
+        task.info = new AnalysisInfoBuilder().setIndexId(-1L).build();
+        task.tableSample = new TableSample(false, 4000000L, 0L);
+        List<Partition> partitions = Lists.newArrayList();
+        partitions.add(new Partition(1, "p1", new MaterializedIndex(), new RandomDistributionInfo()));
+        final int[] i = {0};
+        long[] tabletsRowCount = {1100000000, 100000000};
+        List<Long> ret = Lists.newArrayList();
+        ret.add(10001L);
+        ret.add(10002L);
+        new MockUp<OlapAnalysisTask>() {
+            @Mock
+            protected long getSampleRows() {
+                return 4000000;
+            }
+        };
+        new MockUp<OlapTable>() {
+            @Mock
+            boolean isPartitionColumn(String columnName) {
+                return false;
+            }
+
+            @Mock
+            public Collection<Partition> getPartitions() {
+                return partitions;
+            }
+        };
+        new MockUp<Partition>() {
+            @Mock
+            public MaterializedIndex getBaseIndex() {
+                return index;
+            }
+        };
+        new MockUp<MaterializedIndex>() {
+            @Mock
+            public List<Long> getTabletIdsInOrder() {
+                return ret;
+            }
+
+            @Mock
+            public long getRowCount() {
+                return 1_200_000_000L;
+            }
+
+            @Mock
+            public Tablet getTablet(long tabletId) {
+                return t;
+            }
+        };
+        new MockUp<Tablet>() {
+            @Mock
+            public long getMinReplicaRowCount(long version) {
+                return tabletsRowCount[i[0]++];
+            }
+        };
+        // Test set large tablet id back if it doesn't pick enough sample rows.
+        Pair<List<Long>, Long> sampleTablets = task.getSampleTablets();
+        Assertions.assertEquals(1, sampleTablets.first.size());
+        Assertions.assertEquals(10001, sampleTablets.first.get(0));
+        Assertions.assertEquals(1100000000L, sampleTablets.second);
+
+        // Test normal pick
+        task.tableSample = new TableSample(false, 4000000L, 1L);
+        sampleTablets = task.getSampleTablets();
+        Assertions.assertEquals(1, sampleTablets.first.size());
+        Assertions.assertEquals(10002, sampleTablets.first.get(0));
+        Assertions.assertEquals(100000000L, sampleTablets.second);
+    }
 }

@@ -24,7 +24,7 @@
 #include "vec/exec/format/parquet/decoder.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class FixLengthDictDecoder final : public BaseDictDecoder {
 public:
     FixLengthDictDecoder() = default;
@@ -51,10 +51,11 @@ public:
                 dict_items.emplace_back(_dict_items[i], _type_length);
             }
             assert_cast<ColumnDictI32&>(*doris_column)
-                    .insert_many_dict_data(dict_items.data(), dict_items.size());
+                    .insert_many_dict_data(dict_items.data(),
+                                           cast_set<uint32_t>(dict_items.size()));
         }
         _indexes.resize(non_null_size);
-        _index_batch_decoder->GetBatch(_indexes.data(), non_null_size);
+        _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(non_null_size));
 
         if (doris_column->is_column_dictionary() || is_dict_filter) {
             return _decode_dict_values<has_filter>(doris_column, select_vector, is_dict_filter);
@@ -121,7 +122,8 @@ protected:
 
     Status read_dict_values_to_column(MutableColumnPtr& doris_column) override {
         size_t dict_items_size = _dict_items.size();
-        std::vector<StringRef> dict_values(dict_items_size);
+        std::vector<StringRef> dict_values;
+        dict_values.reserve(dict_items_size);
         for (size_t i = 0; i < dict_items_size; ++i) {
             dict_values.emplace_back(_dict_items[i], _type_length);
         }
@@ -131,7 +133,8 @@ protected:
 
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override {
         auto res = ColumnString::create();
-        std::vector<StringRef> dict_values(dict_column->size());
+        std::vector<StringRef> dict_values;
+        dict_values.reserve(dict_column->size());
         const auto& data = dict_column->get_data();
         for (size_t i = 0; i < dict_column->size(); ++i) {
             dict_values.emplace_back(_dict_items[data[i]], _type_length);
@@ -142,5 +145,6 @@ protected:
     // For dictionary encoding
     std::vector<char*> _dict_items;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

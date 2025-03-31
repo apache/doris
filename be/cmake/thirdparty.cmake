@@ -171,3 +171,12 @@ endif()
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     add_thirdparty(deflate)
 endif()
+
+add_thirdparty(icuuc LIB64)
+add_thirdparty(icui18n LIB64)
+add_thirdparty(icudata LIB64)
+
+if (BUILD_FAISS)
+    add_thirdparty(openblas LIB64)
+    add_thirdparty(faiss LIB64)
+endif()

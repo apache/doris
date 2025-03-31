@@ -33,27 +33,27 @@ public:
     void make_memory_profile(RuntimeProfile* profile) const;
 
     std::string print_memory_overview_profile() const {
-        return return_memory_profile_str(_memory_overview_profile.get());
+        return _memory_overview_profile->pretty_print();
     }
 
     std::string print_global_memory_profile() const {
-        return return_memory_profile_str(_global_memory_profile.get().get());
+        return _global_memory_profile.get()->pretty_print();
     }
 
     std::string print_metadata_memory_profile() const {
-        return return_memory_profile_str(_metadata_memory_profile.get().get());
+        return _metadata_memory_profile.get()->pretty_print();
     }
 
     std::string print_cache_memory_profile() const {
-        return return_memory_profile_str(_cache_memory_profile.get().get());
+        return _cache_memory_profile.get()->pretty_print();
     }
 
     std::string print_top_memory_tasks_profile() const {
-        return return_memory_profile_str(_top_memory_tasks_profile.get().get());
+        return _top_memory_tasks_profile.get()->pretty_print();
     }
 
     std::string print_tasks_memory_profile() const {
-        return return_memory_profile_str(_tasks_memory_profile.get().get());
+        return _tasks_memory_profile.get()->pretty_print();
     }
 
     static int64_t query_current_usage();
@@ -65,14 +65,9 @@ public:
     // process memory changes more than 256M, or the GC ends
     void enable_print_log_process_usage() { _enable_print_log_process_usage = true; }
     void print_log_process_usage();
+    std::string process_memory_detail_str() const;
 
 private:
-    std::string return_memory_profile_str(const RuntimeProfile* profile) const {
-        std::stringstream ss;
-        profile->pretty_print(&ss);
-        return ss.str();
-    }
-
     void init_memory_overview_counter();
 
     std::unique_ptr<RuntimeProfile> _memory_overview_profile;

@@ -82,6 +82,9 @@ public:
 
     void get_tablet_info(int64_t num_tablets, std::vector<TabletInfo>* tablets_info);
 
+    void get_topn_tablet_delete_bitmap_score(uint64_t* max_delete_bitmap_score,
+                                             uint64_t* max_base_rowset_delete_bitmap_score);
+
 private:
     CloudStorageEngine& _engine;
 

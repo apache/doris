@@ -121,7 +121,7 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(exprId);
     }
 

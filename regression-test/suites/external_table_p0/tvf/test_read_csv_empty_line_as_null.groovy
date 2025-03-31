@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_read_csv_empty_line_as_null", "p0") {
+suite("test_read_csv_empty_line_as_null", "p0,external,external_docker") {
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """

@@ -71,7 +71,6 @@ public class AuditLogHelper {
     public static void logAuditLog(ConnectContext ctx, String origStmt, StatementBase parsedStmt,
             org.apache.doris.proto.Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
         try {
-            origStmt = handleStmt(origStmt, parsedStmt);
             logAuditLogImpl(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
         } catch (Throwable t) {
             LOG.warn("Failed to write audit log.", t);
@@ -205,6 +204,10 @@ public class AuditLogHelper {
                 .setQueryTime(elapseMs)
                 .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
                 .setScanRows(statistics == null ? 0 : statistics.getScanRows())
+                .setSpillWriteBytesToLocalStorage(statistics == null ? 0 :
+                        statistics.getSpillWriteBytesToLocalStorage())
+                .setSpillReadBytesFromLocalStorage(statistics == null ? 0 :
+                        statistics.getSpillReadBytesFromLocalStorage())
                 .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
                 .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
                 .setReturnRows(ctx.getReturnRows())
@@ -266,25 +269,21 @@ public class AuditLogHelper {
 
         auditEventBuilder.setFeIp(FrontendOptions.getLocalHostAddress());
 
+        boolean isAnalysisErr = ctx.getState().getStateType() == MysqlStateType.ERR
+                && ctx.getState().getErrType() == QueryState.ErrType.ANALYSIS_ERR;
+        String encryptSql = isAnalysisErr ? ctx.getState().getErrorMessage() : origStmt;
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (parsedStmt instanceof LogicalPlanAdapter) {
-            if (!ctx.getState().isQuery() && (parsedStmt != null
-                    && (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof NeedAuditEncryption)
-                    && ((NeedAuditEncryption) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan())
-                            .needAuditEncryption())) {
-                auditEventBuilder
-                        .setStmt(((NeedAuditEncryption) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan()).toSql());
-            } else {
-                auditEventBuilder.setStmt(origStmt);
+            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+            if ((logicalPlan instanceof NeedAuditEncryption)) {
+                encryptSql = ((NeedAuditEncryption) logicalPlan).geneEncryptionSQL(origStmt);
             }
         } else {
             if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
-                auditEventBuilder.setStmt(parsedStmt.toSql());
-            } else {
-                auditEventBuilder.setStmt(origStmt);
+                encryptSql = parsedStmt.toSql();
             }
         }
-
+        auditEventBuilder.setStmt(handleStmt(encryptSql, parsedStmt));
         auditEventBuilder.setStmtType(getStmtType(parsedStmt));
 
         if (!Env.getCurrentEnv().isMaster()) {

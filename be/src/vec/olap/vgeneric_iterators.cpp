@@ -73,9 +73,8 @@ Status VStatisticsIterator::next_batch(Block* block) {
                               ? 2
                               : std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
         if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
-            size = std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
-            for (int i = 0; i < columns.size(); ++i) {
-                columns[i]->insert_many_defaults(size);
+            for (auto& column : columns) {
+                column->insert_many_defaults(size);
             }
         } else {
             for (int i = 0; i < columns.size(); ++i) {
@@ -368,11 +367,10 @@ public:
 
     Status current_block_row_locations(std::vector<RowLocation>* locations) override;
 
-    bool update_profile(RuntimeProfile* profile) override {
+    void update_profile(RuntimeProfile* profile) override {
         if (_cur_iter != nullptr) {
-            return _cur_iter->update_profile(profile);
+            _cur_iter->update_profile(profile);
         }
-        return false;
     }
 
 private:

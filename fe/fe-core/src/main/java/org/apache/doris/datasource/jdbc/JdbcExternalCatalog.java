@@ -382,7 +382,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             jdbcClient.testConnection();
         } catch (JdbcClientException e) {
             String errorMessage = "Test FE Connection to JDBC Failed: " + e.getMessage();
-            LOG.error(errorMessage, e);
+            LOG.warn(errorMessage, e);
             throw new DdlException(errorMessage, e);
         }
     }

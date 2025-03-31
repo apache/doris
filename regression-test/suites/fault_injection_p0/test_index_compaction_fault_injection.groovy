@@ -142,11 +142,13 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         // tigger full compaction for all tablets with fault injection
         try {
             GetDebugPoint().enableDebugPointForAllBEs("index_compaction_compact_column_throw_error")
+            GetDebugPoint().enableDebugPointForAllBEs("Compaction::mark_skip_index_compaction_can_not_find_index_meta")
             logger.info("trigger_full_compaction_on_tablets with fault injection: index_compaction_compact_column_throw_error")
             trigger_full_compaction_on_tablets.call(tablets)
             wait_full_compaction_done.call(tablets)
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("index_compaction_compact_column_throw_error")
+            GetDebugPoint().disableDebugPointForAllBEs("Compaction::mark_skip_index_compaction_can_not_find_index_meta")
         }
         // after fault injection, there are still 7 rowsets.
         rowsetCount = get_rowset_count.call(tablets);
@@ -257,6 +259,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
     }
 
     boolean invertedIndexCompactionEnable = false
+    boolean debug_inverted_index_compaction = false
     boolean has_update_be_config = false
     try {
         String backend_id;
@@ -278,11 +281,17 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
                 disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
                 logger.info("disable_auto_compaction: ${((List<String>) ele)[2]}")
             }
+            if (((List<String>) ele)[0] == "debug_inverted_index_compaction") {
+                debug_inverted_index_compaction = Boolean.parseBoolean(((List<String>) ele)[2])
+                logger.info("debug_inverted_index_compaction: ${((List<String>) ele)[2]}")
+            }
         }
         set_be_config.call("inverted_index_compaction_enable", "true")
+        set_be_config.call("debug_inverted_index_compaction", "true")
         has_update_be_config = true
         // check updated config
         check_config.call("inverted_index_compaction_enable", "true");
+        check_config.call("debug_inverted_index_compaction", "true")
 
 
         /**
@@ -296,7 +305,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
                 `hobbies` text NULL,
                 `score` int(11) NULL,
                 index index_name (name) using inverted,
-                index index_hobbies (hobbies) using inverted properties("parser"="english"),
+                index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
                 index index_score (score) using inverted
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
@@ -323,7 +332,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
                 `hobbies` text NULL,
                 `score` int(11) NULL,
                 index index_name (name) using inverted,
-                index index_hobbies (hobbies) using inverted properties("parser"="english"),
+                index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
                 index index_score (score) using inverted
             ) ENGINE=OLAP
             UNIQUE KEY(`id`)
@@ -343,6 +352,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
     } finally {
         if (has_update_be_config) {
             set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
+            set_be_config.call("debug_inverted_index_compaction", debug_inverted_index_compaction.toString())
         }
     }
 }

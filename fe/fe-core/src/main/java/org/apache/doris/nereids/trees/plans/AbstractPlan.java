@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
@@ -27,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.TreeStringPlan.TreeStringNode;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.statistics.Statistics;
@@ -201,11 +199,11 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         if (hasUnboundChild || hasUnboundExpression()) {
             return UnboundLogicalProperties.INSTANCE;
         } else {
-            Supplier<List<Slot>> outputSupplier = Suppliers.memoize(this::computeOutput);
-            Supplier<DataTrait> fdSupplier = () -> this instanceof LogicalPlan
-                    ? ((LogicalPlan) this).computeDataTrait()
-                    : DataTrait.EMPTY_TRAIT;
-            return new LogicalProperties(outputSupplier, fdSupplier);
+            if (this instanceof DiffOutputInAsterisk) {
+                return new LogicalProperties(this::computeOutput, this::computeAsteriskOutput, this::computeDataTrait);
+            } else {
+                return new LogicalProperties(this::computeOutput, this::computeDataTrait);
+            }
         }
     }
 
@@ -228,6 +226,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     public void updateActualRowCount(long actualRowCount) {
-        statistics.setActualRowCount(actualRowCount);
+        if (statistics != null) {
+            statistics.setActualRowCount(actualRowCount);
+        }
     }
 }

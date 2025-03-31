@@ -36,7 +36,7 @@ PhysicalResultSink
 
 -- !intersect_one_side_constant_one_side_column --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((t3.b = t.b)) otherCondition=()
 ----PhysicalIntersect
 ------filter((test_pull_up_predicate_set_op1.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
@@ -208,7 +208,7 @@ PhysicalResultSink
 
 -- !intersect_one_side_constant_one_side_column_left_join --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((t3.b = t.b)) otherCondition=()
 ----PhysicalIntersect
 ------filter((test_pull_up_predicate_set_op1.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
@@ -255,7 +255,7 @@ PhysicalResultSink
 
 -- !intersect_one_side_constant_one_side_column_left_semi_join --
 PhysicalResultSink
---hashJoin[LEFT_SEMI_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((t3.b = t.b)) otherCondition=()
 ----PhysicalIntersect
 ------filter((test_pull_up_predicate_set_op1.b > 'ab'))
 --------PhysicalOlapScan[test_pull_up_predicate_set_op1]
@@ -559,6 +559,9 @@ abbbb
 -- !union_child_and_const_exprs_andpredicates_res --
 
 -- !union_child_and_const_exprs_orpredicates_res --
+1	d2
+
+-- !intersect_with_hint_infer_set_operator_distinct_and_do_eliminate_gby_key_by_uniform --
 1	d2
 
 -- !test --

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
@@ -29,6 +30,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -270,8 +272,12 @@ public class NereidsPlanner extends Planner {
         // print memo before choose plan.
         // if chooseNthPlan failed, we could get memo to debug
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
-            String memo = cascadesContext.getMemo().toString();
-            LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), memo);
+            Memo memo = cascadesContext.getMemo();
+            if (memo != null) {
+                LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), memo.toString());
+            } else {
+                LOG.info("{}\nMemo is null", ConnectContext.get().getQueryIdentifier());
+            }
         }
         int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
         PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
@@ -485,8 +491,8 @@ public class NereidsPlanner extends Planner {
                     table.isPresent() ? (table.get().getDatabase() != null
                             ? table.get().getDatabase().getFullName() : "") : "",
                     !output.getQualifier().isEmpty() ? output.getQualifier().get(output.getQualifier().size() - 1)
-                            : (table.isPresent() ? table.get().getName() : ""),
-                    table.isPresent() ? table.get().getName() : "",
+                            : (table.isPresent() ? Util.getTempTableDisplayName(table.get().getName()) : ""),
+                    table.isPresent() ? Util.getTempTableDisplayName(table.get().getName()) : "",
                     output.getName(),
                     column.isPresent() ? column.get().getName() : ""
             );
@@ -531,7 +537,19 @@ public class NereidsPlanner extends Planner {
             return;
         }
 
-        distributedPlans = new DistributePlanner(statementContext, fragments).plan();
+        boolean notNeedBackend = false;
+        // if the query can compute without backend, we can skip check cluster privileges
+        if (Config.isCloudMode()
+                && cascadesContext.getConnectContext().supportHandleByFe()
+                && physicalPlan instanceof ComputeResultSet) {
+            Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan).computeResultInFe(
+                    cascadesContext, Optional.empty(), physicalPlan.getOutput());
+            if (resultSet.isPresent()) {
+                notNeedBackend = true;
+            }
+        }
+
+        distributedPlans = new DistributePlanner(statementContext, fragments, notNeedBackend, false).plan();
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsDistributeTime();
         }
@@ -682,10 +700,15 @@ public class NereidsPlanner extends Planner {
                 plan = optimizedPlan.shape("");
                 break;
             case MEMO_PLAN:
-                plan = cascadesContext.getMemo().toString()
+                Memo memo = cascadesContext.getMemo();
+                if (memo == null) {
+                    plan = "Memo is null";
+                } else {
+                    plan = memo.toString()
                         + "\n\n========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString()
                         + mvSummary;
+                }
                 break;
             case DISTRIBUTED_PLAN:
                 StringBuilder distributedPlanStringBuilder = new StringBuilder();

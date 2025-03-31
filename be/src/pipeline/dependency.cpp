@@ -21,12 +21,12 @@
 #include <mutex>
 
 #include "common/logging.h"
-#include "exprs/runtime_filter.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime_filter/runtime_filter_consumer.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -68,25 +68,30 @@ void Dependency::set_ready() {
         local_block_task.swap(_blocked_task);
     }
     for (auto* task : local_block_task) {
-        task->wake_up();
+        std::unique_lock<std::mutex> lc(_task_lock);
+        THROW_IF_ERROR(task->wake_up(this));
     }
 }
 
 Dependency* Dependency::is_blocked_by(PipelineTask* task) {
+    if (task && task->wake_up_early()) {
+        return nullptr;
+    }
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {
         _add_block_task(task);
+        start_watcher();
+        THROW_IF_ERROR(task->blocked(this));
     }
     return ready ? nullptr : this;
 }
 
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer,
-                   "{}this={}, {}: id={}, block task = {}, ready={}, _always_ready={}",
-                   std::string(indentation_level * 2, ' '), (void*)this, _name, _node_id,
-                   _blocked_task.size(), _ready, _always_ready);
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, ready={}, _always_ready={}",
+                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
+                   _ready, _always_ready);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -102,7 +107,7 @@ std::string CountedFinishDependency::debug_string(int indentation_level) {
 std::string RuntimeFilterDependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}, runtime filter: {}",
-                   Dependency::debug_string(indentation_level), _runtime_filter->formatted_state());
+                   Dependency::debug_string(indentation_level), _runtime_filter->debug_string());
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -152,7 +157,7 @@ void RuntimeFilterTimerQueue::start() {
                 if (it.use_count() == 1) {
                     // `use_count == 1` means this runtime filter has been released
                 } else if (it->should_be_check_timeout()) {
-                    if (it->_parent->is_blocked_by(nullptr)) {
+                    if (it->_parent->is_blocked_by()) {
                         // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
                         int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
                         if (ms_since_registration > it->wait_time_ms()) {
@@ -307,13 +312,25 @@ Status AggSharedState::reset_hash_table() {
             agg_data->method_variant);
 }
 
-void PartitionedAggSharedState::init_spill_params(size_t spill_partition_count_bits) {
-    partition_count_bits = spill_partition_count_bits;
-    partition_count = (1 << spill_partition_count_bits);
+void PartitionedAggSharedState::init_spill_params(size_t spill_partition_count) {
+    partition_count = spill_partition_count;
     max_partition_index = partition_count - 1;
 
     for (int i = 0; i < partition_count; ++i) {
         spill_partitions.emplace_back(std::make_shared<AggSpillPartition>());
+    }
+}
+
+void PartitionedAggSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {
+    for (auto& partition : spill_partitions) {
+        if (partition->spilling_stream_) {
+            partition->spilling_stream_->update_shared_profiles(source_profile);
+        }
+        for (auto& stream : partition->spill_streams_) {
+            if (stream) {
+                stream->update_shared_profiles(source_profile);
+            }
+        }
     }
 }
 
@@ -355,6 +372,14 @@ void PartitionedAggSharedState::close() {
     spill_partitions.clear();
 }
 
+void SpillSortSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {
+    for (auto& stream : sorted_streams) {
+        if (stream) {
+            stream->update_shared_profiles(source_profile);
+        }
+    }
+}
+
 void SpillSortSharedState::close() {
     // need to use CAS instead of only `if (!is_closed)` statement,
     // to avoid concurrent entry of close() both pass the if statement
@@ -369,10 +394,11 @@ void SpillSortSharedState::close() {
     sorted_streams.clear();
 }
 
-MultiCastSharedState::MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool,
-                                           int cast_sender_count)
+MultiCastSharedState::MultiCastSharedState(ObjectPool* pool, int cast_sender_count, int node_id)
         : multi_cast_data_streamer(std::make_unique<pipeline::MultiCastDataStreamer>(
-                  row_desc, pool, cast_sender_count, true)) {}
+                  this, pool, cast_sender_count, node_id)) {}
+
+void MultiCastSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {}
 
 int AggSharedState::get_slot_column_id(const vectorized::AggFnEvaluator* evaluator) {
     auto ctxs = evaluator->input_exprs_ctxs();
@@ -414,6 +440,18 @@ Status SetSharedState::hash_table_init() {
         data_types.emplace_back(std::move(data_type));
     }
     return init_hash_method<SetDataVariants>(hash_table_variants.get(), data_types, true);
+}
+
+void AggSharedState::refresh_top_limit(size_t row_id,
+                                       const vectorized::ColumnRawPtrs& key_columns) {
+    for (int j = 0; j < key_columns.size(); ++j) {
+        limit_columns[j]->insert_from(*key_columns[j], row_id);
+    }
+    limit_heap.emplace(limit_columns[0]->size() - 1, limit_columns, order_directions,
+                       null_directions);
+
+    limit_heap.pop();
+    limit_columns_min = limit_heap.top()._row_id;
 }
 
 } // namespace doris::pipeline

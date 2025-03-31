@@ -84,13 +84,7 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
                 intersects = childRanges;
                 continue;
             }
-
-            for (Range<MultiColumnBound> childRange : childRanges.asRanges()) {
-                intersects = intersects.subRangeSet(childRange);
-                if (intersects.isEmpty()) {
-                    break;
-                }
-            }
+            intersects = ColumnRange.intersect(childRanges, intersects);
             if (intersects.isEmpty()) {
                 break;
             }
@@ -171,12 +165,9 @@ public class PartitionPredicateToRange extends DefaultExpressionVisitor<RangeSet
         Expression compareExpr = inPredicate.getCompareExpr();
         if (compareExpr instanceof SlotReference) {
             SlotReference slot = (SlotReference) compareExpr;
-            if (slotIds.contains((slot).getExprId().asInt())) {
+            if (slotIds.contains((slot).getExprId().asInt()) && inPredicate.optionsAreLiterals()) {
                 RangeSet<MultiColumnBound> union = TreeRangeSet.create();
                 for (Expression option : inPredicate.getOptions()) {
-                    if (!(option instanceof Literal)) {
-                        return null;
-                    }
                     Literal literal = (Literal) option;
                     union.addAll(
                             toRangeSet(slot, literal, BoundType.CLOSED, literal, BoundType.CLOSED)

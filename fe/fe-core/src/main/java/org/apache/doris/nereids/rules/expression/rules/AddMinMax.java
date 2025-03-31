@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.DiscreteValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -69,6 +71,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
         return ImmutableList.of(
                 matchesTopType(CompoundPredicate.class)
                         .thenApply(ctx -> rewrite(ctx.expr, ctx.rewriteContext))
+                        .toRule(ExpressionRuleType.ADD_MIN_MAX)
         );
     }
 
@@ -91,7 +94,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
 
     private static class MinMaxValue {
         // min max range, if range = null means empty
-        Range<Literal> range;
+        Range<ComparableLiteral> range;
 
         // expression in range is discrete value
         boolean isDiscrete;
@@ -99,7 +102,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
         // expr relative order, for keep order after add min-max to the expression
         int exprOrderIndex;
 
-        public MinMaxValue(Range<Literal> range, boolean isDiscrete, int exprOrderIndex) {
+        public MinMaxValue(Range<ComparableLiteral> range, boolean isDiscrete, int exprOrderIndex) {
             this.range = range;
             this.isDiscrete = isDiscrete;
             this.exprOrderIndex = exprOrderIndex;
@@ -169,25 +172,27 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
         List<Expression> addExprs = Lists.newArrayListWithExpectedSize(minMaxExprs.size() * 2);
         for (Map.Entry<Expression, MinMaxValue> entry : minMaxExprs) {
             Expression targetExpr = entry.getKey();
-            Range<Literal> range = entry.getValue().range;
+            Range<ComparableLiteral> range = entry.getValue().range;
             if (range.hasLowerBound() && range.hasUpperBound()
                     && range.lowerEndpoint().equals(range.upperEndpoint())
                     && range.lowerBoundType() == BoundType.CLOSED
                     && range.upperBoundType() == BoundType.CLOSED) {
-                Expression cmp = new EqualTo(targetExpr, range.lowerEndpoint());
+                Expression cmp = new EqualTo(targetExpr, (Literal) range.lowerEndpoint());
                 addExprs.add(cmp);
                 continue;
             }
             if (range.hasLowerBound()) {
-                Literal literal = range.lowerEndpoint();
+                ComparableLiteral literal = range.lowerEndpoint();
                 Expression cmp = range.lowerBoundType() == BoundType.CLOSED
-                        ? new GreaterThanEqual(targetExpr, literal) : new GreaterThan(targetExpr, literal);
+                        ? new GreaterThanEqual(targetExpr, (Literal) literal)
+                        : new GreaterThan(targetExpr, (Literal) literal);
                 addExprs.add(cmp);
             }
             if (range.hasUpperBound()) {
-                Literal literal = range.upperEndpoint();
+                ComparableLiteral literal = range.upperEndpoint();
                 Expression cmp = range.upperBoundType() == BoundType.CLOSED
-                        ? new LessThanEqual(targetExpr, literal) : new LessThan(targetExpr, literal);
+                        ? new LessThanEqual(targetExpr, (Literal) literal)
+                        : new LessThan(targetExpr, (Literal) literal);
                 addExprs.add(cmp);
             }
         }
@@ -241,7 +246,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
         ComparisonPredicate cp = (ComparisonPredicate) expr;
         Expression left = cp.left();
         Expression right = cp.right();
-        if (!(right instanceof Literal)) {
+        if (!(right instanceof ComparableLiteral)) {
             return MatchMinMax.MATCH_NONE;
         }
 
@@ -350,8 +355,16 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
                         value.range = null;
                     } else if (value.range != null) {
                         if (value.range.isConnected(otherValue.range)) {
-                            value.range = value.range.intersection(otherValue.range);
-                            value.isDiscrete = value.isDiscrete && otherValue.isDiscrete;
+                            Range<ComparableLiteral> newRange = value.range.intersection(otherValue.range);
+                            if (!newRange.isEmpty()) {
+                                value.range = newRange;
+                                // If newRange.lowerEndpoint().equals(newRange.upperEndpoint()),
+                                // then isDiscrete should be true.
+                                // But no need to do that because AddMinMax will not handle discrete value cases.
+                                value.isDiscrete = value.isDiscrete && otherValue.isDiscrete;
+                            } else {
+                                value.range = null;
+                            }
                         } else {
                             value.range = null;
                         }

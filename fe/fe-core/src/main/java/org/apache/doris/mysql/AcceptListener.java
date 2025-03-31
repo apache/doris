@@ -20,6 +20,7 @@ package org.apache.doris.mysql;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.mysql.ProxyProtocolHandler.ProtocolType;
 import org.apache.doris.mysql.ProxyProtocolHandler.ProxyProtocolResult;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
@@ -78,26 +79,31 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                         if (Config.enable_proxy_protocol) {
                             ProxyProtocolResult result = ProxyProtocolHandler.handle(context.getMysqlChannel());
                             Preconditions.checkNotNull(result);
-                            if (!result.isUnknown) {
+                            ProtocolType pType = result.pType;
+                            if (pType == ProtocolType.PROTOCOL_WITH_IP) {
                                 context.getMysqlChannel().setRemoteAddr(result.sourceIP, result.sourcePort);
                             }
-                            // ignore the UNKNOWN, and just use IP from MySQL protocol.
+                            // For PROTOCOL_WITHOUT_IP, and just use IP from MySQL protocol.
                             // which is already set when creating MysqlChannel.
+                            // For NOT_PROXY_PROTOCOL, just ignore to let connection with no proxy protocol in.
                         }
 
                         // authenticate check failed.
                         if (!MysqlProto.negotiate(context)) {
                             throw new AfterConnectedException("mysql negotiate failed");
                         }
-                        if (connectScheduler.registerConnection(context)) {
+                        int res = connectScheduler.registerConnection(context);
+                        if (res == -1) {
                             MysqlProto.sendResponsePacket(context);
                             connection.setCloseListener(
                                     streamConnection -> connectScheduler.unregisterConnection(context));
                         } else {
-                            context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS,
-                                    "Reach limit of connections");
+                            long userConnLimit = context.getEnv().getAuth().getMaxConn(context.getQualifiedUser());
+                            String errMsg = String.format("Reach limit of connections. Total: %, User: %d, Current: %d",
+                                    connectScheduler.getMaxConnections(), userConnLimit, res);
+                            context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, errMsg);
                             MysqlProto.sendResponsePacket(context);
-                            throw new AfterConnectedException("Reach limit of connections");
+                            throw new AfterConnectedException(errMsg);
                         }
                         context.setStartTime();
                         int userQueryTimeout = context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser());

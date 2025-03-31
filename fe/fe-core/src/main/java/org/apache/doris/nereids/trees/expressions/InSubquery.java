@@ -127,7 +127,7 @@ public class InSubquery extends SubqueryExpr {
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(this.compareExpr, this.listQuery, this.isNot);
     }
 

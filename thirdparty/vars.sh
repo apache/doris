@@ -461,10 +461,10 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.4-for-doris.tar.gz"
-HADOOP_LIBS_NAME="hadoop-3.3.6.4-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.4-for-doris"
-HADOOP_LIBS_MD5SUM="6993de49713eb0892e42c8ec57fbdc6c"
+HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.6.6-for-doris.tar.gz"
+HADOOP_LIBS_NAME="hadoop-3.3.6.6-for-doris.tar.gz"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.6-for-doris"
+HADOOP_LIBS_MD5SUM="13b66d5f2abffd1740e692b65df5962e"
 
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
@@ -519,6 +519,37 @@ DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3
 DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
 DRAGONBOX_SOURCE=dragonbox-1.1.3
 DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
+
+# icu
+ICU_DOWNLOAD="https://github.com/unicode-org/icu/archive/refs/tags/release-69-1.tar.gz"
+ICU_NAME=release-69-1.tar.gz
+ICU_SOURCE=icu-release-69-1
+ICU_MD5SUM="135125f633864285d637db5c01e0388b"
+
+# jindofs
+JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.3.4-libs-0.2.tar.gz"
+JINDOFS_NAME=jindofs-6.3.4-libs-0.2.tar.gz
+JINDOFS_SOURCE=jindofs-6.3.4-libs-0.2
+JINDOFS_MD5SUM="35aa0f6ddf4bf03716f3c88560229cd2"
+
+# pugixml
+PUGIXML_DOWNLOAD="https://github.com/zeux/pugixml/releases/download/v1.15/pugixml-1.15.tar.gz"
+PUGIXML_NAME=pugixml-1.15.tar.gz
+PUGIXML_SOURCE=pugixml-1.15
+PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
+
+# openblas
+OPENBLAS_DOWNLOAD="https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.29/OpenBLAS-0.3.29.tar.gz"
+OPENBLAS_NAME="OpenBLAS-0.3.29.tar.gz"
+OPENBLAS_SOURCE="OpenBLAS-0.3.29"
+OPENBLAS_MD5SUM="853a0c5c0747c5943e7ef4bbb793162d"
+
+# faiss
+FAISS_DOWNLOAD="https://github.com/facebookresearch/faiss/archive/refs/tags/v1.10.0.tar.gz"
+FAISS_NAME="faiss-1.10.0.tar.gz"
+FAISS_SOURCE="faiss-1.10.0"
+FAISS_MD5SUM="f31edf2492808b27cc963d0ab316a205"
+
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -597,6 +628,11 @@ export TP_ARCHIVES=(
     'BASE64'
     'AZURE'
     'DRAGONBOX'
+    'ICU'
+    'JINDOFS'
+    'PUGIXML'
+    'OPENBLAS'
+    'FAISS'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
