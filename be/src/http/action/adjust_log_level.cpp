@@ -38,8 +38,18 @@ std::tuple<std::string, int, int> handle_request(HttpRequest* req) {
     };
     const auto& module = parse_param("module");
     const auto& level = parse_param("level");
-    int new_level = std::stoi(level);
-    return std::make_tuple(module, google::SetVLOGLevel(module.c_str(), new_level), new_level);
+    try {
+        int new_level = std::stoi(level);
+        return std::make_tuple(module, google::SetVLOGLevel(module.c_str(), new_level), new_level);
+    } catch (const std::invalid_argument& e) {
+        LOG(WARNING) << "Invalid level format: "
+                     << " error: " << e.what();
+        return std::make_tuple(module, -1, -1);
+    } catch (const std::out_of_range& e) {
+        LOG(WARNING) << "Level value out of range: "
+                     << " error: " << e.what();
+        return std::make_tuple(module, -1, -1);
+    }
 }
 
 void AdjustLogLevelAction::handle(HttpRequest* req) {
