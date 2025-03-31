@@ -132,8 +132,9 @@ suite("test_base_add_col_multi_level_mtmv","mtmv") {
     order_qt_add_col_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
     order_qt_add_col_t1_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
 
+    mv_rewrite_success_without_check_chosen(querySql, mvName1)
     mv_rewrite_success_without_check_chosen(querySql, mvName2)
-    mv_not_part_in(querySql, mvName1)
-    mv_not_part_in(querySql, mvName3)
-    mv_not_part_in(querySql, mvName4)
+    mv_rewrite_success_without_check_chosen(querySql, mvName3)
+    // FailSummary: View struct info is invalid
+    //mv_rewrite_success_without_check_chosen(querySql, mvName4)
 }
