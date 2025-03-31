@@ -67,9 +67,6 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, debug_string) {
 TEST_F(PartitionedHashJoinProbeOperatorTest, InitAndOpen) {
     auto [probe_operator, sink_operator] = _helper.create_operators();
 
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
-
     auto local_state = PartitionedHashJoinProbeLocalState::create_shared(
             _helper.runtime_state.get(), probe_operator.get());
 
@@ -77,7 +74,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, InitAndOpen) {
     LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
-                         .le_state_map = le_state_map,
+                         .shared_state_map = {},
                          .task_idx = 0};
     auto st = local_state->init(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st) << "init failed: " << st.to_string();

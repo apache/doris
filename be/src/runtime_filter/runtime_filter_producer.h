@@ -22,7 +22,6 @@
 #include "pipeline/dependency.h"
 #include "runtime/query_context.h"
 #include "runtime_filter/runtime_filter.h"
-#include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -107,15 +106,6 @@ public:
         default:
             throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid state {}", int(state));
         }
-    }
-
-    void copy_to_shared_context(const vectorized::SharedHashTableContextPtr& context) {
-        DCHECK(!context->runtime_filters.contains(_wrapper->filter_id()));
-        context->runtime_filters[_wrapper->filter_id()] = _wrapper;
-    }
-    void copy_from_shared_context(const vectorized::SharedHashTableContextPtr& context) {
-        DCHECK(context->runtime_filters.contains(_wrapper->filter_id()));
-        _wrapper = context->runtime_filters[_wrapper->filter_id()];
     }
 
     bool set_state(State state) {

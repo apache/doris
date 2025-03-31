@@ -92,7 +92,7 @@ auto create_exchange_sink(std::vector<ChannelInfo> channel_info) {
                              .parent_profile = &ctx->profile,
                              .sender_id = 0,
                              .shared_state = nullptr,
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = TDataSink {}};
     EXPECT_TRUE(local_state->init(&ctx->state, info).ok());
     ctx->state.emplace_sink_local_state(0, std::move(local_state));

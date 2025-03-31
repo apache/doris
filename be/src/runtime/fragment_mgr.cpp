@@ -90,7 +90,6 @@
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
-#include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
 

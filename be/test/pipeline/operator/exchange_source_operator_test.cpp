@@ -88,7 +88,7 @@ struct ExchangeSourceOperatorXTest : public ::testing::Test {
         LocalStateInfo info {.parent_profile = &profile,
                              .scan_ranges = {},
                              .shared_state = nullptr,
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .task_idx = 0};
         auto st = local_state->init(state.get(), info);
         state->resize_op_id_to_local_state(-100);
