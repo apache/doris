@@ -775,6 +775,9 @@ public class OlapScanNode extends ScanNode {
                         DebugUtil.printId(context.queryId()), partition.getId(), visibleVersion);
             }
         }
+        boolean isInvalidComputeGroup = ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup);
+        boolean isNotCloudComputeGroup = computeGroup != null && !Config.isCloudMode();
+
         ImmutableMap<Long, Backend> allBackends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         long partitionVisibleVersion = visibleVersion;
         String partitionVisibleVersionStr = fastToString(visibleVersion);
@@ -922,8 +925,7 @@ public class OlapScanNode extends ScanNode {
                     continue;
                 }
                 String beTagName = backend.getLocationTag().value;
-                if ((ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) || (computeGroup != null
-                        && !Config.isCloudMode() && !computeGroup.containsBackend(beTagName))) {
+                if (isInvalidComputeGroup || (isNotCloudComputeGroup && !computeGroup.containsBackend(beTagName))) {
                     String err = String.format(
                             "Replica on backend %d with tag %s," + " which is not in user's resource tag: %s",
                             backend.getId(), beTagName, computeGroup.toString());
