@@ -825,8 +825,7 @@ DEFINE_mInt32(zone_map_row_num_threshold, "20");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-// Default to turn off aws sdk log, because aws sdk errors that need to be cared will be output through Doris logs
-DEFINE_Int32(aws_log_level, "0");
+DEFINE_Int32(aws_log_level, "2");
 
 // the buffer size when read data from remote storage like s3
 DEFINE_mInt32(remote_storage_read_buffer_mb, "16");
