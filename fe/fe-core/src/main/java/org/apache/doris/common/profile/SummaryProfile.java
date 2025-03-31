@@ -187,9 +187,9 @@ public class SummaryProfile {
             SYSTEM_MESSAGE,
             EXECUTED_BY_FRONTEND,
             NEREIDS_BE_FOLD_CONST_TIME,
+            NEREIDS_GARBAGE_COLLECT_TIME,
             SPLITS_ASSIGNMENT,
             SPLITS_ASSIGNMENT_WEIGHT,
-            NEREIDS_GARBAGE_COLLECT_TIME,
             SPLITS_ASSIGNMENT_SPLIT_INFO
     );
 

@@ -57,6 +57,7 @@ public class SplitSource {
     private final long maxWaitTime;
     private final Queue<String> splitProfileInfo = new ConcurrentLinkedQueue<>();
     SessionVariable sv;
+    StmtExecutor executor;
 
     public SplitSource(Backend backend, SplitAssignment splitAssignment, long maxWaitTime,
                        SessionVariable sessionVariable) {
@@ -67,6 +68,9 @@ public class SplitSource {
         this.isLastBatch = new AtomicBoolean(false);
         this.sv = sessionVariable;
         splitAssignment.registerSource(uniqueId);
+        if (ConnectContext.get() != null) {
+            executor = ConnectContext.get().getExecutor();
+        }
     }
 
     public long getUniqueId() {
@@ -100,7 +104,6 @@ public class SplitSource {
                                 scanRangeLocation.getScanRange().getExtScanRange()
                                         .getFileScanRange().getRanges().forEach(range -> range.setSplitId(splitId));
                                 assignmentSplitInfo.setSplitId(splitId);
-                                StmtExecutor executor = ConnectContext.get().getExecutor();
                                 if (executor != null) {
                                     executor.getSummaryProfile()
                                             .setSplitProfileInfo(
