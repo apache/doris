@@ -421,7 +421,7 @@ else()
 endif()
 
 # Add flags that are common across build types
-set(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS} -fopenmp -fopenmp-simd ")
 
 set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
 
@@ -511,6 +511,8 @@ set(DORIS_LINK_LIBS
     Cloud
     ${WL_END_GROUP}
     CommonCPP
+    diskann_s
+    vector
 )
 
 set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
@@ -750,20 +752,28 @@ function(pch_reuse target)
     endif()
 endfunction(pch_reuse target)
 
-add_subdirectory(${SRC_DIR}/agent)
-add_subdirectory(${SRC_DIR}/common)
-add_subdirectory(${SRC_DIR}/exec)
-add_subdirectory(${SRC_DIR}/exprs)
-add_subdirectory(${SRC_DIR}/gen_cpp)
-add_subdirectory(${SRC_DIR}/geo)
-add_subdirectory(${SRC_DIR}/gutil)
-add_subdirectory(${SRC_DIR}/http)
-add_subdirectory(${SRC_DIR}/io)
-add_subdirectory(${SRC_DIR}/olap)
-add_subdirectory(${SRC_DIR}/runtime)
-add_subdirectory(${SRC_DIR}/service) # this include doris_be
-add_subdirectory(${SRC_DIR}/udf)
-add_subdirectory(${SRC_DIR}/cloud)
+macro(add_subdirectory_with_log subdir)
+    message(STATUS "Start compiling ${subdir} at ${CMAKE_CURRENT_SOURCE_DIR}/${subdir}")
+    add_subdirectory(${subdir})
+endmacro()
+
+add_subdirectory_with_log(${SRC_DIR}/agent)
+add_subdirectory_with_log(${SRC_DIR}/common)
+add_subdirectory_with_log(${SRC_DIR}/exec)
+add_subdirectory_with_log(${SRC_DIR}/exprs)
+add_subdirectory_with_log(${SRC_DIR}/gen_cpp)
+add_subdirectory_with_log(${SRC_DIR}/geo)
+add_subdirectory_with_log(${SRC_DIR}/gutil)
+add_subdirectory_with_log(${SRC_DIR}/http)
+add_subdirectory_with_log(${SRC_DIR}/io)
+add_subdirectory_with_log(${SRC_DIR}/olap)
+add_subdirectory_with_log(${SRC_DIR}/runtime)
+add_subdirectory_with_log(${SRC_DIR}/service) # this include doris_be
+add_subdirectory_with_log(${SRC_DIR}/udf)
+add_subdirectory_with_log(${SRC_DIR}/cloud)
+add_subdirectory_with_log(${SRC_DIR}/extern/diskann)
+add_subdirectory_with_log(${SRC_DIR}/vector)
+
 
 option(BUILD_META_TOOL "Build meta tool" OFF)
 if (BUILD_META_TOOL)

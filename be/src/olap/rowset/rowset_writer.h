@@ -31,7 +31,7 @@
 #include "olap/column_mapping.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "vec/core/block.h"
@@ -96,8 +96,8 @@ public:
         return Status::NotSupported("RowsetWriter does not support create_file_writer");
     }
 
-    virtual Status create_inverted_index_file_writer(
-            uint32_t segment_id, InvertedIndexFileWriterPtr* index_file_writer) {
+    virtual Status create_x_index_file_writer(
+            uint32_t segment_id, XIndexFileWriterPtr* index_file_writer) {
         // Create file writer for the inverted index format v2.
         io::FileWriterPtr idx_file_v2_ptr;
         if (_context.tablet_schema->get_inverted_index_storage_format() !=
@@ -107,7 +107,7 @@ public:
         }
         std::string segment_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 _context.segment_path(segment_id))};
-        *index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        *index_file_writer = std::make_unique<XIndexFileWriter>(
                 _context.fs(), segment_prefix, _context.rowset_id.to_string(), segment_id,
                 _context.tablet_schema->get_inverted_index_storage_format(),
                 std::move(idx_file_v2_ptr));

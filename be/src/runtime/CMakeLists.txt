@@ -17,6 +17,9 @@
 
 # add_subdirectory(bufferpool)
 
+set(CMAKE_COMPILE_WARNING_AS_ERROR OFF)
+add_compile_options(-Wno-error=attributes)
+
 # where to put generated libraries
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/runtime")
 

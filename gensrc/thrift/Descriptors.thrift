@@ -155,7 +155,8 @@ enum TIndexType {
   BITMAP = 0,
   INVERTED = 1,
   BLOOMFILTER = 2,
-  NGRAM_BF = 3
+  NGRAM_BF = 3,
+  ANN = 4
 }
 
 // Mapping from names defined by Avro to the enum.

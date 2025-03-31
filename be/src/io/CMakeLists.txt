@@ -16,6 +16,11 @@
 # under the License.
 
 # where to put generated libraries
+set(CMAKE_COMPILE_WARNING_AS_ERROR OFF)
+add_compile_options(-Wno-error=attributes)
+add_compile_options(-Wno-deprecated-copy)
+add_compile_options(-Wno-reorder)
+add_compile_options(-Wno-unused-but-set-variable)
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/io")
 
 # where to put generated binaries
