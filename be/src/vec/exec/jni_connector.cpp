@@ -70,13 +70,13 @@ namespace doris::vectorized {
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
     _profile = profile;
-    ADD_TIMER(_profile, _connector_name.c_str());
-    COUNTER_SET(ADD_CHILD_COUNTER(_profile, "SplitId", TUnit::UNIT, _connector_name.c_str()), (int64_t) _split_id);
-    _open_scanner_time = ADD_CHILD_TIMER(_profile, "OpenScannerTime", _connector_name.c_str());
-    _java_scan_time = ADD_CHILD_TIMER(_profile, "JavaScanTime", _connector_name.c_str());
-    _java_append_data_time = ADD_CHILD_TIMER(_profile, "JavaAppendDataTime", _connector_name.c_str());
-    _java_create_vector_table_time = ADD_CHILD_TIMER(_profile, "JavaCreateVectorTableTime", _connector_name.c_str());
-    _fill_block_time = ADD_CHILD_TIMER(_profile, "FillBlockTime", _connector_name.c_str());
+    ADD_TIMER_WITH_LEVEL(_profile, _connector_name.c_str(), 1);
+    COUNTER_SET(ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "SplitId", TUnit::UNIT, _connector_name.c_str(), 2), (int64_t) _split_id);
+    _open_scanner_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "OpenScannerTime", _connector_name.c_str(), 1);
+    _java_scan_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "JavaScanTime", _connector_name.c_str(), 1);
+    _java_append_data_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "JavaAppendDataTime", _connector_name.c_str(), 1);
+    _java_create_vector_table_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "JavaCreateVectorTableTime", _connector_name.c_str(), 1);
+    _fill_block_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FillBlockTime", _connector_name.c_str(), 1);
     // cannot put the env into fields, because frames in an env object is limited
     // to avoid limited frames in a thread, we should get local env in a method instead of in whole object.
     JNIEnv* env = nullptr;
@@ -175,9 +175,14 @@ Status JniConnector::close() {
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
         if (_scanner_opened && _jni_scanner_obj != nullptr) {
 
-            _java_append_data_time->set((int64_t) env->CallLongMethod(_jni_scanner_obj, _jni_scanner_get_append_data_time) * 1000);
-            _java_create_vector_table_time->set((int64_t) env->CallLongMethod(_jni_scanner_obj, _jni_scanner_get_create_vector_table_time) * 1000);
-            _java_scan_time->set(_java_scan_time->value() - _java_append_data_time->value() - _java_create_vector_table_time->value());
+            // The time unit obtained from '_jni_scanner_get_append_data_time' is milliseconds.
+            _java_append_data_time->set(
+                (int64_t) env->CallLongMethod(_jni_scanner_obj, _jni_scanner_get_append_data_time) * 1000000);
+            // The time unit obtained from '_jni_scanner_get_create_vector_table_time' is milliseconds.
+            _java_create_vector_table_time->set(
+                (int64_t) env->CallLongMethod(_jni_scanner_obj, _jni_scanner_get_create_vector_table_time) * 1000000);
+            _java_scan_time->set(
+                _java_scan_time->value() - _java_append_data_time->value() - _java_create_vector_table_time->value());
 
             // _fill_block may be failed and returned, we should release table in close.
             // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
