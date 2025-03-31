@@ -995,24 +995,6 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
     });
 }
 
-bool StorageEngine::_should_delay_big_task() {
-    CHECK_GE(_cumu_compaction_thread_pool->max_threads(),
-             _cumu_compaction_thread_pool_used_threads);
-    CHECK_GE(_cumu_compaction_thread_pool_small_tasks_running, 0);
-    // Case 1: Multiple threads available => accept big task
-    if (_cumu_compaction_thread_pool->max_threads() - _cumu_compaction_thread_pool_used_threads >
-        0) {
-        return false; // No delay needed
-    }
-    // Case 2: Only one thread left => accept big task only if another small task is already running
-    if (_cumu_compaction_thread_pool_small_tasks_running > 0) {
-        return false; // No delay needed
-    }
-    // Case 3: Only one thread left, this is a big task, and no small tasks are running
-    // Delay this task to reserve capacity for potential small tasks
-    return true; // Delay this big task
-}
-
 Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                                               CompactionType compaction_type, bool force) {
     if (tablet->tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
@@ -1077,51 +1059,34 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 if (compaction->compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
                     std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
                     _cumu_compaction_thread_pool_used_threads++;
-                    if (config::min_threads_for_cumu_delay_strategy > 1 &&
+                    if (config::large_cumu_compaction_task_min_thread_num > 1 &&
                         _cumu_compaction_thread_pool->max_threads() >=
-                                config::min_threads_for_cumu_delay_strategy) {
-                        // Calculate the total size and row count of the compaction task
-                        int input_rowsets_total_size = 0;
-                        int input_row_num = 0;
-                        for (auto& rowset : compaction->get_input_rowsets()) {
-                            const auto& rowset_meta = rowset->rowset_meta();
-                            auto total_size = rowset_meta->total_disk_size();
-                            input_rowsets_total_size += total_size;
-                            input_row_num += rowset->num_rows();
-                        }
+                                config::large_cumu_compaction_task_min_thread_num) {
                         // Determine if this is a big task based on configured thresholds
                         is_big_task =
-                                (input_rowsets_total_size > config::cumu_delay_strategy_size ||
-                                 input_row_num > config::cumu_delay_strategy_row_num);
+                                (compaction->calc_input_rowsets_total_size() >
+                                         config::large_cumu_compaction_task_bytes_threshold ||
+                                 compaction->calc_input_rowsets_row_num() >
+                                         config::large_cumu_compaction_task_row_num_threshold);
 
                         // Small task. No delay needed
                         if (!is_big_task) {
                             _cumu_compaction_thread_pool_small_tasks_running++;
                             break;
                         }
-                        LOG_WARNING("lyk_dbg")
-                                .tag("tablet_id", tablet->tablet_id())
-                                .tag("input_rows", input_row_num)
-                                .tag("input_rowsets_total_size", input_rowsets_total_size)
-                                .tag("config::cumu_delay_strategy_size",
-                                     config::cumu_delay_strategy_size)
-                                .tag("config::cumu_delay_strategy_row_num",
-                                     config::cumu_delay_strategy_row_num)
-                                .tag("remaining threads", _cumu_compaction_thread_pool_used_threads)
-                                .tag("small_tasks_running",
-                                     _cumu_compaction_thread_pool_small_tasks_running);
                         // Deal with big task
                         if (_should_delay_big_task()) {
                             LOG_WARNING(
                                     "failed to do CumulativeCompaction, cumu thread pool is "
                                     "intensive, delay big task.")
                                     .tag("tablet_id", tablet->tablet_id())
-                                    .tag("input_rows", input_row_num)
-                                    .tag("input_rowsets_total_size", input_rowsets_total_size)
-                                    .tag("config::cumu_delay_strategy_size",
-                                         config::cumu_delay_strategy_size)
-                                    .tag("config::cumu_delay_strategy_row_num",
-                                         config::cumu_delay_strategy_row_num)
+                                    .tag("input_rows", compaction->calc_input_rowsets_row_num())
+                                    .tag("input_rowsets_total_size",
+                                         compaction->calc_input_rowsets_total_size())
+                                    .tag("config::large_cumu_compaction_task_bytes_threshold",
+                                         config::large_cumu_compaction_task_bytes_threshold)
+                                    .tag("config::large_cumu_compaction_task_row_num_threshold",
+                                         config::large_cumu_compaction_task_row_num_threshold)
                                     .tag("remaining threads",
                                          _cumu_compaction_thread_pool_used_threads)
                                     .tag("small_tasks_running",

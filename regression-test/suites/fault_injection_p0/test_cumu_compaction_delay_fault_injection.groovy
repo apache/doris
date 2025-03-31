@@ -219,7 +219,7 @@ suite("test_cumu_compaction_delay_fault_injection","nonConcurrent") {
         set_be_param("max_cumu_compaction_threads", "2");
         Thread.sleep(10000)
         set_be_param("disable_auto_compaction", "true");
-        set_be_param("cumu_delay_strategy_row_num", "10");
+        set_be_param("large_cumu_compaction_task_row_num_threshold", "10");
 
         Thread.sleep(10000)
         trigger_cumu(tableName1a1)
@@ -247,7 +247,7 @@ suite("test_cumu_compaction_delay_fault_injection","nonConcurrent") {
     } finally {
         set_be_param("disable_auto_compaction", "false");
         set_be_param("max_cumu_compaction_threads", "-1");
-        set_be_param("cumu_delay_strategy_row_num", "1000000");
+        set_be_param("large_cumu_compaction_task_row_num_threshold", "1000000");
         GetDebugPoint().disableDebugPointForAllBEs("StorageEngine._submit_compaction_task.sleep")
         GetDebugPoint().disableDebugPointForAllBEs("CloudStorageEngine._submit_cumulative_compaction_task.sleep")
         GetDebugPoint().disableDebugPointForAllBEs("CompactionAction._handle_run_compaction.submit_cumu_task")
@@ -514,7 +514,7 @@ suite("test_cumu_compaction_delay_fault_injection","nonConcurrent") {
         set_be_param("max_cumu_compaction_threads", "3");
         Thread.sleep(10000)
         set_be_param("disable_auto_compaction", "true");
-        set_be_param("cumu_delay_strategy_row_num", "10");
+        set_be_param("large_cumu_compaction_task_row_num_threshold", "10");
 
         Thread.sleep(10000)
         trigger_cumu(tableName2a1)
@@ -557,7 +557,7 @@ suite("test_cumu_compaction_delay_fault_injection","nonConcurrent") {
     } finally {
         set_be_param("disable_auto_compaction", "false");
         set_be_param("max_cumu_compaction_threads", "-1");
-        set_be_param("cumu_delay_strategy_row_num", "1000000");
+        set_be_param("large_cumu_compaction_task_row_num_threshold", "1000000");
         GetDebugPoint().disableDebugPointForAllBEs("StorageEngine._submit_compaction_task.sleep")
         GetDebugPoint().disableDebugPointForAllBEs("CloudStorageEngine._submit_cumulative_compaction_task.sleep")
         GetDebugPoint().disableDebugPointForAllBEs("CompactionAction._handle_run_compaction.submit_cumu_task")

@@ -1493,6 +1493,24 @@ void BaseStorageEngine::_evict_querying_rowset() {
     }
 }
 
+bool BaseStorageEngine::_should_delay_big_task() {
+    DCHECK_GE(_cumu_compaction_thread_pool->max_threads(),
+              _cumu_compaction_thread_pool_used_threads);
+    DCHECK_GE(_cumu_compaction_thread_pool_small_tasks_running, 0);
+    // Case 1: Multiple threads available => accept big task
+    if (_cumu_compaction_thread_pool->max_threads() - _cumu_compaction_thread_pool_used_threads >
+        0) {
+        return false; // No delay needed
+    }
+    // Case 2: Only one thread left => accept big task only if another small task is already running
+    if (_cumu_compaction_thread_pool_small_tasks_running > 0) {
+        return false; // No delay needed
+    }
+    // Case 3: Only one thread left, this is a big task, and no small tasks are running
+    // Delay this task to reserve capacity for potential small tasks
+    return true; // Delay this big task
+}
+
 bool StorageEngine::add_broken_path(std::string path) {
     std::lock_guard<std::mutex> lock(_broken_paths_mutex);
     auto success = _broken_paths.emplace(path).second;

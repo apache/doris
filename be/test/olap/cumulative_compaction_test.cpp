@@ -276,8 +276,8 @@ TEST_F(CumulativeCompactionTest, TestShouldDelayBigTask) {
               Status::OK());
 
     // Configure parameters
-    config::min_threads_for_cumu_delay_strategy = 3;
-    config::cumu_delay_strategy_row_num = 10;
+    config::large_cumu_compaction_task_min_thread_num = 3;
+    config::large_cumu_compaction_task_row_num_threshold = 10;
 
     // Set thread pool max threads
     EXPECT_EQ(storage_engine._cumu_compaction_thread_pool->set_max_threads(3), Status::OK());

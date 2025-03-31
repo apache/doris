@@ -630,24 +630,6 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
     return st;
 }
 
-bool CloudStorageEngine::_cloud_should_delay_big_task() {
-    CHECK_GE(_cumu_compaction_thread_pool->max_threads(),
-             _cumu_compaction_thread_pool_used_threads);
-    CHECK_GE(_cumu_compaction_thread_pool_small_tasks_running, 0);
-    // Case 1: Multiple threads available => accept big task
-    if (_cumu_compaction_thread_pool->max_threads() - _cumu_compaction_thread_pool_used_threads >
-        0) {
-        return false; // No delay needed
-    }
-    // Case 2: Only one thread left => accept big task only if another small task is already running
-    if (_cumu_compaction_thread_pool_small_tasks_running > 0) {
-        return false; // No delay needed
-    }
-    // Case 3: Only one thread left, this is a big task, and no small tasks are running
-    // Delay this task to reserve capacity for potential small tasks
-    return true; // Delay this big task
-}
-
 Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletSPtr& tablet) {
     using namespace std::chrono;
     {
@@ -713,20 +695,21 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         do {
             std::lock_guard lock(_cumu_compaction_delay_mtx);
             _cumu_compaction_thread_pool_used_threads++;
-            if (config::min_threads_for_cumu_delay_strategy > 1 &&
+            if (config::large_cumu_compaction_task_min_thread_num > 1 &&
                 _cumu_compaction_thread_pool->max_threads() >=
-                        config::min_threads_for_cumu_delay_strategy) {
+                        config::large_cumu_compaction_task_min_thread_num) {
                 // Determine if this is a small task based on configured thresholds
-                is_big_task =
-                        (compaction->get_input_rowsets_bytes() > config::cumu_delay_strategy_size ||
-                         compaction->get_input_num_rows() > config::cumu_delay_strategy_row_num);
+                is_big_task = (compaction->get_input_rowsets_bytes() >
+                                       config::large_cumu_compaction_task_bytes_threshold ||
+                               compaction->get_input_num_rows() >
+                                       config::large_cumu_compaction_task_row_num_threshold);
                 // Small task. No delay needed
                 if (!is_big_task) {
                     _cumu_compaction_thread_pool_small_tasks_running++;
                     break;
                 }
                 // Deal with big task
-                if (_cloud_should_delay_big_task()) {
+                if (_should_delay_big_task()) {
                     long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch())
                                        .count();
                     tablet->set_last_cumu_compaction_failure_time(now);
@@ -735,16 +718,14 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                     tablet->last_cumu_no_suitable_version_ms = now;
                     LOG_WARNING(
                             "failed to do CloudCumulativeCompaction, cumu thread pool is "
-                            "intensive, "
-                            "delay "
-                            "big task.")
+                            "intensive, delay big task.")
                             .tag("tablet_id", tablet->tablet_id())
                             .tag("input_rows", compaction->get_input_num_rows())
                             .tag("input_rowsets_total_size", compaction->get_input_rowsets_bytes())
-                            .tag("config::cumu_delay_strategy_size",
-                                 config::cumu_delay_strategy_size)
-                            .tag("config::cumu_delay_strategy_row_num",
-                                 config::cumu_delay_strategy_row_num)
+                            .tag("config::large_cumu_compaction_task_bytes_threshold",
+                                 config::large_cumu_compaction_task_bytes_threshold)
+                            .tag("config::large_cumu_compaction_task_row_num_threshold",
+                                 config::large_cumu_compaction_task_row_num_threshold)
                             .tag("remaining threads", _cumu_compaction_thread_pool_used_threads)
                             .tag("small_tasks_running",
                                  _cumu_compaction_thread_pool_small_tasks_running);

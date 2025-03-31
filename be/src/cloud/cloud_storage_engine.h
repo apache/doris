@@ -165,7 +165,6 @@ private:
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
     void _lease_compaction_thread_callback();
     void _check_tablet_delete_bitmap_score_callback();
-    bool _cloud_should_delay_big_task();
 
     std::atomic_bool _stopped {false};
 
@@ -203,11 +202,6 @@ private:
     // tablet_id -> active compaction stop tokens
     std::unordered_map<int64_t, std::shared_ptr<CloudCompactionStopToken>>
             _active_compaction_stop_tokens;
-
-    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
-    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
-    int _cumu_compaction_thread_pool_used_threads {0};
-    int _cumu_compaction_thread_pool_small_tasks_running {0};
 
     using CumuPolices =
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;

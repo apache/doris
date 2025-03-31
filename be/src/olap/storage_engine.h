@@ -146,7 +146,7 @@ public:
 protected:
     void _evict_querying_rowset();
     void _evict_quring_rowset_thread_callback();
-    bool _should_delay_submission();
+    bool _should_delay_big_task();
 
     int32_t _effective_cluster_id = -1;
     HeartbeatFlags* _heartbeat_flags = nullptr;
@@ -173,6 +173,11 @@ protected:
 
     std::shared_ptr<bvar::Status<size_t>> _tablet_max_delete_bitmap_score_metrics;
     std::shared_ptr<bvar::Status<size_t>> _tablet_max_base_rowset_delete_bitmap_score_metrics;
+
+    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    int _cumu_compaction_thread_pool_used_threads {0};
+    int _cumu_compaction_thread_pool_small_tasks_running {0};
 };
 
 class CompactionSubmitRegistry {
@@ -436,8 +441,6 @@ private:
 
     void _check_tablet_delete_bitmap_score_callback();
 
-    bool _should_delay_big_task();
-
 private:
     EngineOptions _options;
     std::mutex _store_lock;
@@ -484,8 +487,6 @@ private:
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
 
-    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
-    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _single_replica_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
@@ -531,8 +532,6 @@ private:
     std::unordered_set<int64_t> _cold_compaction_tablet_submitted;
 
     std::mutex _cumu_compaction_delay_mtx;
-    int _cumu_compaction_thread_pool_used_threads {0};
-    int _cumu_compaction_thread_pool_small_tasks_running {0};
 
     // tablet_id, publish_version, transaction_id, partition_id
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;

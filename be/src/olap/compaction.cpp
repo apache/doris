@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <cstdlib>
 #include <list>
 #include <map>
@@ -1369,6 +1370,26 @@ int64_t CompactionMixin::get_compaction_permits() {
         permits += rowset->rowset_meta()->get_compaction_score();
     }
     return permits;
+}
+
+int64_t CompactionMixin::calc_input_rowsets_total_size() const {
+    int64_t input_rowsets_total_size = 0;
+    for (const auto& rowset : _input_rowsets) {
+        const auto& rowset_meta = rowset->rowset_meta();
+        auto total_size = rowset_meta->total_disk_size();
+        input_rowsets_total_size += total_size;
+    }
+    return input_rowsets_total_size;
+}
+
+int64_t CompactionMixin::calc_input_rowsets_row_num() const {
+    int64_t input_rowsets_row_num = 0;
+    for (const auto& rowset : _input_rowsets) {
+        const auto& rowset_meta = rowset->rowset_meta();
+        auto total_size = rowset_meta->total_disk_size();
+        input_rowsets_row_num += total_size;
+    }
+    return input_rowsets_row_num;
 }
 
 void Compaction::_load_segment_to_cache() {
