@@ -123,6 +123,8 @@ public:
         }
     }
 
+    std::string get_load_error_url();
+
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
                             const DescriptorTbl& descs, OperatorPtr* root, PipelinePtr cur_pipe);
