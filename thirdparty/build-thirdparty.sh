@@ -1351,7 +1351,7 @@ build_aws_sdk() {
     "${CMAKE_CMD}" -G "${GENERATOR}" -B"${BUILD_DIR}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
-        -DBUILD_ONLY="core;s3;s3-crt;transfer" \
+        -DBUILD_ONLY="core;s3;s3-crt;transfer;identity-management;sts" \
         -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
@@ -1374,6 +1374,8 @@ build_aws_sdk() {
     strip_lib libaws-cpp-sdk-transfer.a
     strip_lib libaws-checksums.a
     strip_lib libaws-c-compression.a
+    strip_lib libaws-cpp-sdk-identity-management.a
+    strip_lib libaws-cpp-sdk-sts.a
 }
 
 # lzma
@@ -1857,8 +1859,35 @@ build_icu() {
     make install
 }
 
+# jindofs
+build_jindofs() {
+    check_if_source_exist "${JINDOFS_SOURCE}"
+
+    rm -rf "${TP_INSTALL_DIR}/jindofs_libs/"
+    mkdir -p "${TP_INSTALL_DIR}/jindofs_libs/"
+    cp -r ${TP_SOURCE_DIR}/${JINDOFS_SOURCE}/* "${TP_INSTALL_DIR}/jindofs_libs/"
+}
+
+# pugixml
+build_pugixml() {
+    check_if_source_exist "${PUGIXML_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+
+    cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugixml.hpp" "${TP_INSTALL_DIR}/include/"
+    cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugiconfig.hpp" "${TP_INSTALL_DIR}/include/"
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
+        jindofs
         odbc
         openssl
         libevent
@@ -1927,6 +1956,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         dragonbox
         brotli
         icu
+        pugixml
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

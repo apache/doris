@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -35,7 +36,18 @@ public class DropExpiredStatsCommand extends DropCommand {
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        validate();
         ctx.getEnv().getAnalysisManager().dropExpiredStats();
+    }
+
+    /**
+     * validate
+     */
+    public void validate() throws UserException {
+        if (!ConnectContext.get().getSessionVariable().enableStats) {
+            throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
+                + "in your FE conf file");
+        }
     }
 
     @Override

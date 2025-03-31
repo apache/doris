@@ -69,8 +69,8 @@ struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const std::vector<TScanRangeParams>& scan_ranges;
     BasicSharedState* shared_state;
-    const std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                  std::shared_ptr<Dependency>>>& le_state_map;
+    const std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                  std::vector<std::shared_ptr<Dependency>>>>& shared_state_map;
     const int task_idx;
 };
 
@@ -80,8 +80,8 @@ struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
     BasicSharedState* shared_state;
-    const std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                  std::shared_ptr<Dependency>>>& le_state_map;
+    const std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                  std::vector<std::shared_ptr<Dependency>>>>& shared_state_map;
     const TDataSink& tsink;
 };
 
@@ -196,6 +196,7 @@ public:
 
     // override in Scan
     virtual Dependency* finishdependency() { return nullptr; }
+    virtual Dependency* spill_dependency() const { return nullptr; }
     //  override in Scan  MultiCastSink
     virtual std::vector<Dependency*> filter_dependencies() { return {}; }
 
@@ -267,9 +268,11 @@ public:
     std::vector<Dependency*> dependencies() const override {
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
+    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
 protected:
     Dependency* _dependency = nullptr;
+    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateArg* _shared_state = nullptr;
 };
 
@@ -466,6 +469,7 @@ public:
 
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
+    virtual Dependency* spill_dependency() const { return nullptr; }
 
     bool low_memory_mode() { return _state->low_memory_mode(); }
 
@@ -515,6 +519,7 @@ public:
     std::vector<Dependency*> dependencies() const override {
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
+    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
 protected:
     Dependency* _dependency = nullptr;
