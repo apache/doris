@@ -84,6 +84,10 @@ def verifyProfileContent = { stmt, serialReadOnLimit ->
 
 suite('adaptive_pipeline_task_serial_read_on_limit') {
     sql """
+        UNSET VARIABLE ALL;
+    """
+
+    sql """
         DROP TABLE IF EXISTS adaptive_pipeline_task_serial_read_on_limit;
     """
     sql """
