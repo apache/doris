@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -56,6 +57,36 @@ public class CheckMultiDistinct extends OneRewriteRuleFactory {
                     throw new AnalysisException(func.toString() + " can't support multi distinct.");
                 }
             }
+        }
+
+        boolean distinctMultiColumns = false;
+        for (AggregateFunction func : aggregate.getAggregateFunctions()) {
+            if (!func.isDistinct()) {
+                continue;
+            }
+            if (func.arity() <= 1) {
+                continue;
+            }
+            for (int i = 1; i < func.arity(); i++) {
+                if (!func.child(i).getInputSlots().isEmpty() && !(func.child(i) instanceof OrderExpression)) {
+                    // think about group_concat(distinct col_1, ',')
+                    distinctMultiColumns = true;
+                    break;
+                }
+            }
+            if (distinctMultiColumns) {
+                break;
+            }
+        }
+
+        long distinctFunctionNum = 0;
+        for (AggregateFunction aggregateFunction : aggregate.getAggregateFunctions()) {
+            distinctFunctionNum += aggregateFunction.isDistinct() ? 1 : 0;
+        }
+
+        if (distinctMultiColumns && distinctFunctionNum > 1) {
+            throw new AnalysisException(
+                    "The query contains multi count distinct or sum distinct, each can't have multi columns");
         }
         return aggregate;
     }
