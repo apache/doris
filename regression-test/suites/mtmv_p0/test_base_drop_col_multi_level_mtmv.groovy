@@ -17,9 +17,9 @@
 
 import org.junit.Assert;
 
-suite("test_base_add_col_multi_level_mtmv","mtmv") {
+suite("test_base_drop_col_multi_level_mtmv","mtmv") {
     String dbName = context.config.getDbNameByFile(context.file)
-    String suiteName = "test_base_comment_multi_level_mtmv"
+    String suiteName = "test_base_drop_col_multi_level_mtmv"
     String tableName1 = "${suiteName}_table1"
     String tableName2 = "${suiteName}_table2"
     String mvName1 = "${suiteName}_mv1"
@@ -39,7 +39,8 @@ suite("test_base_add_col_multi_level_mtmv","mtmv") {
         CREATE TABLE ${tableName1}
         (
             k1 INT,
-            k2 varchar(32)
+            k2 varchar(32),
+            k3 varchar(32)
         )
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
@@ -58,7 +59,7 @@ suite("test_base_add_col_multi_level_mtmv","mtmv") {
         );
         """
     sql """
-            INSERT INTO ${tableName1} VALUES(1,"a");
+            INSERT INTO ${tableName1} VALUES(1,"a","a2");
         """
     sql """
         INSERT INTO ${tableName2} VALUES(1,"b");
@@ -123,9 +124,9 @@ suite("test_base_add_col_multi_level_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName4)
 
-    // add column
+    // drop column
     sql """
-        alter table ${tableName1} add COLUMN new_col INT AFTER k2;
+        alter table ${tableName1} drop COLUMN k3;
         """
     assertEquals("FINISHED", getAlterColumnFinalState("${tableName1}"))
     order_qt_add_col_t1_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
@@ -133,9 +134,8 @@ suite("test_base_add_col_multi_level_mtmv","mtmv") {
     order_qt_add_col_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
     order_qt_add_col_t1_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
 
-    mv_rewrite_success_without_check_chosen(querySql, mvName1)
     mv_rewrite_success_without_check_chosen(querySql, mvName2)
-    mv_rewrite_success_without_check_chosen(querySql, mvName3)
-    // FailSummary: View struct info is invalid
-    //mv_rewrite_success_without_check_chosen(querySql, mvName4)
+    mv_not_part_in(querySql, mvName1)
+    mv_not_part_in(querySql, mvName3)
+    mv_not_part_in(querySql, mvName4)
 }
