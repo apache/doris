@@ -77,7 +77,6 @@ TEST_F(RuntimeFilterProducerHelperTest, basic) {
 
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.build(_runtime_states[0].get(), &block));
-    vectorized::SharedHashTableContextPtr shared_hash_table_ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper.publish(_runtime_states[0].get(), false, runtime_filters));
 }
