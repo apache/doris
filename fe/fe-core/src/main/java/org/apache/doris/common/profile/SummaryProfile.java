@@ -21,6 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.TransactionType;
@@ -30,11 +31,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -122,6 +125,9 @@ public class SummaryProfile {
     public static final String RPC_QUEUE_TIME = "RPC Work Queue Time";
     public static final String RPC_WORK_TIME = "RPC Work Time";
     public static final String LATENCY_FROM_BE_TO_FE = "RPC Latency From BE To FE";
+    public static final String SPLITS_ASSIGNMENT = "Splits Assignment";
+    public static final String SPLITS_ASSIGNMENT_WEIGHT = "Weight";
+    public static final String SPLITS_ASSIGNMENT_SPLIT_INFO = "Split Info";
 
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
@@ -179,7 +185,12 @@ public class SummaryProfile {
             TRACE_ID,
             TRANSACTION_COMMIT_TIME,
             SYSTEM_MESSAGE,
-            EXECUTED_BY_FRONTEND
+            EXECUTED_BY_FRONTEND,
+            NEREIDS_BE_FOLD_CONST_TIME,
+            NEREIDS_GARBAGE_COLLECT_TIME,
+            SPLITS_ASSIGNMENT,
+            SPLITS_ASSIGNMENT_WEIGHT,
+            SPLITS_ASSIGNMENT_SPLIT_INFO
     );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
@@ -215,6 +226,8 @@ public class SummaryProfile {
             .put(HMS_ADD_PARTITION_CNT, 2)
             .put(HMS_UPDATE_PARTITION_TIME, 1)
             .put(HMS_UPDATE_PARTITION_CNT, 2)
+            .put(SPLITS_ASSIGNMENT_WEIGHT, 1)
+            .put(SPLITS_ASSIGNMENT_SPLIT_INFO, 1)
             .build();
 
     @SerializedName(value = "summaryProfile")
@@ -335,6 +348,9 @@ public class SummaryProfile {
     @SerializedName(value = "transactionType")
     private TransactionType transactionType = TransactionType.UNKNOWN;
 
+    private final Map<String, List<String>> splitProfileInfoMap = new HashMap<>();
+    private final Map<String, Long> splitWeightProfileInfoMap = new HashMap<>();
+
     // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
     // to FE)
     private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
@@ -397,6 +413,15 @@ public class SummaryProfile {
     public void update(Map<String, String> summaryInfo) {
         updateSummaryProfile(summaryInfo);
         updateExecutionSummaryProfile();
+    }
+
+    public void queryFinished() {
+        executionSummaryProfile.addInfoString(
+                SPLITS_ASSIGNMENT_WEIGHT,
+                new GsonBuilder().disableHtmlEscaping().create().toJson(splitWeightProfileInfoMap));
+        executionSummaryProfile.addInfoString(
+                SPLITS_ASSIGNMENT_SPLIT_INFO,
+                new GsonBuilder().disableHtmlEscaping().create().toJson(splitProfileInfoMap));
     }
 
     private void updateSummaryProfile(Map<String, String> infos) {
@@ -950,5 +975,14 @@ public class SummaryProfile {
 
     public void write(DataOutput output) throws IOException {
         Text.writeString(output, GsonUtils.GSON.toJson(this));
+    }
+
+    public void setSplitWeightProfileInfoMap(Backend backend, Long weight) {
+        splitWeightProfileInfoMap.merge(backend.getHost(), weight, Long::sum);
+    }
+
+    public void setSplitProfileInfo(Backend backend, String splitProfileInfo) {
+        List<String> infos = splitProfileInfoMap.computeIfAbsent(backend.getHost(), k -> new ArrayList<>());
+        infos.add(splitProfileInfo);
     }
 }

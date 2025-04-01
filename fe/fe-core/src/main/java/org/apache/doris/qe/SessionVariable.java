@@ -4662,4 +4662,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean getEnableLocalMergeSort() {
         return enableLocalMergeSort;
     }
+
+    public boolean showSplitProfileInfo() {
+        return enableProfile() && getProfileLevel() > 1;
+    }
 }
