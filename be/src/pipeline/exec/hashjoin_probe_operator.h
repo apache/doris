@@ -106,7 +106,7 @@ private:
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
             std::make_unique<HashTableCtxVariants>();
 
-    ssize_t _estimated_mem_in_push = -1;
+    int _task_idx;
 
     RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
@@ -142,6 +142,7 @@ public:
                                                      _partition_exprs)
                                   : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs));
     }
+    bool is_broadcast_join() const { return _is_broadcast_join; }
 
     bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
@@ -172,6 +173,8 @@ private:
     vectorized::VExprContextSPtrs _other_join_conjuncts;
 
     vectorized::VExprContextSPtrs _mark_join_conjuncts;
+    // mark the build hash table whether it needs to store null value
+    std::vector<bool> _serialize_null_into_key;
 
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;

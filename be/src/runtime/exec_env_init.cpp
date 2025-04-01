@@ -41,7 +41,6 @@
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -775,6 +774,7 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_bfd_parser);
     SAFE_DELETE(_result_cache);
+    SAFE_DELETE(_vstream_mgr);
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_workload_sched_mgr);
     SAFE_DELETE(_workload_group_manager);
@@ -796,7 +796,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_backend_client_cache);
     SAFE_DELETE(_result_queue_mgr);
 
-    SAFE_DELETE(_vstream_mgr);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
 

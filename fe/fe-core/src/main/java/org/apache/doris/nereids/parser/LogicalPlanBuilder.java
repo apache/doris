@@ -36,6 +36,7 @@ import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BuiltinAggregateFunctions;
+import org.apache.doris.catalog.BuiltinTableGeneratingFunctions;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.KeysType;
@@ -1706,8 +1707,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String generateName = ctx.tableName.getText();
         // if later view explode map type, we need to add a project to convert map to struct
         String columnName = ctx.columnNames.get(0).getText();
-        List<String> expandColumnNames = Lists.newArrayList();
-        if (ctx.columnNames.size() > 1) {
+        List<String> expandColumnNames = ImmutableList.of();
+
+        // explode can pass multiple columns
+        // then use struct to return the result of the expansion of multiple columns.
+        if (ctx.columnNames.size() > 1
+                || BuiltinTableGeneratingFunctions.INSTANCE.getReturnManyColumnFunctions()
+                    .contains(ctx.functionName.getText())) {
             columnName = ConnectContext.get() != null
                     ? ConnectContext.get().getStatementContext().generateColumnName() : "expand_cols";
             expandColumnNames = ctx.columnNames.stream()

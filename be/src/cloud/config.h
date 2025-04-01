@@ -79,7 +79,6 @@ DECLARE_mInt64(cumu_compaction_interval_s);
 
 DECLARE_mInt32(compaction_timeout_seconds);
 DECLARE_mInt32(lease_compaction_interval_seconds);
-DECLARE_mInt64(base_compaction_interval_seconds_since_last_operation);
 DECLARE_mBool(enable_parallel_cumu_compaction);
 DECLARE_mDouble(base_compaction_thread_num_factor);
 DECLARE_mDouble(cumu_compaction_thread_num_factor);

@@ -64,7 +64,6 @@
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "gutil/integral_types.h"
 #include "http/http_client.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
@@ -579,13 +578,27 @@ Status PInternalService::_exec_plan_fragment_impl(
         }
         MonotonicStopWatch timer;
         timer.start();
+
+        // work for old version frontend
+        if (!t_request.__isset.runtime_filter_info) {
+            TRuntimeFilterInfo runtime_filter_info;
+            auto local_param = fragment_list[0].local_params[0];
+            if (local_param.__isset.runtime_filter_params) {
+                runtime_filter_info.__set_runtime_filter_params(local_param.runtime_filter_params);
+            }
+            if (local_param.__isset.topn_filter_descs) {
+                runtime_filter_info.__set_topn_filter_descs(local_param.topn_filter_descs);
+            }
+            t_request.__set_runtime_filter_info(runtime_filter_info);
+        }
+
         for (const TPipelineFragmentParams& fragment : fragment_list) {
             if (cb) {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        fragment, QuerySource::INTERNAL_FRONTEND, cb));
+                        fragment, QuerySource::INTERNAL_FRONTEND, cb, t_request));
             } else {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        fragment, QuerySource::INTERNAL_FRONTEND));
+                        fragment, QuerySource::INTERNAL_FRONTEND, t_request));
             }
         }
         timer.stop();

@@ -20,7 +20,6 @@
 #include <mutex>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer_context.h"

@@ -39,13 +39,22 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
     auto origin_size = push_exprs.size();
     RETURN_IF_ERROR(_get_push_exprs(push_exprs, _probe_expr));
     // The runtime filter is pushed down, adding filtering information.
-    auto* expr_filtered_rows_counter =
-            ADD_COUNTER(_execution_profile, "ExprFilteredRows", TUnit::UNIT);
-    auto* expr_input_rows_counter = ADD_COUNTER(_execution_profile, "ExprInputRows", TUnit::UNIT);
-    auto* always_true_counter = ADD_COUNTER(_execution_profile, "AlwaysTruePassRows", TUnit::UNIT);
+    auto* expr_filtered_rows_counter = _execution_profile->add_collaboration_counter(
+            "ExprFilteredRows", TUnit::UNIT, _rf_filter);
+    auto* expr_input_rows_counter =
+            _execution_profile->add_collaboration_counter("ExprInputRows", TUnit::UNIT, _rf_input);
+    auto* expr_always_true_counter =
+            ADD_COUNTER(_execution_profile, "AlwaysTruePassRows", TUnit::UNIT);
+
+    auto* predicate_filtered_rows_counter = _storage_profile->add_collaboration_counter(
+            "PredicateFilteredRows", TUnit::UNIT, _rf_filter);
+    auto* predicate_input_rows_counter = _storage_profile->add_collaboration_counter(
+            "PredicateInputRows", TUnit::UNIT, _rf_input);
+
     for (auto i = origin_size; i < push_exprs.size(); i++) {
-        push_exprs[i]->attach_profile_counter(expr_filtered_rows_counter, expr_input_rows_counter,
-                                              always_true_counter);
+        push_exprs[i]->attach_profile_counter(
+                expr_filtered_rows_counter, expr_input_rows_counter, expr_always_true_counter,
+                predicate_filtered_rows_counter, predicate_input_rows_counter);
     }
     return Status::OK();
 }

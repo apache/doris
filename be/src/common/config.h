@@ -1155,6 +1155,8 @@ DECLARE_mBool(inverted_index_compaction_enable);
 DECLARE_mBool(debug_inverted_index_compaction);
 // index by RAM directory
 DECLARE_mBool(inverted_index_ram_dir_enable);
+// wheather index by RAM directory when base compaction
+DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 
@@ -1539,6 +1541,11 @@ DECLARE_mInt32(schema_dict_cache_capacity);
 DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
 
 DECLARE_mBool(enable_mow_verbose_log);
+
+DECLARE_mInt32(tablet_sched_delay_time_ms);
+DECLARE_mInt32(load_trigger_compaction_version_percent);
+DECLARE_mInt64(base_compaction_interval_seconds_since_last_operation);
+DECLARE_mBool(enable_compaction_pause_on_high_memory);
 
 #ifdef BE_TEST
 // test s3
