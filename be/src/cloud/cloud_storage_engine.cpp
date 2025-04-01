@@ -26,7 +26,6 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <algorithm>
-#include <mutex>
 #include <variant>
 
 #include "cloud/cloud_base_compaction.h"
@@ -681,8 +680,59 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
             tablet->last_cumu_no_suitable_version_ms = 0;
         }
     };
-    st = _cumu_compaction_thread_pool->submit_func([=, compaction = std::move(compaction)]() {
+    st = _cumu_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
         signal::tablet_id = tablet->tablet_id();
+        bool is_large_task = true;
+        Defer defer {[&]() {
+            DBUG_EXECUTE_IF("CloudStorageEngine._submit_cumulative_compaction_task.sleep",
+                            { sleep(5); })
+            std::lock_guard lock(_cumu_compaction_delay_mtx);
+            _cumu_compaction_thread_pool_used_threads--;
+            if (!is_large_task) {
+                _cumu_compaction_thread_pool_small_tasks_running--;
+            }
+        }};
+        do {
+            std::lock_guard lock(_cumu_compaction_delay_mtx);
+            _cumu_compaction_thread_pool_used_threads++;
+            if (config::large_cumu_compaction_task_min_thread_num > 1 &&
+                _cumu_compaction_thread_pool->max_threads() >=
+                        config::large_cumu_compaction_task_min_thread_num) {
+                // Determine if this is a small task based on configured thresholds
+                is_large_task = (compaction->get_input_rowsets_bytes() >
+                                         config::large_cumu_compaction_task_bytes_threshold ||
+                                 compaction->get_input_num_rows() >
+                                         config::large_cumu_compaction_task_row_num_threshold);
+                // Small task. No delay needed
+                if (!is_large_task) {
+                    _cumu_compaction_thread_pool_small_tasks_running++;
+                    break;
+                }
+                // Deal with large task
+                if (_should_delay_large_task()) {
+                    long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch())
+                                       .count();
+                    tablet->set_last_cumu_compaction_failure_time(now);
+                    erase_submitted_cumu_compaction();
+                    // sleep 5s for this tablet
+                    tablet->last_cumu_no_suitable_version_ms = now;
+                    LOG_WARNING(
+                            "failed to do CloudCumulativeCompaction, cumu thread pool is "
+                            "intensive, delay large task.")
+                            .tag("tablet_id", tablet->tablet_id())
+                            .tag("input_rows", compaction->get_input_num_rows())
+                            .tag("input_rowsets_total_size", compaction->get_input_rowsets_bytes())
+                            .tag("config::large_cumu_compaction_task_bytes_threshold",
+                                 config::large_cumu_compaction_task_bytes_threshold)
+                            .tag("config::large_cumu_compaction_task_row_num_threshold",
+                                 config::large_cumu_compaction_task_row_num_threshold)
+                            .tag("remaining threads", _cumu_compaction_thread_pool_used_threads)
+                            .tag("small_tasks_running",
+                                 _cumu_compaction_thread_pool_small_tasks_running);
+                    return;
+                }
+            }
+        } while (false);
         auto st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
