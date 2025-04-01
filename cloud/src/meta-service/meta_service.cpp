@@ -1986,7 +1986,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
 
     // 3. check if partition's version matches
-    if (request->has_next_visible_version()) {
+    if (request->has_txn_id() && request->has_next_visible_version()) {
         if (!check_partition_version_when_update_delete_bitmap(code, msg, txn, instance_id,
                                                                request->txn_id(), table_id,
                                                                partition_id, tablet_id, request)) {

@@ -5147,33 +5147,73 @@ TEST(MetaServiceTest, UpdateDeleteBitmapWithBigKeys) {
     ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::OK);
 }
 
-TEST(MetaServiceTest, UpdateDeleteBitmapCheckPartitionVersion) {
-    auto meta_service = get_fdb_meta_service();
-    // get delete bitmap update lock
+static void set_partition_version(MetaServiceProxy* meta_service, std::string_view instance_id,
+                                  int64_t db_id, int64_t table_id, int64_t partition_id,
+                                  int64_t version, std::vector<int64_t> pending_txn_ids = {}) {
+    std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
+    std::string ver_val;
+    VersionPB version_pb;
+    version_pb.set_version(version);
+    if (!pending_txn_ids.empty()) {
+        for (auto txn_id : pending_txn_ids) {
+            version_pb.add_pending_txn_ids(txn_id);
+        }
+    }
+    ASSERT_TRUE(version_pb.SerializeToString(&ver_val));
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(ver_key, ver_val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+static void begin_txn_and_commit_rowset(MetaServiceProxy* meta_service, const std::string& label,
+                                        int64_t db_id, int64_t table_id, int64_t partition_id,
+                                        int64_t tablet_id, int64_t* txn_id) {
+    begin_txn(meta_service, db_id, label, table_id, *txn_id);
+    CreateRowsetResponse res;
+    auto rowset = create_rowset(*txn_id, tablet_id, partition_id);
+    prepare_rowset(meta_service, rowset, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    res.Clear();
+    commit_rowset(meta_service, rowset, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+}
+
+static void get_delete_bitmap_update_lock(MetaServiceProxy* meta_service, int64_t table_id,
+                                          int64_t partition_id, int64_t lock_id,
+                                          int64_t initiator) {
     brpc::Controller cntl;
     GetDeleteBitmapUpdateLockRequest get_lock_req;
     GetDeleteBitmapUpdateLockResponse get_lock_res;
     get_lock_req.set_cloud_unique_id("test_cloud_unique_id");
-    get_lock_req.set_table_id(1999);
-    get_lock_req.add_partition_ids(123);
+    get_lock_req.set_table_id(table_id);
+    get_lock_req.add_partition_ids(partition_id);
     get_lock_req.set_expiration(5);
-    get_lock_req.set_lock_id(-1);
-    get_lock_req.set_initiator(100);
+    get_lock_req.set_lock_id(lock_id);
+    get_lock_req.set_initiator(initiator);
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_lock_req,
             &get_lock_res, nullptr);
     ASSERT_EQ(get_lock_res.status().code(), MetaServiceCode::OK);
-    UpdateDeleteBitmapRequest update_delete_bitmap_req;
-    UpdateDeleteBitmapResponse update_delete_bitmap_res;
+}
+
+static void update_delete_bitmap(MetaServiceProxy* meta_service,
+                                 UpdateDeleteBitmapRequest& update_delete_bitmap_req,
+                                 UpdateDeleteBitmapResponse& update_delete_bitmap_res,
+                                 int64_t table_id, int64_t partition_id, int64_t lock_id,
+                                 int64_t initiator, int64_t tablet_id, int64_t txn_id,
+                                 int64_t next_visible_version) {
+    brpc::Controller cntl;
     update_delete_bitmap_req.set_cloud_unique_id("test_cloud_unique_id");
-    update_delete_bitmap_req.set_table_id(1999);
-    update_delete_bitmap_req.set_partition_id(123);
-    update_delete_bitmap_req.set_lock_id(-1);
-    update_delete_bitmap_req.set_initiator(100);
-    update_delete_bitmap_req.set_tablet_id(333);
-    std::string large_value = generate_random_string(300 * 1000 * 3);
-    for (int i = 0; i < 100000; i++) {
-        update_delete_bitmap_req.add_rowset_ids("0200000003ea308a3647dbea83220ed4b8897f2288244a91");
+    update_delete_bitmap_req.set_table_id(table_id);
+    update_delete_bitmap_req.set_partition_id(partition_id);
+    update_delete_bitmap_req.set_lock_id(lock_id);
+    update_delete_bitmap_req.set_initiator(initiator);
+    update_delete_bitmap_req.set_tablet_id(tablet_id);
+    update_delete_bitmap_req.set_txn_id(txn_id);
+    update_delete_bitmap_req.set_next_visible_version(next_visible_version);
+    for (int i = 0; i < 10; i++) {
+        update_delete_bitmap_req.add_rowset_ids("123");
         update_delete_bitmap_req.add_segment_ids(0);
         update_delete_bitmap_req.add_versions(i);
         update_delete_bitmap_req.add_segment_delete_bitmaps("1");
@@ -5181,7 +5221,193 @@ TEST(MetaServiceTest, UpdateDeleteBitmapCheckPartitionVersion) {
     meta_service->update_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
                                        &update_delete_bitmap_req, &update_delete_bitmap_res,
                                        nullptr);
-    ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::OK);
+}
+
+TEST(MetaServiceTest, UpdateDeleteBitmapCheckPartitionVersion) {
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+
+    extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                       const std::string& cloud_unique_id);
+    auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+
+    {
+        // 1. normal path
+        // 1.1 has partition version and request version matches
+        int64_t db_id = 999;
+        int64_t table_id = 1001;
+        int64_t index_id = 4001;
+        int64_t t1p1 = 2001;
+        int64_t tablet_id = 3001;
+        int64_t initiator = -1;
+        int64_t cur_max_version = 100;
+        int64_t txn_id;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, t1p1, tablet_id));
+        begin_txn_and_commit_rowset(meta_service.get(), "label11", db_id, table_id, t1p1, tablet_id,
+                                    &txn_id);
+        int64_t lock_id = txn_id;
+
+        get_delete_bitmap_update_lock(meta_service.get(), table_id, t1p1, lock_id, initiator);
+        set_partition_version(meta_service.get(), instance_id, db_id, table_id, t1p1,
+                              cur_max_version);
+
+        UpdateDeleteBitmapRequest update_delete_bitmap_req;
+        UpdateDeleteBitmapResponse update_delete_bitmap_res;
+        update_delete_bitmap(meta_service.get(), update_delete_bitmap_req, update_delete_bitmap_res,
+                             table_id, t1p1, lock_id, initiator, tablet_id, txn_id,
+                             cur_max_version + 1);
+        ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::OK);
+    }
+
+    {
+        // 1. normal path
+        // 1.2 does not have partition version KV and request version matches
+        int64_t db_id = 999;
+        int64_t table_id = 1002;
+        int64_t index_id = 4001;
+        int64_t t1p1 = 2001;
+        int64_t tablet_id = 3001;
+        int64_t initiator = -1;
+        int64_t txn_id;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, t1p1, tablet_id));
+        begin_txn_and_commit_rowset(meta_service.get(), "label12", db_id, table_id, t1p1, tablet_id,
+                                    &txn_id);
+        int64_t lock_id = txn_id;
+
+        get_delete_bitmap_update_lock(meta_service.get(), table_id, t1p1, lock_id, initiator);
+
+        UpdateDeleteBitmapRequest update_delete_bitmap_req;
+        UpdateDeleteBitmapResponse update_delete_bitmap_res;
+        update_delete_bitmap(meta_service.get(), update_delete_bitmap_req, update_delete_bitmap_res,
+                             table_id, t1p1, lock_id, initiator, tablet_id, txn_id, 2);
+        ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::OK);
+    }
+
+    {
+        // 1. normal path
+        // 1.3 has partition version and pending txn, and request version matches
+        int64_t db_id = 999;
+        int64_t table_id = 1003;
+        int64_t index_id = 4001;
+        int64_t t1p1 = 2001;
+        int64_t tablet_id = 3001;
+        int64_t initiator = -1;
+        int64_t cur_max_version = 120;
+        int64_t txn_id;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, t1p1, tablet_id));
+        begin_txn_and_commit_rowset(meta_service.get(), "label13", db_id, table_id, t1p1, tablet_id,
+                                    &txn_id);
+        int64_t lock_id = txn_id;
+
+        get_delete_bitmap_update_lock(meta_service.get(), table_id, t1p1, lock_id, initiator);
+        set_partition_version(meta_service.get(), instance_id, db_id, table_id, t1p1,
+                              cur_max_version, {12345});
+
+        UpdateDeleteBitmapRequest update_delete_bitmap_req;
+        UpdateDeleteBitmapResponse update_delete_bitmap_res;
+        update_delete_bitmap(meta_service.get(), update_delete_bitmap_req, update_delete_bitmap_res,
+                             table_id, t1p1, lock_id, initiator, tablet_id, txn_id,
+                             cur_max_version + 2);
+        ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::OK);
+    }
+}
+
+TEST(MetaServiceTest, UpdateDeleteBitmapCheckPartitionVersionFail) {
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+
+    extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                       const std::string& cloud_unique_id);
+    auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+
+    {
+        // 2. abnormal path
+        // 2.1 has partition version but request version does not match
+        int64_t db_id = 999;
+        int64_t table_id = 2001;
+        int64_t index_id = 4001;
+        int64_t t1p1 = 2001;
+        int64_t tablet_id = 3001;
+        int64_t initiator = -1;
+        int64_t cur_max_version = 100;
+        int64_t txn_id;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, t1p1, tablet_id));
+        begin_txn_and_commit_rowset(meta_service.get(), "label21", db_id, table_id, t1p1, tablet_id,
+                                    &txn_id);
+        int64_t lock_id = txn_id;
+
+        get_delete_bitmap_update_lock(meta_service.get(), table_id, t1p1, lock_id, initiator);
+        set_partition_version(meta_service.get(), instance_id, db_id, table_id, t1p1,
+                              cur_max_version);
+
+        UpdateDeleteBitmapRequest update_delete_bitmap_req;
+        UpdateDeleteBitmapResponse update_delete_bitmap_res;
+        // wrong version
+        update_delete_bitmap(meta_service.get(), update_delete_bitmap_req, update_delete_bitmap_res,
+                             table_id, t1p1, lock_id, initiator, tablet_id, txn_id,
+                             cur_max_version + 2);
+        ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::VERSION_NOT_MATCH);
+    }
+
+    {
+        // 2. abnormal path
+        // 2.2 does not have partition version KV and request version does not match
+        int64_t db_id = 999;
+        int64_t table_id = 2002;
+        int64_t index_id = 4001;
+        int64_t t1p1 = 2001;
+        int64_t tablet_id = 3001;
+        int64_t initiator = -1;
+        int64_t txn_id;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, t1p1, tablet_id));
+        begin_txn_and_commit_rowset(meta_service.get(), "label22", db_id, table_id, t1p1, tablet_id,
+                                    &txn_id);
+        int64_t lock_id = txn_id;
+
+        get_delete_bitmap_update_lock(meta_service.get(), table_id, t1p1, lock_id, initiator);
+
+        UpdateDeleteBitmapRequest update_delete_bitmap_req;
+        UpdateDeleteBitmapResponse update_delete_bitmap_res;
+        // first load, wrong version
+        update_delete_bitmap(meta_service.get(), update_delete_bitmap_req, update_delete_bitmap_res,
+                             table_id, t1p1, lock_id, initiator, tablet_id, txn_id, 10);
+        ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::VERSION_NOT_MATCH);
+    }
+
+    {
+        // 2. abnormal path
+        // 2.3 has partition version and pending txn, and request version matches
+        int64_t db_id = 999;
+        int64_t table_id = 2003;
+        int64_t index_id = 4001;
+        int64_t t1p1 = 2001;
+        int64_t tablet_id = 3001;
+        int64_t initiator = -1;
+        int64_t cur_max_version = 120;
+        int64_t txn_id;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, t1p1, tablet_id));
+        begin_txn_and_commit_rowset(meta_service.get(), "label23", db_id, table_id, t1p1, tablet_id,
+                                    &txn_id);
+        int64_t lock_id = txn_id;
+
+        get_delete_bitmap_update_lock(meta_service.get(), table_id, t1p1, lock_id, initiator);
+        set_partition_version(meta_service.get(), instance_id, db_id, table_id, t1p1,
+                              cur_max_version, {12345});
+
+        UpdateDeleteBitmapRequest update_delete_bitmap_req;
+        UpdateDeleteBitmapResponse update_delete_bitmap_res;
+        // wrong version
+        update_delete_bitmap(meta_service.get(), update_delete_bitmap_req, update_delete_bitmap_res,
+                             table_id, t1p1, lock_id, initiator, tablet_id, txn_id,
+                             cur_max_version + 1);
+        ASSERT_EQ(update_delete_bitmap_res.status().code(), MetaServiceCode::VERSION_NOT_MATCH);
+    }
 }
 
 TEST(MetaServiceTest, UpdateDeleteBitmap) {
