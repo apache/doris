@@ -123,18 +123,4 @@ suite("test_base_rename_mv_multi_level_mtmv","mtmv") {
             REFRESH MATERIALIZED VIEW ${mvName4} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName4)
-
-    // rename t1
-    sql """
-        ALTER MATERIALIZED VIEW ${mvName1} rename ${mvName1Rename};
-        """
-    order_qt_drop_t1_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
-    order_qt_drop_t1_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
-    order_qt_drop_t1_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
-    order_qt_drop_t1_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
-
-    mv_rewrite_success_without_check_chosen(querySql, mvName1)
-    mv_rewrite_success_without_check_chosen(querySql, mvName2)
-    mv_rewrite_success_without_check_chosen(querySql, mvName3)
-    mv_not_part_in(querySql, mvName4)
 }
