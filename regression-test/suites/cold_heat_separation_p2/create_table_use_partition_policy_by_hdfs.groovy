@@ -138,12 +138,7 @@ suite("create_table_use_partition_policy_by_hdfs") {
             "type"="hdfs",
             "fs.defaultFS"="${getHdfsFs()}",
             "hadoop.username"="${getHdfsUser()}",
-            "hadoop.password"="${getHdfsPasswd()}",
-            "dfs.nameservices" = "my_ha",
-            "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
-            "dfs.namenode.rpc-address.my_ha.my_namenode1" = "127.0.0.1:10000",
-            "dfs.namenode.rpc-address.my_ha.my_namenode2" = "127.0.0.1:10000",
-            "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+            "hadoop.password"="${getHdfsPasswd()}"
         );
     """
 

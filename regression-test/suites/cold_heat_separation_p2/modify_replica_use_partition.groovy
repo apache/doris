@@ -18,6 +18,10 @@ import groovy.json.JsonSlurper
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("modify_replica_use_partition") {
+
+def replicaNum = getFeConfig("force_olap_table_replication_num")
+setFeConfig("force_olap_table_replication_num", 0)
+try {
     def fetchBeHttp = { check_func, meta_url ->
         def i = meta_url.indexOf("/api")
         String endPoint = meta_url.substring(0, i)
@@ -209,6 +213,7 @@ suite("modify_replica_use_partition") {
     load_lineitem_table()
 
     // 等待10min，show tablets from table, 预期not_use_storage_policy_tablet_list 的 RemoteDataSize 为LocalDataSize1，LocalDataSize为0
+    log.info("wait for 10min")
     sleep(600000)
 
 
@@ -233,12 +238,13 @@ suite("modify_replica_use_partition") {
     log.info( "test remote size not zero")
     assertTrue(RemoteDataSize1 != 0)
     def originSize = tablets.size()
+    assertEquals(originSize, 6, "${tableName}'s tablets should be 6")
 
     // alter change replication num
     if (!isCloudMode()) {
         sql """
         ALTER TABLE ${tableName}
-        MODIFY PARTITION (p202301, p202302) SET("replication_num"="3");
+        MODIFY PARTITION (p202301, p202302) SET("replication_num"="3", "storage_policy" = "${policy_name}");
         """
     }
 
@@ -250,6 +256,7 @@ suite("modify_replica_use_partition") {
     select * from ${tableName} limit 10
     """
     // wait one minute for migration to be completed
+    log.info("wait one minute for migration to be completed")
     sleep(60000)
 
     // 对比所有tablets的replicas的rowsets meta是否相同
@@ -257,7 +264,7 @@ suite("modify_replica_use_partition") {
     SHOW TABLETS FROM ${tableName}
     """
     while (tablets.size() != 3 * originSize) {
-        log.info( "tablets clone not finished, sleep 10s")
+        log.info( "tablets clone not finished(tablets.size = ${tablets.size()}, originSize = ${originSize}), sleep 10s")
         sleep(10000)
         tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
@@ -336,6 +343,7 @@ suite("modify_replica_use_partition") {
     assertEquals(RemoteDataSize1, 0)
 
     // 等待10min，show tablets from table, 预期not_use_storage_policy_tablet_list 的 RemoteDataSize 为LocalDataSize1，LocalDataSize为0
+    log.info("wait for 10min")
     sleep(600000)
 
 
@@ -364,7 +372,7 @@ suite("modify_replica_use_partition") {
     if (!isCloudMode()) {
         sql """
         ALTER TABLE ${tableName}
-        MODIFY PARTITION (p202301, p202302) SET("replication_num"="1");
+        MODIFY PARTITION (p202301, p202302) SET("replication_num"="1", "storage_policy" = "${policy_name}");
         """
     }
 
@@ -431,6 +439,7 @@ suite("modify_replica_use_partition") {
     assertEquals(RemoteDataSize1, 0)
 
     // 等待10min，show tablets from table, 预期not_use_storage_policy_tablet_list 的 RemoteDataSize 为LocalDataSize1，LocalDataSize为0
+    log.info("wait for 10min")
     sleep(600000)
 
 
@@ -459,12 +468,12 @@ suite("modify_replica_use_partition") {
     if (!isCloudMode()) {
         sql """
         ALTER TABLE ${tableName}
-        MODIFY PARTITION (p202301) SET("replication_num"="1");
+        MODIFY PARTITION (p202301) SET("replication_num"="1", "storage_policy" = "${policy_name}");
         """
 
         sql """
         ALTER TABLE ${tableName}
-        MODIFY PARTITION (p202302) SET("replication_num"="3");
+        MODIFY PARTITION (p202302) SET("replication_num"="3", "storage_policy" = "${policy_name}");
         """
     }
 
@@ -476,6 +485,7 @@ suite("modify_replica_use_partition") {
     select * from ${tableName} limit 10
     """
 
+    log.info("wait one minute for migration to be completed")
     // wait one minute for migration to be completed
     sleep(60000)
     // 对比3副本的partition中所有tablets的replicas的rowsets meta是否相同
@@ -509,6 +519,8 @@ suite("modify_replica_use_partition") {
     sql """
     DROP TABLE ${tableName}
     """
-
+} finally {
+    setFeConfig("force_olap_table_replication_num", replicaNum)
+}
 
 }
