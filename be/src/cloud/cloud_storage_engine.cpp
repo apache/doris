@@ -700,9 +700,9 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                         config::large_cumu_compaction_task_min_thread_num) {
                 // Determine if this is a small task based on configured thresholds
                 is_large_task = (compaction->get_input_rowsets_bytes() >
-                                       config::large_cumu_compaction_task_bytes_threshold ||
-                               compaction->get_input_num_rows() >
-                                       config::large_cumu_compaction_task_row_num_threshold);
+                                         config::large_cumu_compaction_task_bytes_threshold ||
+                                 compaction->get_input_num_rows() >
+                                         config::large_cumu_compaction_task_row_num_threshold);
                 // Small task. No delay needed
                 if (!is_large_task) {
                     _cumu_compaction_thread_pool_small_tasks_running++;
