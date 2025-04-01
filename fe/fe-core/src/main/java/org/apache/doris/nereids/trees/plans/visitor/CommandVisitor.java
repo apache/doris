@@ -177,6 +177,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountComman
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
@@ -881,6 +882,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropStatsCommand(DropStatsCommand dropStatsCommand, C context) {
         return visitCommand(dropStatsCommand, context);
+    }
+
+    default R visitUnlockTablesCommand(UnlockTablesCommand unlockTablesCommand, C context) {
+        return visitCommand(unlockTablesCommand, context);
     }
 
     default R visitDropCachedStatsCommand(DropCachedStatsCommand dropCachedStatsCommand, C context) {
