@@ -179,9 +179,16 @@ suite("test_base_replace_mv_multi_level_mtmv","mtmv") {
     order_qt_replace_false_mv_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
     order_qt_replace_false_mv_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
     order_qt_replace_false_mv_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
-
-    mv_rewrite_success_without_check_chosen(querySql, mvName1)
+    // replace table will rename default partition name, so will change to async
+    mv_not_part_in(querySql, mvName1)
     mv_rewrite_success_without_check_chosen(querySql, mvName2)
     mv_rewrite_success_without_check_chosen(querySql, mvName3)
     mv_not_part_in(querySql, mvName4)
+
+    // after refresh,should can rewrite
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName1} auto
+        """
+    waitingMTMVTaskFinishedByMvName(mvName1)
+    mv_rewrite_success_without_check_chosen(querySql, mvName1)
 }
