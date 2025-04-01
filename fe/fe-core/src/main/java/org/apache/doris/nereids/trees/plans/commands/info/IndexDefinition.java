@@ -119,7 +119,8 @@ public class IndexDefinition {
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat,
             boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
-                || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF || indexType == IndexType.ANN) {
+                || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF
+                || indexType == IndexType.ANN) {
             String indexColName = column.getName();
             caseSensitivityCols.add(indexColName);
             DataType colType = column.getType();
@@ -131,7 +132,7 @@ public class IndexDefinition {
                         + " index. " + "invalid index: " + name);
             }
 
-            if(indexType == IndexType.ANN && !colType.isArrayType()){
+            if (indexType == IndexType.ANN && !colType.isArrayType()) {
                 throw new AnalysisException("Ann index column must be array type, invalid index: " + name);
             }
 

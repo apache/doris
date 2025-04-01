@@ -229,7 +229,7 @@ public class IndexDef {
                         + "invalid index: " + indexName);
             }
 
-            if(indexType == IndexType.ANN && !colType.isArrayType() ){
+            if (indexType == IndexType.ANN && !colType.isArrayType()) {
                 throw new AnalysisException("ANN index column must be array type");
             }
 
