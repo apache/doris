@@ -15,8 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_like_with_escape") {
-    def db_name = "test_like_with_escape_db"
+suite("test_like_escape") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
+    def db_name = "test_like_escape_db"
 
     sql """DROP DATABASE IF EXISTS ${db_name}"""
 
@@ -27,18 +29,18 @@ suite("test_like_with_escape") {
        CREATE TABLE `test_employees`( `id` tinyint, `name` char(20) ) ENGINE=OLAP DUPLICATE KEY(`id`, `name`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1" );
     """
 	
-    sql "insert into test_employees values (1, 'A_%'),(2, 'B_%'),(3, 'C_D'),(4, 'E_F'),(5, 'F_%');"
+    sql """insert into test_employees values (1, 'A_%'),(2, 'B_%'),(3, 'C_D'),(4, 'E_F'),(5, 'F_%');"""
 
-	def result = sql "select * from test_employees where name like '%\_\%' escape '\\';"
+	def result = sql """select * from test_employees where name like '%\_\%' escape '\\';"""
 	assertEquals(3, result.size())
 	
-	result = sql "select * from test_employees where name like '%|_|%' escape '|';"
+	result = sql """select * from test_employees where name like '%|_|%' escape '|';"""
 	assertEquals(3, result.size())
 	
-	result = sql "select * from test_employees where name like '%@_@%' escape '@';"
+	result = sql """select * from test_employees where name like '%@_@%' escape '@';"""
 	assertEquals(3, result.size())
 	
-	result = sql "select * from test_employees where name like '%#_#%' escape '#';"
+	result = sql """select * from test_employees where name like '%#_#%' escape '#';"""
 	assertEquals(3, result.size())
 
 	sql "DROP DATABASE IF EXISTS ${db_name}"
