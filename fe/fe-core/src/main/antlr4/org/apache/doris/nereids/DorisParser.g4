@@ -353,13 +353,13 @@ supportedLoadStatement
 
 supportedOtherStatement
     : HELP mark=identifierOrText                                                    #help
+    | UNLOCK TABLES                                                                 #unlockTables
     ;
 
 unsupportedOtherStatement
     : INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
     | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
-    | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
-    | UNLOCK TABLES                                                                 #unlockTables
+    | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables 
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
