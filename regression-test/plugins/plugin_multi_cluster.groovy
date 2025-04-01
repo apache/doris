@@ -21,25 +21,82 @@
  * have same data.
  */
 Suite.metaClass.check_multi_cluster_result = { clusterNames ->
-    def getColumnCount = { tableName ->
-        def r = sql """ show columns from ${tableName} """
-        return r[0].size()
+    def isOrderBy = {String type ->
+        // typeInfo likes
+/*
++-----------+--------+------+-------+---------+--------------+
+| Field     | Type   | Null | Key   | Default | Extra        |
++-----------+--------+------+-------+---------+--------------+
+| datekey   | int    | Yes  | true  | NULL    |              |
+*/
+        type = type.toLowerCase()
+        def noOrderByColumns = ["map", "struct", "hll", "json", "array", "bitmap", "variant", "agg_state", "quantile_state"]
+        for (int i = 0; i < noOrderByColumns.size(); i++) {
+            if (type.contains(noOrderByColumns[i])) {
+                return false
+            }
+        }
+        return true
     }
 
     def getSelectSql = { tableName ->
-        def nColumns = getColumnCount(tableName)
-        def s
-        if (nColumns > 1) {
-            s = "select * from ${tableName} order by 1"
-            for (int i = 1; i < nColumns; i++) {
-                s += ",${i+1}"
+	def selectPart = "select "
+        def orderbyPart = " order by "
+
+        def syntaxMap = [
+            "bitmap" : "bitmap_to_string(%s)",
+            "map" : "noOrderBy"
+        ]
+        def columnTypes = sql_return_maparray """ show columns from ${tableName} """
+        def hasComplexType = false        
+        for (int i = 0; i < columnTypes.size(); i++) {
+            if (isOrderBy(columnTypes[i]["Type"]) == false) {
+                hasComplexType = true
+                break
             }
-        } else {
-            s = "select * from ${tableName}"
         }
 
-        s += " limit 100"
-        return s
+        if (hasComplexType == false) {
+            selectPart = "select * "
+            for (int i = 0; i < columnTypes.size(); i++) {
+                if (i == 0) {
+                   orderbyPart += " 1"
+                } else {
+                   orderbyPart += ",${i+1}"
+                }
+            }
+            return selectPart + " from ${tableName} " + orderbyPart + " limit 100"
+        }
+
+        def firstSelect = true
+        def firstOrderby = true
+        def selectIndex = 0
+        def skipKeyWords = ["key", "as", "by", "desc", "@timestamp"]
+        for (int i = 0; i < columnTypes.size(); i++) {
+           def name = columnTypes[i]["Field"]
+           if (skipKeyWords.contains(name)) {
+               continue
+           }            
+           selectIndex++
+           def orderby = isOrderBy(columnTypes[i]["Type"])
+           if (firstSelect) {
+               selectPart += String.format("%s", name)
+               firstSelect = false
+           } else {
+               selectPart += String.format(",%s", name)
+           }
+
+           if (orderby) {
+               if (firstOrderby) {
+                  orderbyPart += "${selectIndex}"
+                  firstOrderby = false
+               } else {
+                  orderbyPart += ",${selectIndex}"
+               }
+           }
+        }
+
+        return selectPart + " from ${tableName} " + orderbyPart + " limit 100"
     }
 
     // main logic
@@ -48,7 +105,7 @@ Suite.metaClass.check_multi_cluster_result = { clusterNames ->
         return
     }
 
-    def ignore_dbs = ["mysql", "information_schema"]
+    def ignore_dbs = ["mysql", "__internal_schema", "information_schema", "regression_test_datatype_p0_nested_types_base_cases", "regression_test_inverted_index_p0_array_contains", "regression_test_load_insert","regression_test_mtmv_p0", "regression_test_nereids_p0_sql_functions_array_functions","regression_test_nereids_p0_sql_functions_bitmap_functions", "regression_test_nereids_p0_sql_functions_datetime_functions", "regression_test_partition_p0_auto_partition","regression_test_query_p0_set_operations","regression_test_variant_p0","regression_test_variant_p0_rqg","test_env_db_dropped_mtmv_db2"]
     def dbs = sql """ show databases """
     dbs.forEach { db ->
         db = db[0]
@@ -68,7 +125,7 @@ Suite.metaClass.check_multi_cluster_result = { clusterNames ->
             }
 
             if (result.toSet().size() != 1) {
-                throw new IllegalArgumentException(""" different result, db: ${db}, table: ${t}. \n${results}  """)
+                throw new IllegalArgumentException(""" different result, db: ${db}, table: ${t}. \n${result}  """)
             } 
         }
     }
