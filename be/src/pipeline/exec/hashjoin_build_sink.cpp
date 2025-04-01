@@ -233,12 +233,10 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
 
     try {
         if (!_terminated && _runtime_filter_producer_helper && !state->is_cancelled()) {
-            if (_should_build_hash_table) {
-                RETURN_IF_ERROR(_runtime_filter_producer_helper->build(
-                        state, _shared_state->build_block.get()));
-            }
-            RETURN_IF_ERROR(_runtime_filter_producer_helper->publish(
-                    state, p._use_shared_hash_table, p._runtime_filters));
+            RETURN_IF_ERROR(_runtime_filter_producer_helper->build(
+                    state, _shared_state->build_block.get(), p._use_shared_hash_table,
+                    p._runtime_filters));
+            RETURN_IF_ERROR(_runtime_filter_producer_helper->publish(state));
         }
     } catch (Exception& e) {
         bool blocked_by_shared_hash_table_signal =

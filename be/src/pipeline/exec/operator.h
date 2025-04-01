@@ -247,7 +247,7 @@ protected:
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
 
     bool _closed = false;
-    bool _terminated = false;
+    std::atomic<bool> _terminated = false;
     vectorized::Block _origin_block;
 };
 

@@ -63,12 +63,12 @@ public:
     MOCK_FUNCTION Status skip_process(RuntimeState* state);
 
     // build rf
-    Status build(RuntimeState* state, const vectorized::Block* block);
+    Status build(RuntimeState* state, const vectorized::Block* block, bool use_shared_table,
+                 std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters);
     // if task is terminated, rf also need to publish
     Status terminate(RuntimeState* state);
     // publish rf
-    Status publish(RuntimeState* state, bool use_shared_table,
-                   std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters);
+    Status publish(RuntimeState* state);
 
 protected:
     virtual void _init_expr(const vectorized::VExprContextSPtrs& build_expr_ctxs,
