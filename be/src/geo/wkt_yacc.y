@@ -21,6 +21,7 @@
 #include "common/logging.h"
 #include "geo/wkt_parse_type.h"
 #include "geo/geo_types.h"
+#include <memory>
 
 struct WktParseContext;
 void wkt_error(WktParseContext* ctx, const char* msg) {
@@ -31,8 +32,8 @@ void wkt_error(WktParseContext* ctx, const char* msg) {
 %union {
     double double_value;
     doris::GeoCoordinate coordinate_value;
-    doris::GeoCoordinateList* coordinate_list_value;
-    doris::GeoCoordinateListList* coordinate_list_list_value;
+    doris::GeoCoordinateList* coordinate_list_ptr;
+    doris::GeoCoordinateListUPtrList* coordinate_list_ptr_list_ptr;
     doris::GeoShape* shape_value;
 }
 
@@ -69,93 +70,87 @@ void wkt_error(WktParseContext* ctx, const char* msg) {
 %type <None> shape
 %type <shape_value> point linestring polygon
 %type <coordinate_value> coordinate
-%type <coordinate_list_value> coordinate_list
-%type <coordinate_list_list_value> coordinate_list_list
-
-%destructor { delete $$; } coordinate_list
-%destructor { delete $$; } coordinate_list_list
-%destructor { delete $$; } point
-%destructor { delete $$; } linestring
-%destructor { delete $$; } polygon
+%type <coordinate_list_ptr> coordinate_list
+%type <coordinate_list_ptr_list_ptr> coordinate_list_list
 
 %%
 
 shape:
-    point 
-    { ctx->shape = $1; }
+    point
+    { ctx->shape = std::unique_ptr<doris::GeoShape>($1); }
     | linestring
-    { ctx->shape = $1; }
+    { ctx->shape = std::unique_ptr<doris::GeoShape>($1); }
     | polygon
-    { ctx->shape = $1; }
+    { ctx->shape = std::unique_ptr<doris::GeoShape>($1); }
     ;
 
-point:
+point: // doris::GeoShape*
      KW_POINT '(' coordinate ')'
      {
-        std::unique_ptr<doris::GeoPoint> point = doris::GeoPoint::create_unique();
+        auto point = doris::GeoPoint::create_unique().release();
         ctx->parse_status = point->from_coord($3);
         if (ctx->parse_status != doris::GEO_PARSE_OK) {
             YYABORT;
         }
-        $$ = point.release();
+        $$ = point;
      }
      ;
 
-linestring:
+linestring: // doris::GeoShape*
     KW_LINESTRING '(' coordinate_list ')'
     {
-        // to avoid memory leak
-        std::unique_ptr<doris::GeoCoordinateList> list($3);
-        std::unique_ptr<doris::GeoLine> line = doris::GeoLine::create_unique();
+        auto line = doris::GeoLine::create_unique().release();
         ctx->parse_status = line->from_coords(*$3);
+        delete $3;
         if (ctx->parse_status != doris::GEO_PARSE_OK) {
             YYABORT;
         }
-        $$ = line.release();
+        $$ = line;
     }
     ;
 
-polygon:
+polygon: // doris::GeoShape*
     KW_POLYGON '(' coordinate_list_list ')'
     {
-        // to avoid memory leak
-        std::unique_ptr<doris::GeoCoordinateListList> list($3);
-        std::unique_ptr<doris::GeoPolygon> polygon = doris::GeoPolygon::create_unique();
+        auto polygon = doris::GeoPolygon::create_unique().release();
         ctx->parse_status = polygon->from_coords(*$3);
+        delete $3;
         if (ctx->parse_status != doris::GEO_PARSE_OK) {
             YYABORT;
         }
-        $$ = polygon.release();
+        $$ = polygon;
     }
     ;
 
-coordinate_list_list:
+coordinate_list_list: // doris::GeoCoordinateListUPtrList*
     coordinate_list_list ',' '(' coordinate_list ')'
     {
-        $1->add($4);
+        auto coord_list_sptr = std::unique_ptr<doris::GeoCoordinateList>($4);
+        $1->push_back(std::move(coord_list_sptr));
         $$ = $1;
     }
     | '(' coordinate_list ')'
     {
-        $$ = new doris::GeoCoordinateListList();
-        $$->add($2);
+        auto coord_list_sptr = std::unique_ptr<doris::GeoCoordinateList>($2);
+        $$ = new doris::GeoCoordinateListUPtrList();
+        $$->push_back(std::move(coord_list_sptr));
     }
     ;
 
-coordinate_list:
+coordinate_list: // doris::GeoCoordinateList*
     coordinate_list ',' coordinate
     { 
-        $1->add($3);
+        $1->push_back($3);
         $$ = $1;
     }
     | coordinate
     {
         $$ = new doris::GeoCoordinateList();
-        $$->add($1);
+        $$->push_back($1);
     }
     ;
 
-coordinate:
+coordinate: // GeoCoordinate
     NUMERIC NUMERIC
     {
         $$.x = $1;

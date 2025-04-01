@@ -17,14 +17,14 @@
 
 #pragma once
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <memory>
 #include <string>
 
 #include "common/factory_creator.h"
 #include "geo/geo_common.h"
 #include "geo/wkt_parse_type.h"
+#include "vec/common/string_ref.h"
 
 class S2Polyline;
 class S2Polygon;
@@ -47,12 +47,12 @@ public:
 
     // decode from serialized data
     static std::unique_ptr<GeoShape> from_encoded(const void* data, size_t size);
+
     // try to construct a GeoShape from a WKT. If construct successfully, a GeoShape will
     // be returned, and the client should delete it when don't need it.
     // return nullptr if convert failed, and reason will be set in status
-    static GeoShape* from_wkt(const char* data, size_t size, GeoParseStatus* status);
-
-    static GeoShape* from_wkb(const char* data, size_t size, GeoParseStatus* status);
+    static std::unique_ptr<GeoShape> from_wkt(const StringRef& str, GeoParseStatus& status);
+    static std::unique_ptr<GeoShape> from_wkb(const StringRef& str, GeoParseStatus& status);
 
     void encode_to(std::string* buf);
     bool decode_from(const void* data, size_t size);
@@ -61,7 +61,7 @@ public:
 
     virtual bool contains(const GeoShape* rhs) const { return false; }
     virtual std::string to_string() const { return ""; }
-    static std::string as_binary(GeoShape* rhs);
+    static std::string as_binary(std::unique_ptr<GeoShape>& rhs);
 
     static bool ComputeArea(GeoShape* rhs, double* angle, std::string square_unit);
 
@@ -74,8 +74,8 @@ class GeoPoint : public GeoShape {
     ENABLE_FACTORY_CREATOR(GeoPoint);
 
 public:
-    GeoPoint();
-    ~GeoPoint() override;
+    GeoPoint() = default;
+    ~GeoPoint() override = default;
 
     GeoParseStatus from_coord(double x, double y);
     GeoParseStatus from_coord(const GeoCoordinate& point);
@@ -112,11 +112,11 @@ class GeoLine : public GeoShape {
     ENABLE_FACTORY_CREATOR(GeoLine);
 
 public:
-    GeoLine();
-    ~GeoLine() override;
+    GeoLine() = default;
+    ~GeoLine() override = default;
 
     GeoParseStatus from_coords(const GeoCoordinateList& list);
-
+    //FIXME: return reference.
     GeoCoordinateList to_coords() const;
 
     GeoShapeType type() const override { return GEO_SHAPE_LINE_STRING; }
@@ -139,11 +139,12 @@ class GeoPolygon : public GeoShape {
     ENABLE_FACTORY_CREATOR(GeoPolygon);
 
 public:
-    GeoPolygon();
-    ~GeoPolygon() override;
+    GeoPolygon() = default;
+    ~GeoPolygon() override = default;
 
+    GeoParseStatus from_coords(const GeoCoordinateListUPtrList& list);
     GeoParseStatus from_coords(const GeoCoordinateListList& list);
-    const std::unique_ptr<GeoCoordinateListList> to_coords() const;
+    GeoCoordinateListList to_coords() const;
 
     GeoShapeType type() const override { return GEO_SHAPE_POLYGON; }
     const S2Polygon* polygon() const { return _polygon.get(); }

@@ -29,32 +29,23 @@
 #include <s2/s2polyline.h>
 #include <s2/util/coding/coder.h>
 #include <s2/util/units/length-units.h>
-#include <string.h>
+
+#include <cstring>
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath>
 #include <iomanip>
+#include <memory>
 #include <sstream>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "geo/geo_tobinary.h"
 #include "geo/wkb_parse.h"
 #include "geo/wkt_parse.h"
+#include "geo/wkt_parse_type.h"
 
 namespace doris {
-
-GeoPoint::GeoPoint() : _point(new S2Point()) {}
-GeoPoint::~GeoPoint() = default;
-
-GeoLine::GeoLine() = default;
-GeoLine::~GeoLine() = default;
-
-GeoPolygon::GeoPolygon() = default;
-GeoPolygon::~GeoPolygon() = default;
-
-GeoCircle::GeoCircle() = default;
-GeoCircle::~GeoCircle() = default;
-
 void print_s2point(std::ostream& os, const S2Point& point) {
     S2LatLng coord(point);
     os << std::setprecision(15) << coord.lng().degrees() << " " << coord.lat().degrees();
@@ -65,17 +56,17 @@ static inline bool is_valid_lng_lat(double lng, double lat) {
 }
 
 // Return GEO_PARSE_OK, if and only if this can be converted to a valid S2Point
-static inline GeoParseStatus to_s2point(double lng, double lat, S2Point* point) {
+static inline GeoParseStatus to_s2point(double lng, double lat, S2Point& point) {
     if (!is_valid_lng_lat(lng, lat)) {
         return GEO_PARSE_COORD_INVALID;
     }
     S2LatLng ll = S2LatLng::FromDegrees(lat, lng);
     DCHECK(ll.is_valid()) << "invalid point, lng=" << lng << ", lat=" << lat;
-    *point = ll.ToPoint();
+    point = ll.ToPoint();
     return GEO_PARSE_OK;
 }
 
-static inline GeoParseStatus to_s2point(const GeoCoordinate& coord, S2Point* point) {
+static inline GeoParseStatus to_s2point(const GeoCoordinate& coord, S2Point& point) {
     return to_s2point(coord.x, coord.y, point);
 }
 
@@ -90,25 +81,25 @@ static bool is_loop_closed(const std::vector<S2Point>& points) {
 }
 
 // remove adjacent duplicate points
-static void remove_duplicate_points(std::vector<S2Point>* points) {
+static void remove_duplicate_points(std::vector<S2Point>& points) {
     int lhs = 0;
     int rhs = 1;
-    for (; rhs < points->size(); ++rhs) {
-        if ((*points)[rhs] != (*points)[lhs]) {
+    for (; rhs < points.size(); ++rhs) {
+        if (points[rhs] != points[lhs]) {
             lhs++;
             if (lhs != rhs) {
-                (*points)[lhs] = (*points)[rhs];
+                points[lhs] = points[rhs];
             }
         }
     }
-    points->resize(lhs + 1);
+    points.resize(lhs + 1);
 }
 
-static GeoParseStatus to_s2loop(const GeoCoordinateList& coords, std::unique_ptr<S2Loop>* loop) {
+static GeoParseStatus to_s2loop(const GeoCoordinateList& coords, std::unique_ptr<S2Loop>& loop) {
     // 1. convert all coordinates to points
-    std::vector<S2Point> points(coords.list.size());
-    for (int i = 0; i < coords.list.size(); ++i) {
-        auto res = to_s2point(coords.list[i], &points[i]);
+    std::vector<S2Point> points(coords.size());
+    for (int i = 0; i < coords.size(); ++i) {
+        auto res = to_s2point(coords[i], points[i]);
         if (res != GEO_PARSE_OK) {
             return res;
         }
@@ -118,49 +109,56 @@ static GeoParseStatus to_s2loop(const GeoCoordinateList& coords, std::unique_ptr
         return GEO_PARSE_LOOP_NOT_CLOSED;
     }
     // 3. remove duplicate points
-    remove_duplicate_points(&points);
+    remove_duplicate_points(points);
     // 4. remove last point
     points.resize(points.size() - 1);
     // 5. check if there is enough point
     if (points.size() < 3) {
         return GEO_PARSE_LOOP_LACK_VERTICES;
     }
-    loop->reset(new S2Loop(points));
-    if (!(*loop)->IsValid()) {
+    loop = std::make_unique<S2Loop>(points);
+    if (!loop->IsValid()) {
         return GEO_PARSE_LOOP_INVALID;
     }
-    (*loop)->Normalize();
+    loop->Normalize();
     return GEO_PARSE_OK;
 }
 
 static GeoParseStatus to_s2polyline(const GeoCoordinateList& coords,
-                                    std::unique_ptr<S2Polyline>* polyline) {
+                                    std::unique_ptr<S2Polyline>& polyline) {
     // 1. convert all coordinates to points
-    std::vector<S2Point> points(coords.list.size());
-    for (int i = 0; i < coords.list.size(); ++i) {
-        auto res = to_s2point(coords.list[i], &points[i]);
+    std::vector<S2Point> points(coords.size());
+    for (int i = 0; i < coords.size(); ++i) {
+        auto res = to_s2point(coords[i], points[i]);
         if (res != GEO_PARSE_OK) {
             return res;
         }
     }
     // 2. remove duplicate points
-    remove_duplicate_points(&points);
+    remove_duplicate_points(points);
     // 3. check if there is enough point
     if (points.size() < 2) {
         return GEO_PARSE_POLYLINE_LACK_VERTICES;
     }
-    polyline->reset(new S2Polyline(points));
-    if (!(*polyline)->IsValid()) {
+    polyline = std::make_unique<S2Polyline>(points);
+    if (!polyline->IsValid()) {
         return GEO_PARSE_POLYLINE_INVALID;
     }
     return GEO_PARSE_OK;
 }
 
-static GeoParseStatus to_s2polygon(const GeoCoordinateListList& coords_list,
-                                   std::unique_ptr<S2Polygon>* polygon) {
-    std::vector<std::unique_ptr<S2Loop>> loops(coords_list.list.size());
-    for (int i = 0; i < coords_list.list.size(); ++i) {
-        auto res = to_s2loop(*coords_list.list[i], &loops[i]);
+template<typename T>
+static GeoParseStatus to_s2polygon(const T& coords_list,
+                                   std::unique_ptr<S2Polygon>& polygon) {
+    std::vector<std::unique_ptr<S2Loop>> loops(coords_list.size());
+    for (int i = 0; i < coords_list.size(); ++i) {
+        GeoParseStatus res;
+        if constexpr (std::is_same_v<T, GeoCoordinateListList>) {
+            res = to_s2loop(coords_list[i], loops[i]);
+        } else {
+            static_assert(std::is_same_v<T, GeoCoordinateListUPtrList>);
+            res = to_s2loop(*coords_list[i], loops[i]);
+        }
         if (res != GEO_PARSE_OK) {
             return res;
         }
@@ -168,7 +166,7 @@ static GeoParseStatus to_s2polygon(const GeoCoordinateListList& coords_list,
             return GEO_PARSE_POLYGON_NOT_HOLE;
         }
     }
-    polygon->reset(new S2Polygon(std::move(loops)));
+    polygon = std::make_unique<S2Polygon>(std::move(loops));
     return GEO_PARSE_OK;
 }
 
@@ -191,24 +189,25 @@ void GeoShape::encode_to(std::string* buf) {
     encode(buf);
 }
 
-GeoShape* GeoShape::from_wkt(const char* data, size_t size, GeoParseStatus* status) {
-    GeoShape* shape = nullptr;
-    *status = WktParse::parse_wkt(data, size, &shape);
+std::unique_ptr<GeoShape> GeoShape::from_wkt(const StringRef& str, GeoParseStatus& status) {
+    std::unique_ptr<GeoShape> shape;
+    status = WktParse::parse_wkt(str, shape);
     return shape;
 }
 
-GeoShape* GeoShape::from_wkb(const char* data, size_t size, GeoParseStatus* status) {
+std::unique_ptr<GeoShape> GeoShape::from_wkb(const StringRef& str, GeoParseStatus& status) {
     std::stringstream wkb;
+    const char* data = str.data;
 
-    for (int i = 0; i < size; ++i) {
+    for (int i = 0; i < str.size; ++i) {
         if ((i == 1 && wkb.str() == "x") || (i == 2 && wkb.str() == "\\x")) {
             wkb.str(std::string());
         }
         wkb << *data;
         data++;
     }
-    GeoShape* shape = nullptr;
-    *status = WkbParse::parse_wkb(wkb, &shape);
+    std::unique_ptr<GeoShape> shape;
+    status = WkbParse::parse_wkb(wkb, shape);
     return shape;
 }
 
@@ -245,39 +244,33 @@ std::unique_ptr<GeoShape> GeoShape::from_encoded(const void* ptr, size_t size) {
 }
 
 GeoParseStatus GeoPoint::from_coord(double x, double y) {
-    return to_s2point(x, y, _point.get());
+    return to_s2point(x, y, *_point);
 }
 
 GeoParseStatus GeoPoint::from_coord(const GeoCoordinate& coord) {
-    return to_s2point(coord, _point.get());
+    return to_s2point(coord, *_point);
 }
 
 GeoCoordinateList GeoPoint::to_coords() const {
-    GeoCoordinate coord;
-    coord.x = GeoPoint::x();
-    coord.y = GeoPoint::y();
-    GeoCoordinateList coords;
-    coords.add(coord);
-    return coords;
+    return {{GeoPoint::x(), GeoPoint::y()}};
 }
 
 GeoCoordinateList GeoLine::to_coords() const {
     GeoCoordinateList coords;
+    //FIXME: simplify those functions.
     for (int i = 0; i < GeoLine::numPoint(); ++i) {
-        GeoCoordinate coord;
-        coord.x = std::stod(
-                absl::StrFormat("%.13f", S2LatLng::Longitude(*GeoLine::getPoint(i)).degrees()));
-        coord.y = std::stod(
-                absl::StrFormat("%.13f", S2LatLng::Latitude(*GeoLine::getPoint(i)).degrees()));
-        coords.add(coord);
+        coords.emplace_back(std::stod(absl::StrFormat(
+                                    "%.13f", S2LatLng::Longitude(*GeoLine::getPoint(i)).degrees())),
+                            std::stod(absl::StrFormat(
+                                    "%.13f", S2LatLng::Latitude(*GeoLine::getPoint(i)).degrees())));
     }
     return coords;
 }
 
-const std::unique_ptr<GeoCoordinateListList> GeoPolygon::to_coords() const {
-    std::unique_ptr<GeoCoordinateListList> coordss(new GeoCoordinateListList());
+GeoCoordinateListList GeoPolygon::to_coords() const {
+    GeoCoordinateListList coordss;
     for (int i = 0; i < GeoPolygon::numLoops(); ++i) {
-        std::unique_ptr<GeoCoordinateList> coords(new GeoCoordinateList());
+        GeoCoordinateList coords;
         S2Loop* loop = GeoPolygon::getLoop(i);
         for (int j = 0; j < loop->num_vertices(); ++j) {
             GeoCoordinate coord;
@@ -285,16 +278,16 @@ const std::unique_ptr<GeoCoordinateListList> GeoPolygon::to_coords() const {
                     absl::StrFormat("%.13f", S2LatLng::Longitude(loop->vertex(j)).degrees()));
             coord.y = std::stod(
                     absl::StrFormat("%.13f", S2LatLng::Latitude(loop->vertex(j)).degrees()));
-            coords->add(coord);
+            coords.push_back(coord);
             if (j == loop->num_vertices() - 1) {
                 coord.x = std::stod(
                         absl::StrFormat("%.13f", S2LatLng::Longitude(loop->vertex(0)).degrees()));
                 coord.y = std::stod(
                         absl::StrFormat("%.13f", S2LatLng::Latitude(loop->vertex(0)).degrees()));
-                coords->add(coord);
+                coords.push_back(coord);
             }
         }
-        coordss->add(coords.release());
+        coordss.push_back(std::move(coords));
     }
     return coordss;
 }
@@ -400,7 +393,7 @@ bool GeoPoint::ComputeAzimuth(GeoPoint* p1, GeoPoint* p2, double* angle) {
 }
 
 GeoParseStatus GeoLine::from_coords(const GeoCoordinateList& list) {
-    return to_s2polyline(list, &_polyline);
+    return to_s2polyline(list, _polyline);
 }
 
 void GeoLine::encode(std::string* buf) {
@@ -411,7 +404,7 @@ void GeoLine::encode(std::string* buf) {
 
 bool GeoLine::decode(const void* data, size_t size) {
     Decoder decoder(data, size);
-    _polyline.reset(new S2Polyline());
+    _polyline = std::make_unique<S2Polyline>();
     return _polyline->Decode(&decoder);
 }
 
@@ -423,8 +416,12 @@ S2Point* GeoLine::getPoint(int i) const {
     return const_cast<S2Point*>(&(_polyline->vertex(i)));
 }
 
+GeoParseStatus GeoPolygon::from_coords(const GeoCoordinateListUPtrList& list) {
+    return to_s2polygon(list, _polygon);
+}
+
 GeoParseStatus GeoPolygon::from_coords(const GeoCoordinateListList& list) {
-    return to_s2polygon(list, &_polygon);
+    return to_s2polygon(list, _polygon);
 }
 
 void GeoPolygon::encode(std::string* buf) {
@@ -435,7 +432,7 @@ void GeoPolygon::encode(std::string* buf) {
 
 bool GeoPolygon::decode(const void* data, size_t size) {
     Decoder decoder(data, size);
-    _polygon.reset(new S2Polygon());
+    _polygon = std::make_unique<S2Polygon>();
     return _polygon->Decode(&decoder) && _polygon->IsValid();
 }
 
@@ -479,15 +476,15 @@ std::string GeoPolygon::as_wkt() const {
 bool GeoPolygon::contains(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
-        const GeoPoint* point = (const GeoPoint*)rhs;
+        const auto* point = (const GeoPoint*)rhs;
         return _polygon->Contains(*point->point());
     }
     case GEO_SHAPE_LINE_STRING: {
-        const GeoLine* line = (const GeoLine*)rhs;
+        const auto* line = (const GeoLine*)rhs;
         return _polygon->Contains(*line->polyline());
     }
     case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* other = (const GeoPolygon*)rhs;
+        const auto* other = (const GeoPolygon*)rhs;
         return _polygon->Contains(*other->polygon());
     }
     default:
@@ -509,12 +506,12 @@ S2Loop* GeoPolygon::getLoop(int i) const {
 
 GeoParseStatus GeoCircle::init(double lng, double lat, double radius_meter) {
     S2Point center;
-    auto status = to_s2point(lng, lat, &center);
+    auto status = to_s2point(lng, lat, center);
     if (status != GEO_PARSE_OK) {
         return status;
     }
     S1Angle radius = S2Earth::ToAngle(util::units::Meters(radius_meter));
-    _cap.reset(new S2Cap(center, radius));
+    _cap = std::make_unique<S2Cap>(center, radius);
     if (!_cap->is_valid()) {
         return GEO_PARSE_CIRCLE_INVALID;
     }
@@ -524,7 +521,7 @@ GeoParseStatus GeoCircle::init(double lng, double lat, double radius_meter) {
 bool GeoCircle::contains(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
-        const GeoPoint* point = (const GeoPoint*)rhs;
+        const auto* point = (const GeoPoint*)rhs;
         return _cap->Contains(*point->point());
     }
     default:
@@ -540,7 +537,7 @@ void GeoCircle::encode(std::string* buf) {
 
 bool GeoCircle::decode(const void* data, size_t size) {
     Decoder decoder(data, size);
-    _cap.reset(new S2Cap());
+    _cap = std::make_unique<S2Cap>();
     return _cap->Decode(&decoder) && _cap->is_valid();
 }
 
@@ -560,12 +557,12 @@ bool GeoShape::ComputeArea(GeoShape* rhs, double* area, std::string square_unit)
     double steradians;
     switch (rhs->type()) {
     case GEO_SHAPE_CIRCLE: {
-        const GeoCircle* circle = (const GeoCircle*)rhs;
+        const auto* circle = (const GeoCircle*)rhs;
         steradians = circle->getArea();
         break;
     }
     case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* polygon = (const GeoPolygon*)rhs;
+        const auto* polygon = (const GeoPolygon*)rhs;
         steradians = polygon->getArea();
         break;
     }
@@ -581,10 +578,10 @@ bool GeoShape::ComputeArea(GeoShape* rhs, double* area, std::string square_unit)
         return false;
     }
 
-    if (square_unit.compare("square_meters") == 0) {
+    if (square_unit == "square_meters") {
         *area = S2Earth::SteradiansToSquareMeters(steradians);
         return true;
-    } else if (square_unit.compare("square_km") == 0) {
+    } else if (square_unit == "square_km") {
         *area = S2Earth::SteradiansToSquareKm(steradians);
         return true;
     } else {
@@ -592,7 +589,7 @@ bool GeoShape::ComputeArea(GeoShape* rhs, double* area, std::string square_unit)
     }
 }
 
-std::string GeoShape::as_binary(GeoShape* rhs) {
+std::string GeoShape::as_binary(std::unique_ptr<GeoShape>& rhs) {
     std::string res;
     if (toBinary::geo_tobinary(rhs, &res)) {
         return res;

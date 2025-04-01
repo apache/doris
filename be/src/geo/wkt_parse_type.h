@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <vector>
+#include "vec/common/custom_allocator.h"
 
 // This file include
 namespace doris {
@@ -27,19 +27,7 @@ struct GeoCoordinate {
     double y;
 };
 
-struct GeoCoordinateList {
-    void add(const GeoCoordinate& coordinate) { list.push_back(coordinate); }
-    std::vector<GeoCoordinate> list;
-};
-
-struct GeoCoordinateListList {
-    ~GeoCoordinateListList() {
-        for (auto item : list) {
-            delete item;
-        }
-    }
-    void add(GeoCoordinateList* coordinates) { list.push_back(coordinates); }
-    std::vector<GeoCoordinateList*> list;
-};
-
+using GeoCoordinateList = DorisVector<GeoCoordinate>;
+using GeoCoordinateListUPtrList = DorisVector<std::unique_ptr<GeoCoordinateList>>; // only for yacc
+using GeoCoordinateListList = DorisVector<GeoCoordinateList>;
 } // namespace doris
