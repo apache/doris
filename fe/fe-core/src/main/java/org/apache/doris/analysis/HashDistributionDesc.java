@@ -115,10 +115,7 @@ public class HashDistributionDesc extends DistributionDesc {
             boolean find = false;
             for (Column column : columns) {
                 if (column.getName().equalsIgnoreCase(colName)) {
-                    if (column.getType().isScalarType(PrimitiveType.STRING)) {
-                        throw new DdlException("String Type should not be used in distribution column["
-                                + column.getName() + "].");
-                    } else if (column.getType().isArrayType()) {
+                    if (column.getType().isArrayType()) {
                         throw new DdlException("Array Type should not be used in distribution column["
                                 + column.getName() + "].");
                     } else if (column.getType().isMapType()) {
