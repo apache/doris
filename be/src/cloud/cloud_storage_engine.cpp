@@ -680,7 +680,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
             tablet->last_cumu_no_suitable_version_ms = 0;
         }
     };
-    st = _cumu_compaction_thread_pool->submit_func([=, compaction = std::move(compaction)]() {
+    st = _cumu_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
         signal::tablet_id = tablet->tablet_id();
         bool is_large_task = true;
         Defer defer {[&]() {
