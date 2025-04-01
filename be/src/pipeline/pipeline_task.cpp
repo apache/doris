@@ -387,6 +387,7 @@ Status PipelineTask::execute(bool* done) {
         Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");
         return status;
     });
+    // `_wake_up_early` must be after `_wait_to_start()`
     if (_wait_to_start() || _wake_up_early) {
         if (config::enable_prefetch_tablet) {
             RETURN_IF_ERROR(_source->hold_tablets(_state));
@@ -418,6 +419,7 @@ Status PipelineTask::execute(bool* done) {
                 _block->clear_column_data(_root->row_desc().num_materialized_slots());
             }
         }};
+        // `_wake_up_early` must be after `_is_blocked()`
         if (_is_blocked() || _wake_up_early) {
             return Status::OK();
         }
@@ -448,7 +450,7 @@ Status PipelineTask::execute(bool* done) {
         }
 
         // `_dry_run` means sink operator need no more data
-        _eos = _wake_up_early || _dry_run || _eos;
+        _eos = _dry_run || _eos;
         _spilling = false;
         auto workload_group = _state->get_query_ctx()->workload_group();
         // If last run is pended by a spilling request, `_block` is produced with some rows in last
