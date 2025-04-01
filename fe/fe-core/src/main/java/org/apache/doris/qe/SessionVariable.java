@@ -4468,7 +4468,7 @@ public class SessionVariable implements Serializable, Writable {
                 && !serdeDialect.equalsIgnoreCase("presto")
                 && !serdeDialect.equalsIgnoreCase("trino")
                 && !serdeDialect.equalsIgnoreCase("hive")) {
-            LOG.warn("serdeDialect value is invalid, the invalid value is {}", serdeDialect);
+            LOG.warn("serde dialect value is invalid, the invalid value is {}", serdeDialect);
             throw new UnsupportedOperationException(
                     "sqlDialect value is invalid, the invalid value is " + serdeDialect);
         }
