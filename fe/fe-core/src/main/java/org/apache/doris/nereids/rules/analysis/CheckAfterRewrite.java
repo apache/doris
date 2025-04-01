@@ -19,12 +19,14 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -148,21 +150,25 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
 
     private void checkMetricTypeIsUsedCorrectly(Plan plan) {
         if (plan instanceof LogicalAggregate) {
-            if (((LogicalAggregate<?>) plan).getGroupByExpressions().stream()
-                    .anyMatch(expression -> expression.getDataType().isOnlyMetricType())) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            LogicalAggregate<?> agg = (LogicalAggregate<?>) plan;
+            for (Expression groupBy : agg.getGroupByExpressions()) {
+                if (groupBy.getDataType().isOnlyMetricType()) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
             }
         } else if (plan instanceof LogicalSort) {
-            if (((LogicalSort<?>) plan).getOrderKeys().stream().anyMatch((
-                    orderKey -> orderKey.getExpr().getDataType()
-                            .isOnlyMetricType()))) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            LogicalSort<?> sort = (LogicalSort<?>) plan;
+            for (OrderKey orderKey : sort.getOrderKeys()) {
+                if (orderKey.getExpr().getDataType().isOnlyMetricType()) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
             }
         } else if (plan instanceof LogicalTopN) {
-            if (((LogicalTopN<?>) plan).getOrderKeys().stream().anyMatch((
-                    orderKey -> orderKey.getExpr().getDataType()
-                            .isOnlyMetricType()))) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            LogicalTopN<?> topN = (LogicalTopN<?>) plan;
+            for (OrderKey orderKey : topN.getOrderKeys()) {
+                if (orderKey.getExpr().getDataType().isOnlyMetricType()) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
             }
         } else if (plan instanceof LogicalWindow) {
             ((LogicalWindow<?>) plan).getWindowExpressions().forEach(a -> {

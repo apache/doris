@@ -407,6 +407,10 @@ public class StatementContext implements Closeable {
         return exprIdGenerator.getNextId();
     }
 
+    public IdGenerator getExprIdGenerator() {
+        return exprIdGenerator;
+    }
+
     public CTEId getNextCTEId() {
         return cteIdGenerator.getNextId();
     }

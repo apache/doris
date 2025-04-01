@@ -366,7 +366,9 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     private Plan pruneAggregate(Aggregate<?> agg, PruneContext context) {
         // first try to prune group by and aggregate functions
         Aggregate<? extends Plan> prunedOutputAgg = pruneOutput(agg, agg.getOutputs(), agg::pruneOutputs, context);
-        Aggregate<?> fillUpAggregate = fillUpGroupByAndOutput(prunedOutputAgg);
+        Aggregate<?> fillUpAggregate = prunedOutputAgg == agg
+                ? prunedOutputAgg
+                : fillUpGroupByAndOutput(prunedOutputAgg);
         return pruneChildren(fillUpAggregate, new BitSet());
     }
 

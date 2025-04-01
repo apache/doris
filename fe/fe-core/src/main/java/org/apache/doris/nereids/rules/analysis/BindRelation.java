@@ -30,6 +30,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
@@ -105,8 +107,6 @@ import java.util.Optional;
  * Rule to bind relations in query plan.
  */
 public class BindRelation extends OneAnalysisRuleFactory {
-
-    public BindRelation() {}
 
     @Override
     public Rule build() {
@@ -257,9 +257,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 ? olapTable.getSchemaByIndexId(olapScan.getSelectedIndexId())
                 : olapTable.getBaseSchema();
 
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (Column col : columns) {
             // use exist slot in the plan
-            SlotReference slot = SlotReference.fromColumn(olapTable, col, col.getName(), olapScan.qualified());
+            SlotReference slot = SlotReference.fromColumn(
+                    exprIdGenerator.getNextId(), olapTable, col, col.getName(), olapScan.qualified()
+            );
             ExprId exprId = slot.getExprId();
             for (Slot childSlot : childOutputSlots) {
                 if (childSlot instanceof SlotReference && ((SlotReference) childSlot).getName().equals(col.getName())) {

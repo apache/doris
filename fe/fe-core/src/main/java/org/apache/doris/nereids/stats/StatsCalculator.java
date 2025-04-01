@@ -256,12 +256,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // ut case
             return Optional.empty();
         }
+        boolean enableDebugLog = LOG.isDebugEnabled();
         for (CatalogRelation scan : scans) {
             double rowCount = calculator.getTableRowCount(scan);
             // row count not available
             if (rowCount == -1) {
-                LOG.info("disable join reorder since row count not available: "
-                        + scan.getTable().getNameWithFullQualifiers());
+                if (enableDebugLog) {
+                    LOG.info("disable join reorder since row count not available: "
+                            + scan.getTable().getNameWithFullQualifiers());
+                }
                 return Optional.of("table[" + scan.getTable().getName() + "] row count is invalid");
             }
             if (scan instanceof OlapScan) {
@@ -269,12 +272,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 Optional<String> reason = calculator.checkNdvValidation((OlapScan) scan, rowCount);
                 if (reason.isPresent()) {
                     try {
-                        ConnectContext.get().getSessionVariable()
+                        context.getConnectContext().getSessionVariable()
                                 .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true");
-                        LOG.info("disable join reorder since col stats invalid: "
-                                + reason.get());
+                        if (enableDebugLog) {
+                            LOG.debug("disable join reorder since col stats invalid: " + reason.get());
+                        }
                     } catch (Exception e) {
-                        LOG.info("disableNereidsJoinReorderOnce failed");
+                        LOG.error("disableNereidsJoinReorderOnce failed", e);
                     }
                     return reason;
                 }

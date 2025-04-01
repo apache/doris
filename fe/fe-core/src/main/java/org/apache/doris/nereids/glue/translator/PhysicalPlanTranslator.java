@@ -976,26 +976,28 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // 1. generate slot reference for each group expression
         List<SlotReference> groupSlots = collectGroupBySlots(groupByExpressions, outputExpressions);
-        ArrayList<Expr> execGroupingExpressions = groupByExpressions.stream()
-                .map(e -> {
-                    Expr result = ExpressionTranslator.translate(e, context);
-                    if (result == null) {
-                        throw new RuntimeException("translate " + e + " failed");
-                    }
-                    return result;
-                })
-                .collect(Collectors.toCollection(ArrayList::new));
+        ArrayList<Expr> execGroupingExpressions = Lists.newArrayListWithCapacity(groupByExpressions.size());
+        for (Expression e : groupByExpressions) {
+            Expr result = ExpressionTranslator.translate(e, context);
+            if (result == null) {
+                throw new RuntimeException("translate " + e + " failed");
+            }
+            execGroupingExpressions.add(result);
+        }
         // 2. collect agg expressions and generate agg function to slot reference map
         List<Slot> aggFunctionOutput = Lists.newArrayList();
-        List<AggregateExpression> aggregateExpressionList = outputExpressions.stream()
-                .filter(o -> o.anyMatch(AggregateExpression.class::isInstance))
-                .peek(o -> aggFunctionOutput.add(o.toSlot()))
-                .map(o -> o.<AggregateExpression>collect(AggregateExpression.class::isInstance))
-                .flatMap(Set::stream)
-                .collect(Collectors.toList());
-        ArrayList<FunctionCallExpr> execAggregateFunctions = aggregateExpressionList.stream()
-                .map(aggregateFunction -> (FunctionCallExpr) ExpressionTranslator.translate(aggregateFunction, context))
-                .collect(Collectors.toCollection(ArrayList::new));
+        ArrayList<FunctionCallExpr> execAggregateFunctions = Lists.newArrayListWithCapacity(outputExpressions.size());
+        for (NamedExpression o : outputExpressions) {
+            if (o.containsType(AggregateExpression.class)) {
+                aggFunctionOutput.add(o.toSlot());
+
+                o.foreach(c -> {
+                    if (c instanceof AggregateExpression) {
+                        execAggregateFunctions.add((FunctionCallExpr) ExpressionTranslator.translate((AggregateExpression) c, context));
+                    }
+                });
+            }
+        }
 
         // 3. generate output tuple
         List<Slot> slotList = Lists.newArrayList();
@@ -1006,12 +1008,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         List<Integer> aggFunOutputIds = ImmutableList.of();
         if (!aggFunctionOutput.isEmpty()) {
-            aggFunOutputIds = outputTupleDesc
-                    .getSlots()
-                    .subList(groupSlots.size(), outputTupleDesc.getSlots().size())
-                    .stream()
-                    .map(slot -> slot.getId().asInt())
-                    .collect(ImmutableList.toImmutableList());
+            aggFunOutputIds = Lists.newArrayListWithCapacity(outputTupleDesc.getSlots().size() - groupSlots.size());
+            ArrayList<SlotDescriptor> slots = outputTupleDesc.getSlots();
+            for (int i = groupSlots.size(); i < slots.size(); i++) {
+                aggFunOutputIds.add(slots.get(i).getId().asInt());
+            }
         }
         boolean isPartial = aggregate.getAggregateParam().aggMode.productAggregateBuffer;
         AggregateInfo aggInfo = AggregateInfo.create(execGroupingExpressions, execAggregateFunctions,

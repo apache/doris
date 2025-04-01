@@ -19,7 +19,6 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.util.ImmutableEqualSet;
 
@@ -99,10 +98,13 @@ public class DataTrait {
     }
 
     public boolean isUniqueAndNotNull(Set<Slot> slotSet) {
-        Set<Slot> notNullSlotSet = slotSet.stream()
-                .filter(s -> !s.nullable())
-                .collect(ImmutableSet.toImmutableSet());
-        return isUnique(notNullSlotSet);
+        ImmutableSet.Builder<Slot> nonNullableSlots = ImmutableSet.builderWithExpectedSize(slotSet.size());
+        for (Slot slot : slotSet) {
+            if (!slot.nullable()) {
+                nonNullableSlots.add(slot);
+            }
+        }
+        return isUnique(nonNullableSlots.build());
     }
 
     public boolean isUniformAndNotNull(Slot slot) {
@@ -276,10 +278,11 @@ public class DataTrait {
                     uniqueSet.slotSets.remove(slotSet);
                     slotSet.removeAll(intersection);
                     for (Slot slot : equalSet) {
-                        ImmutableSet<Slot> uniqueSlotSet = ImmutableSet.<Slot>builder()
-                                .addAll(slotSet)
-                                .add(slot)
-                                .build();
+                        ImmutableSet<Slot> uniqueSlotSet
+                                = ImmutableSet.<Slot>builderWithExpectedSize(slotSet.size() + 1)
+                                    .addAll(slotSet)
+                                    .add(slot)
+                                    .build();
                         uniqueSet.add(uniqueSlotSet);
                     }
                 }

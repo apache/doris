@@ -56,7 +56,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * normalize aggregate's group keys and AggregateFunction's child to SlotReference
@@ -110,10 +109,12 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalHaving(logicalAggregate().whenNot(LogicalAggregate::isNormalized))
+                logicalHaving(logicalAggregate()
+                        .whenNot(LogicalAggregate::isNormalized))
                         .then(having -> normalizeAgg(having.child(), Optional.of(having)))
                         .toRule(RuleType.NORMALIZE_AGGREGATE),
-                logicalAggregate().whenNot(LogicalAggregate::isNormalized)
+                logicalAggregate()
+                        .whenNot(LogicalAggregate::isNormalized)
                         .then(aggregate -> normalizeAgg(aggregate, Optional.empty()))
                         .toRule(RuleType.NORMALIZE_AGGREGATE));
     }
