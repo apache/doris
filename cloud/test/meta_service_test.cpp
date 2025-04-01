@@ -4831,7 +4831,7 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
 }
 
 TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
-    config::use_delete_bitmap_lock_random_way = false;
+    config::use_delete_bitmap_lock_random_version = false;
     auto meta_service = get_meta_service();
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
@@ -4847,7 +4847,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     int64_t table_id = 555;
     // case 1: lock key does not exist, get and remove load lock in new way, success
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     brpc::Controller cntl;
     GetDeleteBitmapUpdateLockRequest load_req;
     GetDeleteBitmapUpdateLockResponse load_res;
@@ -4874,7 +4874,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(load_remove_res.status().code(), MetaServiceCode::OK);
 
     // case 2: lock key does not exist, get and remove load lock in old way, success
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     load_req.set_cloud_unique_id("test_cloud_unique_id");
     load_req.set_table_id(table_id);
     load_req.add_partition_ids(123);
@@ -4896,7 +4896,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(load_remove_res.status().code(), MetaServiceCode::OK);
 
     // case 3: lock key does not exist, get and remove compaction lock in new way, success
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     GetDeleteBitmapUpdateLockRequest compaction_req;
     GetDeleteBitmapUpdateLockResponse compaction_res;
     compaction_req.set_cloud_unique_id("test_cloud_unique_id");
@@ -4924,7 +4924,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     // case 4: lock key does not exist, get and remove compaction lock in old way, success
 
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req.set_table_id(table_id);
     compaction_req.add_partition_ids(123);
@@ -4953,7 +4953,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     // 5.4 load remove lock in old way, success
 
     // 5.2 load get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     load_req.set_cloud_unique_id("test_cloud_unique_id");
     load_req.set_table_id(table_id);
     load_req.add_partition_ids(123);
@@ -4978,7 +4978,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res.status().code(), MetaServiceCode::LOCK_CONFLICT);
 
     // 5.4 load remove lock in old way, success
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     load_remove_req.set_cloud_unique_id("test_cloud_unique_id");
     load_remove_req.set_table_id(table_id);
     load_remove_req.set_lock_id(111);
@@ -4995,7 +4995,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     // 6.4 load remove lock in new way, success
 
     // 6.2 load get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     load_req.set_cloud_unique_id("test_cloud_unique_id");
     load_req.set_table_id(table_id);
     load_req.add_partition_ids(123);
@@ -5020,7 +5020,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res.status().code(), MetaServiceCode::LOCK_CONFLICT);
 
     // 6.4 load remove lock in new way, success
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     load_remove_req.set_cloud_unique_id("test_cloud_unique_id");
     load_remove_req.set_table_id(table_id);
     load_remove_req.set_lock_id(111);
@@ -5037,7 +5037,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     // 7.4 compaction remove lock in old way, failed
 
     // 7.2 compaction get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req.set_table_id(table_id);
     compaction_req.add_partition_ids(123);
@@ -5062,7 +5062,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(load_res.status().code(), MetaServiceCode::LOCK_CONFLICT);
 
     // 7.4 compaction remove lock in old way, failed
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_remove_req.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req.set_table_id(table_id);
     compaction_remove_req.set_tablet_id(2);
@@ -5080,7 +5080,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     // 8.4 compaction remove lock in new way, failed
 
     // 8.2 compaction get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req.set_table_id(table_id);
     compaction_req.add_partition_ids(123);
@@ -5105,7 +5105,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(load_res.status().code(), MetaServiceCode::LOCK_CONFLICT);
 
     // 8.4 compaction remove lock in new way, failed
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_remove_req.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req.set_table_id(table_id);
     compaction_remove_req.set_tablet_id(2);
@@ -5126,7 +5126,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 900;
     // 9.2 compaction1 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     GetDeleteBitmapUpdateLockRequest compaction_req1;
     GetDeleteBitmapUpdateLockResponse compaction_res1;
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
@@ -5141,7 +5141,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 9.3 compaction3 get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     GetDeleteBitmapUpdateLockRequest compaction_req3;
     GetDeleteBitmapUpdateLockResponse compaction_res3;
     compaction_req3.set_cloud_unique_id("test_cloud_unique_id");
@@ -5167,7 +5167,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_remove_res3.status().code(), MetaServiceCode::OK);
 
     // 9.4 load get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     load_req.set_cloud_unique_id("test_cloud_unique_id");
     load_req.set_table_id(table_id);
     load_req.add_partition_ids(123);
@@ -5188,7 +5188,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(load_remove_res.status().code(), MetaServiceCode::OK);
 
     // 9.5 compaction2 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     GetDeleteBitmapUpdateLockRequest compaction_req2;
     GetDeleteBitmapUpdateLockResponse compaction_res2;
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
@@ -5203,7 +5203,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 9.6 compaction1 remove lock in new way, failed
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     RemoveDeleteBitmapUpdateLockRequest compaction_remove_req1;
     RemoveDeleteBitmapUpdateLockResponse compaction_remove_res1;
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
@@ -5226,7 +5226,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 1000;
     // 10.2 compaction1 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -5239,7 +5239,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 10.3 compaction3 get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req3.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req3.set_table_id(table_id);
     compaction_req3.add_partition_ids(123);
@@ -5261,7 +5261,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_remove_res3.status().code(), MetaServiceCode::OK);
 
     // 10.4 load get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     load_req.set_cloud_unique_id("test_cloud_unique_id");
     load_req.set_table_id(table_id);
     load_req.add_partition_ids(123);
@@ -5282,7 +5282,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(load_remove_res.status().code(), MetaServiceCode::OK);
 
     // 10.5 compaction2 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -5295,7 +5295,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 10.6 compaction1 remove lock in new way, failed
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -5316,7 +5316,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 1100;
     // 11.2 compaction1 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -5329,7 +5329,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 11.3 compaction3 get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req3.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req3.set_table_id(table_id);
     compaction_req3.add_partition_ids(123);
@@ -5351,7 +5351,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_remove_res3.status().code(), MetaServiceCode::OK);
 
     // 11.4 sc get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     GetDeleteBitmapUpdateLockRequest sc_req;
     GetDeleteBitmapUpdateLockResponse sc_res;
     sc_req.set_cloud_unique_id("test_cloud_unique_id");
@@ -5377,7 +5377,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(sc_remove_res.status().code(), MetaServiceCode::OK);
 
     // 11.5 compaction2 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -5390,7 +5390,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 11.6 compaction1 remove lock in new way, failed
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -5411,7 +5411,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 1200;
     // 12.2 compaction1 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -5424,7 +5424,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 12.3 compaction3 get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req3.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req3.set_table_id(table_id);
     compaction_req3.add_partition_ids(123);
@@ -5446,7 +5446,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_remove_res3.status().code(), MetaServiceCode::OK);
 
     // 12.4 sc get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     sc_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_req.set_table_id(table_id);
     sc_req.add_partition_ids(123);
@@ -5468,7 +5468,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(sc_remove_res.status().code(), MetaServiceCode::OK);
 
     // 12.5 compaction2 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -5481,7 +5481,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 12.6 compaction1 remove lock in new way, failed
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -5502,7 +5502,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 1300;
     // 13.2 compaction1 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -5515,7 +5515,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 13.3 compaction3 get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req3.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req3.set_table_id(table_id);
     compaction_req3.add_partition_ids(123);
@@ -5537,7 +5537,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_remove_res3.status().code(), MetaServiceCode::OK);
 
     // 13.4 load get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     load_req.set_cloud_unique_id("test_cloud_unique_id");
     load_req.set_table_id(table_id);
     load_req.add_partition_ids(123);
@@ -5558,7 +5558,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(load_remove_res.status().code(), MetaServiceCode::OK);
 
     // 13.5 compaction2 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -5571,7 +5571,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 13.6 compaction1 remove lock in new way, failed
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -5592,7 +5592,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 1400;
     // 14.2 compaction1 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -5605,7 +5605,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 14.3 compaction3 get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req3.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req3.set_table_id(table_id);
     compaction_req3.add_partition_ids(123);
@@ -5627,7 +5627,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_remove_res3.status().code(), MetaServiceCode::OK);
 
     // 14.4 load get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     load_req.set_cloud_unique_id("test_cloud_unique_id");
     load_req.set_table_id(table_id);
     load_req.add_partition_ids(123);
@@ -5648,7 +5648,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(load_remove_res.status().code(), MetaServiceCode::OK);
 
     // 14.5 compaction2 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -5661,7 +5661,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 14.6 compaction1 remove lock in new way, failed
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -5682,7 +5682,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 1500;
     // 15.2 compaction1 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -5695,7 +5695,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 15.3 compaction3 get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req3.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req3.set_table_id(table_id);
     compaction_req3.add_partition_ids(123);
@@ -5717,7 +5717,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_remove_res3.status().code(), MetaServiceCode::OK);
 
     // 15.4 sc get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     sc_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_req.set_table_id(table_id);
     sc_req.add_partition_ids(123);
@@ -5739,7 +5739,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(sc_remove_res.status().code(), MetaServiceCode::OK);
 
     // 15.5 compaction2 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -5752,7 +5752,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 15.6 compaction1 remove lock in old way, failed
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -5773,7 +5773,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 1600;
     // 16.2 compaction1 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -5786,7 +5786,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 16.3 compaction3 get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req3.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req3.set_table_id(table_id);
     compaction_req3.add_partition_ids(123);
@@ -5808,7 +5808,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_remove_res3.status().code(), MetaServiceCode::OK);
 
     // 16.4 sc get and remove lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     sc_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_req.set_table_id(table_id);
     sc_req.add_partition_ids(123);
@@ -5830,7 +5830,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(sc_remove_res.status().code(), MetaServiceCode::OK);
 
     // 16.5 compaction2 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -5843,7 +5843,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 16.6 compaction1 remove lock in old way, failed
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -5863,7 +5863,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 1700;
     // 17.2 compaction1 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -5876,7 +5876,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 17.3 load get and remove lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     load_req.set_cloud_unique_id("test_cloud_unique_id");
     load_req.set_table_id(table_id);
     load_req.add_partition_ids(123);
@@ -5897,7 +5897,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(load_remove_res.status().code(), MetaServiceCode::OK);
 
     // 17.4 compaction2 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -5910,7 +5910,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 17.5 compaction1 remove lock in new way, failed
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -5930,7 +5930,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 1800;
     // 18.2 compaction1 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -5943,7 +5943,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 18.3 load get and remove lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     load_req.set_cloud_unique_id("test_cloud_unique_id");
     load_req.set_table_id(table_id);
     load_req.add_partition_ids(123);
@@ -5964,7 +5964,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(load_remove_res.status().code(), MetaServiceCode::OK);
 
     // 18.4 compaction2 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -5977,7 +5977,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 18.5 compaction1 remove lock in new way, failed
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -5997,7 +5997,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 1900;
     // 19.2 compaction1 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -6010,7 +6010,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 19.3 sc get and remove lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     sc_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_req.set_table_id(table_id);
     sc_req.add_partition_ids(123);
@@ -6032,7 +6032,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(sc_remove_res.status().code(), MetaServiceCode::OK);
 
     // 19.4 compaction2 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -6045,7 +6045,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 19.5 compaction1 remove lock in new way, failed
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -6065,7 +6065,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 2000;
     // 20.2 compaction1 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -6078,7 +6078,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 20.3 sc get and remove lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     sc_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_req.set_table_id(table_id);
     sc_req.add_partition_ids(123);
@@ -6100,7 +6100,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(sc_remove_res.status().code(), MetaServiceCode::OK);
 
     // 20.4 compaction2 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -6113,7 +6113,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 20.5 compaction1 remove lock in new way, failed
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -6133,7 +6133,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 2100;
     // 21.2 compaction1 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -6146,7 +6146,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 21.3 load get and remove lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     load_req.set_cloud_unique_id("test_cloud_unique_id");
     load_req.set_table_id(table_id);
     load_req.add_partition_ids(123);
@@ -6167,7 +6167,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(load_remove_res.status().code(), MetaServiceCode::OK);
 
     // 21.4 compaction2 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -6180,7 +6180,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 21.5 compaction1 remove lock in old way, failed
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -6200,7 +6200,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 2200;
     // 22.2 compaction1 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -6213,7 +6213,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 22.3 load get and remove lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     load_req.set_cloud_unique_id("test_cloud_unique_id");
     load_req.set_table_id(table_id);
     load_req.add_partition_ids(123);
@@ -6234,7 +6234,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(load_remove_res.status().code(), MetaServiceCode::OK);
 
     // 22.4 compaction2 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -6247,7 +6247,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 22.5 compaction1 remove lock in old way, failed
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -6267,7 +6267,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 2300;
     // 23.2 compaction1 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -6280,7 +6280,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 23.3 sc get and remove lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     sc_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_req.set_table_id(table_id);
     sc_req.add_partition_ids(123);
@@ -6302,7 +6302,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(sc_remove_res.status().code(), MetaServiceCode::OK);
 
     // 23.4 compaction2 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -6315,7 +6315,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 23.5 compaction1 remove lock in old way, failed
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -6335,7 +6335,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     table_id = 2400;
     // 24.2 compaction1 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req1.set_table_id(table_id);
     compaction_req1.add_partition_ids(123);
@@ -6348,7 +6348,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res1.status().code(), MetaServiceCode::OK);
 
     // 24.3 sc get and remove lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     sc_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_req.set_table_id(table_id);
     sc_req.add_partition_ids(123);
@@ -6370,7 +6370,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(sc_remove_res.status().code(), MetaServiceCode::OK);
 
     // 24.4 compaction2 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
     compaction_req2.set_table_id(table_id);
     compaction_req2.add_partition_ids(123);
@@ -6383,7 +6383,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     ASSERT_EQ(compaction_res2.status().code(), MetaServiceCode::OK);
 
     // 24.5 compaction1 remove lock in old way, failed
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
     compaction_remove_req1.set_table_id(table_id);
     compaction_remove_req1.set_tablet_id(1);
@@ -6404,11 +6404,11 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockFuzzyTest1) {
     // 1.5 if sc or load succeed，compaction1 remove lock in old way failed
 
     brpc::Controller cntl;
-    config::use_delete_bitmap_lock_random_way = false;
+    config::use_delete_bitmap_lock_random_version = false;
     auto meta_service = get_meta_service();
     int64_t table_id = 1111;
     // 1.1 compaction1 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     GetDeleteBitmapUpdateLockRequest compaction_req1;
     GetDeleteBitmapUpdateLockResponse compaction_res1;
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
@@ -6428,8 +6428,8 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockFuzzyTest1) {
     for (int i = 0; i < 10; i++) {
         int num = std::rand() % 3;
         LOG(INFO) << "num=" << num;
-        bool use_new = (std::rand() % 2 == 0 ? true : false);
-        config::use_delete_bitmap_lock_new_way = use_new;
+        std::string use_version = (std::rand() % 2 == 0 ? "v2" : "v1");
+        config::use_delete_bitmap_lock_version = use_version;
         switch (num) {
         case 0: {
             GetDeleteBitmapUpdateLockRequest load_req;
@@ -6518,7 +6518,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockFuzzyTest1) {
     }
 
     // 1.4 compaction2 get lock in old way
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     GetDeleteBitmapUpdateLockRequest compaction_req2;
     GetDeleteBitmapUpdateLockResponse compaction_res2;
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
@@ -6532,7 +6532,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockFuzzyTest1) {
             &compaction_res2, nullptr);
 
     // 1.5 if sc or load succeed，compaction1 remove lock in old way failed
-    config::use_delete_bitmap_lock_new_way = false;
+    config::use_delete_bitmap_lock_version = "v1";
     RemoveDeleteBitmapUpdateLockRequest compaction_remove_req1;
     RemoveDeleteBitmapUpdateLockResponse compaction_remove_res1;
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
@@ -6559,11 +6559,11 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockFuzzyTest2) {
     // 1.5 if sc or load succeed，compaction1 remove lock in new way failed
 
     brpc::Controller cntl;
-    config::use_delete_bitmap_lock_random_way = false;
+    config::use_delete_bitmap_lock_random_version = false;
     auto meta_service = get_meta_service();
     int64_t table_id = 2222;
     // 1.1 compaction1 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     GetDeleteBitmapUpdateLockRequest compaction_req1;
     GetDeleteBitmapUpdateLockResponse compaction_res1;
     compaction_req1.set_cloud_unique_id("test_cloud_unique_id");
@@ -6583,8 +6583,8 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockFuzzyTest2) {
     for (int i = 0; i < 10; i++) {
         int num = std::rand() % 3;
         LOG(INFO) << "num=" << num;
-        bool use_new = (std::rand() % 2 == 0 ? true : false);
-        config::use_delete_bitmap_lock_new_way = use_new;
+        std::string use_version = (std::rand() % 2 == 0 ? "v2" : "v1");
+        config::use_delete_bitmap_lock_version = use_version;
         switch (num) {
         case 0: {
             GetDeleteBitmapUpdateLockRequest load_req;
@@ -6673,7 +6673,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockFuzzyTest2) {
     }
 
     // 1.4 compaction2 get lock in new way
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     GetDeleteBitmapUpdateLockRequest compaction_req2;
     GetDeleteBitmapUpdateLockResponse compaction_res2;
     compaction_req2.set_cloud_unique_id("test_cloud_unique_id");
@@ -6687,7 +6687,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockFuzzyTest2) {
             &compaction_res2, nullptr);
 
     // 1.5 if sc or load succeed，compaction1 remove lock in new way failed
-    config::use_delete_bitmap_lock_new_way = true;
+    config::use_delete_bitmap_lock_version = "v2";
     RemoveDeleteBitmapUpdateLockRequest compaction_remove_req1;
     RemoveDeleteBitmapUpdateLockResponse compaction_remove_res1;
     compaction_remove_req1.set_cloud_unique_id("test_cloud_unique_id");
