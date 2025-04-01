@@ -86,13 +86,13 @@ TEST(StringOPTest, testStringPushOperations) {
         ASSERT_EQ(static_cast<bool>(test_null_map[i]), static_cast<bool>(null_flags[i]))
                 << "Row " << i << " expected to be non-null.";
 
-        size_t row_length = test_offsets[i] - (i == 0 ? 0 : test_offsets[i - 1]);
+        size_t row_length = test_offsets[i] - test_offsets[i - 1];
         ASSERT_EQ(row_length, expected_strings[i].size())
                 << "Row " << i << " length mismatch: " << row_length << " vs "
                 << expected_strings[i].size();
 
-        std::string actual(reinterpret_cast<const char*>(test_chars.data() +
-                                                         (i == 0 ? 0 : test_offsets[i - 1])),
+        std::string actual(static_cast<const char*>(static_cast<const void*>(test_chars.data() +
+                                                                             test_offsets[i - 1])),
                            row_length);
         ASSERT_EQ(actual, expected_strings[i]) << "Row " << i << " content mismatch.";
     }
@@ -145,13 +145,13 @@ TEST(StringOPTest, testPushValueStringReservedAndAllowOverFlow) {
         ASSERT_EQ(static_cast<bool>(test_null_map[i]), static_cast<bool>(null_flags[i]))
                 << "Row " << i << " expected to be non-null.";
 
-        size_t row_length = test_offsets[i] - (i == 0 ? 0 : test_offsets[i - 1]);
+        size_t row_length = test_offsets[i] - test_offsets[i - 1];
         ASSERT_EQ(row_length, expected_strings[i].size())
                 << "Row " << i << " length mismatch: " << row_length << " vs "
                 << expected_strings[i].size();
 
-        std::string actual(reinterpret_cast<const char*>(test_chars.data() +
-                                                         (i == 0 ? 0 : test_offsets[i - 1])),
+        std::string actual(static_cast<const char*>(static_cast<const void*>(test_chars.data() +
+                                                                             test_offsets[i - 1])),
                            row_length);
         ASSERT_EQ(actual, expected_strings[i]) << "Row " << i << " content mismatch.";
     }
@@ -162,8 +162,9 @@ TEST(StringOPTest, testFastRepeat) {
         int32_t repeat_times = 0;
         // Allocate enough buffer (when repeat_times is 0, the size is 0)
         std::vector<uint8_t> dst(src.size() * repeat_times);
-        StringOP::fast_repeat(dst.data(), reinterpret_cast<const uint8_t*>(src.data()), src.size(),
-                              repeat_times);
+        StringOP::fast_repeat(dst.data(),
+                              static_cast<const uint8_t*>(static_cast<const void*>(src.data())),
+                              src.size(), repeat_times);
         // dst length is 0, no content written
         ASSERT_EQ(dst.size(), 0);
     }
@@ -171,9 +172,14 @@ TEST(StringOPTest, testFastRepeat) {
     {
         for (int32_t repeat_times = 1; repeat_times <= 10; ++repeat_times) {
             std::vector<uint8_t> dst(src.size() * repeat_times);
-            StringOP::fast_repeat(dst.data(), reinterpret_cast<const uint8_t*>(src.data()),
+            StringOP::fast_repeat(dst.data(),
+                                  static_cast<const uint8_t*>(static_cast<const void*>(src.data())),
                                   src.size(), repeat_times);
-            std::string result(reinterpret_cast<const char*>(dst.data()), dst.size());
+
+            // Use std::string constructor with pointer to uint8_t for better safety
+            std::string result(static_cast<const char*>(static_cast<const void*>(dst.data())),
+                               dst.size());
+
             std::string expected;
             for (int i = 0; i < repeat_times; ++i) {
                 expected += src;
@@ -184,15 +190,30 @@ TEST(StringOPTest, testFastRepeat) {
 }
 
 TEST(StringOPTest, testSubstringExecute) {
-    std::vector<std::tuple<int32_t, int32_t>> test_cases = {
-            {0, 0},  // Zero parameters
-            {1, 5},  // Positive start position
-            {-1, 3}, // Negative start position
-            {2, -1}  // Negative length
+    // Test case 1: Test empty string with various parameters
+    std::vector<std::tuple<std::string, int32_t, int32_t, std::string>> test_cases = {
+            {"", 0, 0, ""},  // Empty string, zero parameters
+            {"", 1, 5, ""},  // Empty string, positive start position
+            {"", -1, 3, ""}, // Empty string, negative start position
+            {"", 2, -1, ""}  // Empty string, negative length
     };
 
-    for (const auto& [start_val, len_val] : test_cases) {
-        std::vector<std::string> input_strings = {""};
+    // Test case 2: Add non-empty string test cases
+    std::vector<std::tuple<std::string, int32_t, int32_t, std::string>> more_test_cases = {
+            {"hello", 1, 2, "he"},           // Normal substring from start
+            {"hello", 2, 3, "ell"},          // Substring from middle
+            {"hello", -3, 2, "ll"},          // Negative start position
+            {"hello", 10, 2, ""},            // Start beyond string length
+            {"hello", 1, 10, "hello"},       // Length beyond string end
+            {"hello", 1, -1, ""},            // Negative length
+            {"中文测试", 1, 2, "中文"},      // UTF-8 multi-byte string
+            {"中文测试", 3, 2, "测试"},      // UTF-8 multi-byte string, partial
+            {"混合English", 3, 7, "English"} // Mixed language string
+    };
+
+    // First test with empty string
+    for (const auto& [input_str, start_val, len_val, expected] : test_cases) {
+        std::vector<std::string> input_strings = {input_str};
         std::vector<int32_t> starts = {start_val};
         std::vector<int32_t> lengths = {len_val};
 
@@ -220,8 +241,44 @@ TEST(StringOPTest, testSubstringExecute) {
         // Verify the result
         auto result_column = block.get_by_position(result_index).column;
         ASSERT_EQ(result_column->size(), 1);
-        // An empty string input should always return an empty string
-        ASSERT_EQ(result_column->get_data_at(0).to_string(), "");
+        ASSERT_EQ(result_column->get_data_at(0).to_string(), expected)
+                << "Failed for input='" << input_str << "', start=" << start_val
+                << ", len=" << len_val;
+    }
+
+    // Then test with non-empty strings
+    for (const auto& [input_str, start_val, len_val, expected] : more_test_cases) {
+        std::vector<std::string> input_strings = {input_str};
+        std::vector<int32_t> starts = {start_val};
+        std::vector<int32_t> lengths = {len_val};
+
+        // Create a non-empty column (using ColumnVector instead of Nullable)
+        auto col_strings = ColumnHelper::create_column<DataTypeString>(input_strings);
+        auto col_starts = ColumnHelper::create_column<DataTypeInt32>(starts);
+        auto col_lengths = ColumnHelper::create_column<DataTypeInt32>(lengths);
+
+        Block block;
+        block.insert(ColumnWithTypeAndName(col_strings->clone(), std::make_shared<DataTypeString>(),
+                                           "str"));
+        block.insert(ColumnWithTypeAndName(col_starts->clone(), std::make_shared<DataTypeInt32>(),
+                                           "start"));
+        block.insert(ColumnWithTypeAndName(col_lengths->clone(), std::make_shared<DataTypeInt32>(),
+                                           "len"));
+
+        auto res_col = DataTypeString().create_column();
+        block.insert(ColumnWithTypeAndName(std::move(res_col), std::make_shared<DataTypeString>(),
+                                           "result"));
+
+        ColumnNumbers arguments = {0, 1, 2};
+        uint32_t result_index = 3;
+        SubstringUtil::substring_execute(block, arguments, result_index, input_strings.size());
+
+        // Verify the result
+        auto result_column = block.get_by_position(result_index).column;
+        ASSERT_EQ(result_column->size(), 1);
+        ASSERT_EQ(result_column->get_data_at(0).to_string(), expected)
+                << "Failed for input='" << input_str << "', start=" << start_val
+                << ", len=" << len_val;
     }
 }
 
