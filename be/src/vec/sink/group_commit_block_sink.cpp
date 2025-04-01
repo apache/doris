@@ -167,7 +167,6 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
         for (int index = 0; index < rows; index++) {
             _vpartition->find_partition(block.get(), index, _partitions[index]);
         }
-        bool stop_processing = false;
         for (int row_index = 0; row_index < rows; row_index++) {
             if (_partitions[row_index] == nullptr) [[unlikely]] {
                 _filter_bitmap.Set(row_index, true);
