@@ -272,7 +272,6 @@ public:
                     "function return type check failed, function_name={}, "
                     "expect_return_type={}, real_return_type is nullptr, input_arguments={}",
                     get_name(), return_type->get_name(), get_types_string(arguments));
-            return nullptr;
         }
 
         // check return types equal.
