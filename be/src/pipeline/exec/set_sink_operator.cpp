@@ -27,24 +27,36 @@
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
+uint64_t get_hash_table_size(const auto& hash_table_variant) {
+    uint64_t hash_table_size = 0;
+    std::visit(
+            [&](auto&& arg) {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                    hash_table_size = arg.hash_table->size();
+                }
+            },
+            hash_table_variant);
+    return hash_table_size;
+}
+
 template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
 
-    if (!_runtime_filter_producer_helper || state->is_cancelled() || !_eos) {
-        return Base::close(state, exec_status);
-    }
-
-    try {
-        RETURN_IF_ERROR(
-                _runtime_filter_producer_helper->process(state, &_shared_state->build_block));
-    } catch (Exception& e) {
-        return Status::InternalError(
-                "rf process meet error: {}, wake_up_early: {}, _finish_dependency: {}",
-                e.to_string(), state->get_task()->wake_up_early(),
-                _finish_dependency->debug_string());
+    if (!state->is_cancelled() && _eos) {
+        try {
+            RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
+                    state, &_shared_state->build_block,
+                    get_hash_table_size(_shared_state->hash_table_variants->method_variant)));
+        } catch (Exception& e) {
+            return Status::InternalError(
+                    "rf process meet error: {}, wake_up_early: {}, _finish_dependency: {}",
+                    e.to_string(), state->get_task()->wake_up_early(),
+                    _finish_dependency->debug_string());
+        }
     }
     return Base::close(state, exec_status);
 }
@@ -80,14 +92,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
         local_state._mutable_block.clear();
 
         if (eos) {
-            uint64_t hash_table_size = 0;
-            std::visit(
-                    [&](auto&& arg) {
-                        using HashTableCtxType = std::decay_t<decltype(arg)>;
-                        if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                            hash_table_size = arg.hash_table->size();
-                        }
-                    },
+            uint64_t hash_table_size = get_hash_table_size(
                     local_state._shared_state->hash_table_variants->method_variant);
             valid_element_in_hash_tbl = is_intersect ? 0 : hash_table_size;
 

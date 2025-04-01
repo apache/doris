@@ -37,7 +37,7 @@ public:
     RuntimeFilterProducerHelperSet(RuntimeProfile* profile)
             : RuntimeFilterProducerHelper(profile, true, false) {}
 
-    Status process(RuntimeState* state, const vectorized::Block* block) {
+    Status process(RuntimeState* state, const vectorized::Block* block, uint64_t cardinality) {
         if (_skip_runtime_filters_process) {
             return Status::OK();
         }
@@ -47,10 +47,8 @@ public:
         auto wrapper_state = wake_up_early ? RuntimeFilterWrapper::State::IGNORED
                                            : RuntimeFilterWrapper::State::READY;
         if (!wake_up_early) {
-            // Hash table is completed and runtime filter has a global size now.
-            uint64_t hash_table_size = block ? block->rows() : 0;
-            RETURN_IF_ERROR(_init_filters(state, hash_table_size));
-            if (hash_table_size != 0) {
+            RETURN_IF_ERROR(_init_filters(state, cardinality));
+            if (cardinality != 0) {
                 RETURN_IF_ERROR(_insert(block, 0));
             }
         }
