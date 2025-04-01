@@ -36,7 +36,6 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
@@ -140,6 +139,8 @@ public class StructInfoMap {
         if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.refreshVersion) {
             return;
         }
+        Multimap<BitSet, Plan> groupExpressionRefreshedMap = HashMultimap.create();
+        outer:
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
             // Record each group bit set, Set<BitSet> is belonged to one group
             List<Set<BitSet>> childrenGroupTableMap = new LinkedList<>();
@@ -160,15 +161,26 @@ public class StructInfoMap {
                 childrenGroupTableMap.add(child.getstructInfoMap().getTableMaps());
             }
             // if one same groupExpression have refreshed, continue
-            BitSet oneOfGroupExpressionTableSet = new BitSet();
+            BitSet groupExpressionTableSet = new BitSet();
             for (Set<BitSet> groupExpressionBitSet : childrenGroupTableMap) {
-                Iterator<BitSet> iterator = groupExpressionBitSet.iterator();
-                if (iterator.hasNext()) {
-                    oneOfGroupExpressionTableSet.or(iterator.next());
+                for (BitSet each : groupExpressionBitSet) {
+                    groupExpressionTableSet.or(each);
                 }
             }
-            if (groupExpressionMap.containsKey(oneOfGroupExpressionTableSet)) {
+            // if not equals by logical, need to add to groupExpressionMap
+            Plan currentGroupExpressionPlan = groupExpression.getPlan();
+            if (groupExpressionRefreshedMap.keySet().contains(groupExpressionTableSet)) {
+                Collection<Plan> existPlans = groupExpressionRefreshedMap.get(groupExpressionTableSet);
+                boolean equals;
+                for (Plan existPlan : existPlans) {
+                    equals = isStructInfoLogicalEquals(currentGroupExpressionPlan, existPlan);
+                    if (equals) {
+                        continue outer;
+                    }
+                }
                 continue;
+            } else {
+                groupExpressionRefreshedMap.put(groupExpressionTableSet, currentGroupExpressionPlan);
             }
             // if cumulative child table map is different from current
             // or current group expression map is empty, should update the groupExpressionMap currently
@@ -176,7 +188,6 @@ public class StructInfoMap {
             for (Pair<BitSet, List<BitSet>> bitSetWithChild : bitSetWithChildren) {
                 groupExpressionMap.put(bitSetWithChild.first, Pair.of(groupExpression, bitSetWithChild.second));
             }
-
         }
     }
 
