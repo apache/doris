@@ -744,13 +744,11 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    /**
-     * Alter policy by stmt.
+    /*
+     * Alter policy by policyName and properties.
      **/
-    public void alterPolicy(AlterPolicyStmt stmt) throws DdlException, AnalysisException {
-        String storagePolicyName = stmt.getPolicyName();
-        Map<String, String> properties = stmt.getProperties();
-
+    public void alterPolicy(String storagePolicyName, Map<String, String> properties)
+                throws DdlException, AnalysisException {
         if (findPolicy(storagePolicyName, PolicyTypeEnum.ROW).isPresent()) {
             throw new DdlException("Current not support alter row policy");
         }
@@ -770,6 +768,13 @@ public class PolicyMgr implements Writable {
         }
         AgentTaskExecutor.submit(batchTask);
         LOG.info("Alter storage policy success. policy: {}", storagePolicy);
+    }
+
+    /*
+     * Alter policy by stmt.
+     **/
+    public void alterPolicy(AlterPolicyStmt stmt) throws DdlException, AnalysisException {
+        alterPolicy(stmt.getPolicyName(), stmt.getProperties());
     }
 
     /**
