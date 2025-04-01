@@ -538,6 +538,19 @@ PUGIXML_NAME=pugixml-1.15.tar.gz
 PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
+# openblas
+OPENBLAS_DOWNLOAD="https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.29/OpenBLAS-0.3.29.tar.gz"
+OPENBLAS_NAME="OpenBLAS-0.3.29.tar.gz"
+OPENBLAS_SOURCE="OpenBLAS-0.3.29"
+OPENBLAS_MD5SUM="853a0c5c0747c5943e7ef4bbb793162d"
+
+# faiss
+FAISS_DOWNLOAD="https://github.com/facebookresearch/faiss/archive/refs/tags/v1.10.0.tar.gz"
+FAISS_NAME="faiss-1.10.0.tar.gz"
+FAISS_SOURCE="faiss-1.10.0"
+FAISS_MD5SUM="f31edf2492808b27cc963d0ab316a205"
+
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -618,6 +631,8 @@ export TP_ARCHIVES=(
     'ICU'
     'JINDOFS'
     'PUGIXML'
+    'OPENBLAS'
+    'FAISS'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

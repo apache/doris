@@ -1885,6 +1885,66 @@ build_pugixml() {
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugiconfig.hpp" "${TP_INSTALL_DIR}/include/"
 }
 
+build_openblas() {
+    check_if_source_exist "${OPENBLAS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${OPENBLAS_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+    OPENBLAS_CMAKE_OPTIONS=(
+        "-DCMAKE_PREFIX_PATH=${TP_INSTALL_DIR}"
+        "-DCMAKE_INSTALL_PREFIX=${TP_INSTALL_DIR}"
+        "-DCMAKE_BUILD_TYPE=Release"
+        "-DBUILD_WITHOUT_LAPACK=OFF"
+        "-DNO_SHARED=TRUE"
+        "-DNO_AVX512=TRUE"
+        "-DC_LAPACK=TRUE"
+        "-DUSE_OPENMP=TRUE"
+        "-DBUILD_STATIC_LIBS=ON"
+        "-DNOFORTRAN=TRUE"
+        "-DBUILD_TESTING=OFF"
+        "-DBUILD_RELAPACK=ON"
+        "-DBUILD_BENCHMARKS=OFF"
+    )
+
+    echo "Building openblas at $(pwd) with cmake parameters: ${OPENBLAS_CMAKE_OPTIONS[*]}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" "${OPENBLAS_CMAKE_OPTIONS[@]}" ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+build_faiss() {
+    check_if_source_exist "${FAISS_SOURCE}"
+    echo "Building faiss ${FAISS_SOURCE}"
+    cd "${TP_SOURCE_DIR}"
+    # if faiss dir not exists, create a symlink to faiss source dir
+    # this symlink is necessary since faiss source code must be compiled in a directory named faiss.
+    if [[ ! -d "${TP_SOURCE_DIR}/faiss" ]]; then
+        ln -s "${FAISS_SOURCE}" faiss
+    fi
+    cd "${TP_SOURCE_DIR}/faiss"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    FAISS_CMAKE_OPTIONS=(
+        "-DDORIS_THIRD_LIB_INSTALL_DIR=${TP_INSTALL_DIR}"
+        "-DCMAKE_INSTALL_PREFIX=${TP_INSTALL_DIR}"
+        "-DCMAKE_BUILD_TYPE=Release"
+        "-DFAISS_ENABLE_GPU=OFF"
+        "-DFAISS_ENABLE_PYTHON=OFF"
+    )
+
+    echo "Building faiss at $(pwd) with cmake parameters: ${FAISS_CMAKE_OPTIONS[*]}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" "${FAISS_CMAKE_OPTIONS[@]}" ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         jindofs
