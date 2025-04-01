@@ -35,7 +35,6 @@
 #include "cloud/config.h"
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
