@@ -54,7 +54,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPreFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -106,6 +108,15 @@ public class NereidsLoadUtils {
      */
     public static LogicalPlan createLoadPlan(NereidsFileGroupInfo fileGroupInfo, PartitionNames partitionNames,
             NereidsParamCreateContext context, boolean isPartialUpdate) throws UserException {
+        LogicalPlan currentRootPlan = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
+                Lists.newArrayList(context.scanSlots));
+
+        if (context.fileGroup.getPrecedingFilterExpr() != null) {
+            Set<Expression> conjuncts = new HashSet<>();
+            conjuncts.add(context.fileGroup.getPrecedingFilterExpr());
+            currentRootPlan = new LogicalPreFilter<>(conjuncts, currentRootPlan);
+        }
+
         List<NamedExpression> projects = new ArrayList<>(context.exprMap.size());
         List<String> colNames = new ArrayList<>(context.exprMap.size());
         Set<String> uniqueColNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
@@ -115,24 +126,23 @@ public class NereidsLoadUtils {
             uniqueColNames.add(entry.getKey());
         }
         Table targetTable = fileGroupInfo.getTargetTable();
+        Map<Expression, Expression> replaceMap = Maps.newHashMap();
         for (SlotReference slotReference : context.scanSlots) {
             String colName = slotReference.getName();
-            if (targetTable.getColumn(colName) != null && !uniqueColNames.contains(colName)) {
-                projects.add(slotReference);
-                colNames.add(colName);
-                uniqueColNames.add(colName);
+            Column col = targetTable.getColumn(colName);
+            if (col != null) {
+                if (!uniqueColNames.contains(colName)) {
+                    projects.add(slotReference);
+                    colNames.add(colName);
+                    uniqueColNames.add(colName);
+                }
+                replaceMap.put(slotReference,
+                        TypeCoercionUtils.castIfNotSameType(slotReference, DataType.fromCatalogType(col.getType())));
             }
         }
-
-        LogicalPlan currentRootPlan = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
-                Lists.newArrayList(context.scanSlots));
-        if (context.fileGroup.getPrecedingFilterExpr() != null) {
-            Set<Expression> conjuncts = new HashSet<>();
-            conjuncts.add(context.fileGroup.getPrecedingFilterExpr());
-            currentRootPlan = new LogicalPreFilter<>(conjuncts, currentRootPlan);
-        }
         if (!projects.isEmpty()) {
-            currentRootPlan = new LogicalLoadProject(projects, currentRootPlan);
+            currentRootPlan = new LogicalLoadProject(ExpressionUtils.replaceNamedExpressions(projects, replaceMap),
+                    currentRootPlan);
         }
         if (context.fileGroup.getWhereExpr() != null) {
             Set<Expression> conjuncts = new HashSet<>();
