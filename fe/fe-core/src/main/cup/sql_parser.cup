@@ -455,6 +455,7 @@ terminal String
     KW_ISNULL,
     KW_ISOLATION,
     KW_INVERTED,
+    KW_ANN,
     KW_JOB,
     KW_JOBS,    
     KW_JOIN,
@@ -4135,6 +4136,10 @@ opt_index_type ::=
     | KW_USING KW_INVERTED
     {:
         RESULT = IndexDef.IndexType.INVERTED;
+    :}
+    | KW_USING KW_ANN
+    {:
+        RESULT = IndexDef.IndexType.ANN;
     :}
     ;
 
@@ -8297,6 +8302,8 @@ keyword ::=
     | KW_INDEXES:id
     {: RESULT = id; :}
     | KW_INVERTED:id
+    {: RESULT = id; :}
+    | KW_ANN:id
     {: RESULT = id; :}
     | KW_ISNULL:id
     {: RESULT = id; :}

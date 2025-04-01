@@ -48,7 +48,7 @@
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -90,14 +90,14 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir,
                                              const VerticalSegmentWriterOptions& opts,
-                                             InvertedIndexFileWriter* inverted_file_writer)
+                                             XIndexFileWriter* inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
-          _inverted_index_file_writer(inverted_file_writer),
+          _x_index_file_writer(inverted_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(
                   vertical_segment_writer_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
@@ -216,10 +216,21 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         index != nullptr && !skip_inverted_index) {
         opts.inverted_index = index;
         opts.need_inverted_index = true;
-        DCHECK(_inverted_index_file_writer != nullptr);
-        opts.inverted_index_file_writer = _inverted_index_file_writer;
+        DCHECK(_x_index_file_writer != nullptr);
+        opts.x_index_file_writer = _x_index_file_writer;
         // TODO support multiple inverted index
     }
+
+    if (const auto& index = tablet_schema->ann_index(column);
+        index != nullptr) {
+        opts.ann_index = index;
+        opts.need_ann_index = true;
+        DCHECK(_x_index_file_writer != nullptr);
+        opts.x_index_file_writer = _x_index_file_writer;
+        // TODO support multiple inverted index
+    }
+
+    
 
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
@@ -1427,6 +1438,7 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_inverted_index());
+    RETURN_IF_ERROR(_write_ann_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
 
     *index_size = _file_writer->bytes_appended() - index_start;
@@ -1518,6 +1530,13 @@ Status VerticalSegmentWriter::_write_bitmap_index() {
 Status VerticalSegmentWriter::_write_inverted_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_inverted_index());
+    }
+    return Status::OK();
+}
+
+Status VerticalSegmentWriter::_write_ann_index() {
+    for (auto& column_writer : _column_writers) {
+        RETURN_IF_ERROR(column_writer->write_ann_index());
     }
     return Status::OK();
 }

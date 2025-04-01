@@ -29,7 +29,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_writer_context.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/tablet_fwd.h"
 #include "util/spinlock.h"
 #include "vec/core/block.h"
@@ -56,7 +56,7 @@ public:
     virtual Status create(uint32_t segment_id, io::FileWriterPtr& file_writer,
                           FileType file_type = FileType::SEGMENT_FILE) = 0;
 
-    virtual Status create(uint32_t segment_id, InvertedIndexFileWriterPtr* file_writer) = 0;
+    virtual Status create(uint32_t segment_id, XIndexFileWriterPtr* file_writer) = 0;
 };
 
 template <class T>
@@ -70,8 +70,8 @@ public:
         return _t->create_file_writer(segment_id, file_writer, file_type);
     }
 
-    Status create(uint32_t segment_id, InvertedIndexFileWriterPtr* file_writer) override {
-        return _t->create_inverted_index_file_writer(segment_id, file_writer);
+    Status create(uint32_t segment_id, XIndexFileWriterPtr* file_writer) override {
+        return _t->create_x_index_file_writer(segment_id, file_writer);
     }
 
 private:

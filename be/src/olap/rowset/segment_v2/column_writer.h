@@ -31,7 +31,7 @@
 #include "common/status.h" // for Status
 #include "olap/field.h"    // for Field
 #include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/rowset/segment_v2/index_writer.h"
 #include "util/bitmap.h" // for BitmapChange
 #include "util/slice.h"  // for OwnedSlice
 
@@ -61,11 +61,13 @@ struct ColumnWriterOptions {
     bool need_bloom_filter = false;
     bool is_ngram_bf_index = false;
     bool need_inverted_index = false;
+    bool need_ann_index = false;
     uint8_t gram_size;
     uint16_t gram_bf_size;
     std::vector<const TabletIndex*> indexes; // unused
     const TabletIndex* inverted_index = nullptr;
-    InvertedIndexFileWriter* inverted_index_file_writer;
+    const TabletIndex* ann_index = nullptr;
+    XIndexFileWriter* x_index_file_writer;
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()
@@ -155,6 +157,9 @@ public:
     virtual Status write_bitmap_index() = 0;
 
     virtual Status write_inverted_index() = 0;
+    virtual Status write_ann_index() {
+        return Status::OK();
+    }
 
     virtual Status write_bloom_filter_index() = 0;
 
@@ -275,7 +280,7 @@ private:
     std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
     std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder;
     std::unique_ptr<BitmapIndexWriter> _bitmap_index_builder;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<IndexColumnWriter> _inverted_index_builder;
     std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
 
     // call before flush data page.
@@ -388,6 +393,7 @@ public:
         return Status::OK();
     }
     Status write_inverted_index() override;
+    Status write_ann_index() override;
     Status write_bloom_filter_index() override {
         if (_opts.need_bloom_filter) {
             return Status::NotSupported("array not support bloom filter index");
@@ -404,7 +410,8 @@ private:
     std::unique_ptr<OffsetColumnWriter> _offset_writer;
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<IndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<IndexColumnWriter> _ann_index_builder;
     ColumnWriterOptions _opts;
 };
 
@@ -458,7 +465,7 @@ private:
     // we need null writer to make sure a row is null or not
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<OffsetColumnWriter> _offsets_writer;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<IndexColumnWriter> _inverted_index_builder;
     ColumnWriterOptions _opts;
 };
 
