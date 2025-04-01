@@ -340,6 +340,7 @@ import org.apache.doris.nereids.DorisParser.ShowReplicaDistributionContext;
 import org.apache.doris.nereids.DorisParser.ShowRepositoriesContext;
 import org.apache.doris.nereids.DorisParser.ShowRestoreContext;
 import org.apache.doris.nereids.DorisParser.ShowRolesContext;
+import org.apache.doris.nereids.DorisParser.ShowRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.ShowSmallFilesContext;
 import org.apache.doris.nereids.DorisParser.ShowSnapshotContext;
 import org.apache.doris.nereids.DorisParser.ShowSqlBlockRuleContext;
@@ -658,6 +659,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionComm
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
@@ -4581,6 +4583,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowGrantsForUser(ShowGrantsForUserContext ctx) {
         UserIdentity userIdent = visitUserIdentify(ctx.userIdentify());
         return new ShowGrantsCommand(userIdent, false);
+    }
+
+    @Override
+    public LogicalPlan visitShowRowPolicy(ShowRowPolicyContext ctx) {
+        UserIdentity user = null;
+        String role = null;
+        if (ctx.userIdentify() != null) {
+            user = visitUserIdentify(ctx.userIdentify());
+        } else if (ctx.role != null) {
+            role = ctx.role.getText();
+        }
+
+        return new ShowRowPolicyCommand(user, role);
     }
 
     @Override
