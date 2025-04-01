@@ -18,7 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.Http
 
-suite('test_clean_stale_rs_file_cache', 'docker') {
+suite('test_clean_stale_rs_index_file_cache', 'docker') {
     if (!isCloudMode()) {
         return;
     }
@@ -40,7 +40,9 @@ suite('test_clean_stale_rs_file_cache', 'docker') {
     options.setBeNum(1)
     options.cloudMode = true
 
-    def table = "test_clean_stale_rs_file_cache"
+
+    def table = "test_clean_stale_rs_index_file_cache"
+    sql """ drop table if exists $table; """
 
     docker(options) {
         def ms = cluster.getAllMetaservices().get(0)
@@ -48,7 +50,8 @@ suite('test_clean_stale_rs_file_cache', 'docker') {
         sql """CREATE TABLE $table (
             `k1` int(11) NULL,
             `k2` int(11) NULL,
-            `v1` varchar(2048)
+            `v1` varchar(2048),
+            INDEX v1_idx (`v1`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT ''
             )
             DUPLICATE KEY(`k1`, `k2`)
             COMMENT 'OLAP'
@@ -61,12 +64,12 @@ suite('test_clean_stale_rs_file_cache', 'docker') {
         sql """
             insert into $table values (1, 1, 'v1'), (2, 2, 'v2'), (3, 3, 'v3')
         """
-        def cacheDirVersion2 = getTabletFileCacheDirFromBe(msHttpPort, table, 2)
+        def cacheDirVersion2 = getTabletFileCacheDirFromBe(msHttpPort, table, 2, "idx")
         // version 3
         sql """
             insert into $table values (10, 1, 'v1'), (20, 2, 'v2'), (30, 3, 'v3')
         """
-        def cacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, table, 3)
+        def cacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, table, 3, "idx")
         // version 4
         sql """
             insert into $table values (100, 1, 'v1'), (200, 2, 'v2'), (300, 3, 'v3')
@@ -124,6 +127,5 @@ suite('test_clean_stale_rs_file_cache', 'docker') {
                 "Matching subdir found in: ${subDirs}")
             }
         }
-
     }
 }
