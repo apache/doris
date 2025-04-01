@@ -1883,27 +1883,42 @@ static bool check_partition_version_when_update_delete_bitmap(
     std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
     std::string ver_val;
     err = txn->get(ver_key, &ver_val);
-    if (err != TxnErrorCode::TXN_OK) {
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to get partition version, txn_id={}, err={}", txn_id, err);
+        msg = fmt::format("failed to get partition version, txn_id={}, tablet={}, err={}", txn_id,
+                          tablet_id, err);
         LOG(WARNING) << msg;
         return false;
     }
-    VersionPB version_pb;
-    if (!version_pb.ParseFromString(ver_val)) {
-        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        msg = fmt::format("failed to parse version_pb, txn_id={}, key={}", txn_id, hex(ver_key));
-        LOG(WARNING) << msg;
-        return false;
+
+    int64_t cur_max_version {-1};
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        cur_max_version = 1;
+    } else {
+        VersionPB version_pb;
+        if (!version_pb.ParseFromString(ver_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("failed to parse version_pb, txn_id={}, tablet={}, key={}", txn_id,
+                              tablet_id, hex(ver_key));
+            LOG(WARNING) << msg;
+            return false;
+        }
+        DCHECK(version_pb.has_version());
+        cur_max_version = version_pb.version();
+
+        if (version_pb.pending_txn_ids_size() > 0) {
+            DCHECK(version_pb.pending_txn_ids_size() == 1);
+            cur_max_version += version_pb.pending_txn_ids_size();
+        }
     }
-    DCHECK(version_pb.has_version());
-    if (version_pb.has_version() && version_pb.version() + 1 != request->next_visible_version()) {
+
+    if (cur_max_version + 1 != request->next_visible_version()) {
         code = MetaServiceCode::VERSION_NOT_MATCH;
         msg = fmt::format(
                 "check version failed when update_delete_bitmap, txn={}, table_id={}, "
                 "partition_id={}, tablet_id={}, found partition's max version is {}, but "
                 "request next_visible_version is {}",
-                txn_id, table_id, partition_id, tablet_id, version_pb.version(),
+                txn_id, table_id, partition_id, tablet_id, cur_max_version,
                 request->next_visible_version());
         return false;
     }
