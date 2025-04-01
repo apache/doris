@@ -383,7 +383,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(new StringLiteral(""), rewritten);
         right = new Right(StringLiteral.of("data"), IntegerLiteral.of(-3));
         rewritten = executor.rewrite(right, context);
-        Assertions.assertEquals(new StringLiteral("ata"), rewritten);
+        Assertions.assertEquals(new StringLiteral("ta"), rewritten);
 
         Substring substr = new Substring(
                 StringLiteral.of("database"),
