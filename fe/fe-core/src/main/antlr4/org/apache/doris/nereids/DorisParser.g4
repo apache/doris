@@ -310,6 +310,7 @@ supportedShowStatement
     | SHOW PROPERTY (FOR user=identifierOrText)? (LIKE STRING_LITERAL)?                         #showUserProperties
     | SHOW ALL PROPERTIES (LIKE STRING_LITERAL)?                                               #showAllProperties
     | SHOW COLLATION wildWhere?                                                     #showCollation
+    | SHOW ROW POLICY (FOR (userIdentify | (ROLE role=identifier)))?                #showRowPolicy
     | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy   
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
@@ -384,8 +385,7 @@ lockTable
     ;
 
 unsupportedShowStatement
-    : SHOW ROW POLICY (FOR (userIdentify | (ROLE role=identifierOrText)))?                #showRowPolicy
-    | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
+    : SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
     | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
     | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
