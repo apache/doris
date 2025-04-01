@@ -27,7 +27,7 @@ suite("test_base_replace_multi_level_mtmv","mtmv") {
     String mvName3 = "${suiteName}_mv3"
     String mvName4 = "${suiteName}_mv4"
     String querySql = "SELECT t1.k1,t1.k2,t2.k2 as k3 from ${tableName1} t1 join ${tableName2} t2 on t1.k1=t2.k1;";
-
+    sql """set enable_materialized_view_nest_rewrite = true;"""
     sql """drop table if exists `${tableName1}`"""
     sql """drop table if exists `${tableName2}`"""
     sql """drop materialized view if exists ${mvName1};"""
@@ -116,7 +116,7 @@ suite("test_base_replace_multi_level_mtmv","mtmv") {
         'replication_num' = '1'
         )
         AS
-        SELECT t1.k1,t1.k2,t2.k1 as k3 from ${mvName1} t1 join ${mvName2} t2 on t1.k1=t2.k1;
+        SELECT t1.k1,t1.k2,t2.k2 as k3 from ${mvName1} t1 join ${mvName2} t2 on t1.k1=t2.k1;
         """
     sql """
             REFRESH MATERIALIZED VIEW ${mvName4} auto
@@ -166,8 +166,7 @@ suite("test_base_replace_multi_level_mtmv","mtmv") {
     mv_rewrite_success_without_check_chosen(querySql, mvName1)
     mv_rewrite_success_without_check_chosen(querySql, mvName2)
     mv_rewrite_success_without_check_chosen(querySql, mvName3)
-    // FailSummary: View struct info is invalid
-    // mv_rewrite_success_without_check_chosen(querySql, mvName4)
+    mv_rewrite_success_without_check_chosen(querySql, mvName4)
 
     // replace t1 swap false
     sql """
