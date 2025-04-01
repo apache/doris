@@ -312,6 +312,8 @@ public:
 
     Result<std::string> segment_path(int64_t seg_id);
 
+    std::vector<std::string> get_index_file_names();
+
 protected:
     friend class RowsetFactory;
 
