@@ -88,6 +88,7 @@ endif()
 
 if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_definitions(-DBE_TEST)
+    add_definitions(-DBUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_definitions(-DBE_BENCHMARK)
 endif()
 
