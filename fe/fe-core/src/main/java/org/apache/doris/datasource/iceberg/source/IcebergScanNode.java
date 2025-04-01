@@ -362,27 +362,31 @@ public class IcebergScanNode extends FileQueryScanNode {
             return false;
         }
 
-        try (CloseableIterator<ManifestFile> matchingManifest =
-                IcebergUtils.getMatchingManifest(
-                        createTableScan().snapshot().dataManifests(icebergTable.io()),
-                        icebergTable.specs(),
-                        createTableScan().filter()).iterator()) {
-            int cnt = 0;
-            while (matchingManifest.hasNext()) {
-                cnt += matchingManifest.next().addedFilesCount();
-                if (cnt >= sessionVariable.getNumPartitionsInBatchMode()) {
-                    return true;
+        try {
+            return preExecutionAuthenticator.execute(() -> {
+                try (CloseableIterator<ManifestFile> matchingManifest =
+                        IcebergUtils.getMatchingManifest(
+                                createTableScan().snapshot().dataManifests(icebergTable.io()),
+                                icebergTable.specs(),
+                                createTableScan().filter()).iterator()) {
+                    int cnt = 0;
+                    while (matchingManifest.hasNext()) {
+                        cnt += matchingManifest.next().addedFilesCount();
+                        if (cnt >= sessionVariable.getNumFilesInBatchMode()) {
+                            return true;
+                        }
+                    }
                 }
-            }
+                return false;
+            });
         } catch (Exception e) {
             Optional<NotSupportedException> opt = checkNotSupportedException(e);
             if (opt.isPresent()) {
                 throw opt.get();
             } else {
-                throw new RuntimeException(e);
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
             }
         }
-        return false;
     }
 
     public Long getSpecifiedSnapshot() {

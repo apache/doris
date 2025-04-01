@@ -716,6 +716,7 @@ public class IcebergUtils {
         return hiveCatalog;
     }
 
+    // Retrieve the manifest files that match the query based on partitions in filter
     public static CloseableIterable<ManifestFile> getMatchingManifest(
                 List<ManifestFile> dataManifests,
                 Map<Integer, PartitionSpec> specsById,
