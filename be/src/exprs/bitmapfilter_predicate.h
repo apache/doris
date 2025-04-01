@@ -19,7 +19,6 @@
 
 #include <algorithm>
 
-#include "gutil/integral_types.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime_filter/runtime_filter_definitions.h"
