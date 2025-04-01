@@ -28,7 +28,6 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"

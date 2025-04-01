@@ -37,7 +37,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/integral_types.h"
 #include "gutil/strings/strcat.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"

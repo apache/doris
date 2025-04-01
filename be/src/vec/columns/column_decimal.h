@@ -30,7 +30,6 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <vector>
 
-#include "gutil/integral_types.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"

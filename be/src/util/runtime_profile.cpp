@@ -33,7 +33,6 @@
 
 #include "common/logging.h"
 #include "common/object_pool.h"
-#include "gutil/integral_types.h"
 #include "util/container_util.hpp"
 #include "util/runtime_profile_counter_tree_node.h"
 #ifdef BE_TEST

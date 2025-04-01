@@ -42,7 +42,6 @@ using std::string;
 
 using std::vector;
 
-#include "gutil/integral_types.h"
 #include "gutil/port.h"
 #include "gutil/strings/stringpiece.h"
 

@@ -134,9 +134,9 @@ public:
 
     int32_t size() const { return cast_set<int32_t>(_fields.size()); }
 
-    bool has_parquet_field_id() const { return _field_id_name_mapping.size() > 0; }
+    bool has_parquet_field_id() const { return !_field_id_name_mapping.empty(); }
 
-    std::map<int32, std::string> get_field_id_name_map() { return _field_id_name_mapping; }
+    std::map<int32_t, std::string> get_field_id_name_map() { return _field_id_name_mapping; }
 
     const doris::Slice get_column_name_from_field_id(int32_t id) const;
 };

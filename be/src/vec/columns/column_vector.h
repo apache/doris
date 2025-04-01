@@ -36,7 +36,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/uint24.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"

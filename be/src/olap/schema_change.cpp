@@ -38,7 +38,6 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
-#include "gutil/integral_types.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_system.h"
 #include "io/io_common.h"

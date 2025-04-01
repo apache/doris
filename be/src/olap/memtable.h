@@ -23,20 +23,16 @@
 #include <cstring>
 #include <functional>
 #include <memory>
-#include <optional>
-#include <ostream>
 #include <vector>
 
-#include "common/object_pool.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
-#include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
 #include "olap/tablet_schema.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/arena.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/core/block.h"
 
 namespace doris {

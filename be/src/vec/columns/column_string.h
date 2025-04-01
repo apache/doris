@@ -33,7 +33,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "vec/columns/column.h"
