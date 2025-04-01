@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
@@ -116,20 +115,11 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalHaving(logicalAggregate().whenNot(LogicalAggregate::isNormalized))
-                        .thenApply(ctx -> normalize2(ctx, Optional.of(ctx.root)))
+                        .thenApply(ctx -> normalizeAgg(ctx.root.child(), Optional.of(ctx.root), ctx.cascadesContext))
                         .toRule(RuleType.NORMALIZE_AGGREGATE),
                 logicalAggregate().whenNot(LogicalAggregate::isNormalized)
-                        .thenApply(aggregate -> normalize(aggregate, Optional.empty()))
+                        .thenApply(ctx -> normalizeAgg(ctx.root, Optional.empty(), ctx.cascadesContext))
                         .toRule(RuleType.NORMALIZE_AGGREGATE));
-    }
-
-    private LogicalPlan normalize2(MatchingContext<LogicalHaving<LogicalAggregate<Plan>>> ctx,
-            Optional<LogicalHaving<?>> having) {
-        return normalizeAgg(ctx.root.child(), having, ctx.cascadesContext);
-    }
-
-    private LogicalPlan normalize(MatchingContext<LogicalAggregate<Plan>> ctx, Optional<LogicalHaving<?>> having) {
-        return normalizeAgg(ctx.root, having, ctx.cascadesContext);
     }
 
     @SuppressWarnings("checkstyle:UnusedLocalVariable")
