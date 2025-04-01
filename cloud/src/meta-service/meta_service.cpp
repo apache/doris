@@ -1872,8 +1872,12 @@ static bool check_partition_version_when_update_delete_bitmap(
         return false;
     }
 
-    DCHECK(index_pb.has_tablet_index());
-    DCHECK(index_pb.tablet_index().has_db_id());
+    DCHECK(index_pb.has_tablet_index())
+            << fmt::format("txn={}, table_id={}, partition_id={}, tablet_id={}, index_pb={}",
+                           txn_id, table_id, partition_id, tablet_id, proto_to_json(index_pb));
+    DCHECK(index_pb.tablet_index().has_db_id())
+            << fmt::format("txn={}, table_id={}, partition_id={}, tablet_id={}, index_pb={}",
+                           txn_id, table_id, partition_id, tablet_id, proto_to_json(index_pb));
     int64_t db_id = index_pb.tablet_index().db_id();
 
     std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
