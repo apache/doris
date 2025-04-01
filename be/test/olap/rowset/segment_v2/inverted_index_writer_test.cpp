@@ -34,9 +34,9 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/tablet_schema.h"
@@ -48,7 +48,7 @@
 #include "vec/olap/olap_data_convertor.h"
 
 using namespace lucene::index;
-using doris::segment_v2::InvertedIndexFileWriter;
+using doris::segment_v2::IndexFileWriter;
 
 namespace doris::segment_v2 {
 
@@ -73,7 +73,7 @@ public:
         } else if (format == InvertedIndexStorageFormatPB::V2) {
             file_str = InvertedIndexDescriptor::get_index_file_path_v2(index_prefix);
         }
-        std::unique_ptr<InvertedIndexFileReader> reader = std::make_unique<InvertedIndexFileReader>(
+        std::unique_ptr<IndexFileReader> reader = std::make_unique<IndexFileReader>(
                 io::global_local_filesystem(), index_prefix, format);
         auto st = reader->init();
         EXPECT_EQ(st, Status::OK());
@@ -116,7 +116,7 @@ public:
         std::cout << "==================================" << std::endl;
         lucene::store::Directory* dir = compound_reader.get();
 
-        IndexReader* r = IndexReader::open(dir);
+        lucene::index::IndexReader* r = lucene::index::IndexReader::open(dir);
 
         printf("Max Docs: %d\n", r->maxDoc());
         printf("Num Docs: %d\n", r->numDocs());
@@ -160,8 +160,8 @@ public:
         query_options.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(query_options);
         // Create a BkdIndexReader to verify the index
-        auto reader = std::make_shared<InvertedIndexFileReader>(
-                io::global_local_filesystem(), index_prefix, InvertedIndexStorageFormatPB::V2);
+        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), index_prefix,
+                                                        InvertedIndexStorageFormatPB::V2);
         auto st = reader->init();
         EXPECT_EQ(st, Status::OK());
         auto result = reader->open(index_meta);
@@ -322,7 +322,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -333,9 +333,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values
@@ -350,7 +350,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
+        status = index_file_writer->close();
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify the terms stats
@@ -384,7 +384,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -395,9 +395,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add null values
@@ -418,7 +418,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
+        status = index_file_writer->close();
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify the terms stats
@@ -458,7 +458,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -469,9 +469,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
@@ -484,7 +484,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
+        status = index_file_writer->close();
         EXPECT_TRUE(status.ok()) << status;
 
         // For BKD index, we need to verify using BkdIndexReader instead of check_terms_stats
@@ -519,7 +519,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -536,9 +536,9 @@ public:
         config::enable_inverted_index_correct_term_write = enable_correct_term_write;
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values with Unicode characters above 0xFFFF
@@ -560,7 +560,7 @@ public:
         status = column_writer->finish();
         EXPECT_TRUE(status.ok()) << status;
 
-        status = index_file_writer->write();
+        status = index_file_writer->close();
         EXPECT_TRUE(status.ok()) << status;
 
         // Restore original config value
@@ -581,7 +581,7 @@ public:
         runtime_state.set_query_options(query_options);
 
         // Create a reader to verify the index
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
         status = reader->init();
         EXPECT_EQ(status, Status::OK());
@@ -693,11 +693,11 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     sts = fs->create_file(index_path_disabled, &file_writer_disabled, &opts);
     ASSERT_TRUE(sts.ok()) << sts;
 
-    auto index_file_writer_enabled = std::make_unique<InvertedIndexFileWriter>(
+    auto index_file_writer_enabled = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix_enabled, "test_rowset_compare", 1,
             InvertedIndexStorageFormatPB::V2, std::move(file_writer_enabled));
 
-    auto index_file_writer_disabled = std::make_unique<InvertedIndexFileWriter>(
+    auto index_file_writer_disabled = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix_disabled, "test_rowset_compare", 2,
             InvertedIndexStorageFormatPB::V2, std::move(file_writer_disabled));
 
@@ -711,18 +711,18 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     bool original_config_value = config::enable_inverted_index_correct_term_write;
 
     // Create column writers with different settings
-    std::unique_ptr<InvertedIndexColumnWriter> column_writer_enabled, column_writer_disabled;
+    std::unique_ptr<IndexColumnWriter> column_writer_enabled, column_writer_disabled;
 
     // Set config to enabled for first writer
     config::enable_inverted_index_correct_term_write = true;
-    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer_enabled,
-                                                    index_file_writer_enabled.get(), &idx_meta);
+    auto status = IndexColumnWriter::create(field.get(), &column_writer_enabled,
+                                            index_file_writer_enabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Set config to disabled for second writer
     config::enable_inverted_index_correct_term_write = false;
-    status = InvertedIndexColumnWriter::create(field.get(), &column_writer_disabled,
-                                               index_file_writer_disabled.get(), &idx_meta);
+    status = IndexColumnWriter::create(field.get(), &column_writer_disabled,
+                                       index_file_writer_disabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add string values with Unicode characters above 0xFFFF
@@ -745,12 +745,12 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     // Finish and close both writers
     status = column_writer_enabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_enabled->write();
+    status = index_file_writer_enabled->close();
     EXPECT_TRUE(status.ok()) << status;
 
     status = column_writer_disabled->finish();
     EXPECT_TRUE(status.ok()) << status;
-    status = index_file_writer_disabled->write();
+    status = index_file_writer_disabled->close();
     EXPECT_TRUE(status.ok()) << status;
 
     // Restore original config value
@@ -765,18 +765,18 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     io::IOContext io_ctx;
 
     // Create readers for both indexes
-    auto reader_enabled = std::make_shared<InvertedIndexFileReader>(
-            io::global_local_filesystem(), index_path_prefix_enabled,
-            InvertedIndexStorageFormatPB::V2);
+    auto reader_enabled = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix_enabled,
+                                                            InvertedIndexStorageFormatPB::V2);
     status = reader_enabled->init();
     EXPECT_EQ(status, Status::OK());
     auto result_enabled = reader_enabled->open(&idx_meta);
     EXPECT_TRUE(result_enabled.has_value())
             << "Failed to open compound reader" << result_enabled.error();
 
-    auto reader_disabled = std::make_shared<InvertedIndexFileReader>(
-            io::global_local_filesystem(), index_path_prefix_disabled,
-            InvertedIndexStorageFormatPB::V2);
+    auto reader_disabled = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                             index_path_prefix_disabled,
+                                                             InvertedIndexStorageFormatPB::V2);
     status = reader_disabled->init();
     EXPECT_EQ(status, Status::OK());
     auto result_disabled = reader_disabled->open(&idx_meta);

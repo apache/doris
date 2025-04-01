@@ -118,6 +118,8 @@ public class PlanTranslatorContext {
 
     private boolean isTopMaterializeNode = true;
 
+    private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
+
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -354,4 +356,7 @@ public class PlanTranslatorContext {
         isTopMaterializeNode = topMaterializeNode;
     }
 
+    public Set<SlotId> getVirtualColumnIds() {
+        return virtualColumnIds;
+    }
 }

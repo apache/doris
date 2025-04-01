@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.AnnIndexPropertiesChecker;
 import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelStmt;
@@ -2829,6 +2830,13 @@ public class SchemaChangeHandler extends AlterHandler {
         // See OlapTable.resetIdsForRestore for details.
         while (existedIndexIdSet.contains(alterIndex.getIndexId())) {
             alterIndex.setIndexId(Env.getCurrentEnv().getNextId());
+        }
+
+        if (indexDef.isAnnIndex()) {
+            if (olapTable.getKeysType() != KeysType.DUP_KEYS) {
+                throw new AnalysisException("ANN index can only be built on table with DUP_KEYS");
+            }
+            AnnIndexPropertiesChecker.checkProperties(indexDef.getProperties());
         }
 
         for (String col : indexDef.getColumns()) {

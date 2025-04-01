@@ -137,6 +137,10 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
                 }
             }
         }
+        for (NamedExpression virtualColumn : olapScan.getVirtualColumns()) {
+            intersectSlots.add(virtualColumn.toSlot());
+            intersectSlots.addAll(virtualColumn.getInputSlots());
+        }
         return (Plan) olapScan.withOperativeSlots(intersectSlots);
     }
 
@@ -144,6 +148,10 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
     public Plan visitLogicalCatalogRelation(LogicalCatalogRelation relation, DeriveContext context) {
         Set<Slot> intersectSlots = new HashSet<>(relation.getOutput());
         intersectSlots.retainAll(context.operativeSlots);
+        for (NamedExpression virtualColumn : relation.getVirtualColumns()) {
+            intersectSlots.add(virtualColumn.toSlot());
+            intersectSlots.addAll(virtualColumn.getInputSlots());
+        }
         return (Plan) relation.withOperativeSlots(intersectSlots);
     }
 

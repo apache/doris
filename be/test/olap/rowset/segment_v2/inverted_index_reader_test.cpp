@@ -30,9 +30,8 @@
 #include <vector>
 
 #include "olap/field.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
@@ -129,9 +128,9 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, *index_path_prefix, std::string {rowset_id}, seg_id, format,
-                std::move(file_writer));
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, *index_path_prefix, std::string {rowset_id},
+                                                  seg_id, format, std::move(file_writer));
 
         // Get c2 column Field
         const TabletColumn& column = tablet_schema->column(1);
@@ -140,9 +139,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Write string values
@@ -181,7 +180,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, *index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -192,9 +191,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add NULL values
@@ -247,7 +246,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, *index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -258,9 +257,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
@@ -304,7 +303,7 @@ public:
         query_options.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(query_options);
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         auto status = reader->init();
@@ -356,7 +355,7 @@ public:
         RuntimeState runtime_state;
         io::IOContext io_ctx;
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         auto status = reader->init();
@@ -402,7 +401,7 @@ public:
         query_options.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(query_options);
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         auto status = reader->init();
@@ -483,7 +482,7 @@ public:
         query_options.enable_inverted_index_searcher_cache = true;
         runtime_state.set_query_options(query_options);
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         auto status = reader->init();
@@ -546,7 +545,7 @@ public:
         query_options.enable_inverted_index_searcher_cache = true;
         runtime_state.set_query_options(query_options);
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         auto status = reader->init();
@@ -628,7 +627,7 @@ public:
         query_options.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(query_options);
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         auto status = reader->init();
@@ -717,9 +716,9 @@ public:
             query_options.enable_inverted_index_searcher_cache = false;
             runtime_state.set_query_options(query_options);
 
-            auto reader = std::make_shared<InvertedIndexFileReader>(
-                    io::global_local_filesystem(), index_path_prefix,
-                    InvertedIndexStorageFormatPB::V3);
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V3);
 
             auto status = reader->init();
             EXPECT_EQ(status, Status::OK());
@@ -796,9 +795,9 @@ public:
             query_options.enable_inverted_index_searcher_cache = false;
             runtime_state.set_query_options(query_options);
 
-            auto reader = std::make_shared<InvertedIndexFileReader>(
-                    io::global_local_filesystem(), index_path_prefix,
-                    InvertedIndexStorageFormatPB::V3);
+            auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix,
+                                                            InvertedIndexStorageFormatPB::V3);
 
             auto status = reader->init();
             EXPECT_EQ(status, Status::OK());
@@ -894,12 +893,12 @@ public:
         query_options.inverted_index_compatible_read = enable_compatible_read;
         runtime_state.set_query_options(query_options);
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(io::global_local_filesystem(),
-                                                                index_path_prefix, storage_format);
+        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                        index_path_prefix, storage_format);
 
         auto status = reader->init();
-        ASSERT_TRUE(status.ok()) << "Failed to initialize InvertedIndexFileReader for "
-                                 << index_file << ": " << status.to_string();
+        ASSERT_TRUE(status.ok()) << "Failed to initialize IndexFileReader for " << index_file
+                                 << ": " << status.to_string();
 
         auto index_reader = FullTextIndexReader::create_shared(&idx_meta, reader);
         ASSERT_NE(index_reader, nullptr)

@@ -209,6 +209,8 @@ public class OlapScanNode extends ScanNode {
     protected List<Expr> rewrittenProjectList;
 
     private long maxVersion = -1L;
+    private SortInfo annSortInfo = null;
+    private long annSortLimit = -1;
 
     // cached for prepared statement to quickly prune partition
     // only used in short circuit plan at present
@@ -313,6 +315,14 @@ public class OlapScanNode extends ScanNode {
 
     public void setSortLimit(long sortLimit) {
         this.sortLimit = sortLimit;
+    }
+
+    public void setAnnSortInfo(SortInfo annSortInfo) {
+        this.annSortInfo = annSortInfo;
+    }
+
+    public void setAnnSortLimit(long annSortLimit) {
+        this.annSortLimit = annSortLimit;
     }
 
     public Collection<Long> getSelectedPartitionIds() {
@@ -1380,6 +1390,15 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
         }
+        if (annSortInfo != null) {
+            output.append(prefix).append("ANN SORT INFO:\n");
+            annSortInfo.getOrderingExprs().forEach(expr -> {
+                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+            });
+        }
+        if (annSortLimit != -1) {
+            output.append(prefix).append("ANN SORT LIMIT: ").append(annSortLimit).append("\n");
+        }
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
                     topnFilterSortNodes.stream()
@@ -1425,7 +1444,6 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("rewrittenProjectList: ").append(
                     getExplainString(rewrittenProjectList)).append("\n");
         }
-        output.append(prefix).append("desc: ").append(desc.getId().asInt()).append("\n");
         return output.toString();
     }
 
@@ -1549,6 +1567,16 @@ public class OlapScanNode extends ScanNode {
                 columnsDesc.add(tColumn);
             }
         }
+        
+        // Add virtual column to ColumnsDesc so that backend could
+        // get correct table_schema.
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (slot.getVirtualColumn() != null) {
+                TColumn tColumn = slot.getColumn().toThrift();
+                columnsDesc.add(tColumn);
+            }
+        }
+
         for (Index index : olapTable.getIndexes()) {
             TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(olapTable.getBaseSchema()));
             indexDesc.add(tIndex);
@@ -1580,6 +1608,19 @@ public class OlapScanNode extends ScanNode {
         }
         if (sortLimit != -1) {
             msg.olap_scan_node.setSortLimit(sortLimit);
+        }
+        if (annSortInfo != null) {
+            TSortInfo tAnnSortInfo = new TSortInfo(
+                    Expr.treesToThrift(annSortInfo.getOrderingExprs()),
+                    annSortInfo.getIsAscOrder(),
+                    annSortInfo.getNullsFirst());
+            if (annSortInfo.getSortTupleSlotExprs() != null) {
+                tAnnSortInfo.setSortTupleSlotExprs(Expr.treesToThrift(annSortInfo.getSortTupleSlotExprs()));
+            }
+            msg.olap_scan_node.setAnnSortInfo(tAnnSortInfo);
+        }
+        if (annSortLimit != -1) {
+            msg.olap_scan_node.setAnnSortLimit(annSortLimit);
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         String tableName = olapTable.getName();
@@ -1870,6 +1911,21 @@ public class OlapScanNode extends ScanNode {
     public void finalizeForNereids() {
         computeNumNodes();
         computeStatsForNereids();
+        // Update SlotDescriptor before construction of thrift message.
+        int virtual_column_idx = 0;
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (slot.getVirtualColumn() != null) {
+                virtual_column_idx++;
+                Column column = new Column();
+                // Set the name of virtual column to be unique.
+                column.setName("__DORIS_VIRTUAL_COL__" + virtual_column_idx);
+                // Just make sure the unique id is not conflict with other columns.
+                column.setUniqueId(Integer.MAX_VALUE - virtual_column_idx);
+                column.setType(slot.getType());
+                column.setIsAllowNull(slot.getIsNullable());
+                slot.setColumn(column);
+            }
+        }
     }
 
     private void computeStatsForNereids() {
@@ -1899,6 +1955,24 @@ public class OlapScanNode extends ScanNode {
         for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
             if (requiredByProjectSlotIdSet.contains(slot.getId()) && slot.getColumn() != null) {
                 outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
+            }
+        }
+        for (SlotDescriptor virtualSlot : context.getTupleDesc(this.getTupleId()).getSlots()) {
+            Expr virtualColumn = virtualSlot.getVirtualColumn();
+            if (virtualColumn == null) {
+                continue;
+            }
+            Set<Expr> slotRefs = Sets.newHashSet();
+            virtualColumn.collect(e -> e instanceof SlotRef, slotRefs);
+            Set<SlotId> virtualColumnInputSlotIds = slotRefs.stream()
+                    .filter(s -> s instanceof SlotRef)
+                    .map(s -> (SlotRef) s)
+                    .map(SlotRef::getSlotId)
+                    .collect(Collectors.toSet());
+            for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
+                if (virtualColumnInputSlotIds.contains(slot.getId()) && slot.getColumn() != null) {
+                    outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
+                }
             }
         }
     }
