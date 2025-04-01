@@ -5,9 +5,9 @@
 3	c
 
 -- !select2 --
-c
 a
 b
+c
 
 -- !select3 --
 c

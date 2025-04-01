@@ -35,7 +35,7 @@ suite("test_distributed_string_type") {
     sql "insert into all_str values (2, 'b')"
     sql "insert into all_str values (3, 'c')"
     qt_select1 "select * from all_str order by k1"
-    qt_select2 "select str1 from all_str group by str1"
+    qt_select2 "select str1 from all_str group by str1 order by str1"
     qt_select3 "select max(str1) from all_str"
 
     sql "DROP TABLE IF EXISTS all_str2"
