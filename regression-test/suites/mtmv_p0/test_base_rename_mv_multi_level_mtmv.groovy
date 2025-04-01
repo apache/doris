@@ -27,7 +27,7 @@ suite("test_base_rename_mv_multi_level_mtmv","mtmv") {
     String mvName2 = "${suiteName}_mv2"
     String mvName3 = "${suiteName}_mv3"
     String mvName4 = "${suiteName}_mv4"
-    String querySql = "SELECT t1.k1,t1.k2,t2.k4 from ${tableName1Rename} t1 join ${tableName2} t2 on t1.k1=t2.k3;";
+    String querySql = "SELECT t1.k1,t1.k2,t2.k4 from ${tableName1} t1 join ${tableName2} t2 on t1.k1=t2.k3;";
     sql """set enable_materialized_view_nest_rewrite = true;"""
     sql """drop table if exists `${tableName1}`"""
     sql """drop table if exists `${tableName2}`"""
