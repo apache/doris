@@ -22,7 +22,6 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
