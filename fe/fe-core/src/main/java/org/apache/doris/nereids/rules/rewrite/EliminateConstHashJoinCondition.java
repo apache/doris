@@ -80,6 +80,9 @@ public class EliminateConstHashJoinCondition extends OneRewriteRuleFactory {
                 if (!eliminate) {
                     newHashConditions.add(expr);
                 }
+            } else {
+                // null safe equal
+                newHashConditions.add(expr);
             }
         }
         if (changed) {
