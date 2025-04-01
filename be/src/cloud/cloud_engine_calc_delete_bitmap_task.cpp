@@ -313,8 +313,10 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
         // we still need to update delete bitmap KVs to MS when we skip to calcalate delete bitmaps,
         // because the pending delete bitmap KVs in MS we wrote before may have been removed and replaced by other txns
         int64_t lock_id = txn_info.is_txn_load ? txn_info.lock_id : -1;
+        int64_t next_visible_version =
+                txn_info.is_txn_load ? txn_info.next_visible_version : version;
         RETURN_IF_ERROR(tablet->save_delete_bitmap_to_ms(version, transaction_id, delete_bitmap,
-                                                         lock_id, txn_info.next_visible_version));
+                                                         lock_id, next_visible_version));
 
         LOG(INFO) << "tablet=" << _tablet_id << ", " << txn_str
                   << ", publish_status=SUCCEED, not need to re-calculate delete_bitmaps.";
