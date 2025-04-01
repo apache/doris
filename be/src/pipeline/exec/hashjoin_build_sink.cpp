@@ -232,12 +232,8 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
-    if (!_runtime_filter_producer_helper || state->is_cancelled() || !_eos) {
-        return Base::close(state, exec_status);
-    }
-
     try {
-        if (!_terminated) {
+        if (!_terminated && _runtime_filter_producer_helper && !state->is_cancelled()) {
             if (_should_build_hash_table) {
                 RETURN_IF_ERROR(_runtime_filter_producer_helper->build(
                         state, _shared_state->build_block.get()));
