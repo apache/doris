@@ -83,7 +83,7 @@ doris::Status FaissVectorIndex::save() {
     lucene::store::IndexOutput* idx_output = _dir->createOutput("faiss.idx");
     auto writer = std::make_unique<FaissIndexWriter>(idx_output);
     faiss::write_index(_index.get(), writer.get());
-    VLOG_DEBUG << "Faiss index saved to faiss.idx";
+    VLOG_DEBUG << fmt::format("Faiss index saved to faiss.idx, rows {}", _index->ntotal);
     return doris::Status::OK();
 }
 doris::Status FaissVectorIndex::load(Metric type) {
