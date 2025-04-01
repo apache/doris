@@ -1853,36 +1853,24 @@ static bool check_partition_version_when_update_delete_bitmap(
         MetaServiceCode& code, std::string& msg, std::unique_ptr<Transaction>& txn,
         std::string& instance_id, int64_t txn_id, int64_t table_id, int64_t partition_id,
         int64_t tablet_id, const UpdateDeleteBitmapRequest* request) {
-    // Get db id with txn id
-    std::string index_val;
-    const std::string index_key = txn_index_key({instance_id, txn_id});
-    auto err = txn->get(index_key, &index_val);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to get db id, txn_id={} err={}", txn_id, err);
-        LOG(WARNING) << msg;
-        return false;
+    TabletIndexPB tablet_idx;
+    get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
+    if (code != MetaServiceCode::OK) return false;
+    DCHECK(tablet_idx.has_db_id())
+            << fmt::format("txn={}, table_id={}, partition_id={}, tablet_id={}, tablet_idx={}",
+                           txn_id, table_id, partition_id, tablet_id, proto_to_json(tablet_idx));
+    if (!tablet_idx.has_db_id()) {
+        LOG(WARNING) << fmt::format(
+                "has no db_id in TabletIndexPB, skip to check partition version. txn={}, "
+                "table_id={}, partition_id={}, tablet_id={}, tablet_idx={}",
+                txn_id, table_id, partition_id, tablet_id, proto_to_json(tablet_idx));
+        return true;
     }
-
-    TxnIndexPB index_pb;
-    if (!index_pb.ParseFromString(index_val)) {
-        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        msg = fmt::format("failed to parse txn_index_pb, txn_id={}", txn_id);
-        LOG(WARNING) << msg;
-        return false;
-    }
-
-    DCHECK(index_pb.has_tablet_index())
-            << fmt::format("txn={}, table_id={}, partition_id={}, tablet_id={}, index_pb={}",
-                           txn_id, table_id, partition_id, tablet_id, proto_to_json(index_pb));
-    DCHECK(index_pb.tablet_index().has_db_id())
-            << fmt::format("txn={}, table_id={}, partition_id={}, tablet_id={}, index_pb={}",
-                           txn_id, table_id, partition_id, tablet_id, proto_to_json(index_pb));
-    int64_t db_id = index_pb.tablet_index().db_id();
+    int64_t db_id = tablet_idx.db_id();
 
     std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
     std::string ver_val;
-    err = txn->get(ver_key, &ver_val);
+    auto err = txn->get(ver_key, &ver_val);
     if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get partition version, txn_id={}, tablet={}, err={}", txn_id,
