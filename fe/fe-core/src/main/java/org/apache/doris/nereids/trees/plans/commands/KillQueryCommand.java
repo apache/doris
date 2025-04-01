@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -104,10 +105,16 @@ public class KillQueryCommand extends KillCommand {
             }
             killCtx.kill(isConnectionKill);
         }
+        ctx.getState().setOk();
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitKillQueryCommand(this, context);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        return RedirectStatus.NO_FORWARD;
     }
 }
