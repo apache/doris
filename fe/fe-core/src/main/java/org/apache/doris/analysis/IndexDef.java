@@ -209,7 +209,8 @@ public class IndexDef {
         BITMAP,
         INVERTED,
         BLOOMFILTER,
-        NGRAM_BF
+        NGRAM_BF,
+        ANN
     }
 
     public boolean isInvertedIndex() {
@@ -235,7 +236,7 @@ public class IndexDef {
     public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
-                || indexType == IndexType.NGRAM_BF) {
+                || indexType == IndexType.NGRAM_BF || indexType == IndexType.ANN) {
             String indexColName = column.getName();
             caseSensitivityColumns.add(indexColName);
             PrimitiveType colType = column.getDataType();
@@ -243,6 +244,10 @@ public class IndexDef {
             if (!isSupportIdxType(columnType)) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid index: " + indexName);
+            }
+
+            if (indexType == IndexType.ANN && !colType.isArrayType()) {
+                throw new AnalysisException("ANN index column must be array type");
             }
 
             // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
