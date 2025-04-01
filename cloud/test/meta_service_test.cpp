@@ -154,6 +154,18 @@ static void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int6
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
 }
 
+static void create_tablet_with_db_id(MetaServiceProxy* meta_service, int64_t db_id,
+                                     int64_t table_id, int64_t index_id, int64_t partition_id,
+                                     int64_t tablet_id) {
+    brpc::Controller cntl;
+    CreateTabletsRequest req;
+    CreateTabletsResponse res;
+    req.set_db_id(db_id);
+    add_tablet(req, table_id, index_id, partition_id, tablet_id);
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
+}
+
 static void begin_txn(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
                       int64_t table_id, int64_t& txn_id) {
     brpc::Controller cntl;
@@ -5242,8 +5254,8 @@ TEST(MetaServiceTest, UpdateDeleteBitmapCheckPartitionVersion) {
         int64_t initiator = -1;
         int64_t cur_max_version = 100;
         int64_t txn_id;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), table_id, index_id, t1p1, tablet_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id,
+                                                         index_id, t1p1, tablet_id));
         begin_txn_and_commit_rowset(meta_service.get(), "label11", db_id, table_id, t1p1, tablet_id,
                                     &txn_id);
         int64_t lock_id = txn_id;
@@ -5270,8 +5282,8 @@ TEST(MetaServiceTest, UpdateDeleteBitmapCheckPartitionVersion) {
         int64_t tablet_id = 3001;
         int64_t initiator = -1;
         int64_t txn_id;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), table_id, index_id, t1p1, tablet_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id,
+                                                         index_id, t1p1, tablet_id));
         begin_txn_and_commit_rowset(meta_service.get(), "label12", db_id, table_id, t1p1, tablet_id,
                                     &txn_id);
         int64_t lock_id = txn_id;
@@ -5296,8 +5308,8 @@ TEST(MetaServiceTest, UpdateDeleteBitmapCheckPartitionVersion) {
         int64_t initiator = -1;
         int64_t cur_max_version = 120;
         int64_t txn_id;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), table_id, index_id, t1p1, tablet_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id,
+                                                         index_id, t1p1, tablet_id));
         begin_txn_and_commit_rowset(meta_service.get(), "label13", db_id, table_id, t1p1, tablet_id,
                                     &txn_id);
         int64_t lock_id = txn_id;
@@ -5334,8 +5346,8 @@ TEST(MetaServiceTest, UpdateDeleteBitmapCheckPartitionVersionFail) {
         int64_t initiator = -1;
         int64_t cur_max_version = 100;
         int64_t txn_id;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), table_id, index_id, t1p1, tablet_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id,
+                                                         index_id, t1p1, tablet_id));
         begin_txn_and_commit_rowset(meta_service.get(), "label21", db_id, table_id, t1p1, tablet_id,
                                     &txn_id);
         int64_t lock_id = txn_id;
@@ -5363,8 +5375,8 @@ TEST(MetaServiceTest, UpdateDeleteBitmapCheckPartitionVersionFail) {
         int64_t tablet_id = 3001;
         int64_t initiator = -1;
         int64_t txn_id;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), table_id, index_id, t1p1, tablet_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id,
+                                                         index_id, t1p1, tablet_id));
         begin_txn_and_commit_rowset(meta_service.get(), "label22", db_id, table_id, t1p1, tablet_id,
                                     &txn_id);
         int64_t lock_id = txn_id;
@@ -5390,8 +5402,8 @@ TEST(MetaServiceTest, UpdateDeleteBitmapCheckPartitionVersionFail) {
         int64_t initiator = -1;
         int64_t cur_max_version = 120;
         int64_t txn_id;
-        ASSERT_NO_FATAL_FAILURE(
-                create_tablet(meta_service.get(), table_id, index_id, t1p1, tablet_id));
+        ASSERT_NO_FATAL_FAILURE(create_tablet_with_db_id(meta_service.get(), db_id, table_id,
+                                                         index_id, t1p1, tablet_id));
         begin_txn_and_commit_rowset(meta_service.get(), "label23", db_id, table_id, t1p1, tablet_id,
                                     &txn_id);
         int64_t lock_id = txn_id;
