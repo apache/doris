@@ -80,8 +80,7 @@ enum TObjStorageType {
 enum TCredProviderType {
     DEFAULT = 0,
     SIMPLE = 1,
-    INSTANCE_PROFILE = 2,
-    STS_ASSUME_ROLE = 3,
+    INSTANCE_PROFILE = 2
 }
 
 struct TS3StorageParam {
@@ -101,8 +100,6 @@ struct TS3StorageParam {
     13: optional TCredProviderType cred_provider_type
     14: optional string role_arn
     15: optional string external_id
-    16: optional string sts_region
-    17: optional string sts_endpoint
 }
 
 struct TStoragePolicy {

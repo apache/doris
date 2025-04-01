@@ -174,7 +174,6 @@ enum CredProviderTypePB {
     DEFAULT = 1;
     SIMPLE = 2;
     INSTANCE_PROFILE = 3;
-    STS_ASSUME_ROLE = 4;
 }
 
 message ObjectStoreInfoPB {
@@ -209,8 +208,6 @@ message ObjectStoreInfoPB {
     optional CredProviderTypePB cred_provider_type = 17;
     optional string role_arn = 18;
     optional string external_id = 19;
-    optional string sts_region = 20;
-    optional string sts_endpoint = 21;
 }
 
 // The legacy ObjectStoreInfoPB is stored in InstanceInfoPB

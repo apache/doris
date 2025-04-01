@@ -32,6 +32,7 @@
 #include <unordered_map>
 
 #include "common/status.h"
+#include "cpp/aws_common.h"
 #include "cpp/s3_rate_limiter.h"
 #include "io/fs/obj_storage_client.h"
 #include "vec/common/string_ref.h"
@@ -61,10 +62,6 @@ extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
 class S3URI;
-
-//AWS Credentials Provider Type
-enum class CredProviderType { Default = 0, Simple = 1, InstanceProfile = 2, STSAssumeRole = 3 };
-
 struct S3ClientConf {
     std::string endpoint;
     std::string region;
@@ -84,8 +81,6 @@ struct S3ClientConf {
     CredProviderType cred_provider_type = CredProviderType::Default;
     std::string role_arn;
     std::string external_id;
-    std::string sts_region;
-    std::string sts_endpoint;
 
     uint64_t get_hash() const {
         uint64_t hash_code = 0;
@@ -104,8 +99,6 @@ struct S3ClientConf {
         hash_code ^= static_cast<int>(cred_provider_type);
         hash_code ^= crc32_hash(role_arn);
         hash_code ^= crc32_hash(external_id);
-        hash_code ^= crc32_hash(sts_region);
-        hash_code ^= crc32_hash(sts_endpoint);
         return hash_code;
     }
 
@@ -113,11 +106,10 @@ struct S3ClientConf {
         return fmt::format(
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
                 "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
-                "cred_provider_type={},role_arn={}, external_id={}, sts_region={}, "
-                "sts_endpoint={})",
+                "cred_provider_type={},role_arn={}, external_id={}",
                 ak, token, endpoint, region, bucket, max_connections, request_timeout_ms,
                 connect_timeout_ms, use_virtual_addressing, cred_provider_type, role_arn,
-                external_id, sts_region, sts_endpoint);
+                external_id);
     }
 };
 

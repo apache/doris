@@ -114,8 +114,6 @@ constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
 
 constexpr char S3_ROLE_ARN[] = "AWS_ROLE_ARN";
 constexpr char S3_EXTERNAL_ID[] = "AWS_EXTERNAL_ID";
-constexpr char S3_STS_REGION[] = "AWS_STS_REGION";
-constexpr char S3_STS_ENDPOINT[] = "AWS_STS_ENDPOINT";
 } // namespace
 
 bvar::Adder<int64_t> get_rate_limit_ns("get_rate_limit_ns");
@@ -245,14 +243,6 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::get_aws_cred
 
         Aws::Client::ClientConfiguration clientConfiguration =
                 S3ClientFactory::getClientConfiguration();
-
-        if (s3_conf.sts_region.empty()) {
-            clientConfiguration.region = s3_conf.region;
-        }
-
-        if (s3_conf.sts_endpoint.empty()) {
-            clientConfiguration.endpointOverride = s3_conf.sts_endpoint;
-        }
 
         auto stsClient = std::make_shared<Aws::STS::STSClient>(
                 std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>(),
@@ -393,36 +383,10 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         s3_conf->client_conf.external_id = it->second;
     }
 
-    if (auto it = properties.find(S3_STS_REGION); it != properties.end()) {
-        s3_conf->client_conf.sts_region = it->second;
-    }
-
-    if (auto it = properties.find(S3_STS_ENDPOINT); it != properties.end()) {
-        s3_conf->client_conf.sts_endpoint = it->second;
-    }
-
     if (auto st = is_s3_conf_valid(s3_conf->client_conf); !st.ok()) {
         return st;
     }
     return Status::OK();
-}
-
-static CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provider_type) {
-    switch (cred_provider_type) {
-    case cloud::CredProviderTypePB::DEFAULT:
-        return CredProviderType::Default;
-    case cloud::CredProviderTypePB::SIMPLE:
-        return CredProviderType::Simple;
-    case cloud::CredProviderTypePB::INSTANCE_PROFILE:
-        return CredProviderType::InstanceProfile;
-    case cloud::CredProviderTypePB::STS_ASSUME_ROLE:
-        return CredProviderType::STSAssumeRole;
-    default:
-        __builtin_unreachable();
-        LOG(WARNING) << "Invalid CredProviderTypePB value: " << cred_provider_type
-                     << ", use default instead.";
-        return CredProviderType::Default;
-    }
 }
 
 static CredProviderType cred_provider_type_from_thrift(TCredProviderType::type cred_provider_type) {
@@ -433,8 +397,6 @@ static CredProviderType cred_provider_type_from_thrift(TCredProviderType::type c
         return CredProviderType::Simple;
     case TCredProviderType::INSTANCE_PROFILE:
         return CredProviderType::InstanceProfile;
-    case TCredProviderType::STS_ASSUME_ROLE:
-        return CredProviderType::STSAssumeRole;
     default:
         __builtin_unreachable();
         LOG(WARNING) << "Invalid TCredProviderType value: " << cred_provider_type
@@ -460,8 +422,6 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
 
                     .role_arn = info.role_arn(),
                     .external_id = info.external_id(),
-                    .sts_region = info.sts_region(),
-                    .sts_endpoint = info.sts_endpoint(),
             },
             .sse_enabled = info.sse_enabled(),
     };
@@ -519,6 +479,8 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
                     // When using cold heat separation in minio, user might use ip address directly,
                     // which needs enable use_virtual_addressing to true
                     .use_virtual_addressing = !param.use_path_style,
+                    .role_arn = param.role_arn,
+                    .external_id = param.external_id,
             }};
 
     if (param.__isset.cred_provider_type) {

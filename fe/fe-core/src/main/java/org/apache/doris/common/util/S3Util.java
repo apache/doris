@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.credentials.CloudCredential;
 
+import com.google.common.base.Strings;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
@@ -39,6 +40,8 @@ import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
 import java.net.URI;
 import java.time.Duration;
@@ -69,6 +72,7 @@ public class S3Util {
         return awsCredentialsProvider;
     }
 
+    @Deprecated
     public static S3Client buildS3Client(URI endpoint, String region, CloudCredential credential,
             boolean isUsePathStyle) {
         EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
@@ -93,6 +97,69 @@ public class S3Util {
                 .httpClient(UrlConnectionHttpClient.create())
                 .endpointOverride(endpoint)
                 .credentialsProvider(getAwsCredencialsProvider(credential))
+                .region(Region.of(region))
+                .overrideConfiguration(clientConf)
+                // disable chunkedEncoding because of bos not supported
+                .serviceConfiguration(S3Configuration.builder()
+                        .chunkedEncodingEnabled(false)
+                        .pathStyleAccessEnabled(isUsePathStyle)
+                        .build())
+                .build();
+    }
+
+    private static AwsCredentialsProvider getAwsCredencialsProvider(URI endpoint, String region, String accessKey,
+            String secretKey, String sessionToken, String roleArn, String externalId) {
+
+        if (!Strings.isNullOrEmpty(accessKey) && !Strings.isNullOrEmpty(secretKey)) {
+            if (Strings.isNullOrEmpty(sessionToken)) {
+                return StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey));
+            } else {
+                return StaticCredentialsProvider.create(AwsSessionCredentials.create(accessKey,
+                        secretKey, sessionToken));
+            }
+        }
+
+        if (!Strings.isNullOrEmpty(roleArn)) {
+            StsClient stsClient = StsClient.builder()
+                    .credentialsProvider(InstanceProfileCredentialsProvider.create())
+                    .build();
+            return StsAssumeRoleCredentialsProvider.builder()
+                    .stsClient(stsClient)
+                    .refreshRequest(r -> r.roleArn(roleArn).externalId(externalId))
+                    .build();
+        }
+        return AwsCredentialsProviderChain.of(SystemPropertyCredentialsProvider.create(),
+                    EnvironmentVariableCredentialsProvider.create(),
+                    WebIdentityTokenFileCredentialsProvider.create(),
+                    ProfileCredentialsProvider.create(),
+                    InstanceProfileCredentialsProvider.create());
+    }
+
+    public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle, String accessKey,
+            String secretKey, String sessionToken, String roleArn, String externalId) {
+        EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
+                .builder()
+                .baseDelay(Duration.ofSeconds(1))
+                .maxBackoffTime(Duration.ofMinutes(1))
+                .build();
+        // retry 3 time with Equal backoff
+        RetryPolicy retryPolicy = RetryPolicy
+                .builder()
+                .numRetries(3)
+                .backoffStrategy(backoffStrategy)
+                .build();
+        ClientOverrideConfiguration clientConf = ClientOverrideConfiguration
+                .builder()
+                // set retry policy
+                .retryPolicy(retryPolicy)
+                // using AwsS3V4Signer
+                .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
+                .build();
+        return S3Client.builder()
+                .httpClient(UrlConnectionHttpClient.create())
+                .endpointOverride(endpoint)
+                .credentialsProvider(getAwsCredencialsProvider(endpoint, region, accessKey, secretKey,
+                        sessionToken, roleArn, externalId))
                 .region(Region.of(region))
                 .overrideConfiguration(clientConf)
                 // disable chunkedEncoding because of bos not supported
