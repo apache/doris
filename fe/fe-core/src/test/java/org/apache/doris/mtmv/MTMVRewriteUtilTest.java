@@ -27,6 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
@@ -63,6 +64,14 @@ public class MTMVRewriteUtilTest {
                 mtmv.getPartitions();
                 minTimes = 0;
                 result = Lists.newArrayList(p1);
+
+                mtmv.getPartitionNames();
+                minTimes = 0;
+                result = Sets.newHashSet("p1");
+
+                p1.getName();
+                minTimes = 0;
+                result = "p1";
 
                 p1.getVisibleVersionTime();
                 minTimes = 0;
