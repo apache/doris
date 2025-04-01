@@ -181,6 +181,9 @@ endif()
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
+option(BUILD_FAISS "Link doris with faiss for vector similarity search" OFF)
+message(STATUS "build faiss: ${BUILD_FAISS}")
+
 include (cmake/thirdparty.cmake)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
