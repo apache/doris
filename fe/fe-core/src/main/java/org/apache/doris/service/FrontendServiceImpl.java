@@ -1664,7 +1664,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     + request.isSetDbId() + " id: " + Long.toString(request.isSetDbId() ? request.getDbId() : 0)
                     + " fullDbName: " + fullDbName);
         }
-        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2
+        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs()
                 : Config.try_commit_lock_timeout_seconds * 1000;
         List<Table> tables = queryLoadCommitTables(request, db);
         return Env.getCurrentGlobalTransactionMgr()
@@ -1777,7 +1777,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // Step 4: get timeout
-        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2
+        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs()
                 : Config.try_commit_lock_timeout_seconds * 1000;
 
         // Step 5: commit and publish
