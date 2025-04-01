@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("eliminate_cost_join_condition") {
+suite("eliminate_const_join_condition") {
     sql """
         drop table if exists eliminate_cost_join_condition_t1;
         create table eliminate_cost_join_condition_t1 (
@@ -44,6 +44,7 @@ suite("eliminate_cost_join_condition") {
         insert into eliminate_cost_join_condition_t2(k) values(1);
 
         set runtime_filter_mode=off;
+        set enable_parallel_result_sink=false;
     """
 
     qt_shape"""
