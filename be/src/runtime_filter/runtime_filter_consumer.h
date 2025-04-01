@@ -142,6 +142,7 @@ private:
     const int64_t _registration_time;
 
     std::atomic<State> _rf_state;
+    std::mutex _mtx;
 
     friend class RuntimeFilterProducer;
 };

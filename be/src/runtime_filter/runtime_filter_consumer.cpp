@@ -64,21 +64,25 @@ Status RuntimeFilterConsumer::acquire_expr(std::vector<vectorized::VRuntimeFilte
         RETURN_IF_ERROR(_apply_ready_expr(push_exprs));
     }
     if (_rf_state != State::APPLIED && _rf_state != State::TIMEOUT) {
-        _set_state(State::TIMEOUT);
         DorisMetrics::instance()->runtime_filter_consumer_timeout_num->increment(1);
         _profile->add_info_string("ReachTimeoutLimit", "true");
+        std::unique_lock<std::mutex> l(_mtx);
+        _set_state(State::TIMEOUT);
     }
     return Status::OK();
 }
 
 void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
     COUNTER_SET(_wait_timer, int64_t((MonotonicMillis() - _registration_time) * NANOS_PER_MILLIS));
-    _wrapper = other->_wrapper;
-    _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED,
-                          RuntimeFilterWrapper::State::IGNORED,
-                          RuntimeFilterWrapper::State::READY});
-    _check_state({State::NOT_READY, State::TIMEOUT});
-    _set_state(State::READY);
+    {
+        std::unique_lock<std::mutex> l(_mtx);
+        _wrapper = other->_wrapper;
+        _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED,
+                              RuntimeFilterWrapper::State::IGNORED,
+                              RuntimeFilterWrapper::State::READY});
+        _check_state({State::NOT_READY, State::TIMEOUT});
+        _set_state(State::READY);
+    }
     DorisMetrics::instance()->runtime_filter_consumer_ready_num->increment(1);
     DorisMetrics::instance()->runtime_filter_consumer_wait_ready_ms->increment(MonotonicMillis() -
                                                                                _registration_time);
