@@ -28,6 +28,11 @@ add_library(Service STATIC ${SRC_FILES})
 
 pch_reuse(Service)
 
+find_package(OpenMP REQUIRED)
+if (OpenMP_FOUND)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+endif()
+
 if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
     add_executable(doris_be
         doris_main.cpp

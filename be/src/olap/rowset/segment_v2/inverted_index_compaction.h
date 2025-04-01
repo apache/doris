@@ -28,7 +28,7 @@
 namespace doris {
 class TabletIndex;
 namespace segment_v2 {
-class InvertedIndexFileWriter;
+class XIndexFileWriter;
 class InvertedIndexFileReader;
 
 Status compact_column(int64_t index_id,
