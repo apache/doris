@@ -19,16 +19,23 @@
 
 #include <string>
 
+#include "util/runtime_profile.h"
 namespace doris {
 template <typename T>
 struct FilterOlapParam {
-    FilterOlapParam(std::string column_name, T filter, int runtime_filter_id)
+    FilterOlapParam(std::string column_name, T filter, int runtime_filter_id,
+                    RuntimeProfile::Counter* filtered_counter,
+                    RuntimeProfile::Counter* input_counter)
             : column_name(std::move(column_name)),
               filter(std::move(filter)),
-              runtime_filter_id(runtime_filter_id) {}
+              runtime_filter_id(runtime_filter_id),
+              filtered_rows_counter(filtered_counter),
+              input_rows_counter(input_counter) {}
     std::string column_name;
     T filter;
     int runtime_filter_id;
+    RuntimeProfile::Counter* filtered_rows_counter = nullptr;
+    RuntimeProfile::Counter* input_rows_counter = nullptr;
 };
 
 } // namespace doris

@@ -435,6 +435,26 @@ RuntimeProfile::NonZeroCounter* RuntimeProfile::add_nonzero_counter(
     return counter;
 }
 
+RuntimeProfile::CollaborationCounter* RuntimeProfile::add_collaboration_counter(
+        const std::string& name, TUnit::type type, Counter* other_counter,
+        const std::string& parent_counter_name, int64_t level) {
+    std::lock_guard<std::mutex> l(_counter_map_lock);
+    if (_counter_map.find(name) != _counter_map.end()) {
+        DCHECK(dynamic_cast<CollaborationCounter*>(_counter_map[name]));
+        return static_cast<CollaborationCounter*>(_counter_map[name]);
+    }
+
+    DCHECK(parent_counter_name == ROOT_COUNTER ||
+           _counter_map.find(parent_counter_name) != _counter_map.end());
+    CollaborationCounter* counter =
+            _pool->add(new CollaborationCounter(type, level, other_counter));
+    _counter_map[name] = counter;
+    std::set<std::string>* child_counters =
+            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
+    child_counters->insert(name);
+    return counter;
+}
+
 RuntimeProfile::DerivedCounter* RuntimeProfile::add_derived_counter(
         const std::string& name, TUnit::type type, const DerivedCounterFunction& counter_fn,
         const std::string& parent_counter_name) {

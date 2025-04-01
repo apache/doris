@@ -63,10 +63,14 @@ public:
 
     void attach_profile_counter(RuntimeProfile::Counter* expr_filtered_rows_counter,
                                 RuntimeProfile::Counter* expr_input_rows_counter,
-                                RuntimeProfile::Counter* always_true_counter) {
+                                RuntimeProfile::Counter* always_true_counter,
+                                RuntimeProfile::Counter* predicate_filtered_rows_counter,
+                                RuntimeProfile::Counter* predicate_input_rows_counter) {
         _expr_filtered_rows_counter = expr_filtered_rows_counter;
         _expr_input_rows_counter = expr_input_rows_counter;
         _always_true_counter = always_true_counter;
+        _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
+        _predicate_input_rows_counter = predicate_input_rows_counter;
     }
 
     void update_counters(int64_t filter_rows, int64_t input_rows) {
@@ -96,6 +100,9 @@ public:
         }
     }
 
+    auto* predicate_filtered_rows_counter() const { return _predicate_filtered_rows_counter; }
+    auto* predicate_input_rows_counter() const { return _predicate_input_rows_counter; }
+
 private:
     void reset_judge_selectivity() {
         _always_true = false;
@@ -121,6 +128,12 @@ private:
     RuntimeProfile::Counter* _expr_filtered_rows_counter = nullptr;
     RuntimeProfile::Counter* _expr_input_rows_counter = nullptr;
     RuntimeProfile::Counter* _always_true_counter = nullptr;
+
+    // Used to record filtering information on predicates.
+    // The transfer relationship of these counters is:
+    // RuntimeFilterConsumer(create) ==> VRuntimeFilterWrapper(pass) ==> FilterOlapParam(pass) ==> ColumnPredicate(record)
+    RuntimeProfile::Counter* _predicate_filtered_rows_counter = nullptr;
+    RuntimeProfile::Counter* _predicate_input_rows_counter = nullptr;
 
     std::string _expr_name;
     double _ignore_thredhold;
