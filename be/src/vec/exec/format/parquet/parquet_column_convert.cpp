@@ -141,28 +141,14 @@ static void get_decimal_converter(FieldSchema* field_schema, TypeDescriptor src_
 
     tparquet::Type::type src_physical_type = parquet_schema.type;
     PrimitiveType src_logical_primitive = src_logical_type.type;
-    int dst_scale = src_logical_type.scale;
 
     if (src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
         switch (src_logical_primitive) {
 #define DISPATCH(LOGICAL_PTYPE)                                                                   \
     case LOGICAL_PTYPE: {                                                                         \
         using DECIMAL_TYPE = typename PrimitiveTypeTraits<LOGICAL_PTYPE>::ColumnType::value_type; \
-        convert_params->init_decimal_converter<DECIMAL_TYPE>(dst_scale);                          \
-        DecimalScaleParams& scale_params = convert_params->decimal_scale;                         \
-        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                            \
-            physical_converter.reset(                                                             \
-                    new FixedSizeToDecimal<DECIMAL_TYPE, DecimalScaleParams::SCALE_UP>(           \
-                            parquet_schema.type_length));                                         \
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {                   \
-            physical_converter.reset(                                                             \
-                    new FixedSizeToDecimal<DECIMAL_TYPE, DecimalScaleParams::SCALE_DOWN>(         \
-                            parquet_schema.type_length));                                         \
-        } else {                                                                                  \
-            physical_converter.reset(                                                             \
-                    new FixedSizeToDecimal<DECIMAL_TYPE, DecimalScaleParams::NO_SCALE>(           \
-                            parquet_schema.type_length));                                         \
-        }                                                                                         \
+        physical_converter.reset(                                                                 \
+                new FixedSizeToDecimal<DECIMAL_TYPE>(parquet_schema.type_length));                \
         break;                                                                                    \
     }
             FOR_LOGICAL_DECIMAL_TYPES(DISPATCH)
@@ -176,18 +162,7 @@ static void get_decimal_converter(FieldSchema* field_schema, TypeDescriptor src_
 #define DISPATCH(LOGICAL_PTYPE)                                                                   \
     case LOGICAL_PTYPE: {                                                                         \
         using DECIMAL_TYPE = typename PrimitiveTypeTraits<LOGICAL_PTYPE>::ColumnType::value_type; \
-        convert_params->init_decimal_converter<DECIMAL_TYPE>(dst_scale);                          \
-        DecimalScaleParams& scale_params = convert_params->decimal_scale;                         \
-        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                            \
-            physical_converter.reset(                                                             \
-                    new StringToDecimal<DECIMAL_TYPE, DecimalScaleParams::SCALE_UP>());           \
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {                   \
-            physical_converter.reset(                                                             \
-                    new StringToDecimal<DECIMAL_TYPE, DecimalScaleParams::SCALE_DOWN>());         \
-        } else {                                                                                  \
-            physical_converter.reset(                                                             \
-                    new StringToDecimal<DECIMAL_TYPE, DecimalScaleParams::NO_SCALE>());           \
-        }                                                                                         \
+        physical_converter.reset(new StringToDecimal<DECIMAL_TYPE>());                            \
         break;                                                                                    \
     }
             FOR_LOGICAL_DECIMAL_TYPES(DISPATCH)
@@ -202,32 +177,10 @@ static void get_decimal_converter(FieldSchema* field_schema, TypeDescriptor src_
 #define DISPATCH(LOGICAL_PTYPE)                                                                   \
     case LOGICAL_PTYPE: {                                                                         \
         using DECIMAL_TYPE = typename PrimitiveTypeTraits<LOGICAL_PTYPE>::ColumnType::value_type; \
-        convert_params->init_decimal_converter<DECIMAL_TYPE>(dst_scale);                          \
-        DecimalScaleParams& scale_params = convert_params->decimal_scale;                         \
-        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                            \
-            if (src_physical_type == tparquet::Type::INT32) {                                     \
-                physical_converter.reset(new NumberToDecimal<int32_t, DECIMAL_TYPE,               \
-                                                             DecimalScaleParams::SCALE_UP>());    \
-            } else {                                                                              \
-                physical_converter.reset(new NumberToDecimal<int64_t, DECIMAL_TYPE,               \
-                                                             DecimalScaleParams::SCALE_UP>());    \
-            }                                                                                     \
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {                   \
-            if (src_physical_type == tparquet::Type::INT32) {                                     \
-                physical_converter.reset(new NumberToDecimal<int32_t, DECIMAL_TYPE,               \
-                                                             DecimalScaleParams::SCALE_DOWN>());  \
-            } else {                                                                              \
-                physical_converter.reset(new NumberToDecimal<int64_t, DECIMAL_TYPE,               \
-                                                             DecimalScaleParams::SCALE_DOWN>());  \
-            }                                                                                     \
+        if (src_physical_type == tparquet::Type::INT32) {                                         \
+            physical_converter.reset(new NumberToDecimal<int32_t, DECIMAL_TYPE>());               \
         } else {                                                                                  \
-            if (src_physical_type == tparquet::Type::INT32) {                                     \
-                physical_converter.reset(new NumberToDecimal<int32_t, DECIMAL_TYPE,               \
-                                                             DecimalScaleParams::NO_SCALE>());    \
-            } else {                                                                              \
-                physical_converter.reset(new NumberToDecimal<int64_t, DECIMAL_TYPE,               \
-                                                             DecimalScaleParams::NO_SCALE>());    \
-            }                                                                                     \
+            physical_converter.reset(new NumberToDecimal<int64_t, DECIMAL_TYPE>());               \
         }                                                                                         \
         break;                                                                                    \
     }
