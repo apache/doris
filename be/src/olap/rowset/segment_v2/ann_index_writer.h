@@ -49,9 +49,9 @@ class AnnIndexColumnWriter : public IndexColumnWriter {
 public:
     static constexpr const char* INDEX_TYPE = "index_type";
     static constexpr const char* METRIC_TYPE = "metric_type";
+    static constexpr const char* QUANTILIZER = "quantilizer";
     static constexpr const char* DIM = "dim";
-    static constexpr const char* DISKANN_MAX_DEGREE = "max_degree";
-    static constexpr const char* DISKANN_SEARCH_LIST = "search_list";
+    static constexpr const char* MAX_DEGREE = "max_degree";
 
     explicit AnnIndexColumnWriter(const std::string& field_name,
                                   XIndexFileWriter* index_file_writer,

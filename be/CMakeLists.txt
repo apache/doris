@@ -395,6 +395,10 @@ if (USE_DWARF)
     add_compile_options(-gdwarf-5)
 endif()
 
+if (BUILD_FAISS)
+    add_definitions(-DBUILD_FAISS)
+endif()
+
 # For CMAKE_BUILD_TYPE=Debug
 if (OS_MACOSX AND ARCH_ARM)
     # Using -O0 may meet ARM64 branch out of range errors when linking with tcmalloc.
