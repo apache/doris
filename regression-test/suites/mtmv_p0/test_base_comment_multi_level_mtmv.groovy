@@ -116,7 +116,7 @@ suite("test_base_comment_multi_level_mtmv","mtmv") {
         'replication_num' = '1'
         )
         AS
-        SELECT t1.k1,t1.k2,t2.k1 as k3 from ${mvName1} t1 join ${mvName2} t2 on t1.k1=t2.k1;
+        SELECT t1.k1,t1.k2,t2.k2 as k3 from ${mvName1} t1 join ${mvName2} t2 on t1.k1=t2.k1;
         """
     sql """
             REFRESH MATERIALIZED VIEW ${mvName4} auto
