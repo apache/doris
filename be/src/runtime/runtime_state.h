@@ -635,10 +635,6 @@ public:
 
     void set_task_id(int id) { _task_id = id; }
 
-    void set_task(pipeline::PipelineTask* task) { _task = task; }
-
-    pipeline::PipelineTask* get_task() const { return _task; }
-
     int task_id() const { return _task_id; }
 
     void set_task_num(int task_num) { _task_num = task_num; }
