@@ -48,4 +48,5 @@ suite("fold_constant_date_arithmatic") {
     testFoldConst("select str_to_date('31/12/2020 23:59', '%d/%m/%Y %H:%i');")
     testFoldConst("select str_to_date('31/12/2020 11:59 PM', '%d/%m/%Y %h:%i %p');")
     testFoldConst("select str_to_date('20201231T235959', '%Y%m%dT%H%i%s');")
+
 }
