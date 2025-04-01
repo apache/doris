@@ -201,6 +201,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _store_paths = store_paths;
     _tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(_store_paths);
     RETURN_IF_ERROR(_tmp_file_dirs->init());
+    // return Status::OK(); //调试diskann时打开这里
     _user_function_cache = new UserFunctionCache();
     static_cast<void>(_user_function_cache->init(doris::config::user_function_dir));
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
@@ -439,6 +440,7 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
 }
 
 Status ExecEnv::_init_mem_env() {
+    // return Status::OK();  //diskann打开
     bool is_percent = false;
     std::stringstream ss;
     // 1. init mem tracker
@@ -446,6 +448,7 @@ Status ExecEnv::_init_mem_env() {
     _heap_profiler = HeapProfiler::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
+    //diskann这里得注释
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
         !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     init_hook();

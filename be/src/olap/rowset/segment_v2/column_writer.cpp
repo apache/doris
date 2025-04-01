@@ -31,7 +31,7 @@
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
-#include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h"
 #include "olap/rowset/segment_v2/page_builder.h"
@@ -451,7 +451,7 @@ Status ScalarColumnWriter::init() {
     if (_opts.need_inverted_index) {
         do {
             DBUG_EXECUTE_IF("column_writer.init", {
-                class InvertedIndexColumnWriterEmptyImpl final : public InvertedIndexColumnWriter {
+                class IndexColumnWriterEmptyImpl final : public IndexColumnWriter {
                 public:
                     Status init() override { return Status::OK(); }
                     Status add_values(const std::string name, const void* values,
@@ -476,14 +476,14 @@ Status ScalarColumnWriter::init() {
                     void close_on_error() override {}
                 };
 
-                _inverted_index_builder = std::make_unique<InvertedIndexColumnWriterEmptyImpl>();
+                _inverted_index_builder = std::make_unique<IndexColumnWriterEmptyImpl>();
 
                 break;
             });
 
-            RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.inverted_index_file_writer,
-                                                              _opts.inverted_index));
+            RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_builder,
+                                                      _opts.x_index_file_writer,
+                                                      _opts.inverted_index));
         } while (false);
     }
     if (_opts.need_bloom_filter) {
@@ -896,9 +896,16 @@ Status ArrayColumnWriter::init() {
     if (_opts.need_inverted_index) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
-            RETURN_IF_ERROR(InvertedIndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                              _opts.inverted_index_file_writer,
-                                                              _opts.inverted_index));
+            RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_builder,
+                                                      _opts.x_index_file_writer,
+                                                      _opts.inverted_index));
+        }
+    }
+    if (_opts.need_ann_index) {
+        auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
+        if (writer != nullptr) {
+            RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_ann_index_builder,
+                                                      _opts.x_index_file_writer, _opts.ann_index));
         }
     }
     return Status::OK();
@@ -907,6 +914,13 @@ Status ArrayColumnWriter::init() {
 Status ArrayColumnWriter::write_inverted_index() {
     if (_opts.need_inverted_index) {
         return _inverted_index_builder->finish();
+    }
+    return Status::OK();
+}
+
+Status ArrayColumnWriter::write_ann_index() {
+    if (_opts.need_ann_index) {
+        return _ann_index_builder->finish();
     }
     return Status::OK();
 }
@@ -932,6 +946,17 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         if (writer != nullptr) {
             //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
             RETURN_IF_ERROR(_inverted_index_builder->add_array_values(
+                    _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
+                    reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+        }
+    }
+
+    if (_opts.need_ann_index) {
+        auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
+        // now only support nested type is scala
+        if (writer != nullptr) {
+            //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
+            RETURN_IF_ERROR(_ann_index_builder->add_array_values(
                     _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
                     reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
         }

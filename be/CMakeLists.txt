@@ -283,6 +283,7 @@ add_compile_options(-g
 add_compile_options(-Wno-unused-parameter
                     $<$<COMPILE_LANGUAGE:CXX>:-Wno-incompatible-pointer-types>
                     -Wno-deprecated-declarations
+                    -Wno-self-assign-field
                     -Wno-sign-compare)
 
 if (COMPILER_GCC)
@@ -531,6 +532,7 @@ set(DORIS_LINK_LIBS
     Cloud
     ${WL_END_GROUP}
     CommonCPP
+    vector
 )
 
 set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
@@ -776,6 +778,7 @@ function(pch_reuse target)
     endif()
 endfunction(pch_reuse target)
 
+
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/exec)
@@ -791,6 +794,8 @@ add_subdirectory(${SRC_DIR}/runtime_filter)
 add_subdirectory(${SRC_DIR}/service) # this include doris_be
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/cloud)
+add_subdirectory(${SRC_DIR}/vector)
+
 
 option(BUILD_META_TOOL "Build meta tool" OFF)
 if (BUILD_META_TOOL)

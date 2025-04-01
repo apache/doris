@@ -46,13 +46,13 @@
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/tablet_schema.h"
 
 using doris::segment_v2::DorisCompoundReader;
 using doris::segment_v2::DorisFSDirectoryFactory;
-using doris::segment_v2::InvertedIndexFileWriter;
+using doris::segment_v2::XIndexFileWriter;
 using doris::segment_v2::InvertedIndexDescriptor;
 using doris::segment_v2::InvertedIndexFileReader;
 using doris::io::FileInfo;
@@ -548,14 +548,14 @@ int main(int argc, char** argv) {
         }
 
         auto fs = doris::io::global_local_filesystem();
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<XIndexFileWriter>(
                 fs,
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                         doris::local_segment_path(file_dir, rowset_id, seg_id))},
                 rowset_id, seg_id, doris::InvertedIndexStorageFormatPB::V2);
         auto st = index_file_writer->open(&index_meta);
         if (!st.has_value()) {
-            std::cerr << "InvertedIndexFileWriter init error:" << st.error() << std::endl;
+            std::cerr << "XIndexFileWriter init error:" << st.error() << std::endl;
             return -1;
         }
         using T = std::decay_t<decltype(st)>;
@@ -599,7 +599,7 @@ int main(int argc, char** argv) {
 
         auto ret = index_file_writer->close();
         if (!ret.ok()) {
-            std::cerr << "InvertedIndexFileWriter close error:" << ret.msg() << std::endl;
+            std::cerr << "XIndexFileWriter close error:" << ret.msg() << std::endl;
             return -1;
         }
     } else if (FLAGS_operation == "show_nested_files_v2") {

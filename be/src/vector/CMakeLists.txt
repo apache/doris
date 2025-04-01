@@ -15,11 +15,26 @@
 # specific language governing permissions and limitations
 # under the License.
 
-
 # where to put generated libraries
-set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/cloud")
+set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/vector")
 
-file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
-add_library(Cloud STATIC ${SRC_FILES})
+set(HEADER_FILES
+        vector_index.h
+        stream_wrapper.h
+)
 
-pch_reuse(Cloud)
+# Use INTERFACE library type for header-only libraries
+add_library(vector INTERFACE)
+if (BUILD_FAISS)
+    target_link_libraries(vector INTERFACE faiss)
+endif()
+
+# Make the headers available to targets that link against the vector library
+target_include_directories(vector INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include>
+)
+
+# If you need to install these headers
+# install(FILES ${HEADER_FILES} DESTINATION include/vector)
+
