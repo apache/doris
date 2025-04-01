@@ -46,7 +46,6 @@ class RuntimeFilterProducerHelperTest : public RuntimeFilterTest {
         for (int i = 0; i < INSTANCE_NUM; i++) {
             _tasks.emplace_back(new pipeline::PipelineTask(_pipeline, 0, _runtime_states[i].get(),
                                                            nullptr, &_profile, {}, 0));
-            _runtime_states[i]->set_task(_tasks.back().get());
         }
     }
 

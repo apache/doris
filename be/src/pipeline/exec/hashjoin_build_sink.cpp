@@ -106,7 +106,6 @@ Status HashJoinBuildSinkLocalState::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
-    _shared_state->build_block.reset();
     RETURN_IF_ERROR(_runtime_filter_producer_helper->terminate(state));
     return JoinBuildSinkLocalState::terminate(state);
 }

@@ -511,7 +511,7 @@ Status PipelineTask::execute(bool* done) {
             _eos = eos;
         }
 
-        if ((!_block->empty() || _eos) && !_wake_up_early) {
+        if (!_block->empty() || _eos) {
             SCOPED_TIMER(_sink_timer);
             Status status = Status::OK();
             DEFER_RELEASE_RESERVED();

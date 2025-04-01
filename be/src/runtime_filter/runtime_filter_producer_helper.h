@@ -30,11 +30,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 // this class used in hash join node
 /**
-<<<<<<< HEAD
- * init -> (skip_process ->) send_filter_size -> (share_filters ->) process
-=======
  * init -> (skip_runtime_filters ->) send_filter_size -> build filter -> publish filter
->>>>>>> cd8c422b04 ([refactor](terminate) add terminate interface)
  */
 class RuntimeFilterProducerHelper {
 public:
