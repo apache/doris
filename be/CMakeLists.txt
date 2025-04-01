@@ -441,7 +441,7 @@ else()
 endif()
 
 # Add flags that are common across build types
-set(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS} ${EXTRA_CXX_FLAGS} -fopenmp -fopenmp-simd ")
 
 set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
 
@@ -531,6 +531,8 @@ set(DORIS_LINK_LIBS
     Cloud
     ${WL_END_GROUP}
     CommonCPP
+    diskann_s
+    vector
 )
 
 set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
@@ -791,6 +793,8 @@ add_subdirectory(${SRC_DIR}/runtime_filter)
 add_subdirectory(${SRC_DIR}/service) # this include doris_be
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/cloud)
+add_subdirectory(${SRC_DIR}/vector)
+
 
 option(BUILD_META_TOOL "Build meta tool" OFF)
 if (BUILD_META_TOOL)

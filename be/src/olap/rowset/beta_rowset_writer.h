@@ -42,7 +42,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_creator.h"
-#include "segment_v2/inverted_index_file_writer.h"
+#include "segment_v2/x_index_file_writer.h"
 #include "segment_v2/segment.h"
 #include "util/spinlock.h"
 
@@ -90,27 +90,27 @@ public:
     ~InvertedIndexFileCollection();
 
     // `seg_id` -> inverted index file writer
-    Status add(int seg_id, InvertedIndexFileWriterPtr&& writer);
+    Status add(int seg_id, XIndexFileWriterPtr&& writer);
 
     // Close all file writers
     // If the inverted index file writer is not closed, an error will be thrown during destruction
     Status close();
 
     // Get inverted index file info in segment id order.
-    // `seg_id_offset` is the offset of the segment id relative to the subscript of `_inverted_index_file_writers`,
+    // `seg_id_offset` is the offset of the segment id relative to the subscript of `_x_index_file_writers`,
     // for more details, see `Tablet::create_transient_rowset_writer`.
     Result<std::vector<const InvertedIndexFileInfo*>> inverted_index_file_info(int seg_id_offset);
 
     // return all inverted index file writers
-    std::unordered_map<int, InvertedIndexFileWriterPtr>& get_file_writers() {
-        return _inverted_index_file_writers;
+    std::unordered_map<int, XIndexFileWriterPtr>& get_file_writers() {
+        return _x_index_file_writers;
     }
 
     int64_t get_total_index_size() const { return _total_size; }
 
 private:
     mutable SpinLock _lock;
-    std::unordered_map<int /* seg_id */, InvertedIndexFileWriterPtr> _inverted_index_file_writers;
+    std::unordered_map<int /* seg_id */, XIndexFileWriterPtr> _x_index_file_writers;
     int64_t _total_size = 0;
 };
 
@@ -132,8 +132,8 @@ public:
     Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
                               FileType file_type = FileType::SEGMENT_FILE) override;
 
-    Status create_inverted_index_file_writer(uint32_t segment_id,
-                                             InvertedIndexFileWriterPtr* writer) override;
+    Status create_x_index_file_writer(uint32_t segment_id,
+                                             XIndexFileWriterPtr* writer) override;
 
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                        TabletSchemaSPtr flush_schema) override;
@@ -194,7 +194,7 @@ public:
         return _seg_files.get_file_writers();
     }
 
-    std::unordered_map<int, InvertedIndexFileWriterPtr>& inverted_index_file_writers() {
+    std::unordered_map<int, XIndexFileWriterPtr>& x_index_file_writers() {
         return this->_idx_files.get_file_writers();
     }
 
@@ -219,7 +219,7 @@ protected:
     // Only during vertical compaction is this method called
     // Some index files are written during normal compaction and some files are written during index compaction.
     // After all index writes are completed, call this method to write the final compound index file.
-    Status _close_inverted_index_file_writers() {
+    Status _close_x_index_file_writers() {
         RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.close(),
                                        "failed to close index file when build new rowset");
         this->_total_index_size += _idx_files.get_total_index_size();

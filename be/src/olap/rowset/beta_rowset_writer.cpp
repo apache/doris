@@ -192,20 +192,20 @@ Result<std::vector<size_t>> SegmentFileCollection::segments_file_size(int seg_id
 
 InvertedIndexFileCollection::~InvertedIndexFileCollection() = default;
 
-Status InvertedIndexFileCollection::add(int seg_id, InvertedIndexFileWriterPtr&& index_writer) {
+Status InvertedIndexFileCollection::add(int seg_id, XIndexFileWriterPtr&& index_writer) {
     std::lock_guard lock(_lock);
-    if (_inverted_index_file_writers.find(seg_id) != _inverted_index_file_writers.end())
+    if (_x_index_file_writers.find(seg_id) != _x_index_file_writers.end())
             [[unlikely]] {
         DCHECK(false);
         return Status::InternalError("The seg_id already exists, seg_id is {}", seg_id);
     }
-    _inverted_index_file_writers.emplace(seg_id, std::move(index_writer));
+    _x_index_file_writers.emplace(seg_id, std::move(index_writer));
     return Status::OK();
 }
 
 Status InvertedIndexFileCollection::close() {
     std::lock_guard lock(_lock);
-    for (auto&& [id, writer] : _inverted_index_file_writers) {
+    for (auto&& [id, writer] : _x_index_file_writers) {
         RETURN_IF_ERROR(writer->close());
         _total_size += writer->get_index_file_total_size();
     }
@@ -218,9 +218,9 @@ InvertedIndexFileCollection::inverted_index_file_info(int seg_id_offset) {
     std::lock_guard lock(_lock);
 
     Status st;
-    std::vector<const InvertedIndexFileInfo*> idx_file_info(_inverted_index_file_writers.size());
+    std::vector<const InvertedIndexFileInfo*> idx_file_info(_x_index_file_writers.size());
     bool succ = std::all_of(
-            _inverted_index_file_writers.begin(), _inverted_index_file_writers.end(),
+            _x_index_file_writers.begin(), _x_index_file_writers.end(),
             [&](auto&& it) {
                 auto&& [seg_id, writer] = it;
 
@@ -233,7 +233,7 @@ InvertedIndexFileCollection::inverted_index_file_info(int seg_id_offset) {
                     st = Status::InternalError(err_msg);
                     return false;
                 }
-                idx_file_info[idx] = _inverted_index_file_writers[seg_id]->get_index_file_info();
+                idx_file_info[idx] = _x_index_file_writers[seg_id]->get_index_file_info();
                 return true;
             });
 
@@ -984,9 +984,9 @@ Status BaseBetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWri
             fmt::format("failed to create file = {}, file type = {}", segment_path, file_type));
 }
 
-Status BaseBetaRowsetWriter::create_inverted_index_file_writer(
-        uint32_t segment_id, InvertedIndexFileWriterPtr* index_file_writer) {
-    RETURN_IF_ERROR(RowsetWriter::create_inverted_index_file_writer(segment_id, index_file_writer));
+Status BaseBetaRowsetWriter::create_x_index_file_writer(
+        uint32_t segment_id, XIndexFileWriterPtr* index_file_writer) {
+    RETURN_IF_ERROR(RowsetWriter::create_x_index_file_writer(segment_id, index_file_writer));
     // used for inverted index format v1
     (*index_file_writer)->set_file_writer_opts(_context.get_file_writer_options());
     return Status::OK();
@@ -1000,7 +1000,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     io::FileWriterPtr file_writer;
     RETURN_IF_ERROR(_create_file_writer(path, file_writer));
 
-    InvertedIndexFileWriterPtr index_file_writer;
+    XIndexFileWriterPtr index_file_writer;
     if (_context.tablet_schema->has_inverted_index()) {
         io::FileWriterPtr idx_file_writer;
         std::string prefix(InvertedIndexDescriptor::get_index_file_path_prefix(path));
@@ -1009,7 +1009,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
             std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
             RETURN_IF_ERROR(_create_file_writer(index_path, idx_file_writer));
         }
-        index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        index_file_writer = std::make_unique<XIndexFileWriter>(
                 _context.fs(), prefix, _context.rowset_id.to_string(), _num_segcompacted,
                 _context.tablet_schema->get_inverted_index_storage_format(),
                 std::move(idx_file_writer));
@@ -1031,11 +1031,11 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
         RETURN_IF_ERROR(_segcompaction_worker->get_file_writer()->close());
     }
     _segcompaction_worker->get_file_writer().reset(file_writer.release());
-    if (auto& idx_file_writer = _segcompaction_worker->get_inverted_index_file_writer();
+    if (auto& idx_file_writer = _segcompaction_worker->get_x_index_file_writer();
         idx_file_writer != nullptr) {
         RETURN_IF_ERROR(idx_file_writer->close());
     }
-    _segcompaction_worker->get_inverted_index_file_writer().reset(index_file_writer.release());
+    _segcompaction_worker->get_x_index_file_writer().reset(index_file_writer.release());
     return Status::OK();
 }
 

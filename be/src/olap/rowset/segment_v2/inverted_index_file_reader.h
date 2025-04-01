@@ -32,7 +32,7 @@
 #include "common/config.h"
 #include "io/fs/file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
 
 namespace doris {
 class TabletIndex;

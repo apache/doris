@@ -43,8 +43,8 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
-#include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
+#include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
@@ -85,14 +85,14 @@ inline std::string segment_mem_tracker_name(uint32_t segment_id) {
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                              DataDir* data_dir, const SegmentWriterOptions& opts,
-                             InvertedIndexFileWriter* inverted_file_writer)
+                             XIndexFileWriter* inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
-          _inverted_index_file_writer(inverted_file_writer),
+          _x_index_file_writer(inverted_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
@@ -227,10 +227,19 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         index != nullptr && !skip_inverted_index) {
         opts.inverted_index = index;
         opts.need_inverted_index = true;
-        DCHECK(_inverted_index_file_writer != nullptr);
-        opts.inverted_index_file_writer = _inverted_index_file_writer;
+        DCHECK(_x_index_file_writer != nullptr);
+        opts.x_index_file_writer = _x_index_file_writer;
         // TODO support multiple inverted index
     }
+
+     // indexes for this column
+    if (const auto& index = schema->ann_index(column); index != nullptr) {
+        opts.ann_index = index;
+        opts.need_ann_index = true;
+        DCHECK(_x_index_file_writer != nullptr);
+        opts.x_index_file_writer = _x_index_file_writer;
+    }
+
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
         opts.need_zone_map = false;                           \
@@ -1032,7 +1041,7 @@ Status SegmentWriter::finalize_columns_data() {
     _num_rows_written = 0;
 
     for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->finish());
+        RETURN_IF_ERROR(column_writer->finish());  //给索引收尾
     }
     RETURN_IF_ERROR(_write_data());
 
@@ -1045,6 +1054,7 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_inverted_index());
+    RETURN_IF_ERROR(_write_ann_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
 
     *index_size = _file_writer->bytes_appended() - index_start;
@@ -1169,6 +1179,13 @@ Status SegmentWriter::_write_bitmap_index() {
 }
 
 Status SegmentWriter::_write_inverted_index() {
+    for (auto& column_writer : _column_writers) {
+        RETURN_IF_ERROR(column_writer->write_inverted_index());
+    }
+    return Status::OK();
+}
+
+Status SegmentWriter::_write_ann_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_inverted_index());
     }

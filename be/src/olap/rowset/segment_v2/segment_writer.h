@@ -34,7 +34,7 @@
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
@@ -84,7 +84,7 @@ public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
                            const SegmentWriterOptions& opts,
-                           InvertedIndexFileWriter* inverted_file_writer);
+                           XIndexFileWriter* inverted_file_writer);
     ~SegmentWriter();
 
     Status init();
@@ -147,12 +147,12 @@ public:
 
     Status close_inverted_index(int64_t* inverted_index_file_size) {
         // no inverted index
-        if (_inverted_index_file_writer == nullptr) {
+        if (_x_index_file_writer == nullptr) {
             *inverted_index_file_size = 0;
             return Status::OK();
         }
-        RETURN_IF_ERROR(_inverted_index_file_writer->close());
-        *inverted_index_file_size = _inverted_index_file_writer->get_index_file_total_size();
+        RETURN_IF_ERROR(_x_index_file_writer->close());
+        *inverted_index_file_size = _x_index_file_writer->get_index_file_total_size();
         return Status::OK();
     }
 
@@ -169,6 +169,7 @@ private:
     Status _write_zone_map();
     Status _write_bitmap_index();
     Status _write_inverted_index();
+    Status _write_ann_index();
     Status _write_bloom_filter_index();
     Status _write_short_key_index();
     Status _write_primary_key_index();
@@ -214,7 +215,7 @@ private:
     // Not owned. owned by RowsetWriter or SegmentFlusher
     io::FileWriter* _file_writer = nullptr;
     // Not owned. owned by RowsetWriter or SegmentFlusher
-    InvertedIndexFileWriter* _inverted_index_file_writer = nullptr;
+    XIndexFileWriter* _x_index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys

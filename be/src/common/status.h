@@ -650,7 +650,7 @@ inline std::string Status::to_string_no_stack() const {
 // some generally useful macros
 #define RETURN_IF_ERROR(stmt)           \
     do {                                \
-        Status _status_ = (stmt);       \
+        doris::Status _status_ = (stmt);       \
         if (UNLIKELY(!_status_.ok())) { \
             return _status_;            \
         }                               \

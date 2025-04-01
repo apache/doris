@@ -43,8 +43,8 @@ class DorisFSDirectory;
 using InvertedIndexDirectoryMap =
         std::map<std::pair<int64_t, std::string>, std::shared_ptr<lucene::store::Directory>>;
 
-class InvertedIndexFileWriter;
-using InvertedIndexFileWriterPtr = std::unique_ptr<InvertedIndexFileWriter>;
+class XIndexFileWriter;
+using XIndexFileWriterPtr = std::unique_ptr<XIndexFileWriter>;
 
 class FileInfo {
 public:
@@ -52,9 +52,9 @@ public:
     int64_t filesize;
 };
 
-class InvertedIndexFileWriter {
+class XIndexFileWriter {
 public:
-    InvertedIndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
+    XIndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
                             std::string rowset_id, int64_t seg_id,
                             InvertedIndexStorageFormatPB storage_format,
                             io::FileWriterPtr file_writer = nullptr, bool can_use_ram_dir = true)
@@ -73,8 +73,10 @@ public:
     Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
-    virtual ~InvertedIndexFileWriter() = default;
+
+    virtual ~XIndexFileWriter() = default;
     Status add_into_searcher_cache();
+
     Status write();
     Status write_v1();
     Status close();
