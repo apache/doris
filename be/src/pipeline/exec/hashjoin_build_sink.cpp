@@ -211,7 +211,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
 
         if (p._use_shared_hash_table) {
-            std::unique_lock(p._mutex);
+            std::unique_lock l(p._mutex);
             p._signaled = true;
             for (auto& dep : _shared_state->sink_deps) {
                 dep->set_ready();

@@ -25,6 +25,9 @@ set(HEADER_FILES
 
 # Use INTERFACE library type for header-only libraries
 add_library(vector INTERFACE)
+if (BUILD_FAISS)
+    target_link_libraries(vector INTERFACE faiss)
+endif()
 
 # Make the headers available to targets that link against the vector library
 target_include_directories(vector INTERFACE
