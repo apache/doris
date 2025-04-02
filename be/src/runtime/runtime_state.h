@@ -552,7 +552,8 @@ public:
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,
                                             std::shared_ptr<RuntimeFilterConsumer>* consumer_filter,
-                                            RuntimeProfile* parent_profile);
+                                            RuntimeProfile* consumer_helper_profile,
+                                            RuntimeProfile* parent_operator_profile);
 
     bool is_nereids() const;
 
