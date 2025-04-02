@@ -67,14 +67,8 @@ fi
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
-if [[ "${target_branch}" == "master" ]]; then
-    echo "INFO: PR target branch ${target_branch}"
-    install_java
-else
-    echo "WARNING: PR target branch ${target_branch} is NOT in (master), skip pipeline."
-    bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"
-    exit 0
-fi
+echo "INFO: PR target branch ${target_branch}"
+install_java
 
 # shellcheck source=/dev/null
 # _get_pr_changed_files file_changed_performance

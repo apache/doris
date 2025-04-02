@@ -23,7 +23,6 @@
 #include <mutex>
 #include <utility>
 
-#include "gutil/integral_types.h"
 #include "pipeline/dependency.h"
 #include "vec/core/block.h"
 

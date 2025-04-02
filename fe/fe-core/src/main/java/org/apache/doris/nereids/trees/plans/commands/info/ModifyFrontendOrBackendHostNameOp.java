@@ -84,8 +84,6 @@ public class ModifyFrontendOrBackendHostNameOp extends AlterSystemOp {
                 // if no IP address for the host could be found, 'getByName'
                 // will throw UnknownHostException
                 InetAddress.getByName(newHost);
-            } else {
-                throw new AnalysisException("Invalid hostname: " + newHost);
             }
         } catch (UnknownHostException e) {
             throw new AnalysisException("Unknown hostname:  " + e.getMessage());

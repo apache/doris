@@ -67,9 +67,6 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, debug_string) {
 TEST_F(PartitionedHashJoinProbeOperatorTest, InitAndOpen) {
     auto [probe_operator, sink_operator] = _helper.create_operators();
 
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
-
     auto local_state = PartitionedHashJoinProbeLocalState::create_shared(
             _helper.runtime_state.get(), probe_operator.get());
 
@@ -77,7 +74,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, InitAndOpen) {
     LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
-                         .le_state_map = le_state_map,
+                         .shared_state_map = {},
                          .task_idx = 0};
     auto st = local_state->init(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st) << "init failed: " << st.to_string();
@@ -1132,14 +1129,10 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, Other) {
     auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
                                                         probe_operator.get(), shared_state);
 
-    auto st = probe_operator->_setup_internal_operator_for_non_spill(*local_state,
-                                                                     _helper.runtime_state.get());
-    ASSERT_TRUE(st.ok()) << "Setup internal operator failed: " << st.to_string();
-
     local_state->_shared_state->need_to_spill = true;
     ASSERT_FALSE(probe_operator->_should_revoke_memory(_helper.runtime_state.get()));
 
-    st = probe_operator->_revoke_memory(_helper.runtime_state.get());
+    auto st = probe_operator->_revoke_memory(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "Revoke memory failed: " << st.to_string();
 }
 

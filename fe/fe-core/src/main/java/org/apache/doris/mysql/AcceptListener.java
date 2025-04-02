@@ -92,15 +92,18 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                         if (!MysqlProto.negotiate(context)) {
                             throw new AfterConnectedException("mysql negotiate failed");
                         }
-                        if (connectScheduler.registerConnection(context)) {
+                        int res = connectScheduler.registerConnection(context);
+                        if (res == -1) {
                             MysqlProto.sendResponsePacket(context);
                             connection.setCloseListener(
                                     streamConnection -> connectScheduler.unregisterConnection(context));
                         } else {
-                            context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS,
-                                    "Reach limit of connections");
+                            long userConnLimit = context.getEnv().getAuth().getMaxConn(context.getQualifiedUser());
+                            String errMsg = String.format("Reach limit of connections. Total: %, User: %d, Current: %d",
+                                    connectScheduler.getMaxConnections(), userConnLimit, res);
+                            context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, errMsg);
                             MysqlProto.sendResponsePacket(context);
-                            throw new AfterConnectedException("Reach limit of connections");
+                            throw new AfterConnectedException(errMsg);
                         }
                         context.setStartTime();
                         int userQueryTimeout = context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser());

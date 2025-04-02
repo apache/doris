@@ -56,8 +56,6 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
 
     _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                   "HashJoinProbeSpillDependency", true);
-    state->get_task()->add_spill_dependency(_spill_dependency.get());
-
     init_counters();
     return Status::OK();
 }
@@ -579,14 +577,6 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::
     return Status::OK();
 }
 
-Status PartitionedHashJoinProbeOperatorX::_setup_internal_operator_for_non_spill(
-        PartitionedHashJoinProbeLocalState& local_state, RuntimeState* state) {
-    DCHECK(local_state._shared_state->inner_runtime_state);
-    local_state._in_mem_shared_state_sptr =
-            std::move(local_state._shared_state->inner_shared_state);
-    return Status::OK();
-}
-
 Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
         PartitionedHashJoinProbeLocalState& local_state, RuntimeState* state) const {
     local_state._shared_state->inner_runtime_state = RuntimeState::create_unique(
@@ -878,10 +868,7 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
                 return _revoke_memory(state);
             }
         } else {
-            if (UNLIKELY(!local_state._shared_state->inner_runtime_state)) {
-                RETURN_IF_ERROR(_setup_internal_operator_for_non_spill(local_state, state));
-            }
-
+            DCHECK(local_state._shared_state->inner_runtime_state);
             RETURN_IF_ERROR(_inner_probe_operator->push(
                     local_state._shared_state->inner_runtime_state.get(),
                     local_state._child_block.get(), local_state._child_eos));

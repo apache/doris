@@ -52,7 +52,7 @@ private:
 };
 
 template <bool is_intersect>
-class SetSourceOperatorX final : public OperatorX<SetSourceLocalState<is_intersect>> {
+class SetSourceOperatorX MOCK_REMOVE(final) : public OperatorX<SetSourceLocalState<is_intersect>> {
 public:
     using Base = OperatorX<SetSourceLocalState<is_intersect>>;
     // for non-delay tempalte instantiation
@@ -66,6 +66,10 @@ public:
               _child_quantity(tnode.node_type == TPlanNodeType::type::INTERSECT_NODE
                                       ? tnode.intersect_node.result_expr_lists.size()
                                       : tnode.except_node.result_expr_lists.size()) {};
+
+#ifdef BE_TEST
+    SetSourceOperatorX(size_t child_quantity) : _child_quantity(child_quantity) {}
+#endif
     ~SetSourceOperatorX() override = default;
 
     [[nodiscard]] bool is_source() const override { return true; }

@@ -396,7 +396,8 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         // only for normal load, single-stream-multi-table load will be planned during consuming
 #ifndef BE_TEST
         // execute plan fragment, async
-        HANDLE_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx),
+        TPipelineFragmentParamsList mocked;
+        HANDLE_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked),
                      "failed to execute plan fragment");
 #else
         // only for test

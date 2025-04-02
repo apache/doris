@@ -47,7 +47,6 @@ class RuntimeFilterConsumerHelperTest : public RuntimeFilterTest {
 
         _task.reset(new pipeline::PipelineTask(_pipeline, 0, _runtime_states[0].get(), nullptr,
                                                &_profile, {}, 0));
-        _runtime_states[0]->set_task(_task.get());
 
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(ExecEnv::GetInstance()->init_pipeline_task_scheduler());
     }

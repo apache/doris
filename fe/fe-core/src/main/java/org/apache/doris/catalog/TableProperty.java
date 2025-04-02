@@ -693,6 +693,9 @@ public class TableProperty implements Writable, GsonPostProcessable {
             modifyTableProperties(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS,
                     Joiner.on(",").join(rowStoreColumns));
             buildRowStoreColumns();
+        } else {
+            // clear row store columns
+            this.rowStoreColumns = null;
         }
     }
 

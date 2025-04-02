@@ -59,13 +59,16 @@ private:
     DependencySPtr _only_const_dependency = nullptr;
 };
 
-class UnionSourceOperatorX final : public OperatorX<UnionSourceLocalState> {
+class UnionSourceOperatorX MOCK_REMOVE(final) : public OperatorX<UnionSourceLocalState> {
 public:
     using Base = OperatorX<UnionSourceLocalState>;
     UnionSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                          const DescriptorTbl& descs)
             : Base(pool, tnode, operator_id, descs), _child_size(tnode.num_children) {}
     ~UnionSourceOperatorX() override = default;
+#ifdef BE_TEST
+    UnionSourceOperatorX(int child_size) : _child_size(child_size) {}
+#endif
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
@@ -87,7 +90,7 @@ public:
         static_cast<void>(Base::prepare(state));
         // Prepare const expr lists.
         for (const vectorized::VExprContextSPtrs& exprs : _const_expr_lists) {
-            RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, _row_descriptor));
+            RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, row_descriptor()));
         }
         // open const expr lists.
         for (const auto& exprs : _const_expr_lists) {

@@ -18,7 +18,7 @@
 suite("test_backup_restore_force_replace_diff_part_type", "backup_restore") {
     String suiteName = "test_backup_restore_force_replace_diff_part_type"
     String dbName = "${suiteName}_db_0"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot_" + System.currentTimeMillis()
     String tableNamePrefix = "${suiteName}_tables"
     String tableName = "${tableNamePrefix}_0"

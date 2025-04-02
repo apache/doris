@@ -614,7 +614,7 @@ suite("load") {
         s_zip char(10),
         s_country varchar(20),
         s_gmt_offset decimalv3(5,2),
-        s_tax_precentage decimalv3(5,2)
+        s_tax_percentage decimalv3(5,2)
     )
     DUPLICATE KEY(s_store_sk)
     DISTRIBUTED BY HASH(s_store_sk) BUCKETS 1

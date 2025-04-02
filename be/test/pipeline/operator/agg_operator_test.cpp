@@ -42,7 +42,7 @@ auto static init_sink_and_source(std::shared_ptr<AggSinkOperatorX> sink_op,
                                  .parent_profile = &ctx.profile,
                                  .sender_id = 0,
                                  .shared_state = shared_state.get(),
-                                 .le_state_map = {},
+                                 .shared_state_map = {},
                                  .tsink = TDataSink {}};
         EXPECT_TRUE(local_state->init(&ctx.state, info).ok());
         ctx.state.emplace_sink_local_state(0, std::move(local_state));
@@ -54,7 +54,7 @@ auto static init_sink_and_source(std::shared_ptr<AggSinkOperatorX> sink_op,
         LocalStateInfo info {.parent_profile = &ctx.profile,
                              .scan_ranges = {},
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .task_idx = 0};
 
         EXPECT_TRUE(local_state->init(&ctx.state, info).ok());

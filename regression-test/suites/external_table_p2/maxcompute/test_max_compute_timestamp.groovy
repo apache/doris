@@ -31,6 +31,56 @@ INSERT INTO TABLE timestamp_tb1 VALUES(timestamp "2023-02-02 00:00:00.123456789"
 drop table if EXISTS timestamp_tb2;
 CREATE TABLE  timestamp_tb2  (col1 TIMESTAMP,col2 TIMESTAMP_NTZ);
 INSERT INTO TABLE timestamp_tb2 VALUES(timestamp "2023-02-02 00:00:00.123456", timestamp_ntz "2023-02-02 00:00:00.123456" );
+
+
+drop table if EXISTS datetime_tb2;
+CREATE TABLE datetime_tb2 (col1 datetime);
+INSERT INTO TABLE datetime_tb2 VALUES
+    (datetime '0001-01-01 00:00:00'),
+    (datetime '1523-03-10 08:15:30'),
+    (datetime '1969-02-02 00:00:00'),
+    (datetime '1969-12-31 00:00:01'),
+    (datetime "2023-02-02 00:00:00"),
+    (datetime '3256-07-22 14:45:10'),
+    (datetime '4789-09-05 20:30:45'),
+    (datetime '6210-12-17 03:55:20'),
+    (datetime '7854-05-29 12:10:05'),
+    (datetime '9234-11-11 18:40:50'),
+    (datetime '9999-12-31 23:59:59');
+
+
+
+
+drop table if EXISTS timestamp_tb3;
+CREATE TABLE  timestamp_tb3  (col1 TIMESTAMP,col2 TIMESTAMP_NTZ);
+INSERT INTO TABLE timestamp_tb3 VALUES
+    (timestamp '0001-01-01 00:00:00.000000', timestamp_ntz '0001-01-01 00:00:00.000000'),
+    (timestamp '1523-03-10 08:15:30.987654', timestamp_ntz '1523-03-10 08:15:30.987654'),
+    (timestamp '1969-02-02 00:00:00.543210', timestamp_ntz '1969-02-02 00:00:00.543210'),
+    (timestamp '1969-12-31 00:00:01.678901', timestamp_ntz '1969-12-31 00:00:01.678901'),
+    (timestamp '2023-02-02 00:00:00.123456', timestamp_ntz '2023-02-02 00:00:00.123456'),
+    (timestamp '3256-07-22 14:45:10.234567', timestamp_ntz '3256-07-22 14:45:10.234567'),
+    (timestamp '4789-09-05 20:30:45.876543', timestamp_ntz '4789-09-05 20:30:45.876543'),
+    (timestamp '6210-12-17 03:55:20.345678', timestamp_ntz '6210-12-17 03:55:20.345678'),
+    (timestamp '7854-05-29 12:10:05.456789', timestamp_ntz '7854-05-29 12:10:05.456789'),
+    (timestamp '9234-11-11 18:40:50.567890', timestamp_ntz '9234-11-11 18:40:50.567890'),
+    (timestamp '9999-12-31 23:59:59.999999', timestamp_ntz '9999-12-31 23:59:59.999999');
+
+
+drop table if EXISTS timestamp_tb4;
+CREATE TABLE  timestamp_tb4  (col1 TIMESTAMP,col2 TIMESTAMP_NTZ);
+INSERT INTO TABLE timestamp_tb4 VALUES
+    (timestamp '0001-01-01 00:00:00.654321789', timestamp_ntz '0001-01-01 00:00:00.654321789'),
+    (timestamp '1523-03-10 08:15:30.987654123', timestamp_ntz '1523-03-10 08:15:30.987654123'),
+    (timestamp '1969-02-02 00:00:00.543210567', timestamp_ntz '1969-02-02 00:00:00.543210567'),
+    (timestamp '1969-12-31 00:00:01.678901234', timestamp_ntz '1969-12-31 00:00:01.678901234'),
+    (timestamp '2023-02-02 00:00:00.123456890', timestamp_ntz '2023-02-02 00:00:00.123456890'),
+    (timestamp '3256-07-22 14:45:10.234567345', timestamp_ntz '3256-07-22 14:45:10.234567345'),
+    (timestamp '4789-09-05 20:30:45.876543678', timestamp_ntz '4789-09-05 20:30:45.876543678'),
+    (timestamp '6210-12-17 03:55:20.345678901', timestamp_ntz '6210-12-17 03:55:20.345678901'),
+    (timestamp '7854-05-29 12:10:05.456789432', timestamp_ntz '7854-05-29 12:10:05.456789432'),
+    (timestamp '9234-11-11 18:40:50.567890765', timestamp_ntz '9234-11-11 18:40:50.567890765'),
+    (timestamp '9999-12-31 23:59:59.999999876', timestamp_ntz '9999-12-31 23:59:59.999999876');
 */
 
 suite("test_max_compute_timestamp", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
@@ -56,6 +106,10 @@ suite("test_max_compute_timestamp", "p2,external,maxcompute,external_remote,exte
         """
         sql """ switch ${mc_catalog_name} """
         sql """ use ${mc_db}"""
+
+        qt_0_1 """ select * from datetime_tb2 order by col1""" 
+        qt_0_2 """ select * from timestamp_tb3 order by col1 """ 
+        qt_0_3 """ select * from timestamp_tb4 order by col1 """ 
 
         sql """ set time_zone = "Asia/Shanghai" """
         qt_1_1 """ select * from datetime_tb1;"""

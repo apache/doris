@@ -167,7 +167,8 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
     if (!ctx->use_streaming) {
         // we need to close file first, then execute_plan_fragment here
         ctx->body_sink.reset();
-        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx));
+        TPipelineFragmentParamsList mocked;
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked));
     }
 
     // wait stream load finish
@@ -779,8 +780,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!ctx->use_streaming) {
         return Status::OK();
     }
-
-    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
+    TPipelineFragmentParamsList mocked;
+    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked);
 }
 
 Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_path) {

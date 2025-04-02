@@ -26,6 +26,14 @@ namespace doris {
 
 class CloudStorageEngine;
 
+struct SyncOptions {
+    bool warmup_delta_data = false;
+    bool sync_delete_bitmap = true;
+    bool full_sync = false;
+    bool merge_schema = false;
+    int64_t query_version = -1;
+};
+
 class CloudTablet final : public BaseTablet {
 public:
     CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta);
@@ -68,7 +76,7 @@ public:
     // If `query_version` > 0 and local max_version of the tablet >= `query_version`, do nothing.
     // If 'need_download_data_async' is true, it means that we need to download the new version
     // rowsets datum async.
-    Status sync_rowsets(int64_t query_version = -1, bool warmup_delta_data = false);
+    Status sync_rowsets(const SyncOptions& options = {});
 
     // Synchronize the tablet meta from meta service.
     Status sync_meta();
