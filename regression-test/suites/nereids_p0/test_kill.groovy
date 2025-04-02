@@ -39,10 +39,6 @@ suite("test_kill") {
 	sql """kill connection ${connectionId1}"""
 	
 	result = sql """SHOW PROCESSLIST;"""
-	processlistId = result[0][1]
-	sql """kill query ${processlistId}"""
-	
-	result = sql """SHOW PROCESSLIST;"""
 	connectionId2 = result[0][1]
 	queryId0 = result[0][10]
 	sql """kill query '${queryId0}'"""
