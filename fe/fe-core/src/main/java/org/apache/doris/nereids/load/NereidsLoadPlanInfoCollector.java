@@ -364,6 +364,9 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                 .collect(Collectors.toList());
         List<Slot> slotList = outputs.stream().map(NamedExpression::toSlot).collect(Collectors.toList());
 
+        // ignore projectList's nullability and set the expr's nullable info same as dest table column
+        // why do this? looks like be works in this way...
+        // and we have to do some extra work in visitLogicalFilter because this ood behavior
         int size = slotList.size();
         List<Slot> newSlotList = new ArrayList<>(size);
         for (int i = 0; i < size; ++i) {
@@ -406,9 +409,14 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
     public Void visitLogicalFilter(LogicalFilter<? extends Plan> logicalFilter, PlanTranslatorContext context) {
         logicalFilter.child().accept(this, context);
         loadPlanInfo.postFilterExprList = new ArrayList<>(logicalFilter.getConjuncts().size());
-        logicalFilter.getConjuncts().stream()
-                .map(e -> ExpressionTranslator.translate(e, context))
-                .forEach(loadPlanInfo.postFilterExprList::add);
+        for (Expression conjunct : logicalFilter.getConjuncts()) {
+            Expr expr = ExpressionTranslator.translate(conjunct, context);
+            // in visitLogicalProject, we set project exprs nullability same as dest table columns
+            // the conjunct's nullability is based on project exprs, so we need clear the nullable info
+            // and let conjunct calculate the nullability by itself to get the correct nullable info
+            expr.clearNullableFromNereids();
+            loadPlanInfo.postFilterExprList.add(expr);
+        }
         filterPredicate = logicalFilter.getPredicate();
         for (Column c : destTable.getPartitionColumns()) {
             Slot partitionSlot = null;
