@@ -38,6 +38,8 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.OutlineInfo;
+import org.apache.doris.nereids.hint.OutlineMgr;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.Group;
@@ -46,6 +48,7 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.minidump.NereidsTracer;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -139,6 +142,14 @@ public class NereidsPlanner extends Planner {
         ExplainLevel explainLevel = getExplainLevel(queryStmt.getExplainOptions());
 
         LogicalPlan parsedPlan = logicalPlanAdapter.getLogicalPlan();
+        String visibleSignature = OutlineMgr.replaceConstant(queryStmt.getOrigStmt().originStmt,
+                statementContext.getConstantExpressionMap(), 0);
+        Optional<OutlineInfo> outlineInfo = OutlineMgr.getOutlineByVisibleSignature(visibleSignature);
+        if (outlineInfo.isPresent()) {
+            NereidsParser parser = new NereidsParser();
+            parsedPlan = parser.parseForOutline(outlineInfo.get().getOutlineData(), parsedPlan);
+            queryStmt.getOrigStmt().setOutlineName(outlineInfo.get().getOutlineName());
+        }
         NereidsTracer.logImportantTime("EndParsePlan");
         setParsedPlan(parsedPlan);
 

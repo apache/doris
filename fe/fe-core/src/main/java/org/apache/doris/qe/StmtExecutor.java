@@ -420,6 +420,7 @@ public class StmtExecutor {
         builder.defaultDb(context.getDatabase());
         builder.workloadGroup(context.getWorkloadGroupName());
         builder.sqlStatement(originStmt == null ? "" : originStmt.originStmt);
+        builder.outlineName(originStmt == null ? "" : originStmt.getOutlineName());
         builder.isCached(isCached ? "Yes" : "No");
 
         Map<String, Integer> beToInstancesNum = coord == null ? Maps.newTreeMap() : coord.getBeToInstancesNum();

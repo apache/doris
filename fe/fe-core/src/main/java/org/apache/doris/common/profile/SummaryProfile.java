@@ -68,6 +68,7 @@ public class SummaryProfile {
     public static final String DISTRIBUTED_PLAN = "Distributed Plan";
     public static final String SYSTEM_MESSAGE = "System Message";
     public static final String EXECUTED_BY_FRONTEND = "Executed By Frontend";
+    public static final String OUTLINE_NAME = "Outline Name";
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String ANALYSIS_TIME = "Analysis Time";
@@ -127,7 +128,8 @@ public class SummaryProfile {
     // a column, so that should not
     // add many columns here. Add to ExecutionSummary list.
     public static final ImmutableList<String> SUMMARY_CAPTIONS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
-            START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_CATALOG, DEFAULT_DB, SQL_STATEMENT);
+            START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_CATALOG,
+            DEFAULT_DB, SQL_STATEMENT, OUTLINE_NAME);
     public static final ImmutableList<String> SUMMARY_KEYS = new ImmutableList.Builder<String>()
             .addAll(SUMMARY_CAPTIONS)
             .add(DISTRIBUTED_PLAN)
@@ -734,6 +736,11 @@ public class SummaryProfile {
 
         public SummaryBuilder sqlStatement(String val) {
             map.put(SQL_STATEMENT, val);
+            return this;
+        }
+
+        public SummaryBuilder outlineName(String val) {
+            map.put(OUTLINE_NAME, val);
             return this;
         }
 

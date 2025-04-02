@@ -38,6 +38,8 @@ public class OriginStatement {
     @SerializedName(value = "idx")
     public final int idx;
 
+    private String outlineName = null;
+
     public OriginStatement(String originStmt, int idx) {
         this.originStmt = originStmt;
         this.idx = idx;
@@ -46,6 +48,14 @@ public class OriginStatement {
     public static OriginStatement read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, OriginStatement.class);
+    }
+
+    public void setOutlineName(String outlineName) {
+        this.outlineName = outlineName;
+    }
+
+    public String getOutlineName() {
+        return outlineName;
     }
 
     @Override
