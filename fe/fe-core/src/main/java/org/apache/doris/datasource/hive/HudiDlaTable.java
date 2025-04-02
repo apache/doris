@@ -79,15 +79,17 @@ public class HudiDlaTable extends HMSDlaTable {
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        Map<String, Long> partitionNameToLastModifiedMap = getOrFetchHudiSnapshotCacheValue(
-                snapshot).getPartitionNameToLastModifiedMap();
-        return new MTMVTimestampSnapshot(partitionNameToLastModifiedMap.get(partitionName));
+        // Map<String, Long> partitionNameToLastModifiedMap = getOrFetchHudiSnapshotCacheValue(
+        //         snapshot).getPartitionNameToLastModifiedMap();
+        // return new MTMVTimestampSnapshot(partitionNameToLastModifiedMap.get(partitionName));
+        return new MTMVTimestampSnapshot(0L);
     }
 
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
-        return new MTMVTimestampSnapshot(getOrFetchHudiSnapshotCacheValue(snapshot).getLastUpdateTimestamp());
+        // return new MTMVTimestampSnapshot(getOrFetchHudiSnapshotCacheValue(snapshot).getLastUpdateTimestamp());
+        return new MTMVTimestampSnapshot(0L);
     }
 
     @Override

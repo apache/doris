@@ -38,7 +38,7 @@ private:
     friend class SortSourceOperatorX;
 };
 
-class SortSourceOperatorX final : public OperatorX<SortLocalState> {
+class SortSourceOperatorX MOCK_REMOVE(final) : public OperatorX<SortLocalState> {
 public:
     SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                         const DescriptorTbl& descs);

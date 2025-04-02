@@ -30,7 +30,6 @@
 #include <thread>
 #include <unordered_map>
 
-#include "gutil/integral_types.h"
 #include "runtime/workload_management/resource_context.h"
 #include "runtime/workload_management/workload_condition.h"
 
