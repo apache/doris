@@ -61,4 +61,12 @@ suite("merge_percentile_to_array") {
             percentile(pk, 0.4) as c2 from test_merge_percentile;"""
     order_qt_same_percentile_group_by """select sum(a),percentile(pk, 0.1) as c1 , percentile(pk, 0.1) as c2 ,
             percentile(pk, 0.4) as c2 from test_merge_percentile group by a;"""
+
+    order_qt_grouping """
+    select a,percentile(pk, 0.1),percentile(pk, 0.9) from test_merge_percentile group by grouping sets((a,b),(a),())
+    """
+    sql "set debug_skip_fold_constant=true;"
+    order_qt_skip_fold """
+    select a,b,percentile(pk, 0.1+0.2),percentile(pk, 0.9),percentile(pk, 0.6) from test_merge_percentile group by a,b
+    """
 }
