@@ -240,17 +240,17 @@ suite("check_before_quit", "nonConcurrent,p0") {
             continue
         }
         List<List<Object>> allTables = sql "show tables from ${db}"
-        logger.info("show all tabkes: ${allTables}")
+        logger.info("show all tables: ${allTables}")
         for (int j = 0; j < allTables.size(); j++) {
             def tbl = allTables[j][0]
             def createTableSql = ""
             try {
-                createTableSql = sql "show create table ${tbl}"
+                createTableSql = sql "show create table ${db}.${tbl}"
                 if (createTableSql[0][1].contains("CREATE TABLE")) {
                     try {
-                        sql " ALTER TABLE ${tbl} SET (\"light_schema_change\" = \"true\") "
+                        sql " ALTER TABLE ${db}.${tbl} SET (\"light_schema_change\" = \"true\") "
                     } catch (Exception alterEx) {
-                        logger.warn("Failed to alter table ${tbl} to set light_schema_change: ${alterEx.getMessage()}")
+                        logger.warn("Failed to alter table ${db}.${tbl} to set light_schema_change: ${alterEx.getMessage()}")
                         failureList << [
                             operation: "ALTER TABLE",
                             target: "${tbl}", 
@@ -258,12 +258,11 @@ suite("check_before_quit", "nonConcurrent,p0") {
                         ]
                     }
                 }
-                createTableSql = sql "show create table ${tbl}"
-                logger.info("create table sql: ${createTableSql}")
+                createTableSql = sql "show create table ${db}.${tbl}"
             } catch (Exception e) {
                 if (e.getMessage().contains("not support async materialized view")) {
                     try {
-                        createTableSql = sql "show create materialized view ${tbl}"
+                        createTableSql = sql "show create materialized view ${db}.${tbl}"
                     } catch (Exception e2) {
                         if (e2.getMessage().contains("table not found")) {
                             continue
@@ -271,7 +270,7 @@ suite("check_before_quit", "nonConcurrent,p0") {
                             logger.info(e2.getMessage())
                             failureList << [
                                 operation: "SHOW CREATE MATERIALIZED VIEW", 
-                                target: "${tbl}", 
+                                target: "${db}.${tbl}", 
                                 error: e2.getMessage()
                             ]
                             continue
@@ -279,10 +278,10 @@ suite("check_before_quit", "nonConcurrent,p0") {
                     }
                     logger.info("create materialized view sql: ${createTableSql}")
                 } else {
-                    logger.warn("Failed to show create table ${tbl}: ${e.getMessage()}")
+                    logger.warn("Failed to show create table ${db}.${tbl}: ${e.getMessage()}")
                     failureList << [
                         operation: "SHOW CREATE TABLE",
-                        target: "${tbl}", 
+                        target: "${db}.${tbl}", 
                         error: e.getMessage()
                     ]
                     continue
