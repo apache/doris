@@ -114,7 +114,10 @@ void TaskScheduler::_do_work(int index) {
             continue;
         }
         auto fragment_context = task->fragment_context();
-        DCHECK(fragment_context);
+        if (!fragment_context) {
+            // Fragment already finished
+            continue;
+        }
         task->set_running(true);
         bool done = false;
         auto status = Status::OK();

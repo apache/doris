@@ -22,8 +22,8 @@ namespace doris::pipeline {
 class DummyTaskQueue final : public MultiCoreTaskQueue {
     explicit DummyTaskQueue(int core_size) : MultiCoreTaskQueue(core_size) {}
     ~DummyTaskQueue() override = default;
-    PipelineTask* take(int core_id) override {
-        PipelineTask* task = nullptr;
+    std::shared_ptr<PipelineTask> take(int core_id) override {
+        std::shared_ptr<PipelineTask> task = nullptr;
         do {
             DCHECK(_prio_task_queues.size() > core_id)
                     << " list size: " << _prio_task_queues.size() << " core_id: " << core_id
