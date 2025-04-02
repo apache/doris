@@ -54,7 +54,7 @@ class RuntimeState;
 namespace doris::pipeline {
 
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
-                           PipelineFragmentContext* fragment_context,
+                           std::shared_ptr<PipelineFragmentContext> fragment_context,
                            RuntimeProfile* parent_profile,
                            std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
                                                    std::vector<std::shared_ptr<Dependency>>>>
@@ -296,7 +296,7 @@ void PipelineTask::terminate() {
     // We use a lock to assure all dependencies are not deconstructed here.
     std::unique_lock<std::mutex> lc(_dependency_lock);
     if (!is_finalized()) {
-        DCHECK(_wake_up_early || _fragment_context->is_canceled());
+        DCHECK(_wake_up_early || _fragment_context.lock()->is_canceled());
         for (auto* dep : _spill_dependencies) {
             dep->set_always_ready();
         }
@@ -338,6 +338,8 @@ void PipelineTask::terminate() {
 Status PipelineTask::execute(bool* done) {
     DCHECK(_exec_state == State::RUNNABLE) << debug_string();
     DCHECK(_blocked_dep == nullptr) << debug_string();
+    auto fragment_context = _fragment_context.lock();
+    DCHECK(fragment_context);
     int64_t time_spent = 0;
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();
@@ -357,7 +359,7 @@ Status PipelineTask::execute(bool* done) {
             _eos = true;
             *done = true;
         } else if (_eos && !_spilling &&
-                   (_fragment_context->is_canceled() || !_is_pending_finish())) {
+                   (fragment_context->is_canceled() || !_is_pending_finish())) {
             *done = true;
         }
         // If this run is pended by a spilling request, the block will be output in next run.
@@ -396,7 +398,7 @@ Status PipelineTask::execute(bool* done) {
     }
 
     // The status must be runnable
-    if (!_opened && !_fragment_context->is_canceled()) {
+    if (!_opened && !fragment_context->is_canceled()) {
         DBUG_EXECUTE_IF("PipelineTask::execute.open_sleep", {
             auto required_pipeline_id =
                     DebugPoints::instance()->get_debug_param_or_default<int32_t>(
@@ -412,7 +414,7 @@ Status PipelineTask::execute(bool* done) {
         RETURN_IF_ERROR(_open());
     }
 
-    while (!_fragment_context->is_canceled()) {
+    while (!fragment_context->is_canceled()) {
         Defer defer {[&]() {
             // If this run is pended by a spilling request, the block will be output in next run.
             if (!_spilling) {
@@ -427,7 +429,7 @@ Status PipelineTask::execute(bool* done) {
         /// When a task is cancelled,
         /// its blocking state will be cleared and it will transition to a ready state (though it is not truly ready).
         /// Here, checking whether it is cancelled to prevent tasks in a blocking state from being re-executed.
-        if (_fragment_context->is_canceled()) {
+        if (fragment_context->is_canceled()) {
             break;
         }
 
@@ -595,16 +597,22 @@ Status PipelineTask::execute(bool* done) {
         }
     }
 
-    RETURN_IF_ERROR(get_task_queue()->push_back(this));
+    RETURN_IF_ERROR(get_task_queue()->push_back(shared_from_this()));
     return Status::OK();
 }
 
 Status PipelineTask::finalize() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            _fragment_context.lock()->get_query_ctx()->query_mem_tracker());
     std::unique_lock<std::mutex> lc(_dependency_lock);
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
     _sink_shared_state.reset();
     _op_shared_states.clear();
     _shared_state_map.clear();
+    _block.reset();
+    _operators.clear();
+    _sink.reset();
+    _pipeline.reset();
     return Status::OK();
 }
 
@@ -651,7 +659,7 @@ std::string PipelineTask::debug_string() {
 
     std::unique_lock<std::mutex> lc(_dependency_lock);
     auto* cur_blocked_dep = _blocked_dep;
-    auto elapsed = _fragment_context->elapsed_time() / NANOS_PER_SEC;
+    auto elapsed = _fragment_context.lock()->elapsed_time() / NANOS_PER_SEC;
     fmt::format_to(
             debug_string_buffer,
             "PipelineTask[this = {}, id = {}, open = {}, eos = {}, state = {}, dry run = "
@@ -745,11 +753,65 @@ Status PipelineTask::wake_up(Dependency* dep) {
     // call by dependency
     DCHECK_EQ(_blocked_dep, dep) << "dep : " << dep->debug_string(0) << "task: " << debug_string();
     _blocked_dep = nullptr;
+    auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
+    DCHECK(_scheduler);
+    _scheduler->erase_blocked_task(&_blocked_iterator);
     RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
-    return get_task_queue()->push_back(this);
+    RETURN_IF_ERROR(get_task_queue()->push_back(holder));
+    return Status::OK();
+}
+
+Status PipelineTask::_state_transition(State new_state) {
+    if (_exec_state != new_state) {
+        _state_change_watcher.reset();
+        _state_change_watcher.start();
+    }
+    _task_profile->add_info_string("TaskState", _to_string(new_state));
+    _task_profile->add_info_string("BlockedByDependency", _blocked_dep ? _blocked_dep->name() : "");
+    switch (new_state) {
+    case State::RUNNABLE:
+        if (_exec_state != State::RUNNABLE && _exec_state != State::BLOCKED &&
+            _exec_state != State::INITED) {
+            return Status::InternalError(
+                    "Task state transition from {} to {} is not allowed! Task info: {}",
+                    _to_string(_exec_state), _to_string(new_state), debug_string());
+        }
+        break;
+    case State::BLOCKED:
+        // If this task is blocked, the blocking dependency will hold the raw pointer of this task.
+        // To ensure this task will not be freed, we use scheduler to hold the shared pointer.
+        DCHECK(_scheduler);
+        _scheduler->hold_blocked_task(shared_from_this(), &_blocked_iterator);
+        if (_exec_state != State::RUNNABLE && _exec_state != State::FINISHED) {
+            return Status::InternalError(
+                    "Task state transition from {} to {} is not allowed! Task info: {}",
+                    _to_string(_exec_state), _to_string(new_state), debug_string());
+        }
+        break;
+    case State::FINISHED:
+        if (_exec_state != State::RUNNABLE) {
+            return Status::InternalError(
+                    "Task state transition from {} to {} is not allowed! Task info: {}",
+                    _to_string(_exec_state), _to_string(new_state), debug_string());
+        }
+        break;
+    case State::FINALIZED:
+        if (_exec_state != State::FINISHED && _exec_state != State::INITED) {
+            return Status::InternalError(
+                    "Task state transition from {} to {} is not allowed! Task info: {}",
+                    _to_string(_exec_state), _to_string(new_state), debug_string());
+        }
+        break;
+    default:
+        return Status::InternalError(
+                "Task state transition from {} to {} is not allowed! Task info: {}",
+                _to_string(_exec_state), _to_string(new_state), debug_string());
+    }
+    _exec_state = new_state;
+    return Status::OK();
 }
 
 QueryContext* PipelineTask::query_context() {
-    return _fragment_context->get_query_ctx();
+    return _fragment_context.lock()->get_query_ctx();
 }
 } // namespace doris::pipeline
