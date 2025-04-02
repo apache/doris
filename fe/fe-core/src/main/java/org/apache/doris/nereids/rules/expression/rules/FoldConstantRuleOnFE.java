@@ -409,10 +409,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 return BooleanLiteral.FALSE;
             } else if (newExpr instanceof NullLiteral) {
                 nullCount++;
+                changed = true;
                 nonTrueLiteral.add(newExpr);
             } else if (!BooleanLiteral.TRUE.equals(newExpr)) {
                 changed |= !e.equals(newExpr);
                 nonTrueLiteral.add(newExpr);
+            } else {
+                changed = true;
             }
         }
 
@@ -433,7 +436,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 return nonTrueLiteral.get(0);
             } else {
                 // null and x
-                return changed ? and.withChildren(nonTrueLiteral) : and;
+                return and.withChildren(nonTrueLiteral);
             }
         } else {
             // null and null and null and ...
@@ -452,10 +455,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 return BooleanLiteral.TRUE;
             } else if (newExpr instanceof NullLiteral) {
                 nullCount++;
+                changed = true;
                 nonFalseLiteral.add(newExpr);
             } else if (!BooleanLiteral.FALSE.equals(newExpr)) {
-                changed |= !newExpr.equals(newExpr);
+                changed |= !e.equals(newExpr);
                 nonFalseLiteral.add(newExpr);
+            } else {
+                changed = true;
             }
         }
 
@@ -477,7 +483,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 return nonFalseLiteral.get(0);
             }
             // null or x
-            return changed ? or.withChildren(nonFalseLiteral) : or;
+            return or.withChildren(nonFalseLiteral);
         } else {
             // null or null
             return new NullLiteral(BooleanType.INSTANCE);

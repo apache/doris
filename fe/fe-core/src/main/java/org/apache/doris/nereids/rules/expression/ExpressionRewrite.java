@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.pattern.ExpressionPatternRules;
+import org.apache.doris.nereids.pattern.ExpressionPatternTraverseListeners;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -350,12 +351,12 @@ public class ExpressionRewrite implements RewriteRuleFactory {
             }
         }
 
-        return new ExpressionBottomUpVisitorRewriter(new ExpressionPatternRules(rules.build()));
+        // return new ExpressionBottomUpVisitorRewriter(new ExpressionPatternRules(rules.build()));
 
-        // return new ExpressionBottomUpRewriter(
-        //         new ExpressionPatternRules(rules.build()),
-        //         new ExpressionPatternTraverseListeners(listeners.build())
-        // );
+        return new ExpressionBottomUpRewriter(
+                new ExpressionPatternRules(rules.build()),
+                new ExpressionPatternTraverseListeners(listeners.build())
+        );
     }
 
     /** rewriteAll */

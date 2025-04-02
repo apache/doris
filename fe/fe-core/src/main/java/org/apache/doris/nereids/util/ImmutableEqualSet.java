@@ -120,17 +120,17 @@ public class ImmutableEqualSet<T> {
             ImmutableList.Builder<Set<T>> setList = ImmutableList.builderWithExpectedSize(parent.size());
             Set<T> distinct = Sets.newHashSet();
             for (T value : parent.values()) {
-                if (!distinct.contains(value)) {
+                if (!distinct.add(value)) {
                     continue;
                 }
                 T ra = parent.get(value);
                 ImmutableSet.Builder<T> set = ImmutableSet.builderWithExpectedSize(parent.size());
-                setList.add(set.build());
-                for (T t : parent.keySet()) {
-                    if (parent.get(t).equals(ra)) {
-                        set.add(t);
+                for (Entry<T, T> kv : parent.entrySet()) {
+                    if (kv.getValue().equals(ra)) {
+                        set.add(kv.getKey());
                     }
                 }
+                setList.add(set.build());
             }
             return setList.build();
         }
@@ -161,9 +161,9 @@ public class ImmutableEqualSet<T> {
     public Set<T> calEqualSet(T a) {
         T ra = root.get(a);
         ImmutableSet.Builder<T> set = ImmutableSet.builderWithExpectedSize(root.size());
-        for (T t : root.keySet()) {
-            if (root.get(t).equals(ra) && !t.equals(a)) {
-                set.add(t);
+        for (Entry<T, T> kv : root.entrySet()) {
+            if (kv.getValue().equals(ra) && !kv.getKey().equals(ra)) {
+                set.add(kv.getKey());
             }
         }
         return set.build();
@@ -185,12 +185,12 @@ public class ImmutableEqualSet<T> {
             }
             T ra = root.get(value);
             ImmutableSet.Builder<T> set = ImmutableSet.builderWithExpectedSize(root.size());
-            setList.add(set.build());
-            for (T t : root.keySet()) {
-                if (root.get(t).equals(ra)) {
-                    set.add(t);
+            for (Entry<T, T> kv : root.entrySet()) {
+                if (kv.getValue().equals(ra)) {
+                    set.add(kv.getKey());
                 }
             }
+            setList.add(set.build());
         }
         return setList.build();
     }
