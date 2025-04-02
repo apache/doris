@@ -998,4 +998,115 @@ protected:
     }
 };
 
+class FunctionMonthsBetween : public IFunction {
+public:
+    static constexpr auto name = "months_between";
+    static FunctionPtr create() { return std::make_shared<FunctionMonthsBetween>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeFloat64>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        CHECK_EQ(arguments.size(), 3);
+        auto res = ColumnFloat64::create();
+
+        bool date_consts[2];
+        date_consts[0] = is_column_const(*block.get_by_position(arguments[0]).column);
+        date_consts[1] = is_column_const(*block.get_by_position(arguments[1]).column);
+        ColumnPtr date_cols[2];
+        // convert const columns to full columns if necessary
+        default_preprocess_parameter_columns(date_cols, date_consts, {0, 1}, block, arguments);
+
+        const auto& [col3, col3_const] =
+                unpack_if_const(block.get_by_position(arguments[2]).column);
+
+        const auto& date1_col = *assert_cast<const ColumnDateV2*>(date_cols[0].get());
+        const auto& date2_col = *assert_cast<const ColumnDateV2*>(date_cols[1].get());
+        const auto& round_off_col = *assert_cast<const ColumnBool*>(col3.get());
+
+        if (date_consts[0] && date_consts[1]) {
+            execute_vector<true, false>(input_rows_count, date1_col, date2_col, round_off_col,
+                                        *res);
+        } else if (col3_const) {
+            execute_vector<false, true>(input_rows_count, date1_col, date2_col, round_off_col,
+                                        *res);
+        } else {
+            execute_vector<false, false>(input_rows_count, date1_col, date2_col, round_off_col,
+                                         *res);
+        }
+
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+
+private:
+    template <bool is_date_const, bool is_round_off_const>
+    static void execute_vector(const size_t input_rows_count, const ColumnDateV2& date1_col,
+                               const ColumnDateV2& date2_col, const ColumnBool& round_off_col,
+                               ColumnFloat64& res) {
+        res.reserve(input_rows_count);
+        double months_between;
+        bool round_off;
+
+        if constexpr (is_date_const) {
+            auto dtv1 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date1_col.get_element(0));
+            auto dtv2 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date2_col.get_element(0));
+            months_between = calc_months_between(dtv1, dtv2);
+        }
+
+        if constexpr (is_round_off_const) {
+            round_off = round_off_col.get_element(0);
+        }
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            if constexpr (!is_date_const) {
+                auto dtv1 =
+                        binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date1_col.get_element(i));
+                auto dtv2 =
+                        binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date2_col.get_element(i));
+                months_between = calc_months_between(dtv1, dtv2);
+            }
+            if constexpr (!is_round_off_const) {
+                round_off = round_off_col.get_element(i);
+            }
+            if (round_off) {
+                months_between = round_months_between(months_between);
+            }
+            res.insert_value(months_between);
+        }
+    }
+
+    static double calc_months_between(const DateV2Value<DateV2ValueType>& dtv1,
+                                      const DateV2Value<DateV2ValueType>& dtv2) {
+        auto year_between = dtv1.year() - dtv2.year();
+        auto months_between = dtv1.month() - dtv2.month();
+        auto days_in_month1 = S_DAYS_IN_MONTH[dtv1.month()];
+        if (UNLIKELY(is_leap(dtv1.year()) && dtv1.month() == 2)) {
+            days_in_month1 = 29;
+        }
+        auto days_in_month2 = S_DAYS_IN_MONTH[dtv2.month()];
+        if (UNLIKELY(is_leap(dtv2.year()) && dtv2.month() == 2)) {
+            days_in_month2 = 29;
+        }
+        double days_between = 0;
+        // if date1 and date2 are all the last day of the month, days_between is 0
+        if (UNLIKELY(dtv1.day() == days_in_month1 && dtv2.day() == days_in_month2)) {
+            days_between = 0;
+        } else {
+            days_between = (dtv1.day() - dtv2.day()) / (double)31.0;
+        }
+
+        // calculate months between
+        return year_between * 12 + months_between + days_between;
+    }
+
+    static double round_months_between(double months_between) {
+        return round(months_between * 100000000) / 100000000;
+    }
+};
+
 } // namespace doris::vectorized

@@ -322,6 +322,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
@@ -1117,6 +1118,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMonthsAdd(MonthsAdd monthsAdd, C context) {
         return visitScalarFunction(monthsAdd, context);
+    }
+
+    default R visitMonthsBetween(MonthsBetween monthsBetween, C context) {
+        return visitScalarFunction(monthsBetween, context);
     }
 
     default R visitYearsAdd(YearsAdd yearsAdd, C context) {
