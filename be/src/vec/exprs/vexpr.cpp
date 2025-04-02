@@ -378,11 +378,13 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
             parent_expr = top.first;
             DCHECK(parent_expr != nullptr);
             // Decrement or pop
-            if (top.second > 1) {
-                top.second -= 1;
-            } else {
-                s.pop();
-            }
+            Defer defer {[&] {
+                if (top.second > 1) {
+                    top.second -= 1;
+                } else {
+                    s.pop();
+                }
+            }};
         }
 
         if (++*node_idx >= nodes.size()) {
