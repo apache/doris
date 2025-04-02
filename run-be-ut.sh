@@ -213,6 +213,10 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
 
+if [[ -z "${USE_AVX2}" ]]; then
+    USE_AVX2='ON'
+fi
+
 if [[ -z "${USE_UNWIND}" ]]; then
     if [[ "$(uname -s)" != 'Darwin' ]]; then
         USE_UNWIND='ON'
