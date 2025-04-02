@@ -48,9 +48,9 @@ class PipelineTask {
 public:
     PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                  PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
-                 std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                         std::shared_ptr<Dependency>>>
-                         le_state_map,
+                 std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                         std::vector<std::shared_ptr<Dependency>>>>
+                         shared_state_map,
                  int task_idx);
 
     Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
@@ -203,14 +203,6 @@ public:
     [[nodiscard]] size_t get_revocable_size() const;
     [[nodiscard]] Status revoke_memory(const std::shared_ptr<SpillContext>& spill_context);
 
-    void add_spill_dependency(Dependency* dependency) {
-        _spill_dependencies.emplace_back(dependency);
-    }
-
-    bool wake_up_early() const { return _wake_up_early; }
-
-    void inc_memory_reserve_failed_times() { COUNTER_UPDATE(_memory_reserve_failed_times, 1); }
-
     Status blocked(Dependency* dependency) {
         DCHECK_EQ(_blocked_dep, nullptr) << "task: " << debug_string();
         _blocked_dep = dependency;
@@ -290,8 +282,9 @@ private:
     std::map<int, std::shared_ptr<BasicSharedState>> _op_shared_states;
     std::shared_ptr<BasicSharedState> _sink_shared_state;
     std::vector<TScanRangeParams> _scan_ranges;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            _le_state_map;
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            _shared_state_map;
     int _task_idx;
     bool _dry_run = false;
 

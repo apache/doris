@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <cstdlib>
 #include <list>
 #include <map>
@@ -45,6 +46,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "io/io_common.h"
+#include "olap/cumulative_compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
@@ -1088,6 +1090,7 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
+    ctx.compaction_type = compaction_type();
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     _pending_rs_guard = _engine.add_pending_rowset(ctx);
     return Status::OK();
@@ -1370,6 +1373,26 @@ int64_t CompactionMixin::get_compaction_permits() {
     return permits;
 }
 
+int64_t CompactionMixin::calc_input_rowsets_total_size() const {
+    int64_t input_rowsets_total_size = 0;
+    for (const auto& rowset : _input_rowsets) {
+        const auto& rowset_meta = rowset->rowset_meta();
+        auto total_size = rowset_meta->total_disk_size();
+        input_rowsets_total_size += total_size;
+    }
+    return input_rowsets_total_size;
+}
+
+int64_t CompactionMixin::calc_input_rowsets_row_num() const {
+    int64_t input_rowsets_row_num = 0;
+    for (const auto& rowset : _input_rowsets) {
+        const auto& rowset_meta = rowset->rowset_meta();
+        auto total_size = rowset_meta->total_disk_size();
+        input_rowsets_row_num += total_size;
+    }
+    return input_rowsets_row_num;
+}
+
 void Compaction::_load_segment_to_cache() {
     // Load new rowset's segments to cache.
     SegmentCacheHandle handle;
@@ -1495,6 +1518,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
+    ctx.compaction_type = compaction_type();
 
     // We presume that the data involved in cumulative compaction is sufficiently 'hot'
     // and should always be retained in the cache.

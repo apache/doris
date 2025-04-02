@@ -68,7 +68,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, Init) {
             .parent_profile = _helper.runtime_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
-            .le_state_map = {},
+            .shared_state_map = {},
             .task_idx = 0,
     };
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -113,7 +113,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockEmpty) {
                                   .parent_profile = _helper.runtime_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
-                                  .le_state_map = {},
+                                  .shared_state_map = {},
                                   .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -128,7 +128,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockEmpty) {
             .parent_profile = _helper.runtime_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
-            .le_state_map = {},
+            .shared_state_map = {},
             .task_idx = 0,
     };
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -184,7 +184,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlock) {
                                   .parent_profile = _helper.runtime_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
-                                  .le_state_map = {},
+                                  .shared_state_map = {},
                                   .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -218,7 +218,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlock) {
             .parent_profile = _helper.runtime_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
-            .le_state_map = {},
+            .shared_state_map = {},
             .task_idx = 0,
     };
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -276,7 +276,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
                                   .parent_profile = _helper.runtime_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
-                                  .le_state_map = {},
+                                  .shared_state_map = {},
                                   .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -323,7 +323,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
             .parent_profile = _helper.runtime_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
-            .le_state_map = {},
+            .shared_state_map = {},
             .task_idx = 0,
     };
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -389,7 +389,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
                                   .parent_profile = _helper.runtime_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
-                                  .le_state_map = {},
+                                  .shared_state_map = {},
                                   .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -436,7 +436,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
             .parent_profile = _helper.runtime_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
-            .le_state_map = {},
+            .shared_state_map = {},
             .task_idx = 0,
     };
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);

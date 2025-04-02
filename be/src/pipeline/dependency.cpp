@@ -33,11 +33,21 @@
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
+
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
                                                        const std::string& name) {
     source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
     source_deps.back()->set_shared_state(this);
     return source_deps.back().get();
+}
+
+void BasicSharedState::create_source_dependencies(int num_sources, int operator_id, int node_id,
+                                                  const std::string& name) {
+    source_deps.resize(num_sources, nullptr);
+    for (auto& source_dep : source_deps) {
+        source_dep = std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY");
+        source_dep->set_shared_state(this);
+    }
 }
 
 Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id,
@@ -74,9 +84,6 @@ void Dependency::set_ready() {
 }
 
 Dependency* Dependency::is_blocked_by(PipelineTask* task) {
-    if (task && task->wake_up_early()) {
-        return nullptr;
-    }
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {

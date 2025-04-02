@@ -22,7 +22,6 @@
 #include <vector>
 
 #include "function_test_util.h"
-#include "gutil/integral_types.h"
 #include "util/encryption_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"

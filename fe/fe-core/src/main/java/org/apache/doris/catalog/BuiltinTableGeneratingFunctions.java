@@ -42,8 +42,11 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Builtin table generating functions.
@@ -77,6 +80,14 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             tableGenerating(PosExplode.class, "posexplode"),
             tableGenerating(PosExplodeOuter.class, "posexplode_outer")
     );
+
+    public static final ImmutableSet<String> RETURN_MULTI_COLUMNS_FUNCTIONS = new ImmutableSortedSet.Builder<String>(
+            String.CASE_INSENSITIVE_ORDER).add("explode").add("explode_outer").add("explode_variant_array")
+            .add("explode_variant_array_outer").build();
+
+    public Set<String> getReturnManyColumnFunctions() {
+        return RETURN_MULTI_COLUMNS_FUNCTIONS;
+    }
 
     public static final BuiltinTableGeneratingFunctions INSTANCE = new BuiltinTableGeneratingFunctions();
 

@@ -126,6 +126,8 @@ public:
         }
     }
 
+    std::string get_load_error_url();
+
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
                             const DescriptorTbl& descs, OperatorPtr* root, PipelinePtr cur_pipe);
@@ -279,8 +281,22 @@ private:
 
     int _operator_id = 0;
     int _sink_operator_id = 0;
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            _op_id_to_le_state;
+    /**
+     * Some states are shared by tasks in different instances (e.g. local exchange , broadcast join).
+     *
+     * local exchange sink 0 ->                               -> local exchange source 0
+     *                            LocalExchangeSharedState
+     * local exchange sink 1 ->                               -> local exchange source 1
+     *
+     * hash join build sink 0 ->                               -> hash join build source 0
+     *                              HashJoinSharedState
+     * hash join build sink 1 ->                               -> hash join build source 1
+     *
+     * So we should keep states here.
+     */
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            _op_id_to_shared_state;
 
     std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
     std::vector<std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;

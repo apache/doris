@@ -43,7 +43,6 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "io/fs/file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
@@ -634,10 +633,6 @@ public:
     int max_operator_id() const { return _max_operator_id; }
 
     void set_task_id(int id) { _task_id = id; }
-
-    void set_task(pipeline::PipelineTask* task) { _task = task; }
-
-    pipeline::PipelineTask* get_task() const { return _task; }
 
     int task_id() const { return _task_id; }
 
