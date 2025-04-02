@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.suite.Suite
 
 /*
  * After running all regression-tests, check all db and tables
