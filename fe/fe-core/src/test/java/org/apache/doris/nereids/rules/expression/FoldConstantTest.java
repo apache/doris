@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ReplaceEmpty;
@@ -70,6 +71,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -277,6 +279,20 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         toDays = new ToDays(DateV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 1, 1, 1)));
         rewritten = executor.rewrite(toDays, context);
         Assertions.assertEquals(new IntegerLiteral(3652424), rewritten);
+
+        MonthsBetween monthsBetween = new MonthsBetween(
+                        DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                        DateV2Literal.fromJavaDateType(LocalDateTime.of(2, 2, 1, 1, 1, 1)));
+        rewritten = executor.rewrite(monthsBetween, context);
+        Assertions.assertEquals(new DoubleLiteral(-13.0), rewritten);
+        monthsBetween = new MonthsBetween(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                        DateV2Literal.fromJavaDateType(LocalDateTime.of(2, 2, 1, 1, 1, 1)), BooleanLiteral.FALSE);
+        rewritten = executor.rewrite(monthsBetween, context);
+        Assertions.assertEquals(new DoubleLiteral(-13.0), rewritten);
+        monthsBetween = new MonthsBetween(DateV2Literal.fromJavaDateType(LocalDateTime.of(2024, 3, 31, 1, 1, 1)),
+                        DateV2Literal.fromJavaDateType(LocalDateTime.of(2024, 2, 29, 1, 1, 1)));
+        rewritten = executor.rewrite(monthsBetween, context);
+        Assertions.assertEquals(new DoubleLiteral(1.0), rewritten);
     }
 
     @Test
