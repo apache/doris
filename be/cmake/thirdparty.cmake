@@ -176,6 +176,9 @@ add_thirdparty(icuuc LIB64)
 add_thirdparty(icui18n LIB64)
 add_thirdparty(icudata LIB64)
 
+
+add_thirdparty(pugixml LIB64)
+
 if (BUILD_FAISS)
     add_thirdparty(openblas LIB64)
     add_thirdparty(faiss LIB64)
