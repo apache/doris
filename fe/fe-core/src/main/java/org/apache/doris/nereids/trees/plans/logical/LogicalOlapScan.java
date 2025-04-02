@@ -231,8 +231,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         }
         // NOTE: embed version info avoid mismatching under data maintaining
         // TODO: more efficient way to ignore the ignorable data maintaining
-        return Utils.toSqlString("OlapScan[" + table.getNameWithFullQualifiers() + partitions
-                + "]" + "@" + getTable().getVisibleVersion());
+        return Utils.toSqlString("OlapScan[" + table.getNameWithFullQualifiers() + partitions + "]"
+                + "#" + getRelationId() + "@" + getTable().getVisibleVersion());
     }
 
     @Override
