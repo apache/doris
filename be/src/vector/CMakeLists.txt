@@ -18,16 +18,24 @@
 # where to put generated libraries
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/vector")
 
-set(HEADER_FILES
+set(VECTOR_LIB_SRC
         vector_index.h
         stream_wrapper.h
 )
 
-# Use INTERFACE library type for header-only libraries
-add_library(vector INTERFACE)
+set(VECTOR_LIB_DEPENDENCIES)
+
 if (BUILD_FAISS)
-    target_link_libraries(vector INTERFACE faiss)
+    # append faiss src to VECTOR_LIB_SRC
+    list(APPEND VECTOR_LIB_SRC
+        faiss_vector_index.h
+        faiss_vector_index.cpp
+    )
+    list(APPEND VECTOR_LIB_DEPENDENCIES faiss)
 endif()
+
+add_library(vector OBJECT ${VECTOR_LIB_SRC})
+target_link_libraries(vector PRIVATE ${VECTOR_LIB_DEPENDENCIES})
 
 # Make the headers available to targets that link against the vector library
 target_include_directories(vector INTERFACE
