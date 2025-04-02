@@ -39,31 +39,31 @@ public class ExpressionBottomUpVisitorRewriter implements ExpressionRewriteRule<
     }
 
     private Expression rewrite(Expression expression, ExpressionRewriteContext context, Expression parent) {
-        if (!rules.hasCurrentAndChildrenRules(expression)) {
+        if (expression.getMutableState(rewriteStateKey).isPresent()) {
             return expression;
         }
-        if (expression.arity() != 0) {
+        while (true) {
+            if (!rules.hasCurrentAndChildrenRules(expression)) {
+                return expression;
+            }
             Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(expression.arity());
             boolean changed = false;
             for (Expression child : expression.children()) {
-                Expression oldChild = child;
-                while (true) {
-                    Expression newChild = rewrite(oldChild, context, expression);
-                    if (!newChild.equals(oldChild)) {
-                        changed = true;
-                        oldChild = newChild;
-                    } else {
-                        newChildren.add(newChild);
-                        break;
-                    }
-                }
+                Expression newChild = rewrite(child, context, expression);
+                changed |= !newChild.equals(child);
+                newChildren.add(newChild);
             }
             if (changed) {
                 expression = expression.withChildren(newChildren.build());
             }
+            Optional<Expression> result = rules.matchesAndApply(expression, context, parent);
+            if (result.isPresent()) {
+                expression = result.get();
+            } else {
+                expression.setMutableState(rewriteStateKey, Boolean.TRUE);
+                return expression;
+            }
         }
-        Optional<Expression> result = rules.matchesAndApply(expression, context, parent);
-        return result.orElse(expression);
     }
 
     @Override

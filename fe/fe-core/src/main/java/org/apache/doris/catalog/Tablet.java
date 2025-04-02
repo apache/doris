@@ -307,9 +307,6 @@ public class Tablet extends MetaObject {
     // for query
     public List<Replica> getQueryableReplicas(long visibleVersion, Map<Long, Set<Long>> backendAlivePathHashs,
             boolean allowFailedVersion) {
-        if (replicas.size() == 1) {
-            return ImmutableList.of(replicas.get(0));
-        }
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
         List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
         List<Replica> deadPathReplica = Lists.newArrayListWithCapacity(replicas.size());
@@ -353,7 +350,7 @@ public class Tablet extends MetaObject {
             long minVersionCount = Long.MAX_VALUE;
             for (Replica replica : allQueryableReplica) {
                 long visibleVersionCount = replica.getVisibleVersionCount();
-                if (visibleVersionCount > 0 && visibleVersionCount < minVersionCount) {
+                if (visibleVersionCount != 0 && visibleVersionCount < minVersionCount) {
                     minVersionCount = visibleVersionCount;
                 }
             }
@@ -362,7 +359,7 @@ public class Tablet extends MetaObject {
                 maxVersionCount = Math.max(maxVersionCount, minVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT);
             }
 
-            List<Replica> lowerVersionReplicas = Lists.newArrayList(allQueryableReplica);
+            List<Replica> lowerVersionReplicas = Lists.newArrayListWithCapacity(allQueryableReplica.size());
             for (Replica replica : allQueryableReplica) {
                 if (replica.getVisibleVersionCount() < maxVersionCount) {
                     lowerVersionReplicas.add(replica);

@@ -58,15 +58,15 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
     }
 
     private static Plan rewrite(Plan plan, JobContext jobContext, Rules rules, int batchId, boolean fastReturn) {
-        if (fastReturn && rules.getCurrentAndChildrenRules(plan).isEmpty()) {
-            return plan;
-        }
         RewriteState state = PlanTreeRewriteBottomUpJob.getState(plan, batchId);
         if (state == RewriteState.REWRITTEN) {
             return plan;
         }
 
         while (true) {
+            if (fastReturn && rules.getCurrentAndChildrenRules(plan).isEmpty()) {
+                return plan;
+            }
             ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
             boolean changed = false;
             for (Plan child : plan.children()) {
