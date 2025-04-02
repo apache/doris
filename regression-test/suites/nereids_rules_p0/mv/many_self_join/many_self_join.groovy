@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("relation_map_cross_join_test") {
+suite("many_self_join") {
 
     def db_name = context.config.getDbNameByFile(context.file)
     def tb_name = db_name + "_tb"
