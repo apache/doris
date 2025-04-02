@@ -394,7 +394,6 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
         RETURN_IF_ERROR(create_expr(nodes[*node_idx], expr));
         DCHECK(expr != nullptr);
         parent_expr->add_child(expr);
-
         // push to stack if has children
         int num_children = nodes[*node_idx].num_children;
         if (num_children > 0) {
