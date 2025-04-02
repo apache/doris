@@ -188,6 +188,9 @@ public:
     }
 
     JsonbField& operator=(const JsonbField& x) {
+        if (data) {
+            delete[] data;
+        }
         data = new char[size];
         if (!data) {
             throw Exception(Status::FatalError("new data buffer failed, size: {}", size));

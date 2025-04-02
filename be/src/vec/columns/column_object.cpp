@@ -1504,6 +1504,22 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
 }
 
 ColumnPtr ColumnObject::permute(const Permutation& perm, size_t limit) const {
+    if (limit == 0)
+        limit = num_rows;
+    else
+        limit = std::min(num_rows, limit);
+
+    if (perm.size() < limit) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
+        __builtin_unreachable();
+    }
+
+    if (limit == 0) {
+        return ColumnObject::create(_max_subcolumns_count);
+    }
+
     return apply_for_columns([&](const ColumnPtr column) { return column->permute(perm, limit); });
 }
 
@@ -2170,7 +2186,7 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
         auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
         return finalized_object.filter(filter, count);
     }
-    if (subcolumns.empty()) {
+    if (num_rows == 0) {
         auto res = ColumnObject::create(_max_subcolumns_count, count_bytes_in_filter(filter));
         ENABLE_CHECK_CONSISTENCY(res.get());
         return res;
@@ -2193,6 +2209,9 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
 
 ColumnPtr ColumnObject::replicate(const IColumn::Offsets& offsets) const {
     column_match_offsets_size(num_rows, offsets.size());
+    if (num_rows == 0) {
+        return ColumnObject::create(_max_subcolumns_count);
+    }
     return apply_for_columns([&](const ColumnPtr column) { return column->replicate(offsets); });
 }
 
@@ -2376,8 +2395,9 @@ Status ColumnObject::sanitize() const {
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_finalized()) {
             auto column = subcolumn->data.get_least_common_type()->create_column();
-            std::string original = subcolumn->data.get_finalized_column().get_name();
-            std::string expected = column->get_name();
+            std::string original =
+                    remove_nullable(subcolumn->data.get_finalized_column().get_ptr())->get_name();
+            std::string expected = remove_nullable(column->get_ptr())->get_name();
             if (original != expected) {
                 return Status::InternalError("Incompatible type between {} and {}, debug_info:",
                                              original, expected, debug_string());
@@ -2405,31 +2425,6 @@ const ColumnObject::Subcolumns::Node* ColumnObject::get_leaf_of_the_same_nested(
         return nullptr;
     }
     return leaf;
-}
-
-bool ColumnObject::try_insert_many_defaults_from_nested(const Subcolumns::NodePtr& entry) const {
-    const auto* leaf = get_leaf_of_the_same_nested(entry);
-    if (!leaf) {
-        return false;
-    }
-
-    size_t old_size = entry->data.size();
-    FieldInfo field_info = {
-            .scalar_type_id = entry->data.least_common_type.get_base_type_id(),
-            .have_nulls = false,
-            .need_convert = false,
-            .num_dimensions = entry->data.get_dimensions(),
-    };
-
-    /// Cut the needed range from the found leaf
-    /// and replace scalar values to the correct
-    /// default values for given entry.
-    auto new_subcolumn = leaf->data.cut(old_size, leaf->data.size() - old_size)
-                                 .clone_with_default_values(field_info);
-
-    entry->data.insert_range_from(new_subcolumn, 0, new_subcolumn.size());
-    ENABLE_CHECK_CONSISTENCY(this);
-    return true;
 }
 
 bool ColumnObject::try_insert_default_from_nested(const Subcolumns::NodePtr& entry) const {

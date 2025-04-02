@@ -379,7 +379,6 @@ public:
     /// Finds a subcolumn from the same Nested type as @entry and inserts
     /// an array with default values with consistent sizes as in Nested type.
     bool try_insert_default_from_nested(const Subcolumns::NodePtr& entry) const;
-    bool try_insert_many_defaults_from_nested(const Subcolumns::NodePtr& entry) const;
 
     const Subcolumns& get_subcolumns() const { return subcolumns; }
 
