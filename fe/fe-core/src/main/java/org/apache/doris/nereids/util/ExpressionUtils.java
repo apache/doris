@@ -197,9 +197,6 @@ public class ExpressionUtils {
      *  AND / OR expression, also remove duplicate expression, boolean literal
      */
     public static Expression compound(boolean isAnd, Collection<Expression> expressions) {
-        if (expressions.size() == 1) {
-            return expressions.iterator().next();
-        }
         return isAnd ? and(expressions) : or(expressions);
     }
 
@@ -207,6 +204,9 @@ public class ExpressionUtils {
      *  AND expression, also remove duplicate expression, boolean literal
      */
     public static Expression and(Collection<Expression> expressions) {
+        if (expressions.size() == 1) {
+            return expressions.iterator().next();
+        }
         Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
         for (Expression expression : expressions) {
             if (expression.equals(BooleanLiteral.FALSE)) {
@@ -252,6 +252,9 @@ public class ExpressionUtils {
      *  OR expression, also remove duplicate expression, boolean literal
      */
     public static Expression or(Collection<Expression> expressions) {
+        if (expressions.size() == 1) {
+            return expressions.iterator().next();
+        }
         Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
         for (Expression expression : expressions) {
             if (expression.equals(BooleanLiteral.TRUE)) {
