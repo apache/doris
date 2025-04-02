@@ -125,10 +125,10 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _init_resource_context();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
     _query_watcher.start();
-    _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
-    _execution_dependency = pipeline::QueryGlobalDependency::create_unique("ExecutionDependency");
+    _execution_dependency =
+            pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", false);
     _memory_sufficient_dependency =
-            pipeline::QueryGlobalDependency::create_unique("MemorySufficientDependency", true);
+            pipeline::Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
 
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
             TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker(), true);
@@ -263,7 +263,6 @@ QueryContext::~QueryContext() {
 #endif
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
-    _shared_hash_table_controller.reset();
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
     obj_pool.clear();
@@ -345,6 +344,16 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
 
     set_ready_to_execute(new_status);
     cancel_all_pipeline_context(new_status, fragment_id);
+}
+
+void QueryContext::set_load_error_url(std::string error_url) {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    _load_error_url = error_url;
+}
+
+std::string QueryContext::get_load_error_url() {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    return _load_error_url;
 }
 
 void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {

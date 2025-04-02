@@ -67,8 +67,6 @@ Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
 
     _spill_dependency = Dependency::create_shared(parent.operator_id(), parent.node_id(),
                                                   "AggSinkSpillDependency", true);
-    state->get_task()->add_spill_dependency(_spill_dependency.get());
-
     return Status::OK();
 }
 

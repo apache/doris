@@ -413,8 +413,8 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
     return Status::RpcError("failed to {}: rpc timeout, last msg={}", op_name, error_msg);
 }
 
-static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out,
-                                  const SchemaCloudDictionary& dict) {
+Status fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out,
+                             const SchemaCloudDictionary& dict) {
     std::unordered_map<int32_t, ColumnPB*> unique_id_map;
     //init map
     for (ColumnPB& column : *out->mutable_tablet_schema()->mutable_column()) {
@@ -423,6 +423,9 @@ static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out
     // column info
     for (int i = 0; i < in.schema_dict_key_list().column_dict_key_list_size(); ++i) {
         int dict_key = in.schema_dict_key_list().column_dict_key_list(i);
+        if (dict.column_dict().find(dict_key) == dict.column_dict().end()) {
+            return Status::NotFound("Not found entry {}", dict_key);
+        }
         const ColumnPB& dict_val = dict.column_dict().at(dict_key);
         ColumnPB& to_add = *out->mutable_tablet_schema()->add_column();
         to_add = dict_val;
@@ -432,6 +435,9 @@ static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out
     // index info
     for (int i = 0; i < in.schema_dict_key_list().index_info_dict_key_list_size(); ++i) {
         int dict_key = in.schema_dict_key_list().index_info_dict_key_list(i);
+        if (dict.index_dict().find(dict_key) == dict.index_dict().end()) {
+            return Status::NotFound("Not found entry {}", dict_key);
+        }
         const doris::TabletIndexPB& dict_val = dict.index_dict().at(dict_key);
         *out->mutable_tablet_schema()->add_index() = dict_val;
         VLOG_DEBUG << "fill dict index " << dict_val.ShortDebugString();
@@ -440,10 +446,14 @@ static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out
     // sparse column info
     for (int i = 0; i < in.schema_dict_key_list().sparse_column_dict_key_list_size(); ++i) {
         int dict_key = in.schema_dict_key_list().sparse_column_dict_key_list(i);
+        if (dict.column_dict().find(dict_key) == dict.column_dict().end()) {
+            return Status::NotFound("Not found entry {}", dict_key);
+        }
         const ColumnPB& dict_val = dict.column_dict().at(dict_key);
         *unique_id_map.at(dict_val.parent_unique_id())->add_sparse_columns() = dict_val;
         VLOG_DEBUG << "fill dict sparse column" << dict_val.ShortDebugString();
     }
+    return Status::OK();
 }
 
 } // namespace
@@ -471,8 +481,7 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
     return Status::OK();
 }
 
-Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data,
-                                         bool sync_delete_bitmap, bool full_sync) {
+Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions& options) {
     using namespace std::chrono;
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
@@ -499,7 +508,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
         idx->set_partition_id(tablet->partition_id());
         {
             std::shared_lock rlock(tablet->get_header_lock());
-            if (full_sync) {
+            if (options.full_sync) {
                 req.set_start_version(0);
             } else {
                 req.set_start_version(tablet->max_version_unlocked() + 1);
@@ -559,12 +568,13 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
 
         // If is mow, the tablet has no delete bitmap in base rowsets.
         // So dont need to sync it.
-        if (sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
+        if (options.sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
             tablet->tablet_state() == TABLET_RUNNING) {
             DeleteBitmap delete_bitmap(tablet_id);
             int64_t old_max_version = req.start_version() - 1;
             auto st = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
-                                                resp.stats(), req.idx(), &delete_bitmap, full_sync);
+                                                resp.stats(), req.idx(), &delete_bitmap,
+                                                options.full_sync);
             if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
                 LOG_WARNING("rowset meta is expired, need to retry")
                         .tag("tablet", tablet->tablet_id())
@@ -648,7 +658,8 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                     // Otherwise, use the schema dictionary from the response (if available).
                     meta_pb = cloud_rowset_meta_to_doris(cloud_rs_meta_pb);
                     if (resp.has_schema_dict()) {
-                        fill_schema_with_dict(cloud_rs_meta_pb, &meta_pb, resp.schema_dict());
+                        RETURN_IF_ERROR(fill_schema_with_dict(cloud_rs_meta_pb, &meta_pb,
+                                                              resp.schema_dict()));
                     }
                 }
                 auto rs_meta = std::make_shared<RowsetMeta>();
@@ -668,8 +679,11 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                 //   after doing EMPTY_CUMULATIVE compaction, MS cp is 13, get_rowset will return [2-11][12-12].
                 bool version_overlap =
                         tablet->max_version_unlocked() >= rowsets.front()->start_version();
-                tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, warmup_delta_data);
-                RETURN_IF_ERROR(tablet->merge_rowsets_schema());
+                tablet->add_rowsets(std::move(rowsets), version_overlap, wlock,
+                                    options.warmup_delta_data);
+                if (options.merge_schema) {
+                    RETURN_IF_ERROR(tablet->merge_rowsets_schema());
+                }
             }
             tablet->last_base_compaction_success_time_ms = stats.last_base_compaction_time_ms();
             tablet->last_cumu_compaction_success_time_ms = stats.last_cumu_compaction_time_ms();
