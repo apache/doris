@@ -850,8 +850,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         String buildNgramBfIndexStmtStr = "BUILD INDEX idx_error_msg on test.sc_dup ";
         AlterTableStmt buildNgramBfIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(buildNgramBfIndexStmtStr);
-        org.junit.jupiter.api.Assertions.assertThrows(org.apache.doris.common.DdlException.class,
-                () -> Env.getCurrentEnv().getAlterInstance().processAlterTable(buildNgramBfIndexStmt));
+        Env.getCurrentEnv().getAlterInstance().processAlterTable(buildNgramBfIndexStmt);
+
+        jobSize++;
+        alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
+        LOG.info("alterJobs:{}", alterJobs);
+        Assertions.assertEquals(jobSize, alterJobs.size());
+        waitAlterJobDone(alterJobs);
 
         tbl.readLock();
         try {
@@ -878,6 +883,10 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         AlterTableStmt dropNgramBfIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(dropNgramBfIndexStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(dropNgramBfIndexStmt);
         jobSize++;
+        jobSize++;
+        // process drop ngram bf index stmt will add two schema_change jobs
+        // 1. FE.LIGHT_SCHEMA_CHANGE to change fe meta
+        // 2. real drop ngram bf index schema_change job to convert data in backends
         Assertions.assertEquals(jobSize, alterJobs.size());
         waitAlterJobDone(alterJobs);
 
