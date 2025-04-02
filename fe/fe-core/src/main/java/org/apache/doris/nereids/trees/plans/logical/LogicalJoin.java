@@ -647,4 +647,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 "markCondition", markJoinConjuncts);
         return Utils.toSqlString("JOIN", args.toArray());
     }
+
+    @Override
+    public boolean canExchangeChildrenForHbo() {
+        return joinType == JoinType.INNER_JOIN;
+    }
 }

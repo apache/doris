@@ -73,6 +73,10 @@ public class ApplyRuleJob extends Job {
         List<DeriveStatsJob> deriveStatsJobs = Lists.newArrayList();
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
+        boolean isEnableHboOpt = context.getCascadesContext().getConnectContext()
+                .getSessionVariable().isEnableHboOptimization();
+        boolean isEnableHboInfoCollection = context.getCascadesContext().getConnectContext()
+                .getSessionVariable().isEnableHboInfoCollection();
         for (Plan plan : groupExpressionMatching) {
             if (rule.isExploration()
                     && context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
@@ -95,6 +99,8 @@ public class ApplyRuleJob extends Job {
                 if (newPlan instanceof LogicalPlan) {
                     pushJob(new OptimizeGroupExpressionJob(newGroupExpression, context));
                     if (!rule.getRuleType().equals(RuleType.LOGICAL_JOIN_COMMUTE)) {
+                        deriveStatsJobs.add(new DeriveStatsJob(newGroupExpression, context));
+                    } else if (isEnableHboOpt && isEnableHboInfoCollection) {
                         deriveStatsJobs.add(new DeriveStatsJob(newGroupExpression, context));
                     } else {
                         // The Join Commute rule preserves the operator's expression and children,
