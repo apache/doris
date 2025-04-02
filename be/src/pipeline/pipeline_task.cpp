@@ -60,8 +60,13 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
                                                    std::vector<std::shared_ptr<Dependency>>>>
                                    shared_state_map,
                            int task_idx)
-        : _query_id(fragment_context->get_query_id()),
-          _index(task_id),
+        :
+#ifdef BE_TEST
+          _query_id(fragment_context ? fragment_context->get_query_id() : TUniqueId()),
+#else
+          _query_id(fragment_context->get_query_id()),
+#endif
+                  _index(task_id),
           _pipeline(pipeline),
           _opened(false),
           _state(state),
