@@ -447,6 +447,71 @@ public:
     }
 };
 
+enum class FloatPointNumberJudgmentType {
+    IsNan = 0,
+    IsInf,
+};
+
+struct ImplIsNan {
+    static constexpr auto name = "isnan";
+    static constexpr FloatPointNumberJudgmentType type = FloatPointNumberJudgmentType::IsNan;
+};
+
+struct ImplIsInf {
+    static constexpr auto name = "isinf";
+    static constexpr FloatPointNumberJudgmentType type = FloatPointNumberJudgmentType::IsInf;
+};
+
+template <typename Impl>
+class FunctionFloatingPointNumberJudgment : public IFunction {
+public:
+    using IFunction::execute;
+
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionFloatingPointNumberJudgment>(); }
+
+private:
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeBool>();
+    }
+
+    void execute_impl_with_type(const auto* input_column,
+                                DataTypeBool::ColumnType::Container& output, size_t size) const {
+        for (int i = 0; i < size; i++) {
+            auto value = input_column->get_element(i);
+            if constexpr (Impl::type == FloatPointNumberJudgmentType::IsNan) {
+                output[i] = std::isnan(value);
+            } else if constexpr (Impl::type == FloatPointNumberJudgmentType::IsInf) {
+                output[i] = std::isinf(value);
+            }
+        }
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto dst = DataTypeBool::ColumnType::create();
+        auto& dst_data = dst->get_data();
+        dst_data.resize(input_rows_count);
+        const auto* column = block.get_by_position(arguments[0]).column.get();
+        if (const auto* col_f64 = check_and_get_column<ColumnFloat64>(column)) {
+            execute_impl_with_type(col_f64, dst_data, input_rows_count);
+        } else if (const auto* col_f32 = check_and_get_column<ColumnFloat32>(column)) {
+            execute_impl_with_type(col_f32, dst_data, input_rows_count);
+        } else {
+            return Status::InvalidArgument("Unsupported column type  {} for function {}",
+                                           column->get_name(), get_name());
+        }
+        block.replace_by_position(result, std::move(dst));
+        return Status::OK();
+    }
+};
+
+using FunctionIsNan = FunctionFloatingPointNumberJudgment<ImplIsNan>;
+using FunctionIsInf = FunctionFloatingPointNumberJudgment<ImplIsInf>;
+
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future
 void register_function_math(SimpleFunctionFactory& factory) {
@@ -488,5 +553,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();
     factory.register_function<FunctionNormalCdf>();
+    factory.register_function<FunctionIsNan>();
+    factory.register_function<FunctionIsInf>();
 }
 } // namespace doris::vectorized
