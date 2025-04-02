@@ -24,39 +24,25 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class KillQueryCommandTest {
-    @Mocked
+import java.io.IOException;
+
+public class KillQueryCommandTest extends TestWithFeService {
     private ConnectContext connectContext;
-    @Mocked
     private Env env;
-    @Mocked
     private AccessControllerManager accessControllerManager;
 
-    private void runBefore() {
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
         new Expectations() {
             {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
                 accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
                 minTimes = 0;
                 result = true;
