@@ -1976,13 +1976,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // only on query is declared
             LogicalPlan logicalPlan = visitQuery(ctx.query().get(0));
             String originalQuery = ctx.query().get(0).start.getInputStream()
-                .getText(new org.antlr.v4.runtime.misc.Interval(ctx.query().get(0).start.getStartIndex(), ctx.query().get(0).stop.getStopIndex()));
-            return new CreateOutlineCommand(outlineName, isReplace, logicalPlan, originalQuery);
+                    .getText(new org.antlr.v4.runtime.misc.Interval(ctx.query().get(0).start.getStartIndex(),
+                        ctx.query().get(0).stop.getStopIndex()));
+            int startIndex = ctx.query().get(0).start.getStartIndex();
+            return new CreateOutlineCommand(outlineName, isReplace, logicalPlan, originalQuery, startIndex);
         } else if (ctx.query().size() == 2) {
             // on query to query
         }
 
-        return new CreateOutlineCommand(outlineName, isReplace, null, "originalQuery");
+        return new CreateOutlineCommand(outlineName, isReplace, null, "originalQuery", 0);
     }
 
     @Override
@@ -3822,6 +3824,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return tableList;
     }
 
+    /**
+     * with select hint need to be used to create logicalSelectHint logical plan
+     * @param logicalPlan child of select hint plan
+     * @param hintContexts hints used to be contexts of logicalSelectHint
+     * @return logicalSelectHint with child plan
+     */
     private LogicalPlan withHints(LogicalPlan logicalPlan, List<ParserRuleContext> selectHintContexts,
             List<ParserRuleContext> preAggOnHintContexts) {
         if (selectHintContexts.isEmpty() && preAggOnHintContexts.isEmpty()) {

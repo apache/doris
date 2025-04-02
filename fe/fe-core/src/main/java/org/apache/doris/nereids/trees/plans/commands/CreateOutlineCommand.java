@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.hint.OutlineInfo;
 import org.apache.doris.nereids.hint.OutlineMgr;
@@ -27,8 +26,10 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,27 +47,44 @@ public class CreateOutlineCommand extends Command implements ForwardWithSync {
 
     private final String originalQuery;
 
-    public CreateOutlineCommand(String outlineName, boolean ignoreExist, LogicalPlan query, String originalQuery) {
+    private final int startIndex;
+
+    /**
+     * create outline command
+     * @param outlineName outline name which is unique
+     * @param ignoreExist if true create anyway
+     * @param query query behind on expression parsed into logical plan
+     * @param originalQuery original query string
+     * @param startIndex start index of original query
+     */
+    public CreateOutlineCommand(String outlineName, boolean ignoreExist,
+                                LogicalPlan query, String originalQuery, int startIndex) {
         super(PlanType.CREATE_OUTLINE_COMMAND);
         this.outlineName = outlineName;
         this.ignoreExist = ignoreExist;
         this.query = query;
         this.originalQuery = originalQuery;
+        this.startIndex = startIndex;
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        String visibleSignature = OutlineMgr.replaceConstant(originalQuery,
+                executor.getContext().getStatementContext().getConstantExpressionMap(), startIndex);
+        //        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(query, ctx.getStatementContext());
         executor.setParsedStmt(logicalPlanAdapter);
         if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
             ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
         }
-        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-        executor.setPlanner(planner);
+        logicalPlanAdapter.setOrigStmt(new OriginStatement(originalQuery, 0));
+        //        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        //        executor.setPlanner(planner);
         executor.checkBlockRules();
-        OutlineInfo outlineInfo = new OutlineInfo(outlineName, "visibleSignature", "sqlId",
-            originalQuery, "outlineTarget", "outlineData");
+        String sqlId = DigestUtils.md5Hex(visibleSignature);
+        String outlineData = OutlineMgr.createOutlineData(ctx.getSessionVariable());
+        OutlineInfo outlineInfo = new OutlineInfo(outlineName, visibleSignature, sqlId,
+                originalQuery, "outlineTarget", outlineData);
         OutlineMgr.createOutlineInternal(outlineInfo, ignoreExist, false);
     }
 

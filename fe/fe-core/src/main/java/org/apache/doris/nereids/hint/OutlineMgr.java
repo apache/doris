@@ -19,7 +19,11 @@ package org.apache.doris.nereids.hint;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -27,7 +31,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -39,6 +45,7 @@ public class OutlineMgr implements Writable {
     public static final OutlineMgr INSTANCE = new OutlineMgr();
     private static final Logger LOG = LogManager.getLogger(OutlineMgr.class);
     private static final Map<String, OutlineInfo> outlineMap = new HashMap<>();
+    private static final Map<String, OutlineInfo> visibleSignatureMap = new HashMap<>();
 
     private static ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -69,6 +76,66 @@ public class OutlineMgr implements Writable {
         return outlineMap;
     }
 
+    public static Optional<OutlineInfo> getOutlineByVisibleSignature(String visibleSignature) {
+        if (visibleSignatureMap.containsKey(visibleSignature)) {
+            return Optional.of(visibleSignatureMap.get(visibleSignature));
+        }
+        return Optional.empty();
+    }
+
+    public static Map<String, OutlineInfo> getVisibleSignatureMap() {
+        return visibleSignatureMap;
+    }
+
+    /**
+     * replace constant by place holder
+     * @param originalQuery original query input by create outline command
+     * @param constantMap constant map collected by logicalPlanBuilder
+     * @param startIndex a shift of create outline command
+     * @return query replace constant by place holder
+     */
+    public static String replaceConstant(String originalQuery, Map<Pair<Integer, Integer>,
+            Expression> constantMap, int startIndex) {
+        List<Pair<Integer, Integer>> sortedKeys = new ArrayList<>(constantMap.keySet());
+
+        // Sort by start index in descending order to avoid shifting problems
+        sortedKeys.sort((a, b) -> b.first.compareTo(a.first));
+
+        StringBuilder sb = new StringBuilder(originalQuery);
+
+        for (Pair<Integer, Integer> range : sortedKeys) {
+            int start = range.first - startIndex;
+            int end = range.second - startIndex + 1;
+            sb.replace(start, end, "?");
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * create outline data which include some hints
+     * @param sessionVariable sessionVariables used to generate corresponding plan
+     * @return string include many hints
+     */
+    public static String createOutlineData(SessionVariable sessionVariable) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("/*+ ");
+        // add set_var hint
+        List<List<String>> changedVars = VariableMgr.dumpChangedVars(sessionVariable);
+        if (!changedVars.isEmpty()) {
+            sb.append("set_var(");
+            for (List<String> changedVar : changedVars) {
+                sb.append(changedVar.get(0));
+                sb.append("=");
+                sb.append(changedVar.get(1));
+                sb.append(" ");
+            }
+            sb.append(") ");
+        }
+        sb.append("*/ ");
+        return sb.toString();
+    }
+
     /**
      * createOutlineInternal
      * @param outlineInfo outline info used to create outline
@@ -86,6 +153,16 @@ public class OutlineMgr implements Writable {
                 throw new DdlException(outlineInfo.getOutlineName() + " already exists");
             }
 
+            if (OutlineMgr.getOutlineByVisibleSignature(outlineInfo.getVisibleSignature()).isPresent()) {
+                if (!ignoreIfExists) {
+                    LOG.info("outline already exists, ignored to create outline with signature: {}, is replay: {}",
+                            outlineInfo.getVisibleSignature(), isReplay);
+                    throw new DdlException(outlineInfo.getVisibleSignature() + " already exists");
+                } else {
+                    dropOutline(outlineInfo);
+                }
+            }
+
             createOutline(outlineInfo);
             if (!isReplay) {
                 Env.getCurrentEnv().getEditLog().logCreateOutline(outlineInfo);
@@ -98,6 +175,7 @@ public class OutlineMgr implements Writable {
 
     private static void createOutline(OutlineInfo outlineInfo) {
         outlineMap.put(outlineInfo.getOutlineName(), outlineInfo);
+        visibleSignatureMap.put(outlineInfo.getVisibleSignature(), outlineInfo);
     }
 
     /**
@@ -119,7 +197,7 @@ public class OutlineMgr implements Writable {
             }
 
             OutlineInfo outlineInfo = outlineMap.get(outlineName);
-            dropOutline(outlineName);
+            dropOutline(outlineInfo);
             if (!isReplay && isPresent) {
                 Env.getCurrentEnv().getEditLog().logDropOutline(outlineInfo);
             }
@@ -129,8 +207,9 @@ public class OutlineMgr implements Writable {
         LOG.info("finished to create outline: {}, is replay: {}", outlineName, isReplay);
     }
 
-    private static void dropOutline(String outlineName) {
-        outlineMap.remove(outlineName);
+    private static void dropOutline(OutlineInfo outlineInfo) {
+        outlineMap.remove(outlineInfo.getOutlineName());
+        visibleSignatureMap.remove(outlineInfo.getVisibleSignature());
     }
 
     public static String fastParamization(String sql) {
@@ -145,11 +224,17 @@ public class OutlineMgr implements Writable {
         }
     }
 
+    /**
+     * read fields from disk
+     * @param in data source of disk
+     * @throws IOException maybe throw ioexception
+     */
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             OutlineInfo outlineInfo = OutlineInfo.read(in);
             outlineMap.put(outlineInfo.getOutlineName(), outlineInfo);
+            visibleSignatureMap.put(outlineInfo.getVisibleSignature(), outlineInfo);
         }
     }
 }
