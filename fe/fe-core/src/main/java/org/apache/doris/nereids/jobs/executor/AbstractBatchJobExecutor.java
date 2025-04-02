@@ -152,25 +152,20 @@ public abstract class AbstractBatchJobExecutor {
                 continue;
             }
 
-            if (currentJob instanceof CostBasedRewriteJob) {
-                ImmutableList.Builder<RewriteJob> remainJobs
-                        = ImmutableList.builderWithExpectedSize(jobs.size() - i - 1);
-                for (int j = i + 1; j < jobs.size(); j++) {
-                    RewriteJob job = jobs.get(j);
-                    if (!(job instanceof CostBasedRewriteJob)) {
-                        remainJobs.add(job);
-                    }
-                }
-                jobContext.setRemainJobs(remainJobs.build());
+            if (shouldRun(currentJob, jobContext)) {
+                do {
+                    jobContext.setRewritten(false);
+                    currentJob.execute(jobContext);
+                } while (!currentJob.isOnce() && jobContext.isRewritten());
             }
-            do {
-                jobContext.setRewritten(false);
-                currentJob.execute(jobContext);
-            } while (!currentJob.isOnce() && jobContext.isRewritten());
         }
     }
 
     public abstract List<RewriteJob> getJobs();
+
+    protected boolean shouldRun(RewriteJob rewriteJob, JobContext jobContext) {
+        return true;
+    }
 
     private static Predicate<Plan> getTraversePredicate() {
         Set<Class<Plan>> notTraverseChildren = NOT_TRAVERSE_CHILDREN.get();
