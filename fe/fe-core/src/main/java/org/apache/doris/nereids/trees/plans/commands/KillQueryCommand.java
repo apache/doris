@@ -44,29 +44,16 @@ import java.util.Collection;
 
 public class KillQueryCommand extends KillCommand {
     private static final Logger LOG = LogManager.getLogger(KillQueryCommand.class);
-    private final boolean isConnectionKill;
-    private final Integer connectionId;
     private final String queryId;
 
-    public KillQueryCommand(boolean isConnectionKill, Integer connectionId, String queryId) {
+    public KillQueryCommand(String queryId) {
         super(PlanType.KILL_QUERY_COMMAND);
-        this.isConnectionKill = isConnectionKill;
-        this.connectionId = connectionId;
         this.queryId = queryId;
     }
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        ConnectContext killCtx = null;
-        if (connectionId == -1) {
-            killCtx = ctx.getConnectScheduler().getContextWithQueryId(queryId);
-        } else {
-            killCtx = ctx.getConnectScheduler().getContext(connectionId);
-            if (killCtx == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, id);
-            }
-        }
-
+        ConnectContext killCtx = ctx.getConnectScheduler().getContextWithQueryId(queryId);
         // when killCtx == null, this means the query not in FE,
         // then we just send kill signal to BE
         if (killCtx == null) {
@@ -103,7 +90,7 @@ public class KillQueryCommand extends KillCommand {
                     PrivPredicate.ADMIN)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
             }
-            killCtx.kill(isConnectionKill);
+            killCtx.kill(false);
         }
         ctx.getState().setOk();
     }

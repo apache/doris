@@ -5854,17 +5854,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitKillQuery(KillQueryContext ctx) {
-        boolean isConnectionKill = false;
-        int connectionId = -1;
-        String queryId = "";
+        String queryId;
         TerminalNode integerValue = ctx.INTEGER_VALUE();
         if (integerValue != null) {
-            connectionId = Integer.parseInt(integerValue.getText());
-            isConnectionKill = true;
+            queryId = integerValue.getText();
         } else {
-            queryId = ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
+            queryId = stripQuotes(ctx.STRING_LITERAL().getText());
         }
-        return new KillQueryCommand(isConnectionKill, connectionId, queryId);
+        return new KillQueryCommand(queryId);
     }
 
     @Override
