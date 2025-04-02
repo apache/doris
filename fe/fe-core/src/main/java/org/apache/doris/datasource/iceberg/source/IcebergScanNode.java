@@ -56,6 +56,7 @@ import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
@@ -63,6 +64,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.TableScanUtil;
@@ -70,6 +72,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.time.DateTimeException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -100,6 +103,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private boolean isPartitionedTable;
     private int formatVersion;
     private PreExecutionAuthenticator preExecutionAuthenticator;
+    private TableScan icebergTableScan;
 
     /**
      * External file scan node for Query iceberg table
@@ -218,7 +222,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
     }
 
-    public void doStartSplit() throws UserException {
+    public void doStartSplit() {
         TableScan scan = createTableScan();
         CompletableFuture.runAsync(() -> {
             try {
@@ -248,7 +252,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         });
     }
 
-    private TableScan createTableScan() throws UserException {
+    private TableScan createTableScan() {
+        if (icebergTableScan != null) {
+            return icebergTableScan;
+        }
+
         TableScan scan = icebergTable.newScan();
 
         // set snapshot
@@ -270,9 +278,9 @@ public class IcebergScanNode extends FileQueryScanNode {
             this.pushdownIcebergPredicates.add(predicate.toString());
         }
 
-        scan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
+        icebergTableScan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
 
-        return scan;
+        return icebergTableScan;
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
@@ -345,23 +353,54 @@ public class IcebergScanNode extends FileQueryScanNode {
                 return false;
             }
         }
-        // TODO Use a better judgment method to decide whether to use batch mode.
-        return sessionVariable.getNumPartitionsInBatchMode() > 1024;
+
+        if (createTableScan().snapshot() == null) {
+            return false;
+        }
+
+        if (!sessionVariable.getEnableExternalTableBatchMode()) {
+            return false;
+        }
+
+        try {
+            return preExecutionAuthenticator.execute(() -> {
+                try (CloseableIterator<ManifestFile> matchingManifest =
+                        IcebergUtils.getMatchingManifest(
+                                createTableScan().snapshot().dataManifests(icebergTable.io()),
+                                icebergTable.specs(),
+                                createTableScan().filter()).iterator()) {
+                    int cnt = 0;
+                    while (matchingManifest.hasNext()) {
+                        cnt += matchingManifest.next().addedFilesCount();
+                        if (cnt >= sessionVariable.getNumFilesInBatchMode()) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            });
+        } catch (Exception e) {
+            Optional<NotSupportedException> opt = checkNotSupportedException(e);
+            if (opt.isPresent()) {
+                throw opt.get();
+            } else {
+                throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+            }
+        }
     }
 
-    public Long getSpecifiedSnapshot() throws UserException {
+    public Long getSpecifiedSnapshot() {
         TableSnapshot tableSnapshot = getQueryTableSnapshot();
         if (tableSnapshot != null) {
             TableSnapshot.VersionType type = tableSnapshot.getType();
-            try {
-                if (type == TableSnapshot.VersionType.VERSION) {
-                    return tableSnapshot.getVersion();
-                } else {
-                    long timestamp = TimeUtils.timeStringToLong(tableSnapshot.getTime(), TimeUtils.getTimeZone());
-                    return SnapshotUtil.snapshotIdAsOfTime(icebergTable, timestamp);
+            if (type == TableSnapshot.VersionType.VERSION) {
+                return tableSnapshot.getVersion();
+            } else {
+                long timestamp = TimeUtils.timeStringToLong(tableSnapshot.getTime(), TimeUtils.getTimeZone());
+                if (timestamp < 0) {
+                    throw new DateTimeException("can't parse time: " + tableSnapshot.getTime());
                 }
-            } catch (IllegalArgumentException e) {
-                throw new UserException(e);
+                return SnapshotUtil.snapshotIdAsOfTime(icebergTable, timestamp);
             }
         }
         return null;
@@ -444,12 +483,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private long getCountFromSnapshot() {
-        Long specifiedSnapshot;
-        try {
-            specifiedSnapshot = getSpecifiedSnapshot();
-        } catch (UserException e) {
-            return -1;
-        }
+        Long specifiedSnapshot = getSpecifiedSnapshot();
 
         Snapshot snapshot = specifiedSnapshot == null
                 ? icebergTable.currentSnapshot() : icebergTable.snapshot(specifiedSnapshot);
