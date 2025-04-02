@@ -208,8 +208,6 @@ public enum RuleType {
 
     PUSH_DOWN_DISTINCT_THROUGH_JOIN(RuleTypeClass.REWRITE),
 
-    PUSH_DOWN_PROJECT_THROUGH_FILTER(RuleTypeClass.REWRITE),
-
     ADD_PROJECT_FOR_JOIN(RuleTypeClass.REWRITE),
     VARIANT_SUB_PATH_PRUNING(RuleTypeClass.REWRITE),
     CLEAR_CONTEXT_STATUS(RuleTypeClass.REWRITE),
@@ -251,6 +249,8 @@ public enum RuleType {
 
     // rewrite load project for stream load
     REWRITE_LOAD_PROJECT_FOR_STREAM_LOAD(RuleTypeClass.REWRITE),
+    // add post filter node for load
+    ADD_POST_FILTER_FOR_LOAD(RuleTypeClass.REWRITE),
 
     // Merge Consecutive plan
     MERGE_PROJECTS(RuleTypeClass.REWRITE),
