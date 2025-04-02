@@ -852,12 +852,13 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
     if (parent.__isset.runtime_filter_info) {
         auto info = parent.runtime_filter_info;
-        if (info.__isset.runtime_filter_params &&
-            !info.runtime_filter_params.rid_to_runtime_filter.empty()) {
-            auto handler = std::make_shared<RuntimeFilterMergeControllerEntity>(
-                    RuntimeFilterParamsContext::create(context->get_runtime_state()));
-            RETURN_IF_ERROR(handler->init(params.query_id, info.runtime_filter_params));
-            query_ctx->set_merge_controller_handler(handler);
+        if (info.__isset.runtime_filter_params) {
+            if (!info.runtime_filter_params.rid_to_runtime_filter.empty()) {
+                auto handler = std::make_shared<RuntimeFilterMergeControllerEntity>(
+                        RuntimeFilterParamsContext::create(context->get_runtime_state()));
+                RETURN_IF_ERROR(handler->init(params.query_id, info.runtime_filter_params));
+                query_ctx->set_merge_controller_handler(handler);
+            }
 
             query_ctx->runtime_filter_mgr()->set_runtime_filter_params(info.runtime_filter_params);
         }
