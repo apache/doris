@@ -847,6 +847,8 @@ public class Alter {
             } else {
                 Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
             }
+            // if not set, origTable and newTbl both is origName
+            origTable.checkAndSetName(newTblName, false);
             if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
                 Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) origTable);
                 if (!isReplay) {
