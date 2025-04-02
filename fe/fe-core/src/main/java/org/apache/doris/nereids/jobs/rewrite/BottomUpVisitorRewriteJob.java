@@ -96,7 +96,9 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
             }
             List<Plan> transform = currentRule.transform(plan, jobContext.getCascadesContext());
             if (!transform.isEmpty() && !transform.get(0).deepEquals(plan)) {
-                return transform.get(0);
+                Plan result = transform.get(0);
+                currentRule.acceptPlan(result);
+                return result;
             }
         }
         return plan;

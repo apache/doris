@@ -76,18 +76,28 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
     }
 
     private static Plan doRewrite(Plan plan, JobContext jobContext, Rules rules) {
-        List<Rule> currentRules = rules.getCurrentRules(plan);
-        BitSet forbidRules = jobContext.getCascadesContext().getAndCacheDisableRules();
-        for (Rule currentRule : currentRules) {
-            if (forbidRules.get(currentRule.getRuleType().ordinal()) || !currentRule.getPattern().matchPlanTree(plan)) {
-                continue;
+        Plan oldPlan = plan;
+        while (true) {
+            List<Rule> currentRules = rules.getCurrentRules(oldPlan);
+            BitSet forbidRules = jobContext.getCascadesContext().getAndCacheDisableRules();
+
+            boolean changed = false;
+            for (Rule currentRule : currentRules) {
+                if (forbidRules.get(currentRule.getRuleType().ordinal()) || !currentRule.getPattern().matchPlanTree(oldPlan)) {
+                    continue;
+                }
+                List<Plan> transform = currentRule.transform(oldPlan, jobContext.getCascadesContext());
+                if (!transform.isEmpty() && !transform.get(0).deepEquals(oldPlan)) {
+                    oldPlan = transform.get(0);
+                    currentRule.acceptPlan(oldPlan);
+                    changed = true;
+                    break;
+                }
             }
-            List<Plan> transform = currentRule.transform(plan, jobContext.getCascadesContext());
-            if (!transform.isEmpty() && !transform.get(0).deepEquals(plan)) {
-                return transform.get(0);
+            if (!changed) {
+                return oldPlan;
             }
         }
-        return plan;
     }
 
     /** getRelateRules */

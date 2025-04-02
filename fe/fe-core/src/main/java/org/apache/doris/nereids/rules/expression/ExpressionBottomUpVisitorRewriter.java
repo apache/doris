@@ -46,9 +46,17 @@ public class ExpressionBottomUpVisitorRewriter implements ExpressionRewriteRule<
             Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(expression.arity());
             boolean changed = false;
             for (Expression child : expression.children()) {
-                Expression newChild = rewrite(child, context, expression);
-                newChildren.add(newChild);
-                changed |= !newChild.equals(child);
+                Expression oldChild = child;
+                while (true) {
+                    Expression newChild = rewrite(oldChild, context, expression);
+                    if (!newChild.equals(oldChild)) {
+                        changed = true;
+                        oldChild = newChild;
+                    } else {
+                        newChildren.add(newChild);
+                        break;
+                    }
+                }
             }
             if (changed) {
                 expression = expression.withChildren(newChildren.build());

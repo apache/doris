@@ -82,6 +82,9 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
     @Override
     public Expression visitExistsSubquery(Exists exists, T context) {
+        if (!exists.getCorrelateSlots().isEmpty()) {
+            return exists;
+        }
         LogicalPlan queryPlan = exists.getQueryPlan();
         // distinct is useless, remove it
         if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
@@ -95,12 +98,14 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause with offset > 0 "
                     + analyzedResult.getLogicalPlan());
         }
-        return new Exists(analyzedResult.getLogicalPlan(),
-                analyzedResult.getCorrelatedSlots(), exists.isNot());
+        return new Exists(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots(), exists.isNot());
     }
 
     @Override
     public Expression visitInSubquery(InSubquery expr, T context) {
+        if (!expr.getListQuery().getCorrelateSlots().isEmpty()) {
+            return expr;
+        }
         LogicalPlan queryPlan = expr.getQueryPlan();
         // distinct is useless, remove it
         if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
@@ -120,6 +125,9 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
     @Override
     public Expression visitScalarSubquery(ScalarSubquery scalar, T context) {
+        if (!scalar.getCorrelateSlots().isEmpty()) {
+            return scalar;
+        }
         AnalyzedResult analyzedResult = analyzeSubquery(scalar);
         boolean isCorrelated = analyzedResult.isCorrelated();
         LogicalPlan analyzedSubqueryPlan = analyzedResult.logicalPlan;
