@@ -531,7 +531,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
             )
     );
 
-
     private final List<RewriteJob> rewriteJobs;
     private final boolean runCboRules;
 
