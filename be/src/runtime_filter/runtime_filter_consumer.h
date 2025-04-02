@@ -142,7 +142,7 @@ private:
     const int64_t _registration_time;
 
     std::atomic<State> _rf_state;
-    std::mutex _mtx;
+    std::mutex _mtx; // used to avoid multithreading race on _wrapper
 
     friend class RuntimeFilterProducer;
 };
