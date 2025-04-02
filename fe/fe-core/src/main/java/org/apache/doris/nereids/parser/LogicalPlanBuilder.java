@@ -801,6 +801,8 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
+import org.apache.doris.nereids.trees.plans.commands.load.MysqlDataDescription;
+import org.apache.doris.nereids.trees.plans.commands.load.MysqlLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
@@ -1652,15 +1654,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 multiFilePaths.add(filePath.getText().substring(1, filePath.getText().length() - 1));
             }
             List<String> filePaths = ddc.filePath == null ? ImmutableList.of() : multiFilePaths;
-            Map<String, Expression> colMappings;
-            if (ddc.columnMapping == null) {
-                colMappings = ImmutableMap.of();
-            } else {
-                colMappings = new HashMap<>();
-                for (DorisParser.MappingExprContext mappingExpr : ddc.columnMapping.mappingSet) {
-                    colMappings.put(mappingExpr.mappingCol.getText(), getExpression(mappingExpr.expression()));
-                }
-            }
+            Map<String, Expression> colMappings = visitColMappingList(ddc.columnMapping);
 
             LoadTask.MergeType mergeType = ddc.mergeType() == null ? LoadTask.MergeType.APPEND
                         : LoadTask.MergeType.valueOf(ddc.mergeType().getText());
@@ -6408,6 +6402,94 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public Map<String, Expression> visitColMappingList(DorisParser.ColMappingListContext ctx) {
+        Map<String, Expression> colMappings;
+        if (ctx != null) {
+            colMappings = new HashMap<>();
+            for (DorisParser.MappingExprContext mappingExpr : ctx.mappingSet) {
+                colMappings.put(mappingExpr.mappingCol.getText(), getExpression(mappingExpr.expression()));
+            }
+        } else {
+            colMappings = ImmutableMap.of();
+        }
+        return colMappings;
+    }
+
+    @Override
+    public MysqlDataDescription visitMysqlDataDesc(DorisParser.MysqlDataDescContext ctx) {
+        List<String> filePaths = new ArrayList<>();
+        filePaths.add(ctx.filePath.getText());
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.multipartIdentifier()));
+        boolean isClientLocal = ctx.LOCAL() != null;
+
+        List<String> partitions;
+        if (ctx.partition != null) {
+            partitions = visitIdentifierList(ctx.partition);
+        } else {
+            partitions = ImmutableList.of();
+        }
+        PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false, partitions);
+
+        Optional<String> columnSeparator;
+        Optional<String> lineDelimiter;
+        if (ctx.comma != null) {
+            columnSeparator = Optional.of(ctx.comma.getText().substring(1, ctx.comma.getText().length() - 1));
+        } else {
+            columnSeparator = Optional.empty();
+        }
+        if (ctx.separator != null) {
+            lineDelimiter = Optional.of(ctx.separator.getText().substring(1, ctx.separator.getText().length() - 1));
+        } else {
+            lineDelimiter = Optional.empty();
+        }
+
+        int skipLines = ctx.skipLines() == null
+                ? 0 : Integer.parseInt(ctx.skipLines().INTEGER_VALUE().getText());
+
+        List<String> columns;
+        if (ctx.columns != null) {
+            columns = visitIdentifierList(ctx.columns);
+        } else {
+            columns = ImmutableList.of();
+        }
+        Map<String, Expression> colMappings = visitColMappingList(ctx.colMappingList());
+
+        Map<String, String> properties;
+        if (ctx.propertyClause() != null) {
+            properties = visitPropertyItemList(ctx.propertyClause().propertyItemList());
+        } else {
+            properties = ImmutableMap.of();
+        }
+
+        MysqlDataDescription mysqlDataDescription = new MysqlDataDescription(
+                filePaths,
+                tableNameInfo,
+                isClientLocal,
+                partitionNamesInfo,
+                columnSeparator,
+                lineDelimiter,
+                skipLines,
+                columns,
+                colMappings,
+                properties
+        );
+        return mysqlDataDescription;
+    }
+
+    @Override
+    public LogicalPlan visitMysqlLoad(DorisParser.MysqlLoadContext ctx) {
+        MysqlDataDescription mysqlDataDescription = visitMysqlDataDesc(ctx.mysqlDataDesc());
+        Map<String, String> properties;
+        if (ctx.properties != null) {
+            properties = new HashMap<>();
+            properties.putAll(visitPropertyItemList(ctx.properties));
+        } else {
+            properties = ImmutableMap.of();
+        }
+        String comment = visitCommentSpec(ctx.commentSpec());
+        return new MysqlLoadCommand(mysqlDataDescription, properties, comment);
+    }
+
     public LogicalPlan visitDropAnalyzeJob(DorisParser.DropAnalyzeJobContext ctx) {
         long jobId = Long.parseLong(ctx.INTEGER_VALUE().getText());
         return new DropAnalyzeJobCommand(jobId);
