@@ -167,24 +167,24 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
         for (int index = 0; index < rows; index++) {
             _vpartition->find_partition(block.get(), index, _partitions[index]);
         }
-        bool stop_processing = false;
         for (int row_index = 0; row_index < rows; row_index++) {
             if (_partitions[row_index] == nullptr) [[unlikely]] {
                 _filter_bitmap.Set(row_index, true);
                 LOG(WARNING) << "no partition for this tuple. tuple="
                              << block->dump_data(row_index, 1);
-                RETURN_IF_ERROR(state->append_error_msg_to_file(
+                _has_filtered_rows = true;
+                state->update_num_rows_load_filtered(1);
+                state->update_num_rows_load_total(-1);
+                // meiyi: we should ignore this error in group commit,
+                // as errors should no longer occur after the first 20,000 rows.
+                static_cast<void>(state->append_error_msg_to_file(
                         []() -> std::string { return ""; },
                         [&]() -> std::string {
                             fmt::memory_buffer buf;
                             fmt::format_to(buf, "no partition for this tuple. tuple=\n{}",
                                            block->dump_data(row_index, 1));
                             return fmt::to_string(buf);
-                        },
-                        &stop_processing));
-                _has_filtered_rows = true;
-                state->update_num_rows_load_filtered(1);
-                state->update_num_rows_load_total(-1);
+                        }));
             }
         }
     }
