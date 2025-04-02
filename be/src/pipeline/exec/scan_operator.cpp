@@ -74,8 +74,8 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
 
-    RETURN_IF_ERROR(_helper.init(state, operator_profile(), p.is_serial_operator(), _filter_dependencies,
-                                 p.operator_id(), p.node_id(),
+    RETURN_IF_ERROR(_helper.init(state, operator_profile(), p.is_serial_operator(),
+                                 _filter_dependencies, p.operator_id(), p.node_id(),
                                  p.get_name() + "_FILTER_DEPENDENCY"));
     RETURN_IF_ERROR(_init_profile());
     set_scan_ranges(state, info.scan_ranges);

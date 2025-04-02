@@ -58,8 +58,10 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     if (p._use_shared_hash_table) {
         _should_build_hash_table = info.task_idx == 0;
     }
-    custom_profile()->add_info_string("BuildShareHashTable", std::to_string(_should_build_hash_table));
-    custom_profile()->add_info_string("ShareHashTableEnabled", std::to_string(p._use_shared_hash_table));
+    custom_profile()->add_info_string("BuildShareHashTable",
+                                      std::to_string(_should_build_hash_table));
+    custom_profile()->add_info_string("ShareHashTableEnabled",
+                                      std::to_string(p._use_shared_hash_table));
     if (!_should_build_hash_table) {
         _dependency->block();
         _finish_dependency->block();
@@ -87,6 +89,11 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 
     RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, _build_expr_ctxs,
                                                           p._runtime_filter_descs));
+
+    // Hash Table Init
+    RETURN_IF_ERROR(_hash_table_init(state));
+    _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelper>(
+            operator_profile(), _should_build_hash_table, p._is_broadcast_join);
     return Status::OK();
 }
 
@@ -622,8 +629,24 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                         dst.hash_table = src.hash_table;
                     }
                 },
+                local_state._shared_state->hash_table_variant_vector[local_state._task_idx]
                         ->method_variant,
                 local_state._shared_state->hash_table_variant_vector.front()->method_variant);
+    }
+
+    if (eos) {
+        local_state._eos = true;
+        // If a shared hash table is used, states are shared by all tasks.
+        // Sink and source has n-n relationship If a shared hash table is used otherwise 1-1 relationship.
+        // So we should notify the `_task_idx` source task if a shared hash table is used.
+        local_state._dependency->set_ready_to_read(_use_shared_hash_table ? local_state._task_idx
+                                                                          : 0);
+    }
+
+    return Status::OK();
+}
+
+size_t HashJoinBuildSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
     return local_state.get_reserve_mem_size(state, eos);
 }

@@ -527,6 +527,7 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
             if constexpr (std::is_same_v<LocalExchangeSharedState, SharedStateArg>) {
                 DCHECK(false);
             }
+        }
     }
 
     _rows_returned_counter =

@@ -45,8 +45,9 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     _get_data_timer = ADD_TIMER(custom_profile(), "GetDataTime");
     _materialize_data_timer = ADD_TIMER(custom_profile(), "MaterializeDataTime");
 
-    RETURN_IF_ERROR(_helper.init(state, operator_profile(), false, _filter_dependencies, p.operator_id(),
-                                 p.node_id(), p.get_name() + "_FILTER_DEPENDENCY"));
+    RETURN_IF_ERROR(_helper.init(state, operator_profile(), false, _filter_dependencies,
+                                 p.operator_id(), p.node_id(),
+                                 p.get_name() + "_FILTER_DEPENDENCY"));
     return Status::OK();
 }
 std::vector<Dependency*> MultiCastDataStreamSourceLocalState::dependencies() const {

@@ -94,8 +94,7 @@ void PartitionedHashJoinProbeLocalState::update_build_custom_profile(
                                                child_profile);
     update_profile_from_inner_profile<spilled>("BuildExprCallTime", custom_profile(),
                                                child_profile);
-    update_profile_from_inner_profile<spilled>("MemoryUsage", custom_profile(),
-                                               child_profile);
+    update_profile_from_inner_profile<spilled>("MemoryUsage", custom_profile(), child_profile);
     update_profile_from_inner_profile<spilled>("MemoryUsageBuildBlocks", custom_profile(),
                                                child_profile);
     update_profile_from_inner_profile<spilled>("MemoryUsageHashTable", custom_profile(),
