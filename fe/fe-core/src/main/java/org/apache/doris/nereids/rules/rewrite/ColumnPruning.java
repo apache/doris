@@ -157,7 +157,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 }
             }
 
-            return plan.accept(this, new PruneContext(new BitSet(), null, true));
+            return plan.accept(this, new PruneContext(null, new BitSet(), ImmutableList.of(), true));
         } finally {
             if (!alreadyCheckedPrivileges) {
                 statementContext.setPrivChecked(true);
@@ -230,11 +230,17 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, PruneContext context) {
         // for fast jump to child
         Plan originChild = filter.child();
-        Plan newChild = originChild.accept(this, context);
-        if (newChild != originChild) {
-            return filter.withChildren(newChild);
+        if (originChild instanceof OutputPrunable) {
+            Plan newChild = originChild.accept(this, context);
+            if (newChild != originChild) {
+                return filter.withChildren(newChild);
+            }
+            return filter;
+        } else if (!context.childRequiredSlots.isEmpty()) {
+            return newProjectIfNotPruned(filter, context.requiredSlotsIds, context.childRequiredSlots);
+        } else {
+            return super.visitLogicalFilter(filter, context);
         }
-        return filter;
     }
 
     @Override
@@ -534,14 +540,11 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     private Plan doPruneChild(Plan plan, Plan child, BitSet childRequiredSlotIds,
             List<? extends Slot> childRequiredSlots, boolean needPrune) {
-        Plan prunedChild = child.accept(this, new PruneContext(childRequiredSlotIds, plan, needPrune));
-        if (prunedChild != child) {
-            boolean isProject = plan instanceof Project;
-            boolean isFilter = plan instanceof Filter;
-            // the case 2 in the class comment, prune child's output failed
-            if (!isProject && !isFilter) {
-                prunedChild = newProjectIfNotPruned(prunedChild, childRequiredSlotIds, childRequiredSlots);
-            }
+        Plan prunedChild = child.accept(this,
+                new PruneContext(plan, childRequiredSlotIds, childRequiredSlots, needPrune));
+        // the case 2 in the class comment, prune child's output failed
+        if (!(plan instanceof Project)) {
+            prunedChild = newProjectIfNotPruned(prunedChild, childRequiredSlotIds, childRequiredSlots);
         }
         return prunedChild;
     }
@@ -561,11 +564,14 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     public static class PruneContext {
         public BitSet requiredSlotsIds;
         public Optional<Plan> parent;
+        public List<? extends Slot> childRequiredSlots;
         public boolean needPrune;
 
-        public PruneContext(BitSet requiredSlotsIds, Plan parent, boolean needPrune) {
-            this.requiredSlotsIds = requiredSlotsIds;
+        public PruneContext(
+                Plan parent, BitSet requiredSlotsIds, List<? extends Slot> childRequiredSlots, boolean needPrune) {
             this.parent = Optional.ofNullable(parent);
+            this.childRequiredSlots = childRequiredSlots;
+            this.requiredSlotsIds = requiredSlotsIds;
             this.needPrune = needPrune;
         }
     }

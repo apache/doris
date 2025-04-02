@@ -83,6 +83,7 @@ import org.apache.doris.nereids.rules.rewrite.ExtractSingleTableExpressionFromDi
 import org.apache.doris.nereids.rules.rewrite.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.InferAggNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferFilterNotNull;
+import org.apache.doris.nereids.rules.rewrite.InferInPredicateFromOr;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
@@ -211,8 +212,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 // so there may be two filters we need to merge them
                                 new MergeFilters()
                         ),
-                        custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
-                                AggScalarSubQueryToWindowFunction::new),
+                        custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION, AggScalarSubQueryToWindowFunction::new),
                         bottomUp(
                                 new EliminateUselessPlanUnderApply(),
                                 // CorrelateApplyToUnCorrelateApply and ApplyToJoin
@@ -316,22 +316,27 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new ConvertInnerOrCrossJoin())
                 ),
                 topic("Set operation optimization",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(SetOperation.class),
-                        // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
-                        topDown(new PushProjectThroughUnion(), new MergeProjects()),
-                        bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
+                        topic("",
+                                cascadesContext -> cascadesContext.rewritePlanContainsTypes(SetOperation.class),
+                                // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
+                                topDown(new PushProjectThroughUnion(), new MergeProjects()),
+                                bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept())
+                        ),
                         bottomUp(new PushProjectIntoOneRowRelation()),
-                        topDown(new MergeOneRowRelationIntoUnion()),
-                        costBased(topDown(new InferSetOperatorDistinct())),
-                        topDown(new BuildAggForUnion()),
-                        bottomUp(new EliminateEmptyRelation()),
-                        // when union has empty relation child and constantExprsList is not empty,
-                        // after EliminateEmptyRelation, project can be pushed into union
-                        topDown(new PushProjectIntoUnion())
+                        topic("",
+                                cascadesContext -> cascadesContext.rewritePlanContainsTypes(SetOperation.class),
+                                topDown(new MergeOneRowRelationIntoUnion()),
+                                costBased(topDown(new InferSetOperatorDistinct())),
+                                topDown(new BuildAggForUnion()),
+                                bottomUp(new EliminateEmptyRelation()),
+                                // when union has empty relation child and constantExprsList is not empty,
+                                // after EliminateEmptyRelation, project can be pushed into union
+                                topDown(new PushProjectIntoUnion())
+                        )
                 ),
-                // topic("infer In-predicate from Or-predicate",
-                //         topDown(new InferInPredicateFromOr())
-                //         ),
+                topic("infer In-predicate from Or-predicate",
+                        topDown(new InferInPredicateFromOr())
+                ),
                 // putting the "Column pruning and infer predicate" topic behind the "Set operation optimization"
                 // is because that pulling up predicates from union needs EliminateEmptyRelation in union child
                 topic("Column pruning and infer predicate",
@@ -364,10 +369,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new EliminateOrderByKey())),
                 topic("Eliminate GroupBy",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class),
-                        topDown(new EliminateGroupBy(),
+                        topDown(
+                                new EliminateGroupBy(),
                                 new MergeAggregate(),
                                 // need to adjust min/max/sum nullable attribute after merge aggregate
-                                new AdjustAggregateNullableForEmptySet())
+                                new AdjustAggregateNullableForEmptySet()
+                        )
                 ),
 
                 topic("Eager aggregation",

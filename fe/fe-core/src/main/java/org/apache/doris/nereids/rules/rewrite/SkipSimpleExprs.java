@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -30,6 +31,9 @@ import java.util.Map.Entry;
 public class SkipSimpleExprs {
     /** isSimpleExpr */
     public static boolean isSimpleExpr(Expression expression) {
+        if (expression.containsType(UnboundSlot.class)) {
+            return false;
+        }
         ExprFeature exprFeature = computeExprFeature(expression);
         for (Entry<Integer, Integer> kv : exprFeature.slotCount.entrySet()) {
             Integer slotId = kv.getKey();
@@ -55,13 +59,17 @@ public class SkipSimpleExprs {
     private static void computeExprFeature(
             Expression e, Map<Integer, Integer> slotCount, Map<Integer, Integer> slotIsNullCount) {
         if (e instanceof Slot) {
-            int slotId = ((Slot) e).getExprId().asInt();
-            Integer count = slotCount.get(slotId);
-            slotCount.put(slotId, count == null ? 1 : count + 1);
+            if (!(e instanceof UnboundSlot)) {
+                int slotId = ((Slot) e).getExprId().asInt();
+                Integer count = slotCount.get(slotId);
+                slotCount.put(slotId, count == null ? 1 : count + 1);
+            }
         } else if (e instanceof IsNull && e.child(0) instanceof Slot) {
-            int slotId = ((Slot) e.child(0)).getExprId().asInt();
-            Integer count = slotIsNullCount.get(slotId);
-            slotIsNullCount.put(slotId, count == null ? 1 : count + 1);
+            if (!(e.child(0) instanceof UnboundSlot)) {
+                int slotId = ((Slot) e.child(0)).getExprId().asInt();
+                Integer count = slotIsNullCount.get(slotId);
+                slotIsNullCount.put(slotId, count == null ? 1 : count + 1);
+            }
         } else {
             for (Expression child : e.children()) {
                 computeExprFeature(child, slotCount, slotIsNullCount);

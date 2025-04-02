@@ -395,16 +395,6 @@ public class NereidsPlanner extends Planner {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setQueryAnalysisFinishTime();
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsAnalysisTime();
         }
-
-        // help gc
-        // if (executeCount.incrementAndGet() % 2000000 == 0) {
-        //     try {
-        //         Thread.sleep(0);
-        //     } catch (InterruptedException e) {
-        //         ;
-        //     }
-        //     System.gc();
-        // }
     }
 
     /**

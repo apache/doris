@@ -79,7 +79,7 @@ public class OrToIn {
      * simplify and then rewrite
      */
     public Expression rewriteTree(Expression expr, ExpressionRewriteContext context) {
-        if (!expr.containsType(Or.class)) {
+        if (!expr.containsType(Or.class, InPredicate.class)) {
             return expr;
         }
         ExpressionRewriteRule<ExpressionRewriteContext> simplify = ExpressionRewrite.bottomUp(SimplifyRange.INSTANCE);
