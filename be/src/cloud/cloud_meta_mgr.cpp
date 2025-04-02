@@ -1262,6 +1262,18 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                      << "ms : " << res.status().msg();
         bthread_usleep(duration_ms * 1000);
     } while (++retry_times <= config::get_delete_bitmap_lock_max_retry_times);
+    DBUG_EXECUTE_IF("CloudMetaMgr.get_delete_bitmap_update_lock.inject_sleep", {
+        auto p = dp->param("percent", 0.01);
+        // 100s > Config.calculate_delete_bitmap_task_timeout_seconds = 60s
+        auto sleep_time = dp->param("sleep", 15);
+        std::mt19937 gen {std::random_device {}()};
+        std::bernoulli_distribution inject_fault {p};
+        if (inject_fault(gen)) {
+            LOG_INFO("injection sleep for {} seconds, tablet_id={}", sleep_time,
+                     tablet.tablet_id());
+            std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+        }
+    });
     if (res.status().code() == MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "txn conflict when get delete bitmap update lock, table_id {}, lock_id {}, "
