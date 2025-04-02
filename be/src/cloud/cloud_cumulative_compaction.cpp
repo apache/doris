@@ -46,6 +46,7 @@ CloudCumulativeCompaction::CloudCumulativeCompaction(CloudStorageEngine& engine,
 CloudCumulativeCompaction::~CloudCumulativeCompaction() = default;
 
 Status CloudCumulativeCompaction::prepare_compact() {
+    DBUG_EXECUTE_IF("CloudCumulativeCompaction.prepare_compact.sleep", { sleep(5); })
     if (_tablet->tablet_state() != TABLET_RUNNING &&
         (!config::enable_new_tablet_do_compaction ||
          static_cast<CloudTablet*>(_tablet.get())->alter_version() == -1)) {
