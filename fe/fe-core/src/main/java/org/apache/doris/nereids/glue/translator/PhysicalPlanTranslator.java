@@ -1063,6 +1063,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // Set colocate info in agg node. This is a hint for local shuffling to decide which type of
             // local exchanger will be used.
             aggregationNode.setColocate(true);
+
+            Plan child = aggregate.child();
+            // we should set colocate = true, when the same LogicalAggregate generate two PhysicalHashAggregates
+            // in one fragment:
+            //
+            // agg(merge finalize)   <- current, set colocate = true
+            //          |
+            // agg(update serialize) <- child, also set colocate = true
+            if (aggregate.getAggregateParam().aggMode.consumeAggregateBuffer
+                    && child instanceof PhysicalHashAggregate
+                    && !((PhysicalHashAggregate<Plan>) child).getAggregateParam().aggMode.consumeAggregateBuffer
+                    && inputPlanFragment.getPlanRoot() instanceof AggregationNode) {
+                AggregationNode childAgg = (AggregationNode) inputPlanFragment.getPlanRoot();
+                childAgg.setColocate(true);
+            }
         }
         if (aggregate.getTopnPushInfo() != null) {
             List<Expr> orderingExprs = Lists.newArrayList();
@@ -2061,7 +2076,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     requiredByProjectSlotIdSet, context);
         } else {
             if (project.child() instanceof PhysicalDeferMaterializeTopN) {
-                inputFragment.setOutputExprs(projectionExprs);
+                inputFragment.setOutputExprs(allProjectionExprs);
             } else {
                 TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
                 inputPlanNode.setProjectList(projectionExprs);

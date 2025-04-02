@@ -82,6 +82,8 @@ struct RowsetWriterContext {
     // store column_unique_id to do index compaction
     std::set<int32_t> columns_to_do_index_compaction;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
+    // need to figure out the sub type of compaction
+    ReaderType compaction_type = ReaderType::UNKNOWN;
     BaseTabletSPtr tablet = nullptr;
 
     std::shared_ptr<MowContext> mow_context;

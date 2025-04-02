@@ -409,7 +409,7 @@ std::string MultiCastDataStreamer::debug_string() {
             "read_ready_count: {}, read_spill_ready_count: {}, write spill dependency blocked: {}",
             PrettyPrinter::print_bytes(_cumulative_mem_size), blocks_count, _cast_sender_count,
             pos_at_end_count, _copying_count.load(), read_ready_count, read_spill_ready_count,
-            (_spill_dependency->is_blocked_by() != nullptr));
+            _spill_dependency->is_blocked_by() != nullptr);
     return fmt::to_string(debug_string_buffer);
 }
 

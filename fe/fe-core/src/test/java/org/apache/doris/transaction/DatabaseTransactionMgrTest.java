@@ -144,7 +144,8 @@ public class DatabaseTransactionMgrTest {
                 CatalogTestUtil.testTabletId1, allBackends);
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId1,
+        masterTransMgr.commitTransactionWithoutLock(
+                CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId1,
                 transTablets, null);
         TransactionState transactionState1 = fakeEditLog.getTransaction(transactionId1);
         Map<String, Map<Long, Long>> keyToSuccessTablets = new HashMap<>();
@@ -541,7 +542,8 @@ public class DatabaseTransactionMgrTest {
             setSuccessTablet(keyToSuccessTablets, allBackends, transactionId, CatalogTestUtil.testTabletId1, 14);
             setSuccessTablet(keyToSuccessTablets, allBackends, subTxnId2, CatalogTestUtil.testTabletId2, 13);
             setSuccessTablet(keyToSuccessTablets, allBackends, subTxnId4, CatalogTestUtil.testTabletId1, 15);
-            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(table1, table2, table1),
+            masterTransMgr.commitTransactionWithoutLock(
+                    CatalogTestUtil.testDbId1, Lists.newArrayList(table1, table2, table1),
                     transactionState6.getTransactionId(),
                     GlobalTransactionMgrTest.generateSubTransactionStates(masterTransMgr, transactionState6,
                             subTransactionInfos), 300000);
@@ -577,7 +579,8 @@ public class DatabaseTransactionMgrTest {
                     new SubTransactionInfo(table1, CatalogTestUtil.testTabletId1, allBackends, subTxnIds8.get(0)),
                     new SubTransactionInfo(table2, CatalogTestUtil.testTabletId2, allBackends, subTxnIds8.get(1)),
                     new SubTransactionInfo(table1, CatalogTestUtil.testTabletId1, allBackends, subTxnIds8.get(2)));
-            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(table1, table2),
+            masterTransMgr.commitTransactionWithoutLock(
+                    CatalogTestUtil.testDbId1, Lists.newArrayList(table1, table2),
                     transactionState8.getTransactionId(),
                     GlobalTransactionMgrTest.generateSubTransactionStates(masterTransMgr, transactionState8,
                             subTransactionInfos), 300000);

@@ -144,26 +144,26 @@ Status CloudTablet::merge_rowsets_schema() {
 
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
 // This function will erase the tablet from `CloudTabletMgr` when it can't find this tablet in MS.
-Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) {
+Status CloudTablet::sync_rowsets(const SyncOptions& options) {
     RETURN_IF_ERROR(sync_if_not_running());
 
-    if (query_version > 0) {
+    if (options.query_version > 0) {
         std::shared_lock rlock(_meta_lock);
-        if (_max_version >= query_version) {
+        if (_max_version >= options.query_version) {
             return Status::OK();
         }
     }
 
     // serially execute sync to reduce unnecessary network overhead
     std::lock_guard lock(_sync_meta_lock);
-    if (query_version > 0) {
+    if (options.query_version > 0) {
         std::shared_lock rlock(_meta_lock);
-        if (_max_version >= query_version) {
+        if (_max_version >= options.query_version) {
             return Status::OK();
         }
     }
 
-    auto st = _engine.meta_mgr().sync_tablet_rowsets(this, warmup_delta_data);
+    auto st = _engine.meta_mgr().sync_tablet_rowsets(this, options);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
@@ -732,6 +732,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
     DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.injected_error", {
         auto retry = dp->param<bool>("retry", false);
+        auto sleep_sec = dp->param<int>("sleep", 0);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
         if (retry) { // return DELETE_BITMAP_LOCK_ERROR to let it retry
             return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>(
                     "injected DELETE_BITMAP_LOCK_ERROR");
@@ -756,8 +758,10 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
         }
     }
     auto ms_lock_id = lock_id == -1 ? txn_id : lock_id;
+    // lock_id != -1 means this is in an explict txn
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, ms_lock_id, LOAD_INITIATOR_ID,
-                                                            new_delete_bitmap.get()));
+                                                            new_delete_bitmap.get(), txn_id,
+                                                            (lock_id != -1)));
     return Status::OK();
 }
 

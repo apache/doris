@@ -22,11 +22,9 @@
 #include <memory>
 
 #include "common/config.h"
-#include "olap/olap_define.h"
 #include "partitioned_hash_join_test_helper.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/partitioned_hash_join_sink_operator.h"
-#include "pipeline/exec/spill_utils.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -34,7 +32,6 @@
 #include "testutil/creators.h"
 #include "testutil/mock/mock_operators.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_number.h"
@@ -70,9 +67,6 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, debug_string) {
 TEST_F(PartitionedHashJoinProbeOperatorTest, InitAndOpen) {
     auto [probe_operator, sink_operator] = _helper.create_operators();
 
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
-
     auto local_state = PartitionedHashJoinProbeLocalState::create_shared(
             _helper.runtime_state.get(), probe_operator.get());
 
@@ -80,7 +74,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, InitAndOpen) {
     LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
-                         .le_state_map = le_state_map,
+                         .shared_state_map = {},
                          .task_idx = 0};
     auto st = local_state->init(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st) << "init failed: " << st.to_string();
@@ -426,13 +420,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskError) {
         ASSERT_TRUE(spilling_stream->spill_eof().ok());
     }
 
-    Status spill_status;
-    ExecEnv::GetInstance()->_fragment_mgr =
-            new MockFragmentManager(spill_status, ExecEnv::GetInstance());
-
-    const auto enable_debug_points = config::enable_debug_points;
-    config::enable_debug_points = true;
-    DebugPoints::instance()->add("fault_inject::spill_stream::read_next_block");
+    SpillableDebugPointHelper dp_helper("fault_inject::spill_stream::read_next_block");
     bool has_data = false;
     ASSERT_TRUE(local_state
                         ->recover_probe_blocks_from_disk(_helper.runtime_state.get(),
@@ -446,12 +434,10 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskError) {
     ExecEnv::GetInstance()->spill_stream_mgr()->delete_spill_stream(spilling_stream);
     spilling_stream.reset();
 
-    config::enable_debug_points = enable_debug_points;
-
-    ASSERT_FALSE(spill_status.ok());
-    ASSERT_TRUE(spill_status.to_string().find("fault_inject spill_stream read_next_block") !=
-                std::string::npos)
-            << "unexpected error: " << spill_status.to_string();
+    ASSERT_FALSE(dp_helper.get_spill_status().ok());
+    ASSERT_TRUE(dp_helper.get_spill_status().to_string().find(
+                        "fault_inject spill_stream read_next_block") != std::string::npos)
+            << "unexpected error: " << dp_helper.get_spill_status().to_string();
 }
 
 TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDisk) {
@@ -784,14 +770,9 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskError) {
 
     ASSERT_TRUE(local_state->_recovered_build_block == nullptr);
 
-    Status spill_status;
-    ExecEnv::GetInstance()->_fragment_mgr =
-            new MockFragmentManager(spill_status, ExecEnv::GetInstance());
-
-    const auto enable_debug_points = config::enable_debug_points;
-    config::enable_debug_points = true;
     // Test error handling with fault injection
-    DebugPoints::instance()->add("fault_inject::partitioned_hash_join_probe::recover_build_blocks");
+    SpillableDebugPointHelper dp_helper(
+            "fault_inject::partitioned_hash_join_probe::recover_build_blocks");
     bool has_data = false;
     auto status = local_state->recover_build_blocks_from_disk(_helper.runtime_state.get(),
                                                               test_partition, has_data);
@@ -801,7 +782,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskError) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    config::enable_debug_points = enable_debug_points;
+    auto spill_status = dp_helper.get_spill_status();
     ASSERT_FALSE(spill_status.ok());
     ASSERT_TRUE(spill_status.to_string().find("fault_inject partitioned_hash_join_probe "
                                               "recover_build_blocks failed") != std::string::npos)
