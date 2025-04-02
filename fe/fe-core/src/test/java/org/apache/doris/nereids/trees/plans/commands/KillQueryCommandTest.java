@@ -37,7 +37,6 @@ public class KillQueryCommandTest {
     private Env env;
     @Mocked
     private AccessControllerManager accessControllerManager;
-    private StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "select 1");
 
     private void runBefore() {
         new Expectations() {
@@ -68,6 +67,7 @@ public class KillQueryCommandTest {
     @Test
     public void testKillQuery() throws Exception {
         runBefore();
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "select 1");
         stmtExecutor.execute();
         String queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
         KillQueryCommand command = new KillQueryCommand(queryId);

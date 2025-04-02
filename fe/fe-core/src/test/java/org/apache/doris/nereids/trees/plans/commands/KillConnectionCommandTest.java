@@ -37,7 +37,6 @@ public class KillConnectionCommandTest {
     private Env env;
     @Mocked
     private AccessControllerManager accessControllerManager;
-    private StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "select 1");
 
     private void runBefore() {
         new Expectations() {
@@ -68,6 +67,7 @@ public class KillConnectionCommandTest {
     @Test
     public void testKillConnection() throws Exception {
         runBefore();
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "select 1");
         stmtExecutor.execute();
         KillConnectionCommand command = new KillConnectionCommand(stmtExecutor.getContext().getConnectionId());
         Assertions.assertDoesNotThrow(() -> command.doRun(connectContext, stmtExecutor));
