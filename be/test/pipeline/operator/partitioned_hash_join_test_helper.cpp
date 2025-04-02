@@ -159,7 +159,6 @@ PartitionedHashJoinTestHelper::create_operators() {
             shared_state_map;
     pipeline_task = std::make_shared<PipelineTask>(probe_pipeline, 0, runtime_state.get(), nullptr,
                                                    nullptr, shared_state_map, 0);
-    runtime_state->set_task(pipeline_task.get());
     return {probe_operator, sink_operator};
 }
 

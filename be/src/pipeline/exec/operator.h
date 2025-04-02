@@ -102,6 +102,7 @@ public:
 
     [[nodiscard]] virtual std::string get_name() const = 0;
     [[nodiscard]] virtual Status prepare(RuntimeState* state) = 0;
+    [[nodiscard]] virtual Status terminate(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
@@ -173,6 +174,7 @@ public:
     // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state) = 0;
+    virtual Status terminate(RuntimeState* state) = 0;
 
     // If use projection, we should clear `_origin_block`.
     void clear_origin_block();
@@ -245,6 +247,7 @@ protected:
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
 
     bool _closed = false;
+    std::atomic<bool> _terminated = false;
     vectorized::Block _origin_block;
 };
 
@@ -262,6 +265,7 @@ public:
     virtual std::string name_suffix() const;
 
     Status close(RuntimeState* state) override;
+    Status terminate(RuntimeState* state) override;
 
     [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 
@@ -434,6 +438,7 @@ public:
     // Do initialization. This step can be executed multiple times, so we should make sure it is
     // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) = 0;
+    virtual Status terminate(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
     [[nodiscard]] virtual bool is_finished() const { return false; }
 
@@ -480,6 +485,7 @@ protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed = false;
+    bool _terminated = false;
     std::atomic<bool> _eos = false;
     //NOTICE: now add a faker profile, because sometimes the profile record is useless
     //so we want remove some counters and timers, eg: in join node, if it's broadcast_join
@@ -510,6 +516,7 @@ public:
 
     Status open(RuntimeState* state) override { return Status::OK(); }
 
+    Status terminate(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
     [[nodiscard]] std::string debug_string(int indentation_level) const override;
@@ -557,6 +564,7 @@ public:
     }
 
     Status prepare(RuntimeState* state) override { return Status::OK(); }
+    Status terminate(RuntimeState* state) override;
     [[nodiscard]] bool is_finished(RuntimeState* state) const {
         auto result = state->get_sink_local_state_result();
         if (!result) {
@@ -818,6 +826,7 @@ public:
     [[nodiscard]] virtual Status hold_tablets(RuntimeState* state) { return Status::OK(); }
     Status prepare(RuntimeState* state) override;
 
+    Status terminate(RuntimeState* state) override;
     [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                                            bool* eos) = 0;
 
