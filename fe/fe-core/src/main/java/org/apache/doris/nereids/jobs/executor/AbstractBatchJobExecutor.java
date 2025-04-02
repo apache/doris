@@ -152,7 +152,7 @@ public abstract class AbstractBatchJobExecutor {
                 continue;
             }
 
-            if (shouldRun(currentJob, jobContext)) {
+            if (shouldRun(currentJob, jobContext, jobs, i)) {
                 do {
                     jobContext.setRewritten(false);
                     currentJob.execute(jobContext);
@@ -163,7 +163,7 @@ public abstract class AbstractBatchJobExecutor {
 
     public abstract List<RewriteJob> getJobs();
 
-    protected boolean shouldRun(RewriteJob rewriteJob, JobContext jobContext) {
+    protected boolean shouldRun(RewriteJob rewriteJob, JobContext jobContext, List<RewriteJob> jobs, int jobIndex) {
         return true;
     }
 
