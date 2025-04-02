@@ -211,6 +211,12 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
         assertRewrite("a and (b or ((a and e) or (a and f))) and (b or d)", "(b or ((a and (e or f)) and d)) and a");
 
+        assertRewrite("a = 1 and (b = 1 and d < 1 or c = 1 and b = 1 and d > 4)",
+                "a  = 1 and b = 1 and (d < 1 or c = 1 and d > 4)");
+
+        assertRewrite("a = 1 and (b = 1 and c = 1 and d < 1 or c = 1 and b = 1 and d > 4)",
+                "a  = 1 and b = 1 and c = 1 and (d < 1 or d > 4)");
+
     }
 
     @Test

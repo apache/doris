@@ -70,8 +70,7 @@ public class PredicateRewriteForPartitionPrune
                     }
                 }
                 if (convertable) {
-                    Expression or = ExpressionUtils.combineAsLeftDeepTree(Or.class, splitIn);
-                    return or;
+                    return ExpressionUtils.or(splitIn);
                 }
             } else if (dateChild.getDataType() instanceof DateTimeV2Type) {
                 // V2
@@ -87,8 +86,7 @@ public class PredicateRewriteForPartitionPrune
                     }
                 }
                 if (convertable) {
-                    Expression or = ExpressionUtils.combineAsLeftDeepTree(Or.class, splitIn);
-                    return or;
+                    return ExpressionUtils.or(splitIn);
                 }
             }
         }
