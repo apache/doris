@@ -196,9 +196,8 @@ public:
         bool is_bool_value_num = true;
 
         /**
-         * indicate the nested level of column.
-         * it is used to control some behavior of serde 
-         */ 
+         * Indicate the nested level of column. It is used to control some behavior of serde
+         */
         mutable int level = 0;
 
         [[nodiscard]] char get_collection_delimiter(
