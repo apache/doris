@@ -993,7 +993,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
                 o.foreach(c -> {
                     if (c instanceof AggregateExpression) {
-                        execAggregateFunctions.add((FunctionCallExpr) ExpressionTranslator.translate((AggregateExpression) c, context));
+                        execAggregateFunctions.add(
+                                (FunctionCallExpr) ExpressionTranslator.translate((AggregateExpression) c, context)
+                        );
                     }
                 });
             }

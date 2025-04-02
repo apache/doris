@@ -97,6 +97,7 @@ public class DataTrait {
         return !slot.nullable() && isUnique(slot);
     }
 
+    /** isUniqueAndNotNull */
     public boolean isUniqueAndNotNull(Set<Slot> slotSet) {
         ImmutableSet.Builder<Slot> nonNullableSlots = ImmutableSet.builderWithExpectedSize(slotSet.size());
         for (Slot slot : slotSet) {
