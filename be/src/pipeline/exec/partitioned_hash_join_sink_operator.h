@@ -24,6 +24,7 @@
 #include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
@@ -80,6 +81,7 @@ protected:
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
+    std::shared_ptr<Dependency> _finish_dependency;
 
     RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
