@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
@@ -75,7 +76,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesTopType(CompoundPredicate.class)
-                        .when(c -> c.containsType(Literal.class))
+                        .when(c -> c.containsType(Literal.class, IsNull.class))
                         .thenApply(ctx -> rewrite(ctx.expr, ctx.rewriteContext))
                         .toRule(ExpressionRuleType.SIMPLIFY_RANGE)
         );

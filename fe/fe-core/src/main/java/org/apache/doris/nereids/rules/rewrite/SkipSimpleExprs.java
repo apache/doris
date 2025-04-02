@@ -31,7 +31,7 @@ import java.util.Map.Entry;
 public class SkipSimpleExprs {
     /** isSimpleExpr */
     public static boolean isSimpleExpr(Expression expression) {
-        if (expression.containsType(UnboundSlot.class)) {
+        if (expression.containsType(UnboundSlot.class, IsNull.class)) {
             return false;
         }
         ExprFeature exprFeature = computeExprFeature(expression);

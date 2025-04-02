@@ -88,7 +88,7 @@ public class SimplifyConflictCompound implements ExpressionPatternRuleFactory {
             }
             newChildren.add(child);
         }
-        if (!canSimplify) {
+        if (!canSimplify && !changed) {
             return compoundPredicate;
         }
         // conflict expression -> had written
