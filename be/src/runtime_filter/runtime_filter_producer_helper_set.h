@@ -42,19 +42,13 @@ public:
             return Status::OK();
         }
 
-        bool wake_up_early = state->get_task()->wake_up_early();
-        // Runtime filter is ignored partially which has no effect on correctness.
-        auto wrapper_state = wake_up_early ? RuntimeFilterWrapper::State::IGNORED
-                                           : RuntimeFilterWrapper::State::READY;
-        if (!wake_up_early) {
-            RETURN_IF_ERROR(_init_filters(state, cardinality));
-            if (cardinality != 0) {
-                RETURN_IF_ERROR(_insert(block, 0));
-            }
+        RETURN_IF_ERROR(_init_filters(state, cardinality));
+        if (cardinality != 0) {
+            RETURN_IF_ERROR(_insert(block, 0));
         }
 
         for (const auto& filter : _producers) {
-            filter->set_wrapper_state_and_ready_to_publish(wrapper_state);
+            filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
         }
 
         RETURN_IF_ERROR(_publish(state));

@@ -41,21 +41,30 @@ uint64_t get_hash_table_size(const auto& hash_table_variant) {
 }
 
 template <bool is_intersect>
+Status SetSinkLocalState<is_intersect>::terminate(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    if (_terminated) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_runtime_filter_producer_helper->terminate(state));
+    return Base::terminate(state);
+}
+
+template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
 
-    if (!state->is_cancelled() && _eos) {
+    if (!_terminated && _runtime_filter_producer_helper && !state->is_cancelled()) {
         try {
             RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
                     state, &_shared_state->build_block,
                     get_hash_table_size(_shared_state->hash_table_variants->method_variant)));
         } catch (Exception& e) {
             return Status::InternalError(
-                    "rf process meet error: {}, wake_up_early: {}, _finish_dependency: {}",
-                    e.to_string(), state->get_task()->wake_up_early(),
-                    _finish_dependency->debug_string());
+                    "rf process meet error: {}, _terminated: {}, _finish_dependency: {}",
+                    e.to_string(), _terminated, _finish_dependency->debug_string());
         }
     }
     return Base::close(state, exec_status);
