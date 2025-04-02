@@ -66,7 +66,7 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
 #else
           _query_id(fragment_context->get_query_id()),
 #endif
-                  _index(task_id),
+          _index(task_id),
           _pipeline(pipeline),
           _opened(false),
           _state(state),
