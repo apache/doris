@@ -157,7 +157,7 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
     def waitForCompaction = { be_host, be_http_port, tablet_id ->
         boolean running = true
         do {
-            Thread.sleep(1000)
+            Thread.sleep(100)
             StringBuilder sb = new StringBuilder();
             sb.append("curl -X GET http://${be_host}:${be_http_port}")
             sb.append("/api/compaction/run_status?tablet_id=")
@@ -207,7 +207,7 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
     }
 
     def waitForSC = {
-        Awaitility.await().atMost(60, TimeUnit.SECONDS).pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(1000, TimeUnit.MILLISECONDS).until(() -> {
+        Awaitility.await().atMost(60, TimeUnit.SECONDS).pollDelay(100, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(() -> {
             def res = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1"
             assert res.size() == 1
             if (res[0].State == "FINISHED" || res[0].State == "CANCELLED") {
@@ -694,11 +694,61 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
 //            assertTrue(time_cost < 10000, "wait time should less than 10s")
             reset_be_param("delete_bitmap_lock_expiration_seconds")
         }
+        //13. when get delete bitmap lock failed, compaction and sc retry times will not exceed max retry times
+        setFeConfigTemporary(customFeConfig3) {
+            get_be_param("get_delete_bitmap_lock_max_retry_times")
+            set_be_param("get_delete_bitmap_lock_max_retry_times", "2")
+            sql """ INSERT INTO ${tableName} (id, name, score) VALUES (1, "A1", 15);"""
+            sql """ INSERT INTO ${tableName} (id, name, score) VALUES (2, "B2", 25);"""
+            sql """ INSERT INTO ${tableName} (id, name, score) VALUES (3, "C3", 35);"""
+            sql """ INSERT INTO ${tableName} (id, name, score) VALUES (4, "D4", 45);"""
+            sql """ INSERT INTO ${tableName} (id, name, score) VALUES (5, "E5", 55);"""
+            sql """ INSERT INTO ${tableName} (id, name, score) VALUES (6, "E6", 66);"""
+            sql """ INSERT INTO ${tableName} (id, name, score) VALUES (7, "E7", 77);"""
+            def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+            logger.info("tablets: " + tablets)
+            GetDebugPoint().enableDebugPointForAllBEs("CloudMetaMgr::test_get_delete_bitmap_update_lock_conflict")
+            for (def tablet in tablets) {
+                String tablet_id = tablet.TabletId
+                def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
+                logger.info("tablet: " + tablet_info)
+                String trigger_backend_id = tablet.BackendId
+                getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
+                int index = 0;
+                while (!triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
+                        "cumulative", tablet_id).contains("Success")) {
+                    if (index > 60) {
+                        break;
+                    }
+                    Thread.sleep(2000)
+                    logger.info("index: " + index)
+                    index++;
+                }
+                assertTrue(index <= 60, "index should less than 60")
+                def now = System.currentTimeMillis()
+                waitForCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
+                getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
+                def time_cost = System.currentTimeMillis() - now
+                log.info("time_cost(ms): ${time_cost}")
+                assertTrue(time_cost > 3 * 500, "wait time should bigger than 1.5s")
+                assertTrue(time_cost < 10 * 2000, "wait time should less than 20s")
 
+                now = System.currentTimeMillis()
+                sql "alter table ${tableName} modify column score varchar(200);"
+                waitForSC()
+                def res = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1"
+                assert res[0].State == "FINISHED"
+                time_cost = System.currentTimeMillis() - now
+                log.info("time_cost(ms): ${time_cost}")
+                assertTrue(time_cost > 3 * 500, "wait time should bigger than 1.5s")
+                assertTrue(time_cost < 10 * 2000, "wait time should less than 20s")
+            }
+        }
     } finally {
         reset_be_param("mow_stream_load_commit_retry_times")
         reset_be_param("txn_commit_rpc_timeout_ms")
         reset_be_param("delete_bitmap_lock_expiration_seconds")
+        reset_be_param("get_delete_bitmap_lock_max_retry_times")
         GetDebugPoint().clearDebugPointsForAllBEs()
         GetDebugPoint().clearDebugPointsForAllFEs()
     }
