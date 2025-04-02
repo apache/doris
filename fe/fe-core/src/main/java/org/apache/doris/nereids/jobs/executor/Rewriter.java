@@ -353,6 +353,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // which will affect predicate inference with cast. So put this rule behind the INFER_PREDICATES
                         topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
                 ),
+                topic("Record plan for later mv rewrite",
+                        topDown(new AdjustPreAggStatus()),
+                        custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new),
+                        custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
+                        custom(RuleType.RECORD_PLAN_FOR_LATER_MV_REWRITE, RecordPlanForMvLaterRewrite::new)
+               ),
                 // this rule should invoke after ColumnPruning
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                 topic("Eliminate Order By Key",
@@ -423,12 +429,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new PushDownFilterIntoSchemaScan()
                         )
                 ),
-                    topic("Record plan for later mv rewrite",
-                            topDown(new AdjustPreAggStatus()),
-                            custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new),
-                            custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
-                            custom(RuleType.RECORD_PLAN_FOR_LATER_MV_REWRITE, RecordPlanForMvLaterRewrite::new)
-                    ),
                 topic("MV optimization",
                         topDown(
                                 new SelectMaterializedIndexWithAggregate(),
