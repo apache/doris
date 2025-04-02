@@ -68,7 +68,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, Init) {
             .parent_profile = _helper.runtime_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
-            .le_state_map = {},
+            .shared_state_map = {},
             .task_idx = 0,
     };
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -113,7 +113,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockEmpty) {
                                   .parent_profile = _helper.runtime_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
-                                  .le_state_map = {},
+                                  .shared_state_map = {},
                                   .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -128,7 +128,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockEmpty) {
             .parent_profile = _helper.runtime_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
-            .le_state_map = {},
+            .shared_state_map = {},
             .task_idx = 0,
     };
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -184,7 +184,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlock) {
                                   .parent_profile = _helper.runtime_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
-                                  .le_state_map = {},
+                                  .shared_state_map = {},
                                   .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -218,7 +218,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlock) {
             .parent_profile = _helper.runtime_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
-            .le_state_map = {},
+            .shared_state_map = {},
             .task_idx = 0,
     };
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -276,7 +276,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
                                   .parent_profile = _helper.runtime_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
-                                  .le_state_map = {},
+                                  .shared_state_map = {},
                                   .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -300,7 +300,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
+    while (sink_local_state->_spill_dependency->is_blocked_by()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -309,7 +309,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
+    while (sink_local_state->_spill_dependency->is_blocked_by()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -323,7 +323,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
             .parent_profile = _helper.runtime_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
-            .le_state_map = {},
+            .shared_state_map = {},
             .task_idx = 0,
     };
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -345,7 +345,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
         st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
         ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
 
-        while (local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
+        while (local_state->_spill_dependency->is_blocked_by()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         rows += block.rows();
@@ -389,7 +389,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
                                   .parent_profile = _helper.runtime_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
-                                  .le_state_map = {},
+                                  .shared_state_map = {},
                                   .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -413,7 +413,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
+    while (sink_local_state->_spill_dependency->is_blocked_by()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -422,7 +422,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    while (sink_local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
+    while (sink_local_state->_spill_dependency->is_blocked_by()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -436,7 +436,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
             .parent_profile = _helper.runtime_profile.get(),
             .scan_ranges = {},
             .shared_state = shared_state.get(),
-            .le_state_map = {},
+            .shared_state_map = {},
             .task_idx = 0,
     };
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -459,7 +459,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
         st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
         ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
 
-        while (local_state->_spill_dependency->is_blocked_by(nullptr) != nullptr) {
+        while (local_state->_spill_dependency->is_blocked_by()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         block.clear_column_data();

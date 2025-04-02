@@ -91,18 +91,16 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     // need to read index page
     OlapReaderStatistics tmp_stats;
     OlapReaderStatistics* stats_ptr = stats != nullptr ? stats : &tmp_stats;
-    PageReadOptions opts {
-            .use_page_cache = use_page_cache,
-            .kept_in_memory = kept_in_memory,
-            .type = INDEX_PAGE,
-            .file_reader = _file_reader.get(),
-            .page_pointer = PagePointer(index_meta->root_page().root_page()),
-            // ordinal index page uses NO_COMPRESSION right now
-            .codec = nullptr,
-            .stats = stats_ptr,
-            .io_ctx = io::IOContext {.is_index_data = true,
-                                     .file_cache_stats = &stats_ptr->file_cache_stats},
-    };
+    PageReadOptions opts(io::IOContext {.is_index_data = true,
+                                        .file_cache_stats = &stats_ptr->file_cache_stats});
+    opts.use_page_cache = use_page_cache;
+    opts.kept_in_memory = kept_in_memory;
+    opts.type = INDEX_PAGE;
+    opts.file_reader = _file_reader.get();
+    opts.page_pointer = PagePointer(index_meta->root_page().root_page());
+    // ordinal index page uses NO_COMPRESSION right now
+    opts.codec = nullptr;
+    opts.stats = stats_ptr;
 
     // read index page
     PageHandle page_handle;
@@ -133,11 +131,6 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     update_metadata_size();
 
     return Status::OK();
-}
-
-int64_t OrdinalIndexReader::get_metadata_size() const {
-    return sizeof(OrdinalIndexReader) + _ordinals.capacity() * sizeof(ordinal_t) +
-           _pages.capacity() * sizeof(PagePointer);
 }
 
 OrdinalPageIndexIterator OrdinalIndexReader::seek_at_or_before(ordinal_t ordinal) {

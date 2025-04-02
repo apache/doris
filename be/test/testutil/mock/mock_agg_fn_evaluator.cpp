@@ -63,6 +63,7 @@ AggFnEvaluator* create_agg_fn(ObjectPool& pool, const std::string& agg_fn_name,
         mock_agg_fn_evaluator->_input_exprs_ctxs.push_back(
                 MockSlotRef::create_mock_context(i, args_types[i]));
     }
+    mock_agg_fn_evaluator->_data_type = mock_agg_fn_evaluator->_function->get_return_type();
     return mock_agg_fn_evaluator;
 }
 

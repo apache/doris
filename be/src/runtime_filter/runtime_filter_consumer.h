@@ -100,6 +100,10 @@ private:
         _profile->add_child(_execution_profile.get(), true, nullptr);
         _wait_timer = ADD_TIMER(_profile, "WaitTime");
 
+        _rf_filter = ADD_COUNTER_WITH_LEVEL(
+                parent_profile, fmt::format("RF{} FilterRows", desc->filter_id), TUnit::UNIT, 1);
+        _rf_input = ADD_COUNTER_WITH_LEVEL(
+                parent_profile, fmt::format("RF{} InputRows", desc->filter_id), TUnit::UNIT, 1);
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);
     }
 
@@ -129,6 +133,10 @@ private:
     std::unique_ptr<RuntimeProfile> _storage_profile;   // for storage layer stats
     std::unique_ptr<RuntimeProfile> _execution_profile; // for execution layer stats
     RuntimeProfile::Counter* _wait_timer = nullptr;
+    //_rf_filter is used to record the number of rows filtered by the runtime filter.
+    //It aggregates the filtering statistics from both the Storage and Execution.
+    RuntimeProfile::Counter* _rf_filter = nullptr;
+    RuntimeProfile::Counter* _rf_input = nullptr;
 
     int32_t _rf_wait_time_ms;
     const int64_t _registration_time;

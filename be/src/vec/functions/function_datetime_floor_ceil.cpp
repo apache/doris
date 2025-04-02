@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#if !defined(__APPLE__)
 #include <experimental/bits/simd.h>
+#endif
 #include <glog/logging.h>
 
 #include <algorithm>

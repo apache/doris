@@ -262,7 +262,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
-                .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
+                .filter(type -> ctx.getSessionVariable().allowedRuntimeFilterType(type))
                 .collect(Collectors.toList());
 
         List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
@@ -451,11 +451,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
 
-        if ((ctx.getSessionVariable().getRuntimeFilterType() & TRuntimeFilterType.BITMAP.getValue()) != 0) {
+        if (ctx.getSessionVariable().allowedRuntimeFilterType(TRuntimeFilterType.BITMAP)) {
             generateBitMapRuntimeFilterForNLJ(join, ctx);
         }
 
-        if ((ctx.getSessionVariable().getRuntimeFilterType() & TRuntimeFilterType.MIN_MAX.getValue()) != 0) {
+        if (ctx.getSessionVariable().allowedRuntimeFilterType(TRuntimeFilterType.MIN_MAX)) {
             generateMinMaxRuntimeFilter(join, ctx);
         }
 

@@ -85,9 +85,8 @@ public class BrokerUtil {
     public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
             throws UserException {
         List<RemoteFile> rfiles = new ArrayList<>();
-        try {
-            RemoteFileSystem fileSystem = FileSystemFactory.get(
-                    brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
+        try (RemoteFileSystem fileSystem = FileSystemFactory.get(
+                    brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties())) {
             Status st = fileSystem.globList(path, rfiles, false);
             if (!st.ok()) {
                 throw new UserException(st.getErrMsg());
@@ -108,12 +107,17 @@ public class BrokerUtil {
     }
 
     public static void deleteDirectoryWithFileSystem(String path, BrokerDesc brokerDesc) throws UserException {
-        RemoteFileSystem fileSystem = FileSystemFactory.get(
-                brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties());
-        Status st = fileSystem.deleteDirectory(path);
-        if (!st.ok()) {
+        try (RemoteFileSystem fileSystem = FileSystemFactory.get(
+                    brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties())) {
+            Status st = fileSystem.deleteDirectory(path);
+            if (!st.ok()) {
+                throw new UserException(brokerDesc.getName() +  " delete directory exception. path="
+                        + path + ", err: " + st.getErrMsg());
+            }
+        } catch (Exception e) {
+            LOG.warn("{} delete directory exception, path={}", brokerDesc.getName(), path, e);
             throw new UserException(brokerDesc.getName() +  " delete directory exception. path="
-                    + path + ", err: " + st.getErrMsg());
+                    + path + ", err: " + e.getMessage());
         }
     }
 

@@ -290,6 +290,15 @@ int64_t WorkloadGroup::free_overcommited_memory(int64_t need_free_mem, RuntimePr
                 _id, _name, _memory_limit, used_memory, need_free_mem, freed_mem);
     }};
 
+    // the query being canceled is not counted in `freed_mem`,
+    // so `handle_paused_queries` may cancel more queries than expected.
+    //
+    // TODO, in `MemTrackerLimiter::free_xxx`, for the query being canceled,
+    // if (current time - cancel start time) < 2s (a config), the query memory is counted in `freed_mem`,
+    // and the query memory is expected to be released soon.
+    // if > 2s, the query memory will not be counted in `freed_mem`,
+    // and the query may be blocked during the cancel process. skip this query and continue to cancel other queries.
+
     // 1. free top overcommit query
     RuntimeProfile* tmq_profile = profile->create_child(
             fmt::format("FreeGroupTopOvercommitQuery:Name {}", _name), true, true);
@@ -337,6 +346,7 @@ int64_t WorkloadGroup::free_overcommited_memory(int64_t need_free_mem, RuntimePr
     return freed_mem;
 }
 
+// TODO, remove this function, replaced by free_overcommited_memory.
 int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc) {
     if (need_free_mem <= 0) {
         return 0;

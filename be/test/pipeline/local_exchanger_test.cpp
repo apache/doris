@@ -95,7 +95,7 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
     auto sink_dep = std::make_shared<Dependency>(0, 0, "LOCAL_EXCHANGE_SINK_DEPENDENCY", true);
     sink_dep->set_shared_state(shared_state.get());
     shared_state->sink_deps.push_back(sink_dep);
-    shared_state->create_dependencies(0);
+    shared_state->create_source_dependencies(num_sources, 0, 0, "TEST");
 
     auto* exchanger = (ShuffleExchanger*)shared_state->exchanger.get();
     for (size_t i = 0; i < num_sink; i++) {
@@ -338,7 +338,7 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
     auto sink_dep = std::make_shared<Dependency>(0, 0, "LOCAL_EXCHANGE_SINK_DEPENDENCY", true);
     sink_dep->set_shared_state(shared_state.get());
     shared_state->sink_deps.push_back(sink_dep);
-    shared_state->create_dependencies(0);
+    shared_state->create_source_dependencies(num_sources, 0, 0, "TEST");
 
     auto* exchanger = (PassthroughExchanger*)shared_state->exchanger.get();
     for (size_t i = 0; i < num_sink; i++) {
@@ -532,7 +532,7 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
     auto sink_dep = std::make_shared<Dependency>(0, 0, "LOCAL_EXCHANGE_SINK_DEPENDENCY", true);
     sink_dep->set_shared_state(shared_state.get());
     shared_state->sink_deps.push_back(sink_dep);
-    shared_state->create_dependencies(0);
+    shared_state->create_source_dependencies(num_sources, 0, 0, "TEST");
 
     auto* exchanger = (PassToOneExchanger*)shared_state->exchanger.get();
     for (size_t i = 0; i < num_sink; i++) {
@@ -734,7 +734,7 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
     auto sink_dep = std::make_shared<Dependency>(0, 0, "LOCAL_EXCHANGE_SINK_DEPENDENCY", true);
     sink_dep->set_shared_state(shared_state.get());
     shared_state->sink_deps.push_back(sink_dep);
-    shared_state->create_dependencies(0);
+    shared_state->create_source_dependencies(num_sources, 0, 0, "TEST");
 
     auto* exchanger = (BroadcastExchanger*)shared_state->exchanger.get();
     for (size_t i = 0; i < num_sink; i++) {
@@ -931,7 +931,7 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
     auto sink_dep = std::make_shared<Dependency>(0, 0, "LOCAL_EXCHANGE_SINK_DEPENDENCY", true);
     sink_dep->set_shared_state(shared_state.get());
     shared_state->sink_deps.push_back(sink_dep);
-    shared_state->create_dependencies(0);
+    shared_state->create_source_dependencies(num_sources, 0, 0, "TEST");
 
     auto* exchanger = (AdaptivePassthroughExchanger*)shared_state->exchanger.get();
     for (size_t i = 0; i < num_sink; i++) {
@@ -1140,7 +1140,7 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
     auto sink_dep = std::make_shared<Dependency>(0, 0, "LOCAL_EXCHANGE_SINK_DEPENDENCY", true);
     sink_dep->set_shared_state(shared_state.get());
     shared_state->sink_deps.push_back(sink_dep);
-    shared_state->create_dependencies(0);
+    shared_state->create_source_dependencies(num_sources, 0, 0, "TEST");
 
     auto* exchanger = (ShuffleExchanger*)shared_state->exchanger.get();
     auto texpr = TExprNodeBuilder(TExprNodeType::SLOT_REF,

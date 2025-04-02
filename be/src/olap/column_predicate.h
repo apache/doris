@@ -189,6 +189,7 @@ public:
         if (_can_ignore()) {
             do_judge_selectivity(size - new_size, size);
         }
+        update_filter_info(size - new_size, size);
         return new_size;
     }
     virtual void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -254,7 +255,27 @@ public:
 
     int get_runtime_filter_id() const { return _runtime_filter_id; }
 
-    void set_runtime_filter_id(int filter_id) { _runtime_filter_id = filter_id; }
+    void set_runtime_filter_info(int filter_id,
+                                 RuntimeProfile::Counter* predicate_filtered_rows_counter,
+                                 RuntimeProfile::Counter* predicate_input_rows_counter) {
+        if (filter_id >= 0) {
+            DCHECK(predicate_filtered_rows_counter != nullptr);
+            DCHECK(predicate_input_rows_counter != nullptr);
+        }
+        _runtime_filter_id = filter_id;
+        _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
+        _predicate_input_rows_counter = predicate_input_rows_counter;
+    }
+
+    /// TODO: Currently we only record statistics for runtime filters, in the future we should record for all predicates
+    void update_filter_info(int64_t filter_rows, int64_t input_rows) const {
+        if (_predicate_input_rows_counter) {
+            COUNTER_UPDATE(_predicate_input_rows_counter, input_rows);
+        }
+        if (_predicate_filtered_rows_counter) {
+            COUNTER_UPDATE(_predicate_filtered_rows_counter, filter_rows);
+        }
+    }
 
     PredicateFilterInfo get_filtered_info() const {
         return PredicateFilterInfo {static_cast<int>(type()), _evaluated_rows - 1,
@@ -346,6 +367,9 @@ protected:
     mutable uint64_t _judge_input_rows = 0;
     mutable uint64_t _judge_filter_rows = 0;
     mutable bool _always_true = false;
+
+    RuntimeProfile::Counter* _predicate_filtered_rows_counter = nullptr;
+    RuntimeProfile::Counter* _predicate_input_rows_counter = nullptr;
 };
 
 } //namespace doris

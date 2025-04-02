@@ -168,6 +168,11 @@ public final class MetricRepo {
     public static GaugeMetric<Integer> GAUGE_INTERNAL_DATABASE_NUM;
     public static GaugeMetric<Integer> GAUGE_INTERNAL_TABLE_NUM;
 
+    // Agent task
+    public static LongCounterMetric COUNTER_AGENT_TASK_REQUEST_TOTAL;
+    public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_TOTAL;
+    public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_RESEND_TOTAL;
+
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
     private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
@@ -607,6 +612,14 @@ public final class MetricRepo {
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_INTERNAL_TABLE_NUM);
+
+        COUNTER_AGENT_TASK_REQUEST_TOTAL = new LongCounterMetric("agent_task_request_total", MetricUnit.NOUNIT,
+                "total agent batch task request send to BE");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_AGENT_TASK_REQUEST_TOTAL);
+        COUNTER_AGENT_TASK_TOTAL = addLabeledMetrics("task", () ->
+                new LongCounterMetric("agent_task_total", MetricUnit.NOUNIT, "total agent task"));
+        COUNTER_AGENT_TASK_RESEND_TOTAL = addLabeledMetrics("task", () ->
+                new LongCounterMetric("agent_task_resend_total", MetricUnit.NOUNIT, "total agent task resend"));
 
         // init system metrics
         initSystemMetrics();

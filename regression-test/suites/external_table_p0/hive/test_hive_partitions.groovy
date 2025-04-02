@@ -91,6 +91,10 @@ suite("test_hive_partitions", "p0,external,hive,external_docker,external_docker_
 
             q01()
 
+            qt_string_partition_table_with_comma """
+                select * from partition_tables.string_partition_table_with_comma order by id;
+            """
+
             sql """set num_partitions_in_batch_mode=1"""
             explain {
                 sql ("select * from partition_table")
@@ -99,8 +103,6 @@ suite("test_hive_partitions", "p0,external,hive,external_docker,external_docker_
                 contains "(approximate)inputSplitNum=60"
             }
             sql """unset variable num_partitions_in_batch_mode"""
-
-            // sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }
     }

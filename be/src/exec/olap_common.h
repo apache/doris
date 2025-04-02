@@ -201,7 +201,9 @@ public:
             }
 
             if (null_pred.condition_values.size() != 0) {
-                filters.emplace_back(_column_name, null_pred, _runtime_filter_id);
+                filters.emplace_back(_column_name, null_pred, _runtime_filter_id,
+                                     _predicate_filtered_rows_counter,
+                                     _predicate_input_rows_counter);
                 return;
             }
 
@@ -214,7 +216,9 @@ public:
             }
 
             if (low.condition_values.size() != 0) {
-                filters.emplace_back(_column_name, low, _runtime_filter_id);
+                filters.emplace_back(_column_name, low, _runtime_filter_id,
+                                     _predicate_filtered_rows_counter,
+                                     _predicate_input_rows_counter);
             }
 
             TCondition high;
@@ -226,7 +230,9 @@ public:
             }
 
             if (high.condition_values.size() != 0) {
-                filters.emplace_back(_column_name, high, _runtime_filter_id);
+                filters.emplace_back(_column_name, high, _runtime_filter_id,
+                                     _predicate_filtered_rows_counter,
+                                     _predicate_input_rows_counter);
             }
         } else {
             // 3. convert to is null and is not null filter condition
@@ -239,7 +245,9 @@ public:
             }
 
             if (null_pred.condition_values.size() != 0) {
-                filters.emplace_back(_column_name, null_pred, _runtime_filter_id);
+                filters.emplace_back(_column_name, null_pred, _runtime_filter_id,
+                                     _predicate_filtered_rows_counter,
+                                     _predicate_input_rows_counter);
             }
         }
     }
@@ -255,7 +263,8 @@ public:
         }
 
         if (condition.condition_values.size() != 0) {
-            filters.emplace_back(_column_name, condition, _runtime_filter_id);
+            filters.emplace_back(_column_name, condition, _runtime_filter_id,
+                                 _predicate_filtered_rows_counter, _predicate_input_rows_counter);
         }
     }
 
@@ -292,7 +301,13 @@ public:
         _contain_null = _is_nullable_col && contain_null;
     }
 
-    void set_runtime_filter_id(int runtime_filter_id) { _runtime_filter_id = runtime_filter_id; }
+    void set_runtime_filter_info(int runtime_filter_id,
+                                 RuntimeProfile::Counter* predicate_filtered_rows_counter,
+                                 RuntimeProfile::Counter* predicate_input_rows_counter) {
+        _runtime_filter_id = runtime_filter_id;
+        _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
+        _predicate_input_rows_counter = predicate_input_rows_counter;
+    }
 
     int precision() const { return _precision; }
 
@@ -355,6 +370,8 @@ private:
                                                   primitive_type == PrimitiveType::TYPE_DATETIMEV2;
 
     int _runtime_filter_id = -1;
+    RuntimeProfile::Counter* _predicate_filtered_rows_counter = nullptr;
+    RuntimeProfile::Counter* _predicate_input_rows_counter = nullptr;
 };
 
 class OlapScanKeys {

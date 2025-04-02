@@ -370,6 +370,11 @@ inline void MemTrackerLimiter::cache_consume(int64_t bytes) {
 
 inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     // Do not enable check limit, because reserve process will check it.
+    // If reserve enabled, even if the reserved memory size is smaller than the actual requested memory,
+    // and the query memory consumption is larger than the limit, we do not expect the query to fail
+    // after `check_limit` returns an error, but to run as long as possible,
+    // and will enter the paused state and try to spill when the query reserves next time.
+    // If the workload group or process runs out of memory, it will be forced to cancel.
     if (bytes <= 0 || _enable_reserve_memory) {
         return Status::OK();
     }
