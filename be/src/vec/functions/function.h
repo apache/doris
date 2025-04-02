@@ -266,6 +266,14 @@ public:
     FunctionBasePtr build(const ColumnsWithTypeAndName& arguments,
                           const DataTypePtr& return_type) const final {
         const DataTypePtr& func_return_type = get_return_type(arguments);
+        if (func_return_type == nullptr) {
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "function return type check failed, function_name={}, "
+                    "expect_return_type={}, real_return_type is nullptr, input_arguments={}",
+                    get_name(), return_type->get_name(), get_types_string(arguments));
+        }
+
         // check return types equal.
         if (!(return_type->equals(*func_return_type) ||
               // For null constant argument, `get_return_type` would return
