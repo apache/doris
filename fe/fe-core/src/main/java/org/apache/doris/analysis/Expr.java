@@ -2604,5 +2604,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public void setNullableFromNereids(boolean nullable) {
         nullableFromNereids = Optional.of(nullable);
     }
+
+    public void clearNullableFromNereids() {
+        nullableFromNereids = Optional.empty();
+    }
 }
 
