@@ -525,6 +525,16 @@ DECLARE_mInt32(compaction_task_num_per_fast_disk);
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 DECLARE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round);
 
+// Minimum number of threads required in the thread pool to activate the large cumu compaction delay strategy.
+// The delay strategy is only applied when the thread pool has at least this many threads.
+DECLARE_mInt32(large_cumu_compaction_task_min_thread_num);
+// Maximum size threshold (in bytes) for input rowsets. Compaction tasks with input size
+// exceeding this threshold will be delayed when thread pool is near capacity. Default 100MB.
+DECLARE_mInt32(large_cumu_compaction_task_bytes_threshold);
+// Maximum row count threshold for compaction input. Compaction tasks with row count
+// exceeding this threshold will be delayed when thread pool is near capacity. Default 1 million.
+DECLARE_mInt32(large_cumu_compaction_task_row_num_threshold);
+
 // Not compact the invisible versions, but with some limitations:
 // if not timeout, keep no more than compaction_keep_invisible_version_max_count versions;
 // if timeout, keep no more than compaction_keep_invisible_version_min_count versions.
@@ -1155,6 +1165,8 @@ DECLARE_mBool(inverted_index_compaction_enable);
 DECLARE_mBool(debug_inverted_index_compaction);
 // index by RAM directory
 DECLARE_mBool(inverted_index_ram_dir_enable);
+// wheather index by RAM directory when base compaction
+DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 
@@ -1539,6 +1551,11 @@ DECLARE_mInt32(schema_dict_cache_capacity);
 DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
 
 DECLARE_mBool(enable_mow_verbose_log);
+
+DECLARE_mInt32(tablet_sched_delay_time_ms);
+DECLARE_mInt32(load_trigger_compaction_version_percent);
+DECLARE_mInt64(base_compaction_interval_seconds_since_last_operation);
+DECLARE_mBool(enable_compaction_pause_on_high_memory);
 
 #ifdef BE_TEST
 // test s3

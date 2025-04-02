@@ -25,21 +25,16 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <shared_mutex>
-#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
 #include "olap/delta_writer_context.h"
 #include "olap/memtable.h"
-#include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
-#include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
-#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "util/spinlock.h"
-#include "util/uid_util.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris {
 

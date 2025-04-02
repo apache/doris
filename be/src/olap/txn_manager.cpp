@@ -17,6 +17,7 @@
 
 #include "txn_manager.h"
 
+#include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <thrift/protocol/TDebugProtocol.h>
@@ -65,6 +66,8 @@ using std::vector;
 
 namespace doris {
 using namespace ErrorCode;
+
+bvar::Adder<int64_t> g_tablet_txn_info_txn_partitions_count("tablet_txn_info_txn_partitions_count");
 
 TxnManager::TxnManager(StorageEngine& engine, int32_t txn_map_shard_size, int32_t txn_shard_size)
         : _engine(engine),
@@ -174,6 +177,9 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     // case 2: loading txn from meta env
     auto load_info = std::make_shared<TabletTxnInfo>(load_id, nullptr, ingest);
     load_info->prepare();
+    if (!txn_tablet_map.contains(key)) {
+        g_tablet_txn_info_txn_partitions_count << 1;
+    }
     txn_tablet_map[key][tablet_info] = std::move(load_info);
     _insert_txn_partition_map_unlocked(transaction_id, partition_id);
     VLOG_NOTICE << "add transaction to engine successfully."
@@ -623,6 +629,7 @@ void TxnManager::_remove_txn_tablet_info_unlocked(TPartitionId partition_id,
         it->second.erase(tablet_info);
         if (it->second.empty()) {
             txn_tablet_map.erase(it);
+            g_tablet_txn_info_txn_partitions_count << -1;
             _clear_txn_partition_map_unlocked(transaction_id, partition_id);
         }
     }
@@ -672,6 +679,7 @@ Status TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId transa
               << ", tablet: " << tablet_info.to_string();
     if (tablet_txn_info_map.empty()) {
         txn_tablet_map.erase(it);
+        g_tablet_txn_info_txn_partitions_count << -1;
         _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     }
     return Status::OK();
@@ -720,6 +728,7 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
     }
     if (it->second.empty()) {
         txn_tablet_map.erase(it);
+        g_tablet_txn_info_txn_partitions_count << -1;
         _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     }
     return Status::OK();
@@ -780,6 +789,7 @@ void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId ta
             if (it->second.empty()) {
                 _clear_txn_partition_map_unlocked(it->first.second, it->first.first);
                 it = txn_tablet_map.erase(it);
+                g_tablet_txn_info_txn_partitions_count << -1;
             } else {
                 ++it;
             }

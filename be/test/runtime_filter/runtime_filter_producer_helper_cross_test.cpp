@@ -46,7 +46,6 @@ class RuntimeFilterProducerHelperCrossTest : public RuntimeFilterTest {
 
         _task.reset(new pipeline::PipelineTask(_pipeline, 0, _runtime_states[0].get(), nullptr,
                                                &_profile, {}, 0));
-        _runtime_states[0]->set_task(_task.get());
     }
 
     pipeline::OperatorPtr _op;

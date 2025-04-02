@@ -69,7 +69,6 @@ Status PartitionedHashJoinSinkLocalState::open(RuntimeState* state) {
     _shared_state->setup_shared_profile(_profile);
     RETURN_IF_ERROR(PipelineXSpillSinkLocalState::open(state));
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
-    _shared_state->inner_runtime_state->set_task(state->get_task());
     for (uint32_t i = 0; i != p._partition_count; ++i) {
         auto& spilling_stream = _shared_state->spilled_streams[i];
         RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
@@ -180,7 +179,8 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
     if (auto* tmp_sink_state = _shared_state->inner_runtime_state->get_sink_local_state()) {
         inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(tmp_sink_state);
     }
-    _shared_state->inner_shared_state->hash_table_variants.reset();
+    DCHECK_EQ(_shared_state->inner_shared_state->hash_table_variant_vector.size(), 1);
+    _shared_state->inner_shared_state->hash_table_variant_vector.front().reset();
     if (inner_sink_state) {
         COUNTER_UPDATE(_memory_used_counter,
                        -(inner_sink_state->_hash_table_memory_usage->value() +
@@ -520,7 +520,6 @@ Status PartitionedHashJoinSinkLocalState::_setup_internal_operator(RuntimeState*
     auto inner_runtime_state = RuntimeState::create_unique(
             state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
-    inner_runtime_state->set_task(state->get_task());
     inner_runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     inner_runtime_state->set_be_number(state->be_number());
 

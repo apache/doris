@@ -77,4 +77,17 @@ std::string InvertedIndexDescriptor::get_index_file_cache_key(std::string_view i
     return fmt::format("{}_{}{}", index_path_prefix, index_id, suffix);
 }
 
+std::string InvertedIndexDescriptor::get_index_file_name_v1(const std::string& rowset_id,
+                                                            int64_t seg_id, int64_t index_id,
+                                                            std::string_view index_path_suffix) {
+    std::string suffix =
+            index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
+    return fmt::format("{}_{}_{}{}{}", rowset_id, seg_id, index_id, suffix, index_suffix);
+}
+
+std::string InvertedIndexDescriptor::get_index_file_name_v2(const std::string& rowset_id,
+                                                            int64_t seg_id) {
+    return fmt::format("{}_{}{}", rowset_id, seg_id, index_suffix);
+}
+
 } // namespace doris::segment_v2

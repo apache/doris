@@ -63,15 +63,30 @@ struct OverlapSetImpl {
     using ElementNativeType = typename NativeType<typename T::value_type>::Type;
     using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
     Set set;
-    void insert_array(const IColumn* column, size_t start, size_t size) {
+
+    template <bool nullable>
+    void insert_array(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
         const auto& vec = assert_cast<const T&>(*column).get_data();
         for (size_t i = start; i < start + size; ++i) {
+            if constexpr (nullable) {
+                if (nullmap[i]) {
+                    continue;
+                }
+            }
             set.insert(vec[i]);
         }
     }
-    bool find_any(const IColumn* column, size_t start, size_t size) {
+
+    template <bool nullable>
+    bool find_any(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
         const auto& vec = assert_cast<const T&>(*column).get_data();
         for (size_t i = start; i < start + size; ++i) {
+            if constexpr (nullable) {
+                if (nullmap[i]) {
+                    continue;
+                }
+            }
+
             if (set.contains(vec[i])) {
                 return true;
             }
@@ -84,13 +99,28 @@ template <>
 struct OverlapSetImpl<ColumnString> {
     using Set = phmap::flat_hash_set<StringRef, DefaultHash<StringRef>>;
     Set set;
-    void insert_array(const IColumn* column, size_t start, size_t size) {
+
+    template <bool nullable>
+    void insert_array(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
         for (size_t i = start; i < start + size; ++i) {
+            if constexpr (nullable) {
+                if (nullmap[i]) {
+                    continue;
+                }
+            }
             set.insert(column->get_data_at(i));
         }
     }
-    bool find_any(const IColumn* column, size_t start, size_t size) {
+
+    template <bool nullable>
+    bool find_any(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
         for (size_t i = start; i < start + size; ++i) {
+            if constexpr (nullable) {
+                if (nullmap[i]) {
+                    continue;
+                }
+            }
+
             if (set.contains(column->get_data_at(i))) {
                 return true;
             }
@@ -237,7 +267,6 @@ public:
         auto dst_null_map = ColumnVector<UInt8>::create(input_rows_count, 0);
         UInt8* dst_null_map_data = dst_null_map->get_data().data();
 
-        // any array is null or any elements in array is null, return null
         RETURN_IF_ERROR(_execute_nullable(left_exec_data, dst_null_map_data));
         RETURN_IF_ERROR(_execute_nullable(right_exec_data, dst_null_map_data));
 
@@ -334,7 +363,6 @@ private:
                 continue;
             }
 
-            // any element inside array is NULL, return NULL
             if (data.nested_nullmap_data) {
                 ssize_t start = (*data.offsets_ptr)[row - 1];
                 ssize_t size = (*data.offsets_ptr)[row] - start;
@@ -351,14 +379,10 @@ private:
 
     template <typename T>
     Status _execute_internal(const ColumnArrayExecutionData& left_data,
-                             const ColumnArrayExecutionData& right_data,
-                             const UInt8* dst_nullmap_data, UInt8* dst_data) const {
+                             const ColumnArrayExecutionData& right_data, UInt8* dst_nullmap_data,
+                             UInt8* dst_data) const {
         using ExecutorImpl = OverlapSetImpl<T>;
         for (ssize_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
-            if (dst_nullmap_data[row]) {
-                continue;
-            }
-
             ssize_t left_start = (*left_data.offsets_ptr)[row - 1];
             ssize_t left_size = (*left_data.offsets_ptr)[row] - left_start;
             ssize_t right_start = (*right_data.offsets_ptr)[row - 1];
@@ -368,13 +392,42 @@ private:
                 continue;
             }
 
-            ExecutorImpl impl;
+            const auto* small_data = &left_data;
+            const auto* large_data = &right_data;
+
+            ssize_t small_start = left_start;
+            ssize_t large_start = right_start;
+            ssize_t small_size = left_size;
+            ssize_t large_size = right_size;
             if (right_size < left_size) {
-                impl.insert_array(right_data.nested_col.get(), right_start, right_size);
-                dst_data[row] = impl.find_any(left_data.nested_col.get(), left_start, left_size);
+                std::swap(small_data, large_data);
+                std::swap(small_start, large_start);
+                std::swap(small_size, large_size);
+            }
+
+            ExecutorImpl impl;
+            if (small_data->nested_nullmap_data) {
+                impl.template insert_array<true>(small_data->nested_col.get(),
+                                                 small_data->nested_nullmap_data, small_start,
+                                                 small_size);
             } else {
-                impl.insert_array(left_data.nested_col.get(), left_start, left_size);
-                dst_data[row] = impl.find_any(right_data.nested_col.get(), right_start, right_size);
+                impl.template insert_array<true>(small_data->nested_col.get(),
+                                                 small_data->nested_nullmap_data, small_start,
+                                                 small_size);
+            }
+
+            if (large_data->nested_nullmap_data) {
+                dst_data[row] = impl.template find_any<true>(large_data->nested_col.get(),
+                                                             large_data->nested_nullmap_data,
+                                                             large_start, large_size);
+            } else {
+                dst_data[row] = impl.template find_any<true>(large_data->nested_col.get(),
+                                                             large_data->nested_nullmap_data,
+                                                             large_start, large_size);
+            }
+
+            if (dst_data[row]) {
+                dst_nullmap_data[row] = 0;
             }
         }
         return Status::OK();

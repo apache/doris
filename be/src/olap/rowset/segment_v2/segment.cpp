@@ -78,15 +78,6 @@ namespace doris::segment_v2 {
 
 class InvertedIndexIterator;
 
-io::UInt128Wrapper file_cache_key_from_path(const std::string& seg_path) {
-    std::string base = seg_path.substr(seg_path.rfind('/') + 1); // tricky: npos + 1 == 0
-    return io::BlockFileCache::hash(base);
-}
-
-std::string file_cache_key_str(const std::string& seg_path) {
-    return file_cache_key_from_path(seg_path).to_string();
-}
-
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                      uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
@@ -527,17 +518,16 @@ Status Segment::load_index(OlapReaderStatistics* stats) {
             // read and parse short key index page
             OlapReaderStatistics tmp_stats;
             OlapReaderStatistics* stats_ptr = stats != nullptr ? stats : &tmp_stats;
-            PageReadOptions opts {
-                    .use_page_cache = true,
-                    .type = INDEX_PAGE,
-                    .file_reader = _file_reader.get(),
-                    .page_pointer = PagePointer(_sk_index_page),
-                    // short key index page uses NO_COMPRESSION for now
-                    .codec = nullptr,
-                    .stats = &tmp_stats,
-                    .io_ctx = io::IOContext {.is_index_data = true,
-                                             .file_cache_stats = &stats_ptr->file_cache_stats},
-            };
+            PageReadOptions opts(io::IOContext {.is_index_data = true,
+                                                .file_cache_stats = &stats_ptr->file_cache_stats});
+            opts.use_page_cache = true;
+            opts.type = INDEX_PAGE;
+            opts.file_reader = _file_reader.get();
+            opts.page_pointer = PagePointer(_sk_index_page);
+            // short key index page uses NO_COMPRESSION for now
+            opts.codec = nullptr;
+            opts.stats = &tmp_stats;
+
             Slice body;
             PageFooterPB footer;
             RETURN_IF_ERROR(

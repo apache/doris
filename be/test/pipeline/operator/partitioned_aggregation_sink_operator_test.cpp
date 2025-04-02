@@ -62,7 +62,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, Init) {
                              .parent_profile = _helper.runtime_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -101,7 +101,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, Sink) {
                              .parent_profile = _helper.runtime_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -152,7 +152,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithEmptyEOS) {
                              .parent_profile = _helper.runtime_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -204,7 +204,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpill) {
                              .parent_profile = _helper.runtime_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -274,7 +274,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillAndEmptyEOS) {
                              .parent_profile = _helper.runtime_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -341,7 +341,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillLargeData) {
                              .parent_profile = _helper.runtime_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
@@ -424,7 +424,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpilError) {
                              .parent_profile = _helper.runtime_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = TDataSink()};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();

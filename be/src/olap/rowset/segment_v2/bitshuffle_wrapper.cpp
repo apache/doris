@@ -21,8 +21,6 @@
 // symbols.
 #include <bitshuffle/bitshuffle.h>
 
-#include "gutil/cpu.h"
-
 // Include the bitshuffle header again, but this time importing the
 // AVX2-compiled symbols by defining some macros.
 #undef BITSHUFFLE_H
@@ -43,8 +41,6 @@
 #undef bshuf_compress_lz4
 #undef bshuf_decompress_lz4
 
-using base::CPU;
-
 namespace doris {
 namespace bitshuffle {
 
@@ -62,16 +58,15 @@ decltype(&bshuf_decompress_lz4) g_bshuf_decompress_lz4;
 // This avoids an expensive 'cpuid' call in the hot path, and also avoids
 // the cost of a 'std::once' call.
 __attribute__((constructor)) void SelectBitshuffleFunctions() {
-#if (defined(__i386) || defined(__x86_64__))
-    if (CPU().has_avx2()) {
-        g_bshuf_compress_lz4_bound = bshuf_compress_lz4_bound_avx2;
-        g_bshuf_compress_lz4 = bshuf_compress_lz4_avx2;
-        g_bshuf_decompress_lz4 = bshuf_decompress_lz4_avx2;
-    } else {
-        g_bshuf_compress_lz4_bound = bshuf_compress_lz4_bound;
-        g_bshuf_compress_lz4 = bshuf_compress_lz4;
-        g_bshuf_decompress_lz4 = bshuf_decompress_lz4;
-    }
+#ifdef __AVX2__
+    g_bshuf_compress_lz4_bound = bshuf_compress_lz4_bound_avx2;
+    g_bshuf_compress_lz4 = bshuf_compress_lz4_avx2;
+    g_bshuf_decompress_lz4 = bshuf_decompress_lz4_avx2;
+#elif (defined(__i386) || defined(__x86_64__))
+    g_bshuf_compress_lz4_bound = bshuf_compress_lz4_bound;
+    g_bshuf_compress_lz4 = bshuf_compress_lz4;
+    g_bshuf_decompress_lz4 = bshuf_decompress_lz4;
+
 #elif defined(__ARM_NEON) && defined(__aarch64__) && !defined(__APPLE__)
     g_bshuf_compress_lz4_bound = bshuf_compress_lz4_bound_neon;
     g_bshuf_compress_lz4 = bshuf_compress_lz4_neon;

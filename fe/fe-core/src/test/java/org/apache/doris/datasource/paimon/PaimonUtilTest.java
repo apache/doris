@@ -15,12 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gen_cpp/PlanNodes_types.h>
+package org.apache.doris.datasource.paimon;
 
-#include "process_hash_table_probe_impl.h"
+import org.apache.doris.catalog.Type;
 
-namespace doris::pipeline {
+import org.apache.paimon.types.CharType;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.VarCharType;
+import org.junit.Assert;
+import org.junit.Test;
 
-INSTANTIATION_FOR(TJoinOp::CROSS_JOIN);
-
+public class PaimonUtilTest {
+    @Test
+    public void testSchemaForVarcharAndChar() {
+        DataField c1 = new DataField(1, "c1", new VarCharType(32));
+        DataField c2 = new DataField(2, "c2", new CharType(14));
+        Type type1 = PaimonUtil.paimonTypeToDorisType(c1.type());
+        Type type2 = PaimonUtil.paimonTypeToDorisType(c2.type());
+        Assert.assertTrue(type1.isVarchar());
+        Assert.assertEquals(32, type1.getLength());
+        Assert.assertEquals(14, type2.getLength());
+    }
 }

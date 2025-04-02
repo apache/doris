@@ -175,12 +175,12 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
 }
 
 template <int JoinOpType>
-template <typename HashTableType, bool is_mark_join>
-Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_ctx,
-                                                     const uint8_t* null_map,
-                                                     vectorized::MutableBlock& mutable_block,
-                                                     vectorized::Block* output_block,
-                                                     uint32_t probe_rows) {
+template <typename HashTableType>
+Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
+                                                  const uint8_t* null_map,
+                                                  vectorized::MutableBlock& mutable_block,
+                                                  vectorized::Block* output_block,
+                                                  uint32_t probe_rows, bool is_mark_join) {
     if (_right_col_len && !_build_block) {
         return Status::InternalError("build block is nullptr");
     }
@@ -270,7 +270,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
 
     output_block->swap(mutable_block.to_block());
 
-    if constexpr (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
+    if (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
         bool ignore_null_map =
                 (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                  JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
@@ -692,24 +692,6 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
     return Status::OK();
 }
 
-template <int JoinOpType>
-template <typename HashTableType>
-Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
-                                                  vectorized::ConstNullMapPtr null_map,
-                                                  vectorized::MutableBlock& mutable_block,
-                                                  vectorized::Block* output_block,
-                                                  uint32_t probe_rows, bool is_mark_join) {
-    Status res;
-    std::visit(
-            [&](auto is_mark_join) {
-                res = do_process<HashTableType, is_mark_join>(
-                        hash_table_ctx, null_map ? null_map->data() : nullptr, mutable_block,
-                        output_block, probe_rows);
-            },
-            vectorized::make_bool_variant(is_mark_join));
-    return res;
-}
-
 template <typename T>
 struct ExtractType;
 
@@ -720,8 +702,8 @@ struct ExtractType<T(U)> {
 
 #define INSTANTIATION(JoinOpType, T)                                                               \
     template Status ProcessHashTableProbe<JoinOpType>::process<ExtractType<void(T)>::Type>(        \
-            ExtractType<void(T)>::Type & hash_table_ctx, vectorized::ConstNullMapPtr null_map,     \
-            vectorized::MutableBlock & mutable_block, vectorized::Block * output_block,            \
+            ExtractType<void(T)>::Type & hash_table_ctx, const uint8_t* null_map,                  \
+            vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,              \
             uint32_t probe_rows, bool is_mark_join);                                               \
     template Status ProcessHashTableProbe<JoinOpType>::finish_probing<ExtractType<void(T)>::Type>( \
             ExtractType<void(T)>::Type & hash_table_ctx, vectorized::MutableBlock & mutable_block, \
