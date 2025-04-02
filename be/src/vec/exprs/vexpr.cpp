@@ -387,6 +387,7 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
             return Status::InternalError("Failed to reconstruct expression tree from thrift.");
         }
 
+        DCHECK(current_parent != nullptr);
         VExprSPtr expr;
         RETURN_IF_ERROR(create_expr(nodes[*node_idx], expr));
         DCHECK(expr != nullptr);
