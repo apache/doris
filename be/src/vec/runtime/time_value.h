@@ -40,9 +40,9 @@ public:
     using ColumnTime = vectorized::DataTypeTimeV2::ColumnType;
 
     static int64_t round_time(TimeType value, uint32_t scale) {
-        int64_t time = value;
+        int64_t time = (int64_t)value;
         DCHECK(scale <= MICROS_SCALE);
-        int64_t factor = std::pow(10, 6 - scale);
+        int64_t factor = (int64_t)std::pow(10, 6 - scale);
         int64_t roundedValue = (time >= 0) ? (time + factor / 2) / factor * factor
                                            : (time - factor / 2) / factor * factor;
         return roundedValue;
