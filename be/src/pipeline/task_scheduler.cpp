@@ -132,7 +132,6 @@ void TaskScheduler::_do_work(int index) {
             }
         }};
         task->set_task_queue(&_task_queue);
-        task->set_scheduler(this);
         task->log_detail_if_need();
 
         bool canceled = fragment_context->is_canceled();
