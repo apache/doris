@@ -309,7 +309,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().feDebug) {
                 throw e;
             }
-            LOG.warn("stats calculation failed, plan " + plan.treeString(), e);
+            LOG.warn("stats calculation failed, plan " + plan.toString(), e);
             // use unknown stats or the first child's stats
             if (plan.children().isEmpty() || !(plan.child(0) instanceof GroupPlan)) {
                 Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
