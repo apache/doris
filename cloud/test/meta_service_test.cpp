@@ -5361,8 +5361,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     sc_req.set_lock_id(-2);
     sc_req.set_initiator(999);
     meta_service->get_delete_bitmap_update_lock(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req,
-            &sc_res, nullptr);
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req, &sc_res, nullptr);
     ASSERT_EQ(sc_res.status().code(), MetaServiceCode::OK);
     RemoveDeleteBitmapUpdateLockRequest sc_remove_req;
     RemoveDeleteBitmapUpdateLockResponse sc_remove_res;
@@ -5454,8 +5453,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     sc_req.set_lock_id(-2);
     sc_req.set_initiator(999);
     meta_service->get_delete_bitmap_update_lock(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req,
-            &sc_res, nullptr);
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req, &sc_res, nullptr);
     ASSERT_EQ(sc_res.status().code(), MetaServiceCode::OK);
     sc_remove_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_remove_req.set_table_id(table_id);
@@ -5725,8 +5723,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     sc_req.set_lock_id(-2);
     sc_req.set_initiator(999);
     meta_service->get_delete_bitmap_update_lock(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req,
-            &sc_res, nullptr);
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req, &sc_res, nullptr);
     ASSERT_EQ(sc_res.status().code(), MetaServiceCode::OK);
     sc_remove_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_remove_req.set_table_id(table_id);
@@ -5816,8 +5813,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     sc_req.set_lock_id(-2);
     sc_req.set_initiator(999);
     meta_service->get_delete_bitmap_update_lock(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req,
-            &sc_res, nullptr);
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req, &sc_res, nullptr);
     ASSERT_EQ(sc_res.status().code(), MetaServiceCode::OK);
     sc_remove_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_remove_req.set_table_id(table_id);
@@ -6018,8 +6014,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     sc_req.set_lock_id(-2);
     sc_req.set_initiator(999);
     meta_service->get_delete_bitmap_update_lock(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req,
-            &sc_res, nullptr);
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req, &sc_res, nullptr);
     ASSERT_EQ(sc_res.status().code(), MetaServiceCode::OK);
     sc_remove_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_remove_req.set_table_id(table_id);
@@ -6086,8 +6081,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     sc_req.set_lock_id(-2);
     sc_req.set_initiator(999);
     meta_service->get_delete_bitmap_update_lock(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req,
-            &sc_res, nullptr);
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req, &sc_res, nullptr);
     ASSERT_EQ(sc_res.status().code(), MetaServiceCode::OK);
     sc_remove_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_remove_req.set_table_id(table_id);
@@ -6288,8 +6282,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     sc_req.set_lock_id(-2);
     sc_req.set_initiator(999);
     meta_service->get_delete_bitmap_update_lock(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req,
-            &sc_res, nullptr);
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req, &sc_res, nullptr);
     ASSERT_EQ(sc_res.status().code(), MetaServiceCode::OK);
     sc_remove_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_remove_req.set_table_id(table_id);
@@ -6356,8 +6349,7 @@ TEST(MetaServiceTest, DeleteBitmapUpdateLockCompatibilityTest) {
     sc_req.set_lock_id(-2);
     sc_req.set_initiator(999);
     meta_service->get_delete_bitmap_update_lock(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req,
-            &sc_res, nullptr);
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &sc_req, &sc_res, nullptr);
     ASSERT_EQ(sc_res.status().code(), MetaServiceCode::OK);
     sc_remove_req.set_cloud_unique_id("test_cloud_unique_id");
     sc_remove_req.set_table_id(table_id);
