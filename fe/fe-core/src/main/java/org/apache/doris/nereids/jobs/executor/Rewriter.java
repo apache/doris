@@ -168,7 +168,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Apply rules to rewrite logical plan.
@@ -639,9 +638,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
     }
 
     @Override
-    protected boolean shouldRun(RewriteJob rewriteJob, JobContext jobContext) {
-        if (rewriteJob instanceof CostBasedRewriteJob && !runCboRules) {
-            return false;
+    protected boolean shouldRun(RewriteJob rewriteJob, JobContext jobContext, List<RewriteJob> jobs, int jobIndex) {
+        if (rewriteJob instanceof CostBasedRewriteJob) {
+            if (runCboRules) {
+                jobContext.setRemainJobs(jobs.subList(jobIndex + 1, jobs.size()));
+                return true;
+            } else {
+                return false;
+            }
         } else {
             return true;
         }
