@@ -548,7 +548,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     case INVERTED:
                     case BITMAP:
                         return true;
-                    default: {}
+                    default: {
+                    }
                 }
             }
         }
