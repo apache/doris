@@ -84,9 +84,6 @@ void Dependency::set_ready() {
 }
 
 Dependency* Dependency::is_blocked_by(PipelineTask* task) {
-    if (task && task->wake_up_early()) {
-        return nullptr;
-    }
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {
