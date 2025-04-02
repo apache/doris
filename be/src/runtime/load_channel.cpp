@@ -30,6 +30,7 @@
 #include "runtime/tablets_channel.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -102,6 +103,8 @@ void LoadChannel::_init_profile() {
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
+    DBUG_EXECUTE_IF("LoadChannel.open",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(300 * 1000)); });
     if (config::is_cloud_mode() && params.txn_expiration() <= 0) {
         return Status::InternalError(
                 "The txn expiration of PTabletWriterOpenRequest is invalid, value={}",
@@ -175,6 +178,8 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     SCOPED_TIMER(_add_batch_timer);
     COUNTER_UPDATE(_add_batch_times, 1);
     SCOPED_ATTACH_TASK(_resource_ctx);
+    DBUG_EXECUTE_IF("LoadChannel.add_batch",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(300 * 1000)); });
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<BaseTabletsChannel> channel;
