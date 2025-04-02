@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_show_clusters_command", "nereids_p0") {
+    if (!cloudMode)
+        return;
+
     // SHOW CLUSTERS
     checkNereidsExecute """SHOW CLUSTERS"""
 
