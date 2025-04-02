@@ -58,9 +58,11 @@ import java.util.stream.Collectors;
 public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> implements CustomRewriter {
 
     private final List<RewriteJob> jobs;
+    private final boolean runCboRules;
 
-    public RewriteCteChildren(List<RewriteJob> jobs) {
+    public RewriteCteChildren(List<RewriteJob> jobs, boolean runCboRules) {
         this.jobs = jobs;
+        this.runCboRules = runCboRules;
     }
 
     @Override
@@ -70,7 +72,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
 
     @Override
     public Plan visit(Plan plan, CascadesContext context) {
-        Rewriter.getCteChildrenRewriter(context, jobs).execute();
+        Rewriter.getCteChildrenRewriter(context, jobs, runCboRules).execute();
         return context.getRewritePlan();
     }
 

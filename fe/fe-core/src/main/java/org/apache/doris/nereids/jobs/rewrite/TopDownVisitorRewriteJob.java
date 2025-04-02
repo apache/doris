@@ -83,7 +83,8 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
 
             boolean changed = false;
             for (Rule currentRule : currentRules) {
-                if (forbidRules.get(currentRule.getRuleType().ordinal()) || !currentRule.getPattern().matchPlanTree(oldPlan)) {
+                if (forbidRules.get(currentRule.getRuleType().ordinal())
+                        || !currentRule.getPattern().matchPlanTree(oldPlan)) {
                     continue;
                 }
                 List<Plan> transform = currentRule.transform(oldPlan, jobContext.getCascadesContext());

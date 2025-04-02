@@ -158,7 +158,7 @@ public class CostBasedRewriteJob implements RewriteJob {
 
     private Optional<Pair<Cost, GroupExpression>> getCost(CascadesContext currentCtx,
             CascadesContext cboCtx, JobContext jobContext) {
-        // Do subtree rewrite
+        // Do subtree rewriter
         Rewriter.getCteChildrenRewriter(cboCtx, jobContext.getRemainJobs()).execute();
         CascadesContext rootCtx = currentCtx.getRoot();
         if (rootCtx.getRewritePlan() instanceof LogicalCTEAnchor) {

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.RuleSet;
@@ -531,52 +532,55 @@ public class Rewriter extends AbstractBatchJobExecutor {
             )
     );
 
-    private static final List<RewriteJob> WHOLE_TREE_REWRITE_JOBS
-            = getWholeTreeRewriteJobs(true);
-
-    private static final List<RewriteJob> WHOLE_TREE_REWRITE_JOBS_WITHOUT_COST_BASED
-            = getWholeTreeRewriteJobs(false);
 
     private final List<RewriteJob> rewriteJobs;
+    private final boolean runCboRules;
 
-    private Rewriter(CascadesContext cascadesContext, List<RewriteJob> rewriteJobs) {
+    private Rewriter(CascadesContext cascadesContext, List<RewriteJob> rewriteJobs, boolean runCboRules) {
         super(cascadesContext);
         this.rewriteJobs = rewriteJobs;
+        this.runCboRules = runCboRules;
     }
 
     public static Rewriter getWholeTreeRewriterWithoutCostBasedJobs(CascadesContext cascadesContext) {
-        return new Rewriter(cascadesContext, WHOLE_TREE_REWRITE_JOBS_WITHOUT_COST_BASED);
+        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(false), false);
     }
 
     public static Rewriter getWholeTreeRewriter(CascadesContext cascadesContext) {
-        return new Rewriter(cascadesContext, WHOLE_TREE_REWRITE_JOBS);
+        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(true), true);
     }
 
     public static Rewriter getCteChildrenRewriter(CascadesContext cascadesContext, List<RewriteJob> jobs) {
-        return new Rewriter(cascadesContext, jobs);
+        return new Rewriter(cascadesContext, jobs, true);
+    }
+
+    public static Rewriter getCteChildrenRewriter(
+            CascadesContext cascadesContext, List<RewriteJob> jobs, boolean runCboRules) {
+        return new Rewriter(cascadesContext, jobs, runCboRules);
     }
 
     /**
      * only
      */
-    public static Rewriter getWholeTreeRewriterWithCustomJobs(CascadesContext cascadesContext, List<RewriteJob> jobs) {
-        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(false, false, jobs, ImmutableList.of()));
+    public static Rewriter getWholeTreeRewriterWithCustomJobs(
+            CascadesContext cascadesContext, List<RewriteJob> jobs) {
+        List<RewriteJob> wholeTreeRewriteJobs = getWholeTreeRewriteJobs(
+                false, false, jobs, ImmutableList.of(), true);
+        return new Rewriter(cascadesContext, wholeTreeRewriteJobs, true);
     }
 
-    private static List<RewriteJob> getWholeTreeRewriteJobs(boolean withCostBased) {
-        List<RewriteJob> withoutCostBased = Rewriter.CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN.stream()
-                .filter(j -> !(j instanceof CostBasedRewriteJob))
-                .collect(Collectors.toList());
+    private static List<RewriteJob> getWholeTreeRewriteJobs(boolean runCboRules) {
         return getWholeTreeRewriteJobs(true, true,
-                withCostBased ? CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN : withoutCostBased,
-                CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN);
+                CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN,
+                CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN, runCboRules);
     }
 
     private static List<RewriteJob> getWholeTreeRewriteJobs(
             boolean needSubPathPushDown,
             boolean needOrExpansion,
             List<RewriteJob> beforePushDownJobs,
-            List<RewriteJob> afterPushDownJobs) {
+            List<RewriteJob> afterPushDownJobs,
+            boolean runCboRules) {
 
         return notTraverseChildrenOf(
             ImmutableSet.of(LogicalCTEAnchor.class),
@@ -592,7 +596,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 custom(RuleType.ADD_DEFAULT_LIMIT, AddDefaultLimit::new)
                         ),
                         topic("rewrite cte sub-tree before sub path push down",
-                                custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(beforePushDownJobs))
+                                custom(RuleType.REWRITE_CTE_CHILDREN,
+                                        () -> new RewriteCteChildren(beforePushDownJobs, runCboRules)
+                                )
                         )));
                 if (needOrExpansion) {
                     rewriteJobs.addAll(jobs(topic("or expansion",
@@ -611,7 +617,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 rewriteJobs.addAll(jobs(
                         topic("rewrite cte sub-tree after sub path push down",
                                 custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),
-                                custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(afterPushDownJobs))
+                                custom(RuleType.REWRITE_CTE_CHILDREN,
+                                        () -> new RewriteCteChildren(afterPushDownJobs, runCboRules)
+                                )
                         ),
                         topic("whole plan check",
                                 custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
@@ -628,5 +636,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
     @Override
     public List<RewriteJob> getJobs() {
         return rewriteJobs;
+    }
+
+    @Override
+    protected boolean shouldRun(RewriteJob rewriteJob, JobContext jobContext) {
+        if (rewriteJob instanceof CostBasedRewriteJob && !runCboRules) {
+            return false;
+        } else {
+            return true;
+        }
     }
 }
