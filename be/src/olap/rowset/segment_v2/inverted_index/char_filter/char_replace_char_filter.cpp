@@ -20,7 +20,7 @@
 #include <boost/algorithm/string/replace.hpp>
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 CharReplaceCharFilter::CharReplaceCharFilter(lucene::util::Reader* in, const std::string& pattern,
                                              const std::string& replacement)
         : CharFilter(in), _replacement(replacement) {
@@ -42,14 +42,14 @@ int32_t CharReplaceCharFilter::readCopy(void* start, int32_t off, int32_t len) {
 
 void CharReplaceCharFilter::fill() {
     _buf.resize(input_->size());
-    input_->readCopy(_buf.data(), 0, _buf.size());
+    input_->readCopy(_buf.data(), 0, static_cast<int32_t>(_buf.size()));
     process_pattern(_buf);
-    _transformed_input.init(_buf.data(), _buf.size(), false);
+    _transformed_input.init(_buf.data(), static_cast<int32_t>(_buf.size()), false);
 }
 
 void CharReplaceCharFilter::process_pattern(std::string& buf) {
-    for (char& c : buf) {
-        uint8_t uc = static_cast<uint8_t>(c);
+    for (auto& c : buf) {
+        auto uc = static_cast<uint8_t>(c);
         if (_patterns.test(uc)) {
             c = _replacement[0];
         }
@@ -57,3 +57,4 @@ void CharReplaceCharFilter::process_pattern(std::string& buf) {
 }
 
 } // namespace doris
+#include "common/compile_check_end.h"

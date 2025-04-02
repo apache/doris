@@ -21,7 +21,6 @@
 #include <utility>
 
 #include "exprs/bitmapfilter_predicate.h"
-#include "gutil/integral_types.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -127,7 +126,7 @@ const std::string& vectorized::VBitmapPredicate::expr_name() const {
     return _expr_name;
 }
 
-void vectorized::VBitmapPredicate::set_filter(std::shared_ptr<BitmapFilterFuncBase>& filter) {
+void vectorized::VBitmapPredicate::set_filter(std::shared_ptr<BitmapFilterFuncBase> filter) {
     _filter = filter;
 }
 

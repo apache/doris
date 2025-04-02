@@ -78,15 +78,6 @@ namespace doris::segment_v2 {
 
 class InvertedIndexIterator;
 
-io::UInt128Wrapper file_cache_key_from_path(const std::string& seg_path) {
-    std::string base = seg_path.substr(seg_path.rfind('/') + 1); // tricky: npos + 1 == 0
-    return io::BlockFileCache::hash(base);
-}
-
-std::string file_cache_key_str(const std::string& seg_path) {
-    return file_cache_key_from_path(seg_path).to_string();
-}
-
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                      uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
@@ -527,17 +518,16 @@ Status Segment::load_index(OlapReaderStatistics* stats) {
             // read and parse short key index page
             OlapReaderStatistics tmp_stats;
             OlapReaderStatistics* stats_ptr = stats != nullptr ? stats : &tmp_stats;
-            PageReadOptions opts {
-                    .use_page_cache = true,
-                    .type = INDEX_PAGE,
-                    .file_reader = _file_reader.get(),
-                    .page_pointer = PagePointer(_sk_index_page),
-                    // short key index page uses NO_COMPRESSION for now
-                    .codec = nullptr,
-                    .stats = &tmp_stats,
-                    .io_ctx = io::IOContext {.is_index_data = true,
-                                             .file_cache_stats = &stats_ptr->file_cache_stats},
-            };
+            PageReadOptions opts(io::IOContext {.is_index_data = true,
+                                                .file_cache_stats = &stats_ptr->file_cache_stats});
+            opts.use_page_cache = true;
+            opts.type = INDEX_PAGE;
+            opts.file_reader = _file_reader.get();
+            opts.page_pointer = PagePointer(_sk_index_page);
+            // short key index page uses NO_COMPRESSION for now
+            opts.codec = nullptr;
+            opts.stats = &tmp_stats;
+
             Slice body;
             PageFooterPB footer;
             RETURN_IF_ERROR(
@@ -715,8 +705,8 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
     return Status::OK();
 }
 
-static Status new_default_iterator(const TabletColumn& tablet_column,
-                                   std::unique_ptr<ColumnIterator>* iter) {
+Status Segment::new_default_iterator(const TabletColumn& tablet_column,
+                                     std::unique_ptr<ColumnIterator>* iter) {
     if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
         return Status::InternalError(
                 "invalid nonexistent column without default value. column_uid={}, column_name={}, "
@@ -740,7 +730,7 @@ Status Segment::_new_iterator_with_variant_root(const TabletColumn& tablet_colum
                                                 const SubcolumnColumnReaders::Node* root,
                                                 vectorized::DataTypePtr target_type_hint) {
     ColumnIterator* it;
-    RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
+    RETURN_IF_ERROR(root->data.reader->new_iterator(&it, &tablet_column));
     auto* stream_iter = new ExtractReader(
             tablet_column,
             std::make_unique<SubstreamIterator>(root->data.file_column_type->create_column(),
@@ -807,7 +797,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             assert(leaf);
             std::unique_ptr<ColumnIterator> sibling_iter;
             ColumnIterator* sibling_iter_ptr;
-            RETURN_IF_ERROR(leaf->data.reader->new_iterator(&sibling_iter_ptr));
+            RETURN_IF_ERROR(leaf->data.reader->new_iterator(&sibling_iter_ptr, &tablet_column));
             sibling_iter.reset(sibling_iter_ptr);
             *iter = std::make_unique<DefaultNestedColumnIterator>(std::move(sibling_iter),
                                                                   leaf->data.file_column_type);
@@ -838,7 +828,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             return Status::OK();
         }
         ColumnIterator* it;
-        RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+        RETURN_IF_ERROR(node->data.reader->new_iterator(&it, &tablet_column));
         iter->reset(it);
         return Status::OK();
     }
@@ -849,7 +839,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             // Direct read extracted columns
             const auto* node = _sub_column_tree[unique_id].find_leaf(relative_path);
             ColumnIterator* it;
-            RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+            RETURN_IF_ERROR(node->data.reader->new_iterator(&it, &tablet_column));
             iter->reset(it);
         } else {
             // Node contains column with children columns or has correspoding sparse columns
@@ -903,7 +893,8 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     }
     // init iterator by unique id
     ColumnIterator* it;
-    RETURN_IF_ERROR(_column_readers.at(tablet_column.unique_id())->new_iterator(&it));
+    RETURN_IF_ERROR(
+            _column_readers.at(tablet_column.unique_id())->new_iterator(&it, &tablet_column));
     iter->reset(it);
 
     if (config::enable_column_type_check && !tablet_column.is_agg_state_type() &&
@@ -922,7 +913,8 @@ Status Segment::new_column_iterator(int32_t unique_id, const StorageReadOptions*
                                     std::unique_ptr<ColumnIterator>* iter) {
     RETURN_IF_ERROR(_create_column_readers_once(opt->stats));
     ColumnIterator* it;
-    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it));
+    TabletColumn tablet_column = _tablet_schema->column_by_uid(unique_id);
+    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it, &tablet_column));
     iter->reset(it);
     return Status::OK();
 }

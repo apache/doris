@@ -19,16 +19,15 @@
 
 #include <algorithm>
 
-#include "exprs/runtime_filter.h"
-#include "gutil/integral_types.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
+#include "runtime_filter/runtime_filter_definitions.h"
 #include "util/bitmap_value.h"
 
 namespace doris {
 
 // only used in Runtime Filter
-class BitmapFilterFuncBase : public RuntimeFilterFuncBase {
+class BitmapFilterFuncBase {
 public:
     virtual void insert_many(const std::vector<const BitmapValue*>& bitmaps) = 0;
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
@@ -50,7 +49,7 @@ class BitmapFilterFunc : public BitmapFilterFuncBase {
 public:
     using CppType = typename PrimitiveTypeTraits<type>::CppType;
 
-    BitmapFilterFunc() : _bitmap_value(std::make_shared<BitmapValue>()) {}
+    BitmapFilterFunc(bool null_aware = false) : _bitmap_value(std::make_shared<BitmapValue>()) {}
 
     ~BitmapFilterFunc() override = default;
 

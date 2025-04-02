@@ -24,7 +24,6 @@
 #include <shared_mutex>
 #include <unordered_map>
 
-#include "gutil/integral_types.h"
 #include "runtime/cache/cache_utils.h"
 #include "util/uid_util.h"
 
