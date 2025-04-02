@@ -844,9 +844,19 @@ public:
     }
 };
 
-static constexpr int MAX_STACK_CIPHER_LEN = 1024 * 64;
-struct UnHexImpl {
+struct UnHexImplEmpty {
     static constexpr auto name = "unhex";
+};
+
+struct UnHexImplNull {
+    static constexpr auto name = "unhex_null";
+};
+
+static constexpr int MAX_STACK_CIPHER_LEN = 1024 * 64;
+
+template <typename Name>
+struct UnHexImpl {
+    static constexpr auto name = Name::name;
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
 
@@ -922,7 +932,6 @@ struct UnHexImpl {
             }
 
             int outlen = hex_decode(source, srclen, dst);
-
             StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
 
@@ -931,7 +940,7 @@ struct UnHexImpl {
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets,
-                         ColumnUInt8::Container& null_map_data) {
+                         ColumnUInt8::Container* null_map_data) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
 
@@ -940,7 +949,7 @@ struct UnHexImpl {
             ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
 
             if (srclen == 0) {
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map_data);
+                StringOP::push_null_string(i, dst_data, dst_offsets, *null_map_data);
                 continue;
             }
 
@@ -956,8 +965,7 @@ struct UnHexImpl {
 
             int outlen = hex_decode(source, srclen, dst);
             if (outlen == 0) {
-                LOG(INFO) << "--ftw: outlen == 0 ";
-                StringOP::push_null_string(i, dst_data, dst_offsets, null_map_data);
+                StringOP::push_null_string(i, dst_data, dst_offsets, *null_map_data);
                 continue;
             }
 
@@ -1233,9 +1241,9 @@ using FunctionToUpper = FunctionStringToString<TransferImpl<NameToUpper>, NameTo
 
 using FunctionToInitcap = FunctionStringToString<InitcapImpl, NameToInitcap>;
 
-using FunctionUnHex = FunctionStringEncode<UnHexImpl>;
-using FunctionUnHexNullable = FunctionStringEncodeNullable<UnHexImpl>;
-using FunctionToBase64 = FunctionStringEncode<ToBase64Impl>;
+using FunctionUnHex = FunctionStringEncode<UnHexImpl<UnHexImplEmpty>, false>;
+using FunctionUnHexNullable = FunctionStringEncode<UnHexImpl<UnHexImplNull>, true>;
+using FunctionToBase64 = FunctionStringEncode<ToBase64Impl, false>;
 using FunctionFromBase64 = FunctionStringOperateToNullType<FromBase64Impl>;
 
 using FunctionStringAppendTrailingCharIfAbsent =
