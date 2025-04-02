@@ -848,14 +848,15 @@ public class RuntimeProfile {
 
         // Handle runtime profile structure
         /* 
-        -  BloomRuntimeFilterInfo:  sum  ,  avg  ,  max  ,  min  
+        -  RuntimeFilterInfo:  sum  ,  avg  ,  max  ,  min  
             -  bloom  filter  id  =  3  filtered:  sum  4.809288M  (4809288),  avg  4.809288M  (4809288),  max  4.809288M  (4809288),  min  4.809288M  (4809288)
             -  bloom  filter  id  =  3  input:  sum  5.995884M  (5995884),  avg  5.995884M  (5995884),  max  5.995884M  (5995884),  min  5.995884M  (5995884)
             -  bloom  filter  id  =  5  filtered:  sum  712.946K  (712946),  avg  712.946K  (712946),  max  712.946K  (712946),  min  712.946K  (712946)
             -  bloom  filter  id  =  5  input:  sum  1.186596M  (1186596),  avg  1.186596M  (1186596),  max  1.186596M  (1186596),  min  1.186596M  (1186596)
         */
+
         for (Entry<String, TreeSet<String>> entry : this.childCounterMap.entrySet()) {
-            if (entry.getKey().equals("BloomRuntimeFilterInfo")) {
+            if (entry.getKey().equals("RuntimeFilterInfo")) {
                 AggCounter filteredAggCounter = new AggCounter(TUnit.UNIT);
                 AggCounter inputAggCounter = new AggCounter(TUnit.UNIT);
                 Set<String> childCounterSet = entry.getValue();
