@@ -858,7 +858,7 @@ TabletSchema::~TabletSchema() {
 }
 
 int64_t TabletSchema::get_metadata_size() const {
-    return sizeof(TabletSchema) + _vl_field_mem_size;
+    return sizeof(TabletSchema);
 }
 
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
@@ -1025,10 +1025,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
 
         _cols.emplace_back(std::move(column));
         if (!_cols.back()->is_extracted_column()) {
-            _vl_field_mem_size +=
-                    sizeof(StringRef) + sizeof(char) * _cols.back()->name().size() + sizeof(size_t);
             _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
-            _vl_field_mem_size += sizeof(int32_t) * 2;
             _field_id_to_index[_cols.back()->unique_id()] = _num_columns;
         }
         _num_columns++;
@@ -1087,7 +1084,6 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
     _enable_variant_flatten_nested = schema.enable_variant_flatten_nested();
-    _vl_field_mem_size += _row_store_column_unique_ids.capacity() * sizeof(int32_t);
     update_metadata_size();
 }
 
@@ -1108,7 +1104,6 @@ void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schem
     _num_null_columns = 0;
     _num_key_columns = 0;
     _cols.clear();
-    _vl_field_mem_size = 0;
     // notice : do not ref columns
     _column_cache_handlers.clear();
 }

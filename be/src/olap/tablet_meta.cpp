@@ -36,7 +36,6 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/config.h"
-#include "gutil/integral_types.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"

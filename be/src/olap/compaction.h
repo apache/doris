@@ -154,6 +154,10 @@ public:
 
     int64_t initiator() const { return INVALID_COMPACTION_INITIATOR_ID; }
 
+    int64_t calc_input_rowsets_total_size() const;
+
+    int64_t calc_input_rowsets_row_num() const;
+
 protected:
     // Convert `_tablet` from `BaseTablet` to `Tablet`
     Tablet* tablet();

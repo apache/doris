@@ -289,8 +289,6 @@ void skipPadding(std::string_view& sp, const char* start, size_t alignment) {
 
 Dwarf::Path::Path(std::string_view baseDir, std::string_view subDir, std::string_view file)
         : baseDir_(baseDir), subDir_(subDir), file_(file) {
-    using std::swap;
-
     // Normalize
     if (file_.empty()) {
         baseDir_ = {};

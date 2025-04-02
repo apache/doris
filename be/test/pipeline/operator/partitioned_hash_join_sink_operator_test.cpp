@@ -348,6 +348,10 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
     sink_state->_shared_state->inner_runtime_state->emplace_sink_local_state(
             0, std::move(inner_sink_local_state));
 
+    sink_state->_finish_dependency =
+            Dependency::create_shared(sink_operator->operator_id(), sink_operator->node_id(),
+                                      "HashJoinBuildFinishDependency", true);
+
     // Expect revoke memory to trigger spilling
     status = sink_state->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(status.ok()) << "Revoke memory failed: " << status.to_string();

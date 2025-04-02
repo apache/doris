@@ -521,7 +521,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_conditions_param_timer_ns);
     std::vector<ColumnPredicate*> predicates;
     auto emplace_predicate = [&predicates](auto& param, ColumnPredicate* predicate) {
-        predicate->set_runtime_filter_id(param.runtime_filter_id);
+        predicate->set_runtime_filter_info(param.runtime_filter_id, param.filtered_rows_counter,
+                                           param.input_rows_counter);
         predicates.emplace_back(predicate);
     };
 

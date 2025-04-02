@@ -322,6 +322,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
@@ -472,6 +473,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XpathString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -1117,6 +1119,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMonthsAdd(MonthsAdd monthsAdd, C context) {
         return visitScalarFunction(monthsAdd, context);
+    }
+
+    default R visitMonthsBetween(MonthsBetween monthsBetween, C context) {
+        return visitScalarFunction(monthsBetween, context);
     }
 
     default R visitYearsAdd(YearsAdd yearsAdd, C context) {
@@ -2327,6 +2333,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitXor(Xor xor, C context) {
         return visitScalarFunction(xor, context);
+    }
+
+    default R visitXpathString(XpathString xpathString, C context) {
+        return visitScalarFunction(xpathString, context);
     }
 
     // struct function

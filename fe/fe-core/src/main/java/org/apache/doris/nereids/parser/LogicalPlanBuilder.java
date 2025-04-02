@@ -86,6 +86,7 @@ import org.apache.doris.nereids.DorisParser.AlterMultiPartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.AlterRepositoryContext;
 import org.apache.doris.nereids.DorisParser.AlterRoleContext;
 import org.apache.doris.nereids.DorisParser.AlterSqlBlockRuleContext;
+import org.apache.doris.nereids.DorisParser.AlterStoragePolicyContext;
 import org.apache.doris.nereids.DorisParser.AlterStorageVaultContext;
 import org.apache.doris.nereids.DorisParser.AlterSystemRenameComputeGroupContext;
 import org.apache.doris.nereids.DorisParser.AlterTableAddRollupContext;
@@ -340,6 +341,7 @@ import org.apache.doris.nereids.DorisParser.ShowReplicaDistributionContext;
 import org.apache.doris.nereids.DorisParser.ShowRepositoriesContext;
 import org.apache.doris.nereids.DorisParser.ShowRestoreContext;
 import org.apache.doris.nereids.DorisParser.ShowRolesContext;
+import org.apache.doris.nereids.DorisParser.ShowRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.ShowSmallFilesContext;
 import org.apache.doris.nereids.DorisParser.ShowSnapshotContext;
 import org.apache.doris.nereids.DorisParser.ShowSqlBlockRuleContext;
@@ -385,6 +387,7 @@ import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
 import org.apache.doris.nereids.DorisParser.TabletListContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
+import org.apache.doris.nereids.DorisParser.UnlockTablesContext;
 import org.apache.doris.nereids.DorisParser.UnsupportedContext;
 import org.apache.doris.nereids.DorisParser.UpdateAssignmentContext;
 import org.apache.doris.nereids.DorisParser.UpdateAssignmentSeqContext;
@@ -530,6 +533,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemRenameComputeGroupCommand;
@@ -657,6 +661,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionComm
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
@@ -683,6 +688,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountComman
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
@@ -4567,9 +4573,31 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitAlterStoragePolicy(AlterStoragePolicyContext ctx) {
+        String policyName = visitIdentifierOrText(ctx.identifierOrText());
+        Map<String, String> properties = visitPropertyClause(ctx.propertyClause()) == null ? Maps.newHashMap()
+                : visitPropertyClause(ctx.propertyClause());
+
+        return new AlterStoragePolicyCommand(policyName, properties);
+    }
+
+    @Override
     public LogicalPlan visitShowGrantsForUser(ShowGrantsForUserContext ctx) {
         UserIdentity userIdent = visitUserIdentify(ctx.userIdentify());
         return new ShowGrantsCommand(userIdent, false);
+    }
+
+    @Override
+    public LogicalPlan visitShowRowPolicy(ShowRowPolicyContext ctx) {
+        UserIdentity user = null;
+        String role = null;
+        if (ctx.userIdentify() != null) {
+            user = visitUserIdentify(ctx.userIdentify());
+        } else if (ctx.role != null) {
+            role = ctx.role.getText();
+        }
+
+        return new ShowRowPolicyCommand(user, role);
     }
 
     @Override
@@ -6112,6 +6140,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         return new ShowTableCommand(dbName, ctlName, isVerbose, PlanType.SHOW_TABLES);
+    }
+
+    @Override
+    public Plan visitUnlockTables(UnlockTablesContext ctx) {
+        return new UnlockTablesCommand();
     }
 
     @Override

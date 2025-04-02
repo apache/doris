@@ -590,5 +590,18 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " THRIFT " ]]; then
     echo "Finished patching ${THRIFT_SOURCE}"
 fi
 
+# patch faiss cmake so that we can use openblas
+if [[ " ${TP_ARCHIVES[*]} " =~ " FAISS " ]]; then
+    if [[ "${FAISS_SOURCE}" = "faiss-1.10.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${FAISS_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p2 <"${TP_PATCH_DIR}/faiss-1.10.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${FAISS_SOURCE}"
+fi
+
 
 # vim: ts=4 sw=4 ts=4 tw=100:

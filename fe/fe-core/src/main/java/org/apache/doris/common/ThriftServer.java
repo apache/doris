@@ -31,6 +31,7 @@ import org.apache.thrift.server.TSimpleServer;
 import org.apache.thrift.server.TThreadPoolServer;
 import org.apache.thrift.server.TThreadedSelectorServer;
 import org.apache.thrift.transport.TNonblockingServerSocket;
+import org.apache.thrift.transport.TNonblockingSocket;
 import org.apache.thrift.transport.TServerSocket;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransportException;
@@ -95,14 +96,42 @@ public class ThriftServer {
     }
 
     private void createSimpleServer() throws TTransportException {
-        TServer.Args args = new TServer.Args(new TServerSocket(port)).protocolFactory(
+        TServerSocket.ServerSocketTransportArgs socketTransportArgs;
+
+        if (FrontendOptions.isBindIPV6()) {
+            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
+                    .bindAddr(new InetSocketAddress("::0", port))
+                    .clientTimeout(Config.thrift_client_timeout_ms)
+                    .backlog(Config.thrift_backlog_num);
+        } else {
+            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
+                    .bindAddr(new InetSocketAddress("0.0.0.0", port))
+                    .clientTimeout(Config.thrift_client_timeout_ms)
+                    .backlog(Config.thrift_backlog_num);
+        }
+
+        TServer.Args args = new TServer.Args(new ImprovedTServerSocket(socketTransportArgs)).protocolFactory(
                 new TBinaryProtocol.Factory()).processor(processor);
         server = new TSimpleServer(args);
     }
 
     private void createThreadedServer() throws TTransportException {
+        TNonblockingServerSocket.NonblockingAbstractServerSocketArgs socketTransportArgs;
+
+        if (FrontendOptions.isBindIPV6()) {
+            socketTransportArgs = new TNonblockingServerSocket.NonblockingAbstractServerSocketArgs()
+                    .bindAddr(new InetSocketAddress("::0", port))
+                    .clientTimeout(Config.thrift_client_timeout_ms)
+                    .backlog(Config.thrift_backlog_num);
+        } else {
+            socketTransportArgs = new TNonblockingServerSocket.NonblockingAbstractServerSocketArgs()
+                    .bindAddr(new InetSocketAddress("0.0.0.0", port))
+                    .clientTimeout(Config.thrift_client_timeout_ms)
+                    .backlog(Config.thrift_backlog_num);
+        }
+
         TThreadedSelectorServer.Args args = new TThreadedSelectorServer.Args(
-                new TNonblockingServerSocket(port, Config.thrift_client_timeout_ms))
+                new ImprovedTNonblockingServerSocket(socketTransportArgs))
                 .protocolFactory(new TBinaryProtocol.Factory())
                 .processor(processor);
         ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
@@ -211,6 +240,24 @@ public class ThriftServer {
             socket.updateKnownMessageSize(0); // Since we update the configuration, reset consumed message size.
             socket.setTimeout(Config.thrift_client_timeout_ms);
 
+            return socket;
+        }
+    }
+
+    static class ImprovedTNonblockingServerSocket extends TNonblockingServerSocket {
+        public ImprovedTNonblockingServerSocket(NonblockingAbstractServerSocketArgs args) throws TTransportException {
+            super(args);
+        }
+
+        @Override
+        public TNonblockingSocket accept() throws TTransportException {
+            TNonblockingSocket socket = super.accept();
+
+            TConfiguration cfg = socket.getConfiguration();
+            cfg.setMaxMessageSize(Config.thrift_max_message_size);
+            cfg.setMaxFrameSize(Config.thrift_max_frame_size);
+
+            socket.updateKnownMessageSize(0); // Since we update the configuration, reset consumed message size.
             return socket;
         }
     }

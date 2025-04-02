@@ -1831,4 +1831,26 @@ TEST(VTimestampFunctionsTest, year_of_week_test) {
     }
 }
 
+TEST(VTimestampFunctionsTest, months_between_test) {
+    std::string func_name = "months_between";
+    BaseInputTypeSet input_types = {TypeIndex::DateV2, TypeIndex::DateV2, TypeIndex::UInt8};
+    DataSet data_set = {
+            {{std::string("2020-01-01"), std::string("2020-02-01"), uint8_t(0)}, double(-1.0)},
+            {{std::string("2020-01-01"), std::string("2020-03-01"), uint8_t(1)}, double(-2.0)},
+            {{std::string("2020-01-01"), std::string("2020-04-01"), uint8_t(0)}, double(-3.0)},
+            {{std::string("2020-01-01"), std::string("2020-12-01"), uint8_t(1)}, double(-11.0)},
+            {{std::string("2020-01-01"), std::string("2021-01-01"), uint8_t(0)}, double(-12.0)},
+            {{std::string("2020-01-01"), std::string("2022-01-01"), uint8_t(1)}, double(-24.0)},
+            {{std::string("2020-01-01"), std::string("2020-01-01"), uint8_t(0)}, double(0.0)},
+            {{std::string("2020-12-01"), std::string("2020-01-01"), uint8_t(1)}, double(11.0)},
+            {{std::string("2021-01-01"), std::string("2020-01-01"), uint8_t(0)}, double(12.0)},
+            {{std::string("2022-01-01"), std::string("2020-01-01"), uint8_t(1)}, double(24.0)},
+            {{std::string(""), std::string("2020-01-01"), uint8_t(1)}, Null()},
+            {{std::string("2020-01-01"), std::string(""), uint8_t(1)}, Null()},
+            {{Null(), std::string("2020-01-01"), uint8_t(1)}, Null()},
+            {{std::string("2020-01-01"), Null(), uint8_t(1)}, Null()}};
+    static_cast<void>(
+            check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
 } // namespace doris::vectorized

@@ -44,7 +44,7 @@ public:
         for (auto filter : _producers) {
             filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
         }
-        return _publish(state);
+        return publish(state);
     }
 
 private:

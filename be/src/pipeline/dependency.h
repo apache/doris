@@ -29,7 +29,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/integral_types.h"
 #include "pipeline/common/agg_utils.h"
 #include "pipeline/common/join_utils.h"
 #include "pipeline/common/set_utils.h"
@@ -112,7 +111,7 @@ public:
     [[nodiscard]] int64_t watcher_elapse_time() { return _watcher.elapsed_time(); }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] Dependency* is_blocked_by(PipelineTask* task = nullptr);
+    [[nodiscard]] Dependency* is_blocked_by(std::shared_ptr<PipelineTask> task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
     virtual void set_ready();
     void set_ready_to_read(int channel_id = 0) {
@@ -149,7 +148,7 @@ public:
     }
 
 protected:
-    void _add_block_task(PipelineTask* task);
+    void _add_block_task(std::shared_ptr<PipelineTask> task);
 
     const int _id;
     const int _node_id;
@@ -160,7 +159,7 @@ protected:
     MonotonicStopWatch _watcher;
 
     std::mutex _task_lock;
-    std::vector<PipelineTask*> _blocked_task;
+    std::vector<std::weak_ptr<PipelineTask>> _blocked_task;
 
     // If `_always_ready` is true, `block()` will never block tasks.
     std::atomic<bool> _always_ready = false;

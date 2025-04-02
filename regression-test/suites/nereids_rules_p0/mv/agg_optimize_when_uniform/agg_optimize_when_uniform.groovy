@@ -18,13 +18,9 @@
 suite("agg_optimize_when_uniform") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-
-    sql """
-        set enable_agg_state=true;
-        set disable_nereids_rules='ELIMINATE_CONST_JOIN_CONDITION';
-        SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject';
-        set runtime_filter_mode=OFF;
-        """
+    sql "set runtime_filter_mode=OFF";
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql """set enable_agg_state=true"""
 
     sql """
     drop table if exists orders

@@ -20,9 +20,6 @@
 
 #include <stddef.h>
 
-#include <utility>
-
-#include "gutil/integral_types.h"
 #include "runtime/decimalv2_value.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/arithmetic_overflow.h"
