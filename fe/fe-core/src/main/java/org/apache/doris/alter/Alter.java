@@ -333,11 +333,7 @@ public class Alter {
             newBaseTableInfo = Optional.of(new BaseTableInfo(olapTable));
         } else if (currentAlterOps.hasReplaceTableOp()) {
             processReplaceTable(db, olapTable, alterClauses);
-            // after replace table, olapTable may still be old name, so need set it to new name
-            ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
-            String newTblName = clause.getTblName();
             newBaseTableInfo = Optional.of(new BaseTableInfo(olapTable));
-            newBaseTableInfo.get().setTableName(newTblName);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_PROPERTY_SYNC)) {
             needProcessOutsideTableLock = true;
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_DISTRIBUTION)) {
