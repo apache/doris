@@ -1851,8 +1851,8 @@ static bool remove_pending_delete_bitmap(MetaServiceCode& code, std::string& msg
 
 static bool check_partition_version_when_update_delete_bitmap(
         MetaServiceCode& code, std::string& msg, std::unique_ptr<Transaction>& txn,
-        std::string& instance_id, int64_t txn_id, int64_t table_id, int64_t partition_id,
-        int64_t tablet_id, const UpdateDeleteBitmapRequest* request) {
+        std::string& instance_id, int64_t table_id, int64_t partition_id, int64_t tablet_id,
+        int64_t txn_id, int64_t next_visible_version) {
     TabletIndexPB tablet_idx;
     get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
     if (code != MetaServiceCode::OK) return false;
@@ -1900,14 +1900,13 @@ static bool check_partition_version_when_update_delete_bitmap(
         }
     }
 
-    if (cur_max_version + 1 != request->next_visible_version()) {
+    if (cur_max_version + 1 != next_visible_version) {
         code = MetaServiceCode::VERSION_NOT_MATCH;
         msg = fmt::format(
                 "check version failed when update_delete_bitmap, txn={}, table_id={}, "
                 "partition_id={}, tablet_id={}, found partition's max version is {}, but "
                 "request next_visible_version is {}",
-                txn_id, table_id, partition_id, tablet_id, cur_max_version,
-                request->next_visible_version());
+                txn_id, table_id, partition_id, tablet_id, cur_max_version, next_visible_version);
         return false;
     }
     return true;
@@ -1974,10 +1973,10 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
 
     // 3. check if partition's version matches
-    if (request->has_txn_id() && request->has_next_visible_version()) {
-        if (!check_partition_version_when_update_delete_bitmap(code, msg, txn, instance_id,
-                                                               request->txn_id(), table_id,
-                                                               partition_id, tablet_id, request)) {
+    if (request->lock_id() > 0 && request->has_txn_id() && request->has_next_visible_version()) {
+        if (!check_partition_version_when_update_delete_bitmap(
+                    code, msg, txn, instance_id, table_id, partition_id, tablet_id,
+                    request->txn_id(), request->next_visible_version())) {
             return;
         }
     }
