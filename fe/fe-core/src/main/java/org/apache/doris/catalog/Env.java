@@ -4997,16 +4997,22 @@ public class Env {
                 }
 
                 if (table.isManagedTable()) {
-                    // olap table should also check if any rollup has same name as "newTableName"
-                    ((OlapTable) table).checkAndSetName(newTableName, false);
-                } else {
-                    table.setName(newTableName);
+                    // only check
+                    ((OlapTable) table).checkAndSetName(newTableName, true);
                 }
 
                 db.unregisterTable(oldTableName);
                 if (table instanceof MTMV) {
                     Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
                 }
+
+                if (table.isManagedTable()) {
+                    // olap table should also check if any rollup has same name as "newTableName"
+                    ((OlapTable) table).checkAndSetName(newTableName, false);
+                } else {
+                    table.setName(newTableName);
+                }
+
                 db.registerTable(table);
                 if (table instanceof MTMV) {
                     Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, db.getId());
