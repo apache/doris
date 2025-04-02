@@ -1262,8 +1262,8 @@ std::vector<RowsetSharedPtr> Tablet::_pick_visible_rowsets_to_compaction(
             // 1. had been visible;
             // 2. exceeds the limit of keep invisible versions.
             int64_t version_end = version.second;
-            if (version_end <= visible_version ||
-                version_end > visible_version + keep_invisible_version_limit) {
+            if (version_end <= visible_version || ((candidate_rowsets.empty() || candidate_rowsets.front()->version().second > visible_version) 
+                    && version_end > visible_version + keep_invisible_version_limit) {
                 candidate_rowsets.push_back(rs);
             }
         }
