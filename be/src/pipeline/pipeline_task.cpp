@@ -60,7 +60,8 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
                                                    std::vector<std::shared_ptr<Dependency>>>>
                                    shared_state_map,
                            int task_idx)
-        : _index(task_id),
+        : _query_id(fragment_context->get_query_id()),
+          _index(task_id),
           _pipeline(pipeline),
           _opened(false),
           _state(state),
@@ -121,8 +122,10 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
         std::unique_lock<std::mutex> lc(_dependency_lock);
         filter_dependencies.swap(_filter_dependencies);
     }
-    if (query_context()->is_cancelled()) {
-        terminate();
+    if (auto fragment = _fragment_context.lock()) {
+        if (fragment->get_query_ctx()->is_cancelled()) {
+            terminate();
+        }
     }
     _block = doris::vectorized::Block::create_unique();
     return _state_transition(State::RUNNABLE);
@@ -233,12 +236,12 @@ bool PipelineTask::_wait_to_start() {
     // Before task starting, we should make sure
     // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
     // 2. Runtime filter dependencies are ready
-    if (_execution_dep->is_blocked_by(this)) {
+    if (_execution_dep->is_blocked_by(shared_from_this())) {
         return true;
     }
 
     for (auto* dep : _filter_dependencies) {
-        if (dep->is_blocked_by(this)) {
+        if (dep->is_blocked_by(shared_from_this())) {
             return true;
         }
     }
@@ -248,12 +251,12 @@ bool PipelineTask::_wait_to_start() {
 bool PipelineTask::_is_pending_finish() {
     // Spilling may be in progress if eos is true.
     for (auto* dep : _spill_dependencies) {
-        if (dep->is_blocked_by(this)) {
+        if (dep->is_blocked_by(shared_from_this())) {
             return true;
         }
     }
     for (auto* dep : _finish_dependencies) {
-        if (dep->is_blocked_by(this)) {
+        if (dep->is_blocked_by(shared_from_this())) {
             return true;
         }
     }
@@ -262,11 +265,11 @@ bool PipelineTask::_is_pending_finish() {
 
 bool PipelineTask::_is_blocked() {
     for (auto* dep : _spill_dependencies) {
-        if (dep->is_blocked_by(this)) {
+        if (dep->is_blocked_by(shared_from_this())) {
             return true;
         }
     }
-    if (_memory_sufficient_dependency->is_blocked_by(this)) {
+    if (_memory_sufficient_dependency->is_blocked_by(shared_from_this())) {
         return true;
     }
     // `_dry_run = true` means we do not need data from source operator.
@@ -274,7 +277,7 @@ bool PipelineTask::_is_blocked() {
         for (int i = _read_dependencies.size() - 1; i >= 0; i--) {
             // `_read_dependencies` is organized according to operators. For each operator, running condition is met iff all dependencies are ready.
             for (auto* dep : _read_dependencies[i]) {
-                if (dep->is_blocked_by(this)) {
+                if (dep->is_blocked_by(shared_from_this())) {
                     return true;
                 }
             }
@@ -285,7 +288,7 @@ bool PipelineTask::_is_blocked() {
         }
     }
     for (auto* dep : _write_dependencies) {
-        if (dep->is_blocked_by(this)) {
+        if (dep->is_blocked_by(shared_from_this())) {
             return true;
         }
     }
@@ -295,8 +298,9 @@ bool PipelineTask::_is_blocked() {
 void PipelineTask::terminate() {
     // We use a lock to assure all dependencies are not deconstructed here.
     std::unique_lock<std::mutex> lc(_dependency_lock);
-    if (!is_finalized()) {
-        DCHECK(_wake_up_early || _fragment_context.lock()->is_canceled());
+    auto fragment = _fragment_context.lock();
+    if (!is_finalized() && fragment) {
+        DCHECK(_wake_up_early || fragment->is_canceled());
         for (auto* dep : _spill_dependencies) {
             dep->set_always_ready();
         }
@@ -349,7 +353,8 @@ Status PipelineTask::execute(bool* done) {
         }
         int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
         _task_cpu_timer->update(delta_cpu_time);
-        query_context()->resource_ctx()->cpu_context()->update_cpu_cost_ms(delta_cpu_time);
+        fragment_context->get_query_ctx()->resource_ctx()->cpu_context()->update_cpu_cost_ms(
+                delta_cpu_time);
 
         // If task is woke up early, we should terminate all operators, and this task could be closed immediately.
         if (_wake_up_early) {
@@ -602,8 +607,11 @@ Status PipelineTask::execute(bool* done) {
 }
 
 Status PipelineTask::finalize() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
-            _fragment_context.lock()->get_query_ctx()->query_mem_tracker());
+    auto fragment = _fragment_context.lock();
+    if (!fragment) {
+        return Status::OK();
+    }
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
     std::unique_lock<std::mutex> lc(_dependency_lock);
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
     _sink_shared_state.reset();
@@ -653,22 +661,28 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
 std::string PipelineTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
 
-    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
+    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(_query_id));
     fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
                    print_id(_state->fragment_instance_id()));
 
+    fmt::format_to(debug_string_buffer,
+                   "PipelineTask[this = {}, id = {}, open = {}, eos = {}, state = {}, dry run = "
+                   "{}, _wake_up_early = {}, time elapsed since last state changing = {}s, spilling"
+                   " = {}, is running = {}]",
+                   (void*)this, _index, _opened, _eos, _to_string(_exec_state), _dry_run,
+                   _wake_up_early.load(), _state_change_watcher.elapsed_time() / NANOS_PER_SEC,
+                   _spilling, is_running());
     std::unique_lock<std::mutex> lc(_dependency_lock);
     auto* cur_blocked_dep = _blocked_dep;
-    auto elapsed = _fragment_context.lock()->elapsed_time() / NANOS_PER_SEC;
-    fmt::format_to(
-            debug_string_buffer,
-            "PipelineTask[this = {}, id = {}, open = {}, eos = {}, state = {}, dry run = "
-            "{}, elapse time = {}s, _wake_up_early = {}], time elapsed since last state "
-            "changing = {}s, block dependency = [{}], spilling = {}, is running = {}\noperators: ",
-            (void*)this, _index, _opened, _eos, _to_string(_exec_state), _dry_run, elapsed,
-            _wake_up_early.load(), _state_change_watcher.elapsed_time() / NANOS_PER_SEC,
-            cur_blocked_dep && !is_finalized() ? cur_blocked_dep->debug_string() : "NULL",
-            _spilling, is_running());
+    auto fragment = _fragment_context.lock();
+    if (is_finalized() || !fragment) {
+        return fmt::to_string(debug_string_buffer);
+    }
+    auto elapsed = fragment->elapsed_time() / NANOS_PER_SEC;
+    fmt::format_to(debug_string_buffer,
+                   " elapse time = {}s, block dependency = [{}]\noperators: ", elapsed,
+                   cur_blocked_dep && !is_finalized() ? cur_blocked_dep->debug_string() : "NULL");
+
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
                        _opened && !is_finalized() ? _operators[i]->debug_string(_state, i)
@@ -677,9 +691,6 @@ std::string PipelineTask::debug_string() {
     fmt::format_to(debug_string_buffer, "\n{}\n",
                    _opened && !is_finalized() ? _sink->debug_string(_state, _operators.size())
                                               : _sink->debug_string(_operators.size()));
-    if (is_finalized()) {
-        return fmt::to_string(debug_string_buffer);
-    }
 
     fmt::format_to(debug_string_buffer, "\nRead Dependency Information: \n");
 
@@ -754,8 +765,6 @@ Status PipelineTask::wake_up(Dependency* dep) {
     DCHECK_EQ(_blocked_dep, dep) << "dep : " << dep->debug_string(0) << "task: " << debug_string();
     _blocked_dep = nullptr;
     auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
-    DCHECK(_scheduler);
-    _scheduler->erase_blocked_task(&_blocked_iterator);
     RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
     RETURN_IF_ERROR(get_task_queue()->push_back(holder));
     return Status::OK();
@@ -778,10 +787,6 @@ Status PipelineTask::_state_transition(State new_state) {
         }
         break;
     case State::BLOCKED:
-        // If this task is blocked, the blocking dependency will hold the raw pointer of this task.
-        // To ensure this task will not be freed, we use scheduler to hold the shared pointer.
-        DCHECK(_scheduler);
-        _scheduler->hold_blocked_task(shared_from_this(), &_blocked_iterator);
         if (_exec_state != State::RUNNABLE && _exec_state != State::FINISHED) {
             return Status::InternalError(
                     "Task state transition from {} to {} is not allowed! Task info: {}",
@@ -811,7 +816,4 @@ Status PipelineTask::_state_transition(State new_state) {
     return Status::OK();
 }
 
-QueryContext* PipelineTask::query_context() {
-    return _fragment_context.lock()->get_query_ctx();
-}
 } // namespace doris::pipeline

@@ -63,9 +63,7 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status, bool close_sink = true);
 
-    std::shared_ptr<PipelineFragmentContext> fragment_context() { return _fragment_context.lock(); }
-
-    QueryContext* query_context();
+    std::weak_ptr<PipelineFragmentContext>& fragment_context() { return _fragment_context; }
 
     int get_core_id() const { return _core_id; }
 
@@ -128,8 +126,6 @@ public:
     void terminate();
 
     void set_task_queue(MultiCoreTaskQueue* task_queue) { _task_queue = task_queue; }
-    // Task may be scheduled by different scheduler, so `_scheduler` should be updated each time.
-    void set_scheduler(TaskScheduler* scheduler) { _scheduler = scheduler; }
     MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
@@ -190,8 +186,6 @@ public:
 
     RuntimeState* runtime_state() const { return _state; }
 
-    RuntimeProfile* get_task_profile() const { return _task_profile.get(); }
-
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
     // TODO: Maybe we do not need this safe code anymore
@@ -229,7 +223,8 @@ private:
     void _fresh_profile_counter();
     Status _open();
 
-    uint32_t _index;
+    const TUniqueId _query_id;
+    const uint32_t _index;
     PipelinePtr _pipeline;
     bool _has_exceed_timeout = false;
     bool _opened;
@@ -240,9 +235,6 @@ private:
 
     std::weak_ptr<PipelineFragmentContext> _fragment_context;
     MultiCoreTaskQueue* _task_queue = nullptr;
-    TaskScheduler* _scheduler = nullptr;
-    // If this task is blocked (e.g. enqueued into dependency's blocking queue), it will be held by scheduler.
-    std::list<std::shared_ptr<pipeline::PipelineTask>>::iterator _blocked_iterator;
 
     // used for priority queue
     // it may be visited by different thread but there is no race condition

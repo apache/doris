@@ -58,10 +58,6 @@ public:
 
     std::vector<int> thread_debug_info() { return _fix_thread_pool->debug_info(); }
 
-    void hold_blocked_task(std::shared_ptr<pipeline::PipelineTask> task,
-                           std::list<std::shared_ptr<pipeline::PipelineTask>>::iterator* it);
-    void erase_blocked_task(std::list<std::shared_ptr<pipeline::PipelineTask>>::iterator* it);
-
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
 
@@ -70,8 +66,6 @@ private:
     bool _shutdown = false;
     std::string _name;
     std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
-    std::list<std::shared_ptr<PipelineTask>> _blocked_pipeline_tasks;
-    std::mutex _blocked_task_mutex;
 
     void _do_work(int index);
 };

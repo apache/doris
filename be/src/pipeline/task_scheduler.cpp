@@ -75,24 +75,23 @@ Status TaskScheduler::schedule_task(PipelineTaskSPtr task) {
 }
 
 // after close_task, task maybe destructed.
-void close_task(PipelineTask* task, Status exec_status) {
+void close_task(PipelineTask* task, Status exec_status, PipelineFragmentContext* ctx) {
     // Has to attach memory tracker here, because the close task will also release some memory.
     // Should count the memory to the query or the query's memory will not decrease when part of
     // task finished.
     SCOPED_ATTACH_TASK(task->runtime_state());
     if (!exec_status.ok()) {
-        task->fragment_context()->cancel(exec_status);
+        ctx->cancel(exec_status);
         LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
-                                    print_id(task->query_context()->query_id()),
-                                    exec_status.to_string());
+                                    print_id(ctx->get_query_id()), exec_status.to_string());
     }
     Status status = task->close(exec_status);
     if (!status.ok()) {
-        task->fragment_context()->cancel(status);
+        ctx->cancel(status);
     }
     status = task->finalize();
     if (!status.ok()) {
-        task->fragment_context()->cancel(status);
+        ctx->cancel(status);
     }
 }
 
@@ -113,9 +112,9 @@ void TaskScheduler::_do_work(int index) {
         if (task->is_finalized()) {
             continue;
         }
-        auto fragment_context = task->fragment_context();
+        auto fragment_context = task->fragment_context().lock();
         if (!fragment_context) {
-            // Fragment already finished
+            // Fragment already finishedquery
             continue;
         }
         task->set_running(true);
@@ -125,7 +124,7 @@ void TaskScheduler::_do_work(int index) {
             // If fragment is finished, fragment context will be de-constructed with all tasks in it.
             if (done || !status.ok()) {
                 auto id = task->pipeline_id();
-                close_task(task.get(), status);
+                close_task(task.get(), status, fragment_context.get());
                 task->set_running(false);
                 fragment_context->decrement_running_task(id);
             } else {
@@ -150,7 +149,7 @@ void TaskScheduler::_do_work(int index) {
         ASSIGN_STATUS_IF_CATCH_EXCEPTION(
                 //TODO: use a better enclose to abstracting these
                 if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
-                    TUniqueId query_id = task->query_context()->query_id();
+                    TUniqueId query_id = fragment_context->get_query_id();
                     std::string task_name = task->task_name();
 
                     std::thread::id tid = std::this_thread::get_id();
@@ -183,20 +182,6 @@ void TaskScheduler::stop() {
         // not check it and will free task scheduler.
         _shutdown = true;
     }
-}
-
-void TaskScheduler::hold_blocked_task(
-        std::shared_ptr<pipeline::PipelineTask> task,
-        std::list<std::shared_ptr<pipeline::PipelineTask>>::iterator* it) {
-    std::lock_guard<std::mutex> lock(_blocked_task_mutex);
-    *it = _blocked_pipeline_tasks.insert(_blocked_pipeline_tasks.end(), task);
-}
-
-void TaskScheduler::erase_blocked_task(
-        std::list<std::shared_ptr<pipeline::PipelineTask>>::iterator* it) {
-    std::lock_guard<std::mutex> lock(_blocked_task_mutex);
-    _blocked_pipeline_tasks.erase(*it);
-    *it = _blocked_pipeline_tasks.end();
 }
 
 } // namespace doris::pipeline
