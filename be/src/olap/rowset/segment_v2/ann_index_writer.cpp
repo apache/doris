@@ -1,5 +1,9 @@
 #include "olap/rowset/segment_v2/ann_index_writer.h"
 
+#ifdef BUILD_FAISS
+#include "vector/faiss_vector_index.h"
+#endif
+
 namespace doris::segment_v2 {
 
 AnnIndexColumnWriter::AnnIndexColumnWriter(const std::string& field_name,
@@ -27,22 +31,30 @@ std::string get_or_default(const std::map<std::string, std::string>& properties,
 }
 
 Status AnnIndexColumnWriter::init_ann_index() {
-    // if(get_or_default(_index_meta->properties(), INDEX_TYPE, "")=="diskann"){
-    //     _vector_index_writer = std::make_shared<DiskannVectorIndex>(_dir);
-    //     std::shared_ptr<DiskannBuilderParameter>  builderParameterPtr = std::make_shared<DiskannBuilderParameter>();
-    //     builderParameterPtr->with_dim(std::stoi(get_or_default(_index_meta->properties(), DIM,"")))
-    //                         .with_L(std::stoi(get_or_default(_index_meta->properties(), DISKANN_SEARCH_LIST,"")))
-    //                         .with_R(std::stoi(get_or_default(_index_meta->properties(), DISKANN_MAX_DEGREE,"")))
-    //                         .with_build_num_threads(8)
-    //                         .with_sample_rate(1)
-    //                         .with_indexing_ram_budget_mb(10*1024)
-    //                         .with_search_ram_budget_mb(30)
-    //                         .with_mertic_type(VectorIndex::string_to_metric(get_or_default(_index_meta->properties(), METRIC_TYPE,"")));
-    //     _vector_index_writer->set_build_params(std::static_pointer_cast<BuilderParameter>(builderParameterPtr));
-    //     return Status::OK();
-    // }else{
-    return Status::NotSupported("ANN index is not support for now.");
-    // }
+    _vector_index_writer = nullptr;
+    std::string index_type = get_or_default(_index_meta->properties(), INDEX_TYPE, "");
+    if (index_type == "hnsw") {
+#ifdef BUILD_FAISS
+        std::shared_ptr<FaissVectorIndex> faiss_index_writer =
+                std::make_shared<FaissVectorIndex>(_dir);
+
+        FaissBuildParameter builderParameter;
+        builderParameter.index_type = FaissBuildParameter::string_to_index_type("hnsw");
+        builderParameter.d = std::stoi(get_or_default(_index_meta->properties(), DIM, "512"));
+        builderParameter.m = std::stoi(get_or_default(_index_meta->properties(), MAX_DEGREE, "32"));
+        builderParameter.quantilizer = FaissBuildParameter::string_to_quantilizer(
+                get_or_default(_index_meta->properties(), QUANTILIZER, "flat"));
+        faiss_index_writer->set_build_params(builderParameter);
+        _vector_index_writer = faiss_index_writer;
+#else
+        return Status::NotSupported("Faiss index is not supported, please build doris with faiss");
+#endif
+    }
+    if (_vector_index_writer == nullptr) {
+        return Status::NotSupported("Unsupported index type: " + index_type);
+    } else {
+        return Status::OK();
+    }
 }
 
 Status AnnIndexColumnWriter::open_index_directory() {

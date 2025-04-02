@@ -54,14 +54,12 @@ struct SearchParameters {
     virtual ~SearchParameters() {}
 };
 
-struct BuilderParameter {};
-
 class VectorIndex {
 public:
     enum class Metric { L2, COSINE, INNER_PRODUCT, UNKNOWN };
 
     virtual doris::Status add(int n, const float* vec) = 0;
-    virtual void set_build_params(std::shared_ptr<BuilderParameter> params) = 0;
+
     virtual doris::Status search(const float* query_vec, int k, SearchResult* result,
                                  const SearchParameters* params = nullptr) = 0;
     //virtual Status save(FileWriter* writer);
