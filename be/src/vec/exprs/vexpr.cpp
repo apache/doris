@@ -371,8 +371,8 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
     std::stack<std::pair<VExprSPtr, int>> s;
     s.emplace(root, root_children);
     while (!s.empty()) {
-        VExprSPtr parent_expr;
 
+        VExprSPtr parent_expr;
         {
             auto& top = s.top();
             // copy the shared ptr resource to avoid dangling reference
