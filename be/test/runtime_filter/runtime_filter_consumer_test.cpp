@@ -251,8 +251,9 @@ TEST_F(RuntimeFilterConsumerTest, aquire_signal_at_same_time) {
         producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
 
         std::vector<vectorized::VRuntimeFilterPtr> push_exprs;
-        std::thread thread1([]() { consumer->acquire_expr(push_exprs); });
-        std::thread thread2([]() { consumer->signal(producer.get()); });
+        std::thread thread1(
+                [&]() { [[maybe_unused]] auto res = consumer->acquire_expr(push_exprs); });
+        std::thread thread2([&]() { consumer->signal(producer.get()); });
         thread1.join();
         thread2.join();
 

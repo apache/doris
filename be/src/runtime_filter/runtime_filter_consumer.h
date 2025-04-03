@@ -129,11 +129,11 @@ private:
             DorisMetrics::instance()->runtime_filter_consumer_ready_num->increment(1);
             DorisMetrics::instance()->runtime_filter_consumer_wait_ready_ms->increment(
                     MonotonicMillis() - _registration_time);
+            _wrapper = other;
             _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED,
                                   RuntimeFilterWrapper::State::IGNORED,
                                   RuntimeFilterWrapper::State::READY});
             _check_state({State::NOT_READY, State::TIMEOUT});
-            _wrapper = other;
         }
         _rf_state = rf_state;
         _profile->add_info_string("Info", debug_string());
