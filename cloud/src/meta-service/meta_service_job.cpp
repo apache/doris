@@ -611,7 +611,7 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
                 LOG(INFO) << "clear initiators for key=" << hex(lock_key)
                           << " table_id=" << table_id;
             }
-//            txn->remove(lock_key);
+            //            txn->remove(lock_key);
         } else if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get tablet compaction key, instance_id=" << instance_id
                          << " table_id=" << table_id << " initiator=" << lock_initiator
