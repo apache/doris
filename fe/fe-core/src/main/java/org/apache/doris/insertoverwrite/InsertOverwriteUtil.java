@@ -104,6 +104,11 @@ public class InsertOverwriteUtil {
      */
     public static List<String> generateTempPartitionNames(List<String> partitionNames) {
         long threadId = Thread.currentThread().getId();
+        // Adding thread ID as a prefix is to avoid mutual interference
+        // when different threads perform insert overwrite on the same partition simultaneously.
+        // Even if the insert overwrite execution fails/cancels,
+        // the generated temporary partition will be deleted,
+        // so there will be no problem generating temporary partitions with the same name in a single thread
         String prefix = "iot_temp_" + threadId + "_";
         List<String> tempPartitionNames = new ArrayList<String>(partitionNames.size());
         for (String partitionName : partitionNames) {
