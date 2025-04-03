@@ -156,7 +156,9 @@ private:
     const int64_t _registration_time;
 
     std::atomic<State> _rf_state;
-    std::mutex _mtx; // used to avoid multithreading race on _wrapper
+    // only used to lock _set_state() to make _wrapper and _rf_state is protected
+    // signal and acquire_expr are called in different threads at the same time
+    std::mutex _mtx;
 
     friend class RuntimeFilterProducer;
 };
