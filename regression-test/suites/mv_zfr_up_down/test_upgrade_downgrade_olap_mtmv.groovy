@@ -90,25 +90,26 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success(test_sql3, mtmvName3)
-        compare_res()
+        compare_res(test_sql3 + " order by 1,2,3")
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success(test_sql3, mtmvName3)
-        compare_res()
+        compare_res(test_sql3 + " order by 1,2,3")
     }
 
     sql """refresh MATERIALIZED VIEW ${mtmvName3} auto"""
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success(test_sql3, mtmvName3)
-        compare_res()
+        compare_res(test_sql3 + " order by 1,2,3")
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success(test_sql3, mtmvName3)
+        compare_res(test_sql3 + " order by 1,2,3")
     }
 
     // mtmv1: drop table
@@ -118,14 +119,15 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     assertTrue(state_mtmv1[0][1] == "SUCCESS" || state_mtmv1[0][1] == "INIT")
     assertTrue(state_mtmv1[0][2] == false)
 
+    def test_sql1 = """SELECT a.* FROM ${tableName1} a inner join ${tableName4} b on a.user_id=b.user_id;"""
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_fail(test_sql3, mtmvName3)
+        mv_rewrite_fail(test_sql1, mtmvName3)
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_fail(test_sql3, mtmvName3)
+        mv_rewrite_fail(test_sql1, mtmvName3)
     }
 
     // After deleting the table, you can create a new MTMV
@@ -163,11 +165,13 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success(sql2, tableName4)
+        compare_res(sql2 + " order by 1,2,3")
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success(sql2, tableName4)
+        compare_res(sql2 + " order by 1,2,3")
     }
 
     // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
@@ -194,11 +198,13 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success(sql2, mtmvName2)
+        compare_res(sql2 + " order by 1,2,3")
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success(sql2, mtmvName2)
+        compare_res(sql2 + " order by 1,2,3")
     }
 
     // mtmv4: rename
@@ -231,21 +237,25 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """use ${dbName}"""
             mv_rewrite_success(test_sql4, mtmvName4)
+            compare_res(test_sql4 + " order by 1,2,3")
         }
 
         connect('root', context.config.jdbcPassword, master_jdbc_url) {
             sql """use ${dbName}"""
             mv_rewrite_success(test_sql4, mtmvName4)
+            compare_res(test_sql4 + " order by 1,2,3")
         }
     } else {
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """use ${dbName}"""
             mv_rewrite_success(test_sql4, mtmvName4_rn)
+            compare_res(test_sql4 + " order by 1,2,3")
         }
 
         connect('root', context.config.jdbcPassword, master_jdbc_url) {
             sql """use ${dbName}"""
             mv_rewrite_success(test_sql4, mtmvName4_rn)
+            compare_res(test_sql4 + " order by 1,2,3")
         }
     }
 
