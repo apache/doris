@@ -335,7 +335,7 @@ public enum RuleType {
     CROSS_TO_INNER_JOIN(RuleTypeClass.REWRITE),
     PRUNE_EMPTY_PARTITION(RuleTypeClass.REWRITE),
     PROJECT_OTHER_JOIN_CONDITION(RuleTypeClass.REWRITE),
-
+    JOIN_SPLIT_FOR_NULL_SKEW(RuleTypeClass.REWRITE),
     // split limit
     SPLIT_LIMIT(RuleTypeClass.REWRITE),
     PULL_UP_JOIN_FROM_UNION_ALL(RuleTypeClass.REWRITE),
