@@ -711,6 +711,9 @@ void Tablet::_delete_stale_rowset_by_version(const Version& version) {
 }
 
 void Tablet::delete_expired_stale_rowset() {
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("begin delete_expired_stale_rowset for tablet={}", tablet_id());
+    }
     int64_t now = UnixSeconds();
     // hold write lock while processing stable rowset
     {
@@ -879,6 +882,9 @@ void Tablet::delete_expired_stale_rowset() {
         save_meta();
     }
 #endif
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
+    }
 }
 
 Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
