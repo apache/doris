@@ -181,7 +181,7 @@ public class Memo {
      */
 
     public Pair<Integer, Integer> countGroupJoin(Group group) {
-        GroupExpression logicalExpr = group.getLogicalExpression();
+        GroupExpression logicalExpr = group.getLogicalExpressionWithoutCheck();
         List<Pair<Integer, Integer>> children = new ArrayList<>();
         for (Group child : logicalExpr.children()) {
             children.add(countGroupJoin(child));
@@ -196,7 +196,7 @@ public class Memo {
         for (Pair<Integer, Integer> child : children) {
             maxJoinCount = Math.max(maxJoinCount, child.second);
         }
-        if (group.getLogicalExpression().getPlan() instanceof LogicalJoin) {
+        if (group.getLogicalExpressionWithoutCheck().getPlan() instanceof LogicalJoin) {
             for (Pair<Integer, Integer> child : children) {
                 continuousJoinCount += child.first;
             }

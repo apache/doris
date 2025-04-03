@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -213,6 +214,8 @@ public class StatementContext implements Closeable {
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     private boolean privChecked;
+
+    private List<Plan> tmpPlanForLaterMvRewrite = new ArrayList<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -773,5 +776,13 @@ public class StatementContext implements Closeable {
 
     public void setPrivChecked(boolean privChecked) {
         this.privChecked = privChecked;
+    }
+
+    public List<Plan> getTmpPlanForLaterMvRewrite() {
+        return tmpPlanForLaterMvRewrite;
+    }
+
+    public void addTmpPlanForLaterMvRewrite(Plan logicalPlan) {
+        this.tmpPlanForLaterMvRewrite.add(logicalPlan);
     }
 }
