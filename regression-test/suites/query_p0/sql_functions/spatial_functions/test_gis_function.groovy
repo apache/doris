@@ -76,4 +76,11 @@ suite("test_gis_function", "arrow_flight_sql") {
     qt_sql "SELECT ST_X(ST_Point(0.9999999999999, 1));"
     qt_sql "SELECT ST_Y(ST_Point(1, 1.0000000000001));"
 
+    qt_sql "SELECT ST_AsText(ST_GeomFromWKB(ST_AsBinary(ST_GeomFromKML('<Point><coordinates>24.7,56.7</coordinates></Point>'))));"
+    qt_sql "SELECT ST_AsText(ST_GeomFromKML('<LineString><coordinates>1.0,1.0 2.0,2.0 3.5,4.7</coordinates></LineString>'));"
+    qt_sql "SELECT ST_GeomFromKML('<Point><coordinates>24.7</coordinates></Point>');"
+    qt_sql "SELECT ST_AsText(ST_GeomFromKML('<Polygon><outerBoundaryIs><coordinates>0,0 10,0 10,10 0,10 0,0</coordinates></outerBoundaryIs></Polygon>'));"
+    qt_sql "SELECT ST_AsText(ST_GeomFromKML('<Polygon><outerBoundaryIs><coordinates>0,0 10,0 10,10 0,10 0,0</coordinates></outerBoundaryIs><innerBoundaryIs><coordinates>3,3 7,3 7,7 3,7 3,3</coordinates></innerBoundaryIs></Polygon>'));"
+    qt_sql "SELECT ST_AsText(ST_GeomFromKML('<Polygon><outerBoundaryIs><coordinates>0,0 10,0 10,10 0,10 0,0</coordinates></outerBoundaryIs><innerBoundaryIs><coordinates>3,3 7,3 7,7 3,7 3,3</coordinates></innerBoundaryIs><innerBoundaryIs><coordinates>1,1 2,3 3,3 3,2 1,1</coordinates></innerBoundaryIs></Polygon>'));"
+    qt_sql "SELECT ST_AsText(ST_GeomFromKML('<Polygon><innerBoundaryIs><coordinates>3,3 7,3 7,7 3,7 3,3.3</coordinates></innerBoundaryIs><outerBoundaryIs><coordinates>0,0 10,0 10,10 0,10 0,0</coordinates></outerBoundaryIs></Polygon>'));"
 }
