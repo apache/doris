@@ -56,6 +56,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -1326,7 +1327,13 @@ Status FragmentMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
     query_id.__set_hi(queryid.hi);
     query_id.__set_lo(queryid.lo);
     if (auto q_ctx = get_query_ctx(query_id)) {
-        return q_ctx->runtime_filter_mgr()->sync_filter_size(request);
+        try {
+            return q_ctx->runtime_filter_mgr()->sync_filter_size(request);
+        } catch (const Exception& e) {
+            return Status::InternalError(
+                    "Sync filter size failed: Query context (query-id: {}) error: {}",
+                    queryid.to_string(), e.what());
+        }
     } else {
         return Status::EndOfFile(
                 "Sync filter size failed: Query context (query-id: {}) already finished",
