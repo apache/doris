@@ -1517,6 +1517,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                                          << t->tablet_id();
                             return;
                         }
+                        _update_cumulative_compaction_policy();
                         if (t->get_cumulative_compaction_policy() == nullptr ||
                             t->get_cumulative_compaction_policy()->name() !=
                                     t->tablet_meta()->compaction_policy()) {
