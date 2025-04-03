@@ -80,10 +80,10 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
 
     // mtmv3: insert data
     sql """insert into ${tableName3} values(1,"2017-01-15",1);"""
-    def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
-    assertTrue(state_mtmv1[0][0] == "SCHEMA_CHANGE")
-    assertTrue(state_mtmv1[0][1] == "SUCCESS")
-    assertTrue(state_mtmv1[0][2] == false)
+    def state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+    assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
+    assertTrue(state_mtmv3[0][1] == "SUCCESS")
+    assertTrue(state_mtmv3[0][2] == false)
 
     def test_sql3 = """SELECT a.* FROM ${tableName3} a inner join ${tableName4} b on a.user_id=b.user_id;"""
 
@@ -113,7 +113,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
 
     // mtmv1: drop table
     sql """drop table if exists ${tableName1}"""
-    state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
+    def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
     assertTrue(state_mtmv1[0][0] == "SCHEMA_CHANGE")
     assertTrue(state_mtmv1[0][1] == "SUCCESS" || state_mtmv1[0][1] == "INIT")
     assertTrue(state_mtmv1[0][2] == false)
@@ -218,6 +218,35 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         sql """ALTER TABLE ${mtmvName4} RENAME ${mtmvName4_rn};"""
     } else {
         sql """ALTER TABLE ${mtmvName4_rn} RENAME ${mtmvName4};"""
+    }
+
+
+    def test_sql4 = """SELECT a.* FROM ${tableName1} a inner join ${tableName4} b on a.user_id=b.user_id;"""
+    def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
+    assertTrue(state_mtmv4[0][0] == "NORMAL")
+    assertTrue(state_mtmv4[0][1] == "SUCCESS")
+    assertTrue(state_mtmv4[0][2] == true)
+
+    if (is_exists) {
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success(test_sql4, mtmvName4)
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success(test_sql4, mtmvName4)
+        }
+    } else {
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success(test_sql4, mtmvName4_rn)
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success(test_sql4, mtmvName4_rn)
+        }
     }
 
 
