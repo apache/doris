@@ -90,6 +90,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
+import org.apache.doris.nereids.trees.plans.commands.InstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
@@ -646,6 +647,10 @@ public interface CommandVisitor<R, C> {
     }
 
     default R visitAdminCancelRebalanceDiskCommand(AdminCancelRebalanceDiskCommand command, C context) {
+        return visitCommand(command, context);
+    }
+
+    default R visitInstallPluginCommand(InstallPluginCommand command, C context) {
         return visitCommand(command, context);
     }
 
