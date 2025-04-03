@@ -95,11 +95,8 @@ public:
         if (try_as_time(s, len, x)) {
             return true;
         } else {
-            // https://dbfiddle.uk/-A2s8r-2
             // For example, "2013-01-01 01:02:03" can be parsed as datetime
-            constexpr static std::string_view date_time_format = "%Y-%m-%d %H:%i:%s";
-            if (DateV2Value<doris::DateTimeV2ValueType> dv {};
-                dv.from_date_format_str(date_time_format.data(), date_time_format.size(), s, len)) {
+            if (DateV2Value<doris::DateTimeV2ValueType> dv {}; dv.from_date_str(s, (int)len)) {
                 // can be parse as a datetime
                 x = TimeValue::make_time(dv.hour(), dv.minute(), dv.second());
                 return true;

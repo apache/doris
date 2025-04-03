@@ -62,7 +62,7 @@ suite("test_cast_as_time") {
        select cast("-10:10:10" as time) , cast("-123" as time) 
     """   
     qt_select8 """
-       select cast('-1:02:03' as time), cast('01:-2:03' as time)
+       select cast('-1:02:03' as time), cast('01:-20:03' as time)
     """   
     qt_select8 """
        select cast('2013-01-01 01:02:03' as time)
