@@ -31,6 +31,7 @@ import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProj
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptimization;
+import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.NullableDependentExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
@@ -298,7 +299,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                         // after push down, some new filters are generated, which needs to be optimized.
                         // (example: tpch q19)
-                        // topDown(new ExpressionOptimization()),
+                        topDown(new ExpressionOptimization()),
                         topDown(
                                 new MergeFilters(),
                                 new ReorderJoin(),
