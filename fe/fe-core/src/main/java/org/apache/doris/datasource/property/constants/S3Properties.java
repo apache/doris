@@ -57,6 +57,10 @@ public class S3Properties extends BaseProperties {
     public static final String ACCESS_KEY = "s3.access_key";
     public static final String SECRET_KEY = "s3.secret_key";
     public static final String SESSION_TOKEN = "s3.session_token";
+
+    public static final String ROLE_ARN = "s3.role_arn";
+    public static final String EXTERNAL_ID = "s3.external_id";
+
     public static final String MAX_CONNECTIONS = "s3.connection.maximum";
     public static final String REQUEST_TIMEOUT_MS = "s3.connection.request.timeout";
     public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
@@ -120,6 +124,9 @@ public class S3Properties extends BaseProperties {
         public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
         public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
         public static final String NEED_OVERRIDE_ENDPOINT = "AWS_NEED_OVERRIDE_ENDPOINT";
+
+        public static final String ROLE_ARN = "AWS_ROLE_ARN";
+        public static final String EXTERNAL_ID = "AWS_EXTERNAL_ID";
 
         public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
         public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, TOKEN,
