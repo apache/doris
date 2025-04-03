@@ -48,6 +48,13 @@ public:
         return roundedValue;
     }
 
+    static TimeType make_time(int64_t hour, int64_t minute, int64_t second,
+                              int64_t microsecond = 0) {
+        int64_t value = (hour * ONE_HOUR_MICROSECONDS) + (minute * ONE_MINUTE_MICROSECONDS) +
+                        (second * ONE_SECOND_MICROSECONDS) + microsecond;
+        return static_cast<TimeType>(value);
+    }
+
     // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
     // the time value between '-838:59:59' and '838:59:59'
     /// TODO: Why is the time type stored as double? Can we directly use int64 and remove the time limit?
