@@ -227,8 +227,7 @@ public:
             int64_t txn_expiration = 0) = 0;
 
     static Status update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
-                                       int64_t txn_id, int64_t txn_expiration = 0,
-                                       DeleteBitmapPtr tablet_delete_bitmap = nullptr);
+                                       int64_t txn_id, int64_t txn_expiration = 0);
     virtual Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                       DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                                       const RowsetIdUnorderedSet& cur_rowset_ids,
