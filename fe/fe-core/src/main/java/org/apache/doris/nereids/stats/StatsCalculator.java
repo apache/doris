@@ -301,13 +301,33 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private void estimate() {
         Plan plan = groupExpression.getPlan();
-        Statistics newStats = plan.accept(this, null);
+        Statistics newStats;
+        try {
+            newStats = plan.accept(this, null);
+        } catch (Exception e) {
+            // throw exception in debug mode
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().feDebug) {
+                throw e;
+            }
+            LOG.warn("stats calculation failed, plan " + plan.toString(), e);
+            // use unknown stats or the first child's stats
+            if (plan.children().isEmpty() || !(plan.child(0) instanceof GroupPlan)) {
+                Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
+                for (Slot slot : plan.getOutput()) {
+                    columnStatisticMap.put(slot, ColumnStatistic.createUnknownByDataType(slot.getDataType()));
+                }
+                newStats = new Statistics(1, 1, columnStatisticMap);
+            } else {
+                newStats = ((GroupPlan) plan.child(0)).getStats();
+            }
+        }
         newStats.normalizeColumnStatistics();
 
         // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
+        final Statistics tmpStats = newStats;
         if (groupExpression.getOwnerGroup().getStatistics() == null) {
             boolean isReliable = groupExpression.getPlan().getExpressions().stream()
-                    .noneMatch(e -> newStats.isInputSlotsUnknown(e.getInputSlots()));
+                    .noneMatch(e -> tmpStats.isInputSlotsUnknown(e.getInputSlots()));
             groupExpression.getOwnerGroup().setStatsReliable(isReliable);
             groupExpression.getOwnerGroup().setStatistics(newStats);
         } else {
