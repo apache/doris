@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_nonfoldable') {
+suite('test_nonfoldable_push_filter_through_project') {
+    sql 'USE regression_test_nereids_rules_p0'
     sql 'SET enable_nereids_planner=true'
     sql 'SET runtime_filter_mode=OFF'
     sql 'SET enable_fallback_to_original_planner=false'
@@ -23,55 +24,35 @@ suite('test_nonfoldable') {
     sql "SET detail_shape_nodes='PhysicalProject'"
     sql 'SET disable_nereids_rules=PRUNE_EMPTY_PARTITION'
 
-    qt_filter_through_project_1 '''
+    qt_1 '''
         explain shape plan select * from (select id + 100 as a, id + 200 as b, id + 300 as c from t1) t where a > 999 and b > 999
         '''
 
-    qt_filter_through_project_2 '''
+    qt_2 '''
         explain shape plan select * from (select id + random(1, 10) + 100 as a, id + 200 as b, id + 300 as c from t1) t where a > 999 and b > 999
         '''
 
-    qt_filter_through_project_3 '''
+    qt_3 '''
         explain shape plan select * from (select id + random(1, 10) + 100 as a, id + random(1, 10) + 200 as b, id + random(1, 10) + 300 as c from t1) t where a > 999 and b > 999
         '''
 
-    qt_filter_through_project_4 '''
+    qt_4 '''
         explain shape plan select * from (select id + 100 as a, id + 200 as b, id + 300 as c from t1) t where a + random(1, 10) > 999 and b + random(1, 10) > 999
         '''
 
-    qt_filter_through_project_5 '''
+    qt_5 '''
         explain shape plan select * from (select id + 100 as a, id + 200 as b, id + 300 as c from t1) t where a > 999 and b > 999 limit 10
         '''
 
-    qt_filter_through_project_6 '''
+    qt_6 '''
         explain shape plan select * from (select id + random(1, 10) + 100 as a, id + 200 as b, id + 300 as c from t1) t where a > 999 and b > 999 limit 10
         '''
 
-    qt_filter_through_project_7 '''
+    qt_7 '''
         explain shape plan select * from (select id + random(1, 10) + 100 as a, id + random(1, 10) + 200 as b, id + random(1, 10) + 300 as c from t1) t where a > 999 and b > 999 limit 10
         '''
 
-    qt_filter_through_project_8 '''
+    qt_8 '''
         explain shape plan select * from (select id + 100 as a, id + 200 as b, id + 300 as c from t1) t where a + random(1, 10) > 999 and b + random(1, 10) > 999 limit 10
-        '''
-
-    qt_merge_project_1 '''
-        explain shape plan select a as b, a as c from (select id + 100 as a from t1) t
-        '''
-
-    qt_merge_project_2 '''
-        explain shape plan select a as b, a as c from (select id + random(1, 10) as a from t1) t
-        '''
-
-    qt_merge_project_3 '''
-        explain shape plan select a as b from (select id + random(1, 10) as a from t1) t
-        '''
-
-    qt_merge_project_4 '''
-        explain shape plan select a + 10 + a as b from (select id + random(1, 10) as a from t1) t
-        '''
-
-    qt_merge_project_5 '''
-        explain shape plan select a as b, a + 10 as c from (select id + random(1, 10) as a from t1) t
         '''
 }
