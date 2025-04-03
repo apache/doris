@@ -94,12 +94,15 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -111,7 +114,7 @@ import java.util.List;
  * Used to estimate for expressions that not producing boolean value.
  */
 public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Statistics> {
-
+    public static final Logger LOG = LogManager.getLogger(ExpressionEstimation.class);
     public static final long DAYS_FROM_0_TO_1970 = 719528;
     public static final long DAYS_FROM_0_TO_9999 = 3652424;
     private static final ExpressionEstimation INSTANCE = new ExpressionEstimation();
@@ -120,11 +123,20 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
      * returned columnStat is newly created or a copy of stats
      */
     public static ColumnStatistic estimate(Expression expression, Statistics stats) {
-        ColumnStatistic columnStatistic = expression.accept(INSTANCE, stats);
-        if (columnStatistic == null) {
-            return ColumnStatistic.UNKNOWN;
+        try {
+            ColumnStatistic columnStatistic = expression.accept(INSTANCE, stats);
+            if (columnStatistic == null) {
+                return ColumnStatistic.createUnknownByDataType(expression.getDataType());
+            }
+            return columnStatistic;
+        } catch (Exception e) {
+            // in regression test, feDebug is true so that the exception is thrown in order to detect problems.
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().feDebug) {
+                throw e;
+            }
+            LOG.warn("ExpressionEstimation failed : " + expression, e);
+            return ColumnStatistic.createUnknownByDataType(expression.getDataType());
         }
-        return columnStatistic;
     }
 
     @Override
