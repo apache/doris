@@ -121,6 +121,17 @@ private:
     }
 
     void _set_state(State rf_state) {
+        std::unique_lock<std::mutex> l(_mtx);
+        if (rf_state == State::TIMEOUT) {
+            DorisMetrics::instance()->runtime_filter_consumer_timeout_num->increment(1);
+            _profile->add_info_string("ReachTimeoutLimit", "true");
+        }
+        if (rf_state == State::READY) {
+            _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED,
+                                  RuntimeFilterWrapper::State::IGNORED,
+                                  RuntimeFilterWrapper::State::READY});
+            _check_state({State::NOT_READY, State::TIMEOUT});
+        }
         _rf_state = rf_state;
         _profile->add_info_string("Info", debug_string());
     }

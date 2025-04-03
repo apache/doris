@@ -45,24 +45,25 @@ public:
 
     template <class T>
     Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
-        return _wrapper->assign(request, data);
+        return _wrapper.load()->assign(request, data);
     }
 
     template <class T>
     Status serialize(T* request, void** data, int* len) {
-        auto real_runtime_filter_type = _wrapper->get_real_type();
+        auto holder = _wrapper.load();
+        auto real_runtime_filter_type = holder->get_real_type();
 
         request->set_filter_type(get_type(real_runtime_filter_type));
-        request->set_filter_id(_wrapper->filter_id());
+        request->set_filter_id(holder->filter_id());
 
-        auto state = _wrapper->get_state();
+        auto state = holder->get_state();
         if (state != RuntimeFilterWrapper::State::READY) {
             request->set_ignored(state == RuntimeFilterWrapper::State::IGNORED);
             request->set_disabled(state == RuntimeFilterWrapper::State::DISABLED);
             return Status::OK();
         }
 
-        request->set_contain_null(_wrapper->contain_null());
+        request->set_contain_null(holder->contain_null());
 
         if (real_runtime_filter_type == RuntimeFilterType::IN_FILTER) {
             auto in_filter = request->mutable_in_filter();
@@ -98,10 +99,10 @@ protected:
 
     template <typename T>
     Status _to_protobuf(T* filter) {
-        return _wrapper->to_protobuf(filter);
+        return _wrapper.load()->to_protobuf(filter);
     }
     Status _to_protobuf(PBloomFilter* filter, char** data, int* filter_length) {
-        return _wrapper->to_protobuf(filter, data, filter_length);
+        return _wrapper.load()->to_protobuf(filter, data, filter_length);
     }
 
     Status _push_to_remote(RuntimeState* state, const TNetworkAddress* addr);
@@ -110,7 +111,8 @@ protected:
 
     void _check_wrapper_state(std::vector<RuntimeFilterWrapper::State> assumed_states) {
         try {
-            _wrapper->check_state(assumed_states);
+            auto holder = _wrapper.load();
+            holder->check_state(assumed_states);
         } catch (const Exception& e) {
             throw Exception(ErrorCode::INTERNAL_ERROR, "rf wrapper meet invalid state, {}, {}",
                             e.what(), debug_string());
@@ -119,7 +121,7 @@ protected:
 
     RuntimeFilterParamsContext* _state = nullptr;
     // _wrapper is a runtime filter function wrapper
-    std::shared_ptr<RuntimeFilterWrapper> _wrapper;
+    std::atomic<std::shared_ptr<RuntimeFilterWrapper>> _wrapper;
 
     // will apply to remote node
     bool _has_remote_target;

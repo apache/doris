@@ -60,6 +60,7 @@ public:
     // If input is a ignored predicate, then we will skip this predicate.
     // If all inputs are ignored predicate, the final result is a ignored predicate.
     Status merge_from(const RuntimeFilter* other) {
+        auto holder=_wrapper.load();
         _received_producer_num++;
         if (_expected_producer_num < _received_producer_num) {
             return Status::InternalError(
@@ -68,12 +69,12 @@ public:
         if (_received_producer_num == _expected_producer_num) {
             _rf_state = State::READY;
         }
-        if (_wrapper->get_state() == RuntimeFilterWrapper::State::IGNORED) {
-            _wrapper = other->_wrapper;
+        if (holder->get_state() == RuntimeFilterWrapper::State::IGNORED) {
+            _wrapper.store(other->_wrapper);
             _profile->add_info_string("Info", debug_string());
             return Status::OK();
         }
-        auto st = _wrapper->merge(other->_wrapper.get());
+        auto st = holder->merge(other->_wrapper.load().get());
         _profile->add_info_string("Info", debug_string());
         return st;
     }
