@@ -253,8 +253,6 @@ public:
                            _column_id, _opposite, _can_ignore(), _runtime_filter_id);
     }
 
-    int get_runtime_filter_id() const { return _runtime_filter_id; }
-
     void set_runtime_filter_info(int filter_id,
                                  RuntimeProfile::Counter* predicate_filtered_rows_counter,
                                  RuntimeProfile::Counter* predicate_input_rows_counter) {
@@ -275,11 +273,6 @@ public:
         if (_predicate_filtered_rows_counter) {
             COUNTER_UPDATE(_predicate_filtered_rows_counter, filter_rows);
         }
-    }
-
-    PredicateFilterInfo get_filtered_info() const {
-        return PredicateFilterInfo {static_cast<int>(type()), _evaluated_rows - 1,
-                                    _evaluated_rows - 1 - _passed_rows};
     }
 
     static std::string pred_type_string(PredicateType type) {
