@@ -94,6 +94,7 @@
 #include "vec/functions/function_convert_tz.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/io/reader_buffer.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
@@ -487,8 +488,8 @@ struct ConvertImplToTimeType {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
 
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t /*input_rows_count*/) {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t /*input_rows_count*/) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
         using ColVecFrom =
