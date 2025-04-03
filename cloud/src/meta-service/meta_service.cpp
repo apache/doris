@@ -1849,10 +1849,28 @@ static bool remove_pending_delete_bitmap(MetaServiceCode& code, std::string& msg
     return true;
 }
 
+// When a load txn retries in publish phase with different version to publish, it will gain delete bitmap lock
+// many times. these locks are *different*, but they are the same in the current implementation because they have
+// the same lock_id and initiator and don't have version info. If some delete bitmap calculation task with version X
+// on BE lasts long and try to update delete bitmaps on MS when the txn gains the lock in later retries
+// with version Y(Y > X) to publish. It may wrongly update version X's delete bitmaps because the lock don't have version info.
+//
+// This function checks whether the partition version is correct when updating the delete bitmap
+// to avoid wrongly update an visible version's delete bitmaps.
+// 1. get the db id with txn id
+// 2. get the partition version with db id, table id and partition id
+// 3. check if the partition version matches the updating version
 static bool check_partition_version_when_update_delete_bitmap(
         MetaServiceCode& code, std::string& msg, std::unique_ptr<Transaction>& txn,
         std::string& instance_id, int64_t table_id, int64_t partition_id, int64_t tablet_id,
         int64_t txn_id, int64_t next_visible_version) {
+    if (partition_id <= 0) {
+        LOG(WARNING) << fmt::format(
+                "invalid partition_id, skip to check partition version. txn={}, "
+                "table_id={}, partition_id={}, tablet_id={}",
+                txn_id, table_id, partition_id, tablet_id);
+        return true;
+    }
     // Get db id with txn id
     std::string index_val;
     const std::string index_key = txn_index_key({instance_id, txn_id});
@@ -1955,7 +1973,6 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     uint64_t fdb_txn_size = 0;
     auto table_id = request->table_id();
     auto tablet_id = request->tablet_id();
-    auto partition_id = request->partition_id();
 
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -1992,9 +2009,10 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
 
     // 3. check if partition's version matches
-    if (request->lock_id() > 0 && request->has_txn_id() && request->has_next_visible_version()) {
+    if (request->lock_id() > 0 && request->has_txn_id() && request->partition_id() &&
+        request->has_next_visible_version()) {
         if (!check_partition_version_when_update_delete_bitmap(
-                    code, msg, txn, instance_id, table_id, partition_id, tablet_id,
+                    code, msg, txn, instance_id, table_id, request->partition_id(), tablet_id,
                     request->txn_id(), request->next_visible_version())) {
             return;
         }
