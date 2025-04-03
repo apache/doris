@@ -213,12 +213,16 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     private static class SetOlapScanPreAgg extends DefaultPlanRewriter<Map<RelationId, PreAggInfoContext>> {
         @Override
         public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, Map<RelationId, PreAggInfoContext> context) {
-            PreAggStatus preAggStatus = PreAggStatus.off("No valid aggregate on scan.");
-            PreAggInfoContext preAggInfoContext = context.get(olapScan.getRelationId());
-            if (preAggInfoContext != null) {
-                preAggStatus = createPreAggStatus(olapScan, preAggInfoContext);
+            if (olapScan.isPreAggStatusUnSet()) {
+                PreAggStatus preAggStatus = PreAggStatus.off("No valid aggregate on scan.");
+                PreAggInfoContext preAggInfoContext = context.get(olapScan.getRelationId());
+                if (preAggInfoContext != null) {
+                    preAggStatus = createPreAggStatus(olapScan, preAggInfoContext);
+                }
+                return olapScan.withPreAggStatus(preAggStatus);
+            } else {
+                return olapScan;
             }
-            return olapScan.withPreAggStatus(preAggStatus);
         }
 
         private PreAggStatus createPreAggStatus(LogicalOlapScan logicalOlapScan, PreAggInfoContext context) {
