@@ -21,16 +21,19 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Preconditions;
@@ -43,8 +46,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -343,33 +346,37 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         if (defineStmt == null) {
             return;
         }
-        // parse the define stmt to schema
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(defineStmt.originStmt),
-                SqlModeHelper.MODE_DEFAULT));
-        CreateMaterializedViewStmt stmt;
+        // parse the def stmt to schema, use new planner parser
+        ConnectContext currentCtx = ConnectContext.get();
         try {
-            stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
-            stmt.setIsReplay(true);
-            if (analyzer != null) {
-                try {
-                    stmt.analyze(analyzer);
-                } catch (Exception e) {
-                    LOG.warn("CreateMaterializedViewStmt analyze failed, mv=" + defineStmt.originStmt + ", reason=", e);
-                    return;
-                }
+            ConnectContext connectContext = MTMVPlanUtil.createBasicMvContext(currentCtx);
+            connectContext.setDatabase(this.getDbName());
+            StatementContext mvSqlStatementContext = new StatementContext(connectContext,
+                    new OriginStatement(defineStmt.originStmt, 0));
+            if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
+                mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
             }
-
-            setWhereClause(stmt.getWhereClause());
-            stmt.rewriteToBitmapWithCheck();
-            try {
-                Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExpr(analyzer);
-                setColumnsDefineExpr(columnNameToDefineExpr);
-            } catch (Exception e) {
-                LOG.warn("CreateMaterializedViewStmt parseDefineExpr failed, reason=", e);
+            LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(defineStmt.originStmt);
+            CreateMaterializedViewCommand createCommand = (CreateMaterializedViewCommand) unboundMvPlan;
+            createCommand.validate(connectContext);
+            // set where info
+            MVColumnItem whereClauseItem = createCommand.getWhereClauseItem();
+            if (whereClauseItem != null) {
+                setWhereClause(whereClauseItem.getDefineExpr());
             }
-
+            // set column info
+            Map<String, Expr> columnNameToDefineExpr = new HashMap<>();
+            for (MVColumnItem mvColumnItem : createCommand.getMVColumnItemList()) {
+                columnNameToDefineExpr.put(mvColumnItem.getName(), mvColumnItem.getDefineExpr());
+            }
+            setColumnsDefineExpr(columnNameToDefineExpr);
         } catch (Exception e) {
+            LOG.error("MaterializedIndexMeta parseStmt error", e);
             throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
+        } finally {
+            if (currentCtx != null) {
+                currentCtx.setThreadLocalInfo();
+            }
         }
     }
 
