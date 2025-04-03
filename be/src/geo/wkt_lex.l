@@ -57,8 +57,7 @@ MULTILINESTRING { return KW_MULTI_LINESTRING; }
 MULTIPOINT { return KW_MULTI_POINT; }
 POLYGON { return KW_POLYGON; }
 LINESTRING { return KW_LINESTRING; }
-POINT { 
-    return KW_POINT; }
+POINT { return KW_POINT; }
 
 \( |
 \) |

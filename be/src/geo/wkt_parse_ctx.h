@@ -17,15 +17,14 @@
 
 #pragma once
 
+#include <memory>
 #include "geo/geo_common.h"
+#include "geo/geo_types.h"
 
-namespace doris {
-class GeoShape;
-}
+using yyscan_t = void *;
 
-typedef void* yyscan_t;
 struct WktParseContext {
     yyscan_t scaninfo;
-    doris::GeoShape* shape = nullptr;
+    std::unique_ptr<doris::GeoShape> shape;
     doris::GeoParseStatus parse_status = doris::GEO_PARSE_OK;
 };
