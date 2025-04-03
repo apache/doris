@@ -419,7 +419,8 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
     const auto& offsets = map_column.get_offsets();
     for (auto j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
         if (j != offsets[col_index - 1]) {
-            if (0 != result.push_string(", ", 2)) {
+            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
+                                        options.mysql_collection_delim.size())) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         }
@@ -428,6 +429,7 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
+            ++options.level;
             if (is_key_string && options.wrapper_len > 0) {
                 if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
@@ -441,6 +443,7 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                 RETURN_IF_ERROR(key_serde->write_column_to_mysql(nested_keys_column, result, j,
                                                                  false, options));
             }
+            --options.level;
         }
         if (0 != result.push_string(&options.map_key_delim, 1)) {
             return Status::InternalError("pack mysql buffer failed.");
@@ -450,6 +453,7 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
+            ++options.level;
             if (is_val_string && options.wrapper_len > 0) {
                 if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
@@ -463,6 +467,7 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                 RETURN_IF_ERROR(value_serde->write_column_to_mysql(nested_values_column, result, j,
                                                                    false, options));
             }
+            --options.level;
         }
     }
     if (0 != result.push_string("}", 1)) {
