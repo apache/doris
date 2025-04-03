@@ -79,6 +79,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -90,6 +92,7 @@ import java.util.function.Predicate;
  * info in creating routine load.
  */
 public class CreateRoutineLoadInfo {
+
     // routine load properties
     public static final String DESIRED_CONCURRENT_NUMBER_PROPERTY = "desired_concurrent_number";
     public static final String CURRENT_CONCURRENT_NUMBER_PROPERTY = "current_concurrent_number";
@@ -148,6 +151,8 @@ public class CreateRoutineLoadInfo {
             .add(LoadStmt.KEY_ENCLOSE)
             .add(LoadStmt.KEY_ESCAPE)
             .build();
+
+    private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadInfo.class);
 
     private final LabelNameInfo labelNameInfo;
     private String tableName;
@@ -467,8 +472,17 @@ public class CreateRoutineLoadInfo {
 
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
-            this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                .getWorkloadGroup(ConnectContext.get().getCurrentUserIdentity(), inputWorkloadGroupStr);
+            try {
+                ConnectContext tmpCtx = new ConnectContext();
+                tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
+                tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
+                this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
+                        .getWorkloadGroup(tmpCtx).get(0)
+                        .getId();
+            } catch (Throwable t) {
+                LOG.info("Get workload group failed when create routine load info, ", t);
+                throw t;
+            }
         }
 
         if (ConnectContext.get() != null) {

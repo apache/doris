@@ -159,14 +159,14 @@ public class ComputeGroupTest {
                 auth.createUser(createNonAdminUser);
                 ComputeGroup cg = auth.getComputeGroup(nonAdminUserStr);
                 Assert.assertTrue(cg instanceof MergedComputeGroup);
-                Assert.assertTrue(((MergedComputeGroup) cg).getComputeGroupNameSet().contains(Tag.VALUE_DEFAULT_TAG));
+                Assert.assertTrue(((MergedComputeGroup) cg).getName().contains(Tag.VALUE_DEFAULT_TAG));
 
                 // 2.1 get a non-admin user with resource tag
                 String setPropStr = "set property for '" + nonAdminUserStr + "' 'resource_tags.location' = 'test_rg1';";
                 ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr));
                 ComputeGroup cg2 = auth.getComputeGroup(nonAdminUserStr);
                 Assert.assertTrue(cg2 instanceof MergedComputeGroup);
-                Assert.assertTrue(((MergedComputeGroup) cg2).getComputeGroupNameSet().contains("test_rg1"));
+                Assert.assertTrue(((MergedComputeGroup) cg2).getName().contains("test_rg1"));
 
                 // 2.2 get a non-admin user with multi-resource tag
                 String setPropStr2 = "set property for '" + nonAdminUserStr
@@ -174,7 +174,7 @@ public class ComputeGroupTest {
                 ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr2));
                 ComputeGroup cg3 = auth.getComputeGroup(nonAdminUserStr);
                 Assert.assertTrue(cg3 instanceof MergedComputeGroup);
-                Set<String> cgNameSet = ((MergedComputeGroup) cg3).getComputeGroupNameSet();
+                Set<String> cgNameSet = ((MergedComputeGroup) cg3).getName();
                 Assert.assertTrue(cgNameSet.contains("test_rg1"));
                 Assert.assertTrue(cgNameSet.contains("test_rg2"));
                 Assert.assertTrue(cgNameSet.size() == 2);
@@ -185,7 +185,7 @@ public class ComputeGroupTest {
                 ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr3));
                 ComputeGroup cg4 = auth.getComputeGroup(nonAdminUserStr);
                 Assert.assertTrue(cg4 instanceof MergedComputeGroup);
-                Set<String> cgNameSets = ((MergedComputeGroup) cg4).getComputeGroupNameSet();
+                Set<String> cgNameSets = ((MergedComputeGroup) cg4).getNames();
                 Assert.assertTrue(cgNameSets.size() == 1);
                 Assert.assertTrue(cgNameSets.contains("default"));
             }
@@ -200,7 +200,7 @@ public class ComputeGroupTest {
                 ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr));
                 ComputeGroup cg2 = auth.getComputeGroup("root");
                 Assert.assertTrue(cg2 instanceof MergedComputeGroup);
-                Assert.assertTrue(((MergedComputeGroup) cg2).getComputeGroupNameSet().contains("test_rg2"));
+                Assert.assertTrue(((MergedComputeGroup) cg2).getNames().contains("test_rg2"));
 
 
                 // 4.2 get an admin user with an empty resource tag
@@ -572,7 +572,7 @@ public class ComputeGroupTest {
                 brokerLoadJob.setComputeGroup();
                 ComputeGroup cg = ConnectContext.get().getComputeGroupSafely();
                 Assert.assertTrue(cg instanceof MergedComputeGroup);
-                Assert.assertTrue(((MergedComputeGroup) cg).getComputeGroupNameSet().contains(tagName));
+                Assert.assertTrue(((MergedComputeGroup) cg).getNames().contains(tagName));
 
             }
     }
@@ -620,7 +620,7 @@ public class ComputeGroupTest {
                 job.setComputeGroup();
                 ComputeGroup cg = ConnectContext.get().getComputeGroupSafely();
                 Assert.assertTrue(cg instanceof MergedComputeGroup);
-                Assert.assertTrue(((MergedComputeGroup) cg).getComputeGroupNameSet().contains("tag_rg_1"));
+                Assert.assertTrue(((MergedComputeGroup) cg).getNames().contains("tag_rg_1"));
             }
 
             // 4 get a null job

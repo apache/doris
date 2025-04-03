@@ -23,6 +23,8 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.Set;
+
 public class AllBackendComputeGroup extends ComputeGroup {
 
     public AllBackendComputeGroup(SystemInfoService systemInfoService) {
@@ -53,6 +55,11 @@ public class AllBackendComputeGroup extends ComputeGroup {
     @Override
     public ImmutableList<Backend> getBackendList() {
         return systemInfoService.getAllClusterBackendsNoException().values().asList();
+    }
+
+    @Override
+    public Set<String> getNames() {
+        throw new RuntimeException("AllBackendComputeGroup not implements getNames");
     }
 
     @Override
