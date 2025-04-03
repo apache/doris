@@ -1242,6 +1242,8 @@ public class DateTimeExtractAndTransform {
             result = new BigDecimal(result).setScale(8, RoundingMode.HALF_UP).doubleValue();
         }
         return new DoubleLiteral(result);
+    }
+
     private static int getDayOfWeek(String day) {
         Integer dayOfWeek = DAY_OF_WEEK.get(day.toUpperCase());
         if (dayOfWeek == null) {
