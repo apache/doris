@@ -1489,13 +1489,13 @@ public class Config extends ConfigBase {
             masterOnly = false,
             callbackClassString = "org.apache.doris.nereids.stats.HboPlanInfoProvider$UpdateConfig",
             description = {
-                    "当前默认设置为 100，用来控制控制HboPlanInfoProvider中plan info cache过期时间，超过一段时间不访问cache会被回收",
+                    "当前默认设置为1000，用来控制控制HboPlanInfoProvider中plan info cache过期时间，超过一段时间不访问cache会被回收",
                     "The default setting is 100, which is used to control the expiration time of hbo plan info cache"
                             + "in HboPlanInfoProvider. If the cache is not accessed for a period of time, "
                             + "it will be reclaimed."
             }
     )
-    public static int expire_hbo_plan_info_cache_in_fe_second = 100;
+    public static int expire_hbo_plan_info_cache_in_fe_second = 1000;
 
     /**
      *  Expire sql sql in frontend time
@@ -2429,11 +2429,11 @@ public class Config extends ConfigBase {
     @ConfField(
             mutable = true,
             description = {
-                    "当前默认设置为 100，用来控制控制hbo plan stats. collection的slow query的阈值。",
+                    "当前默认设置为 2000，用来控制控制hbo plan stats. collection的slow query的阈值。",
                     "Now default set to 100, this config is used to control slow query threshold of hbo info collection"
             }
     )
-    public static int hbo_slow_query_threshold_ms = 100;
+    public static int hbo_slow_query_threshold_ms = 2000;
 
     /**
      * Maximum number of events to poll in each RPC.

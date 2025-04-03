@@ -132,7 +132,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         // NOTE: embed version info avoid mismatching under data maintaining
         // TODO: more efficient way to ignore the ignorable data maintaining
         return Utils.toSqlString("OlapScan[" + table.getNameWithFullQualifiers() + partitions + "]"
-                + "@" + getTable().getVisibleVersion());
+                + "#" + getRelationId() + "@" + getTable().getVisibleVersion());
     }
 
     @Override
