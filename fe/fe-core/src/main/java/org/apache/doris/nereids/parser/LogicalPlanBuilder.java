@@ -691,6 +691,9 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountComman
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
@@ -6437,6 +6440,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitTransactionBegin(DorisParser.TransactionBeginContext ctx) {
+        if (ctx.LABEL() != null) {
+            return new TransactionBeginCommand(ctx.identifier().getText());
+        } else {
+            return new TransactionBeginCommand();
+        }
+    }
+
+    @Override
+    public LogicalPlan visitTranscationCommit(DorisParser.TranscationCommitContext ctx) {
+        return new TransactionCommitCommand();
+    }
+
+    @Override
+    public LogicalPlan visitTransactionRollback(DorisParser.TransactionRollbackContext ctx) {
+        return new TransactionRollbackCommand();
+    }
+
     public LogicalPlan visitDropAnalyzeJob(DorisParser.DropAnalyzeJobContext ctx) {
         long jobId = Long.parseLong(ctx.INTEGER_VALUE().getText());
         return new DropAnalyzeJobCommand(jobId);
