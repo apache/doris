@@ -64,6 +64,7 @@
 #include "vec/functions/like.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/json/simd_json_parser.h"
+#include "vec/utils/stringop_substring.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
