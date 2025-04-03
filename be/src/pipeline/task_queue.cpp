@@ -219,10 +219,8 @@ Status MultiCoreTaskQueue::push_back(PipelineTask* task, int core_id) {
 
 void MultiCoreTaskQueue::update_statistics(PipelineTask* task, int64_t time_spent) {
     task->inc_runtime_ns(time_spent);
-    auto prio_task_queue_list =
-            std::atomic_load_explicit(&_prio_task_queue_list, std::memory_order_relaxed);
-    (*prio_task_queue_list)[task->get_core_id()]->inc_sub_queue_runtime(task->get_queue_level(),
-                                                                        time_spent);
+    (*_prio_task_queue_list)[task->get_core_id()]->inc_sub_queue_runtime(task->get_queue_level(),
+                                                                         time_spent);
 }
 
 } // namespace doris::pipeline
