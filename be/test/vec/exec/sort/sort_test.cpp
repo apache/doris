@@ -65,11 +65,11 @@ public:
         switch (sort_type) {
         case SortType::FULL_SORT:
             sorter = FullSorter::create_unique(sort_exec_exprs, limit, offset, &pool, is_asc_order,
-                                               nulls_first, *row_desc, nullptr, nullptr);
+                                               nulls_first, *row_desc, nullptr);
             break;
         case SortType::TOPN_SORT:
             sorter = TopNSorter::create_unique(sort_exec_exprs, limit, offset, &pool, is_asc_order,
-                                               nulls_first, *row_desc, nullptr, nullptr);
+                                               nulls_first, *row_desc, nullptr);
         case SortType::HEAP_SORT:
             sorter = HeapSorter::create_unique(sort_exec_exprs, limit, offset, &pool, is_asc_order,
                                                nulls_first, *row_desc);
@@ -78,7 +78,8 @@ public:
             break;
         }
 
-        sorter->init_profile(profile.get());
+        sorter->init_sink_profile(profile.get());
+        sorter->init_source_profile(profile.get());
     }
 
     void append_block(ColumnInt32::Ptr column) {

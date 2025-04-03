@@ -62,11 +62,10 @@ void PartitionBlocks::create_or_reset_sorter_state() {
                 _partition_sort_info->_offset, _partition_sort_info->_pool,
                 _partition_sort_info->_is_asc_order, _partition_sort_info->_nulls_first,
                 _partition_sort_info->_row_desc, _partition_sort_info->_runtime_state,
-                _is_first_sorter ? _partition_sort_info->_runtime_profile : nullptr,
                 _partition_sort_info->_has_global_limit,
                 _partition_sort_info->_partition_inner_limit,
                 _partition_sort_info->_top_n_algorithm, _previous_row.get());
-        _partition_topn_sorter->init_profile(_partition_sort_info->_runtime_profile);
+        _partition_topn_sorter->init_sink_profile(_partition_sort_info->_runtime_profile);
     } else {
         _partition_topn_sorter->reset_sorter_state(_partition_sort_info->_runtime_state);
     }

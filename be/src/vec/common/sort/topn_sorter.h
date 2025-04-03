@@ -46,7 +46,7 @@ class TopNSorter final : public Sorter {
 public:
     TopNSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset, ObjectPool* pool,
                std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
-               const RowDescriptor& row_desc, RuntimeState* state, RuntimeProfile* profile);
+               const RowDescriptor& row_desc, RuntimeState* state);
 
     ~TopNSorter() override = default;
 
@@ -55,6 +55,8 @@ public:
     Status prepare_for_read() override;
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+
+    void init_source_profile(RuntimeProfile* runtime_profile) override;
 
     size_t data_size() const override;
 
@@ -65,6 +67,8 @@ private:
 
     std::unique_ptr<MergeSorterState> _state;
     const RowDescriptor& _row_desc;
+    RuntimeProfile::Counter* _merge_sort_read_timer = nullptr;
+    RuntimeProfile::Counter* _insert_data_timer = nullptr;
 };
 
 #include "common/compile_check_end.h"
