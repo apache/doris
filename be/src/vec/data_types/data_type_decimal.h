@@ -240,8 +240,8 @@ public:
         const auto& decimal_column = static_cast<const ColumnDecimal<T>&>(column);
         Field field;
         decimal_column.get(row, field);
-        field.set_type_info(TypeId<T>::value, static_cast<int>(precision), static_cast<int>(scale));
-        return field;
+        return VariantField(std::move(field), TypeId<T>::value, static_cast<int>(precision),
+                            static_cast<int>(scale));
     }
 
     /// Decimal specific

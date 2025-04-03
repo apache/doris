@@ -345,37 +345,39 @@ void get_field_info_impl(const Field& field, FieldInfo* info) {
 }
 
 void get_base_field_info(const Field& field, FieldInfo* info) {
-    if (field.get_type_id() == TypeIndex::Array) {
-        if (field.safe_get<Array>().empty()) {
+    const auto& variant_field = field.get<const VariantField&>();
+    const auto& wrapped_field = variant_field.get_field();
+    if (variant_field.get_type_id() == TypeIndex::Array) {
+        if (wrapped_field.safe_get<Array>().empty()) {
             info->scalar_type_id = TypeIndex::Nothing;
             ++info->num_dimensions;
             info->have_nulls = true;
             info->need_convert = false;
         } else {
             ++info->num_dimensions;
-            get_base_field_info(field.safe_get<Array>()[0], info);
+            get_base_field_info(wrapped_field.safe_get<Array>()[0], info);
         }
         return;
     }
 
     // handle scalar types
-    info->scalar_type_id = field.get_type_id();
+    info->scalar_type_id = variant_field.get_type_id();
     info->have_nulls = true;
     info->need_convert = false;
-    info->scale = field.get_scale();
-    info->precision = field.get_precision();
+    info->scale = variant_field.get_scale();
+    info->precision = variant_field.get_precision();
 
     // Currently the jsonb type should be the top level type, so we should not wrap it in array,
     // see create_array_of_type.
     // TODO we need to support array<jsonb> correctly
-    if (UNLIKELY(field.get_type_id() == TypeIndex::JSONB && info->num_dimensions > 0)) {
+    if (UNLIKELY(variant_field.get_type_id() == TypeIndex::JSONB && info->num_dimensions > 0)) {
         info->num_dimensions = 0;
         info->need_convert = true;
     }
 }
 
 void get_field_info(const Field& field, FieldInfo* info) {
-    if (field.get_type_id() != TypeIndex::Nothing) {
+    if (field.is_variant_field()) {
         // Currently we support specify predefined schema for other types include decimal, datetime ...etc
         // so we should set specified info to create correct types, and those predefined types are static and
         // type no need to deduce

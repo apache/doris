@@ -127,6 +127,9 @@ public:
     void operator()(const Tuple& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
+    void operator()(const VariantField& x, JsonbWriter* writer) const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
     void operator()(const DecimalField<Decimal32>& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }

@@ -89,8 +89,7 @@ public:
         const auto& column_data = static_cast<const ColumnString&>(column);
         Field field =
                 JsonbField(column_data.get_data_at(row).data, column_data.get_data_at(row).size);
-        field.set_type_info(TypeIndex::JSONB);
-        return field;
+        return VariantField(std::move(field), TypeIndex::JSONB);
     }
 
     bool equals(const IDataType& rhs) const override;

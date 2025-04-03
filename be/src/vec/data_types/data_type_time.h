@@ -82,8 +82,7 @@ public:
     Field get_type_field(const IColumn& column, size_t row) const override {
         Field field;
         column.get(row, field);
-        field.set_type_info(get_type_id(), 0, static_cast<int>(get_scale()));
-        return field;
+        return VariantField(std::move(field), get_type_id(), 0, static_cast<int>(get_scale()));
     }
 
 private:

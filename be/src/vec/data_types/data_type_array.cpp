@@ -380,9 +380,7 @@ Field DataTypeArray::get_type_field(const IColumn& column, size_t row) const {
     for (size_t i = 0; i < size; ++i) {
         res[i] = get_nested_type()->get_type_field(array.get_data(), offset + i);
     }
-    Field typed_res(res);
-    typed_res.set_type_info(TypeIndex::Array);
-    return typed_res;
+    return VariantField(res, TypeIndex::Array);
 }
 
 } // namespace doris::vectorized

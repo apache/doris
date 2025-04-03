@@ -53,6 +53,7 @@ template <typename T>
 struct TypeName;
 } // namespace vectorized
 struct PackedInt128;
+class VariantField;
 } // namespace doris
 
 namespace doris::vectorized {
@@ -331,6 +332,27 @@ private:
   * Warning! Prefer to use chunks of columns instead of single values. See Column.h
   */
 
+class VariantField {
+public:
+    explicit VariantField(Field&& f, TypeIndex type_index, int p = -1, int s = -1);
+    ~VariantField() = default;
+    VariantField(const VariantField&);
+    VariantField(VariantField&&) = default;
+    VariantField& operator=(const VariantField&);
+    TypeIndex get_type_id() const { return type; }
+    int get_precision() const { return precision; }
+    int get_scale() const { return scale; }
+    const Field& get_field() const { return *f; }
+
+private:
+    std::unique_ptr<Field> f = nullptr;
+    //type is used to store the real type of the field, for example, the real type of a Int64 is DateTimeV2
+    // or real type of a Decimal32 is Decimal(27, 9)
+    TypeIndex type = TypeIndex::Nothing;
+    int precision = -1;
+    int scale = -1;
+};
+
 class Field {
 public:
     struct Types {
@@ -362,7 +384,8 @@ public:
             HyperLogLog = 28,
             QuantileState = 29,
             Int256 = 30,
-            Decimal256 = 31
+            Decimal256 = 31,
+            Variant = 32
         };
 
         static const int MIN_NON_POD = 16;
@@ -385,6 +408,8 @@ public:
                 return "String";
             case JSONB:
                 return "JSONB";
+            case Variant:
+                return "Variant";
             case Array:
                 return "Array";
             case Tuple:
@@ -440,15 +465,9 @@ public:
     /** Despite the presence of a template constructor, this constructor is still needed,
       *  since, in its absence, the compiler will still generate the default constructor.
       */
-    Field(const Field& rhs) {
-        copy_type_info(rhs);
-        create(rhs);
-    }
+    Field(const Field& rhs) { create(rhs); }
 
-    Field(Field&& rhs) {
-        copy_type_info(rhs);
-        create(std::move(rhs));
-    }
+    Field(Field&& rhs) { create(std::move(rhs)); }
 
     // Make the constructor with a String parameter explicit to prevent accidentally creating a Field with the wrong string type.
     // Other types don't require explicit construction to avoid extensive modifications.
@@ -456,18 +475,7 @@ public:
         requires(!std::is_same_v<std::decay_t<T>, Field>)
     explicit(std::is_same_v<std::decay_t<T>, String>) Field(T&& rhs);
 
-    void set_type_info(TypeIndex type, int precision = -1, int scale = -1) {
-        this->type = type;
-        this->precision = precision;
-        this->scale = scale;
-    }
-
-    int get_precision() const { return precision; }
-    int get_scale() const { return scale; }
-    TypeIndex get_type_id() const { return type; }
-
     Field& operator=(const Field& rhs) {
-        copy_type_info(rhs);
         if (this != &rhs) {
             if (which != rhs.which) {
                 destroy();
@@ -484,8 +492,9 @@ public:
                which == Types::VariantMap;
     }
 
+    bool is_variant_field() const { return which == Types::Variant; }
+
     Field& operator=(Field&& rhs) {
-        copy_type_info(rhs);
         if (this != &rhs) {
             if (which != rhs.which) {
                 destroy();
@@ -649,6 +658,9 @@ public:
         case Types::JSONB:
             f(field.template get<JsonbField>());
             return;
+        case Types::Variant:
+            f(field.template get<VariantField>());
+            return;
         case Types::Array:
             f(field.template get<Array>());
             return;
@@ -692,19 +704,14 @@ public:
     }
 
 private:
-    std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
-                         Int128, IPv6, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
-                         DecimalField<Decimal32>, DecimalField<Decimal64>,
-                         DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
-                         DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState>
+    std::aligned_union_t<
+            DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64, Int128, IPv6,
+            Float64, String, JsonbField, Array, Tuple, Map, VariantMap, DecimalField<Decimal32>,
+            DecimalField<Decimal64>, DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
+            DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState, VariantField>
             storage;
 
     Types::Which which;
-    // detailed_type_info is used to store the real type of the field, for example, the real type of a Int64 is DateTimeV2
-    // or real type of a Decimal32 is Decimal(27, 9)
-    TypeIndex type = TypeIndex::Nothing;
-    int scale = -1;
-    int precision = -1;
 
     /// Assuming there was no allocated state or it was deallocated (see destroy).
     template <typename T>
@@ -746,12 +753,6 @@ private:
         dispatch([this](auto& value) { assign_concrete(std::move(value)); }, x);
     }
 
-    void copy_type_info(const Field& rhs) {
-        this->type = rhs.type;
-        this->precision = rhs.precision;
-        this->scale = rhs.scale;
-    }
-
     ALWAYS_INLINE void destroy() {
         if (which < Types::MIN_NON_POD) {
             return;
@@ -762,6 +763,9 @@ private:
             destroy<String>();
             break;
         case Types::JSONB:
+            destroy<JsonbField>();
+            break;
+        case Types::Variant:
             destroy<JsonbField>();
             break;
         case Types::Array:
@@ -1131,6 +1135,11 @@ struct NearestFieldTypeImpl<std::string_view> {
 template <>
 struct Field::TypeToEnum<PackedInt128> {
     static const Types::Which value = Types::Int128;
+};
+
+template <>
+struct Field::TypeToEnum<VariantField> {
+    static constexpr Types::Which value = Types::Which::Variant;
 };
 
 template <>

@@ -165,8 +165,7 @@ public:
     Field get_type_field(const IColumn& column, size_t row) const override {
         const auto& column_data = static_cast<const ColumnVector<T>&>(column);
         Field field = column_data.get_data()[row];
-        field.set_type_info(get_type_id());
-        return field;
+        return VariantField(std::move(field), get_type_id());
     }
 
 protected:

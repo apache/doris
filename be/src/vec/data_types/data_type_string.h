@@ -97,8 +97,7 @@ public:
     Field get_type_field(const IColumn& column, size_t row) const override {
         const auto& column_data = static_cast<const ColumnString&>(column);
         Field field(String(column_data.get_data_at(row).data, column_data.get_data_at(row).size));
-        field.set_type_info(TypeIndex::String);
-        return field;
+        return VariantField(std::move(field), TypeIndex::String);
     }
 };
 

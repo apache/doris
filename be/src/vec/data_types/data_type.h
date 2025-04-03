@@ -125,8 +125,7 @@ public:
     virtual Field get_type_field(const IColumn& column, size_t row) const {
         Field field;
         column.get(row, field);
-        field.set_type_info(get_type_id());
-        return field;
+        return VariantField(std::move(field), get_type_id());
     }
 
     /// Checks that two instances belong to the same type

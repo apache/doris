@@ -176,8 +176,7 @@ public:
                 assert_cast<const ColumnUInt64&, TypeCheckOnRelease::DISABLE>(column);
         Field field;
         column_data.get(row, field);
-        field.set_type_info(get_type_id(), 0, static_cast<int>(get_scale()));
-        return field;
+        return VariantField(std::move(field), get_type_id(), 0, static_cast<int>(get_scale()));
     }
 
     static void cast_to_date(const UInt64 from, Int64& to);
