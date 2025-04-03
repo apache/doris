@@ -24,6 +24,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -124,5 +125,13 @@ public class UnboundTableSinkCreator {
                         + " is not supported."
                         + (isAutoDetectPartition
                         ? " PARTITION(*) is only supported in overwrite partition for OLAP table" : ""));
+    }
+
+    /**
+     * create unbound sink for dictionary sink
+     */
+    public static UnboundDictionarySink<? extends Plan> createUnboundDictionarySink(Dictionary dictionary,
+            LogicalPlan child) {
+        return new UnboundDictionarySink<>(dictionary, child);
     }
 }

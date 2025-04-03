@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.system.Backend;
@@ -31,11 +32,18 @@ import org.apache.doris.thrift.TNetworkAddress;
 import com.google.common.base.Strings;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /** BackendWorkerManager */
 public class BackendDistributedPlanWorkerManager implements DistributedPlanWorkerManager {
@@ -132,11 +140,25 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
     }
 
     @Override
-    public DistributedPlanWorker randomAvailableWorker() {
+    public DistributedPlanWorker getWorker(Backend backend) {
+        return new BackendWorker(backend);
+    }
+
+    @Override
+    public DistributedPlanWorker randomAvailableWorker(PlanFragment fragment) {
+        Map<Long, Backend> availableBes = Maps.newHashMap();
+        if (fragment.hasBackendRestriction()) {
+            List<Long> backendIds = fragment.getDictionaryAvailableBackendIds();
+            for (Map.Entry<Long, Backend> entry : this.currentClusterBackends.entrySet()) {
+                if (backendIds.contains(entry.getKey())) {
+                    availableBes.put(entry.getKey(), entry.getValue());
+                }
+            }
+        }
         try {
             Reference<Long> selectedBackendId = new Reference<>();
             ImmutableMap<Long, Backend> backends = this.currentClusterBackends;
-            SimpleScheduler.getHost(backends, selectedBackendId);
+            SimpleScheduler.getHost(availableBes.isEmpty() ? backends : availableBes, selectedBackendId);
             Backend selctedBackend = backends.get(selectedBackendId.getRef());
             return new BackendWorker(selctedBackend);
         } catch (Exception t) {
@@ -145,8 +167,42 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
     }
 
     @Override
-    public long randomAvailableWorker(Map<TNetworkAddress, Long> addressToBackendID) {
+    public DistributedPlanWorker randomAvailableWorker(Map<TNetworkAddress, Long> addressToBackendID, PlanFragment fragment) {
+        if (fragment.hasBackendRestriction()) {
+            Set<Long> backendIds = fragment.getDictionaryAvailableBackendIds().stream().collect(Collectors.toCollection(
+                    () -> Sets.newHashSet()
+            ));
+            // copy addressToBackendID
+            Map<TNetworkAddress, Long> availableBes = Maps.newHashMap();
+            for (Map.Entry<TNetworkAddress, Long> entry : addressToBackendID.entrySet()) {
+                if (backendIds.contains(entry.getValue())) {
+                    availableBes.put(entry.getKey(), entry.getValue());
+                }
+            }
+            TNetworkAddress backend = SimpleScheduler.getHostByCurrentBackend(availableBes);
+            if (backend == null) {
+                return randomAvailableWorker(fragment);
+            }
+            return getWorker(addressToBackendID.get(backend));
+        }
         TNetworkAddress backend = SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
-        return addressToBackendID.get(backend);
+        return getWorker(addressToBackendID.get(backend));
+    }
+
+    @Override
+    public List<Backend> getAllBackend(boolean needAlive) {
+        ImmutableMap<Long, Backend> backendsMap = this.allClusterBackends.get();
+        List<Backend> backends = null;
+        if (needAlive) {
+            backends = Lists.newArrayList();
+            for (Map.Entry<Long, Backend> entry : backendsMap.entrySet()) {
+                if (entry.getValue().isQueryAvailable()) {
+                    backends.add(entry.getValue());
+                }
+            }
+        } else {
+            backends = Lists.newArrayList(backendsMap.values());
+        }
+        return backends;
     }
 }

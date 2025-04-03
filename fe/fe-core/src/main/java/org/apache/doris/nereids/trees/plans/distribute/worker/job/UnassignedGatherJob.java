@@ -49,7 +49,7 @@ public class UnassignedGatherJob extends AbstractUnassignedJob {
         ConnectContext connectContext = statementContext.getConnectContext();
         int expectInstanceNum = degreeOfParallelism();
 
-        DistributedPlanWorker selectedWorker = distributeContext.selectedWorkers.tryToSelectRandomUsedWorker();
+        DistributedPlanWorker selectedWorker = distributeContext.selectedWorkers.tryToSelectRandomUsedWorker(fragment);
         if (useSerialSource) {
             // Using serial source means a serial source operator will be used in this fragment (e.g. data will be
             // shuffled to only 1 exchange operator) and then split by followed local exchanger

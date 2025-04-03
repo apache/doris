@@ -26,7 +26,9 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.trees.plans.distribute.NereidsSpecifyInstances;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
 import org.apache.doris.qe.ConnectContext;
@@ -104,10 +106,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // root of plan tree executed by this fragment
     private PlanNode planRoot;
 
-    // exchange node to which this fragment sends its output
+    // exchange node which this fragment sends its output to
     private ExchangeNode destNode;
 
-    // if null, outputs the entire row produced by planRoot
+    // if null, set with the planRoot's output exprs when translate PhysicalPlan. see `translatePlan`
     private ArrayList<Expr> outputExprs;
 
     // created in finalize() or set in setSink()
@@ -163,6 +165,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public TQueryCacheParam queryCacheParam;
     private int numBackends = 0;
+
+    // when ExpressionTranslator visited a dict_get function, it will set the related dictionaries in its belonging
+    // fragment. so we can choose the correct BE when we assign the job of this fragment.
+    private Set<Dictionary> visitedDictionary = new HashSet<>();
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -502,6 +508,28 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public void setBucketNum(int bucketNum) {
         this.bucketNum = bucketNum;
+    }
+
+    public void addVisitedDictionary(Dictionary visitedDictionary) {
+        this.visitedDictionary.add(visitedDictionary);
+    }
+
+    public void setVisitedDictionary(Set<Dictionary> visitedDictionary) {
+        this.visitedDictionary = visitedDictionary;
+    }
+
+    // for distribution planning. now feasibility is only restricted by Dictionary it used
+    public List<Long> getDictionaryAvailableBackendIds() {
+        List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true);
+        // get all visitedDictionary's getDataValidBackendIds' intersect
+        for (Dictionary dictionary : visitedDictionary) {
+            backendIds.retainAll(dictionary.getDataValidBackendIds());
+        }
+        return backendIds;
+    }
+
+    public boolean hasBackendRestriction() {
+        return !visitedDictionary.isEmpty();
     }
 
     public boolean hasNullAwareLeftAntiJoin() {
