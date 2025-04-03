@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -54,13 +55,14 @@ public class SelectedWorkers {
         }
     }
 
-    /** tryToSelectRandomUsedWorker */
-    public DistributedPlanWorker tryToSelectRandomUsedWorker() {
+    /** 
+     * will filter by fragment's suitable BEs decided by dictionary used. maybe rollback to all workers
+     * */
+    public DistributedPlanWorker tryToSelectRandomUsedWorker(PlanFragment fragment) {
         if (usedWorkers.isEmpty()) {
-            return workerManager.randomAvailableWorker();
+            return workerManager.randomAvailableWorker(fragment);
         } else {
-            long id = workerManager.randomAvailableWorker(usedWorkersAddressToBackendID);
-            return workerManager.getWorker(id);
+            return workerManager.randomAvailableWorker(usedWorkersAddressToBackendID, fragment);
         }
     }
 }

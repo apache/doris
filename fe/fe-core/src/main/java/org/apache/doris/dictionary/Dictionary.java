@@ -356,6 +356,11 @@ public class Dictionary extends Table {
         this.dataDistributions = Lists.newArrayList();
     }
 
+    public List<Long> getDataValidBackendIds() {
+        return dataDistributions.stream().filter(distribution -> this.version == distribution.getVersion())
+                .map(DictionaryDistribution::getBackendId).collect(Collectors.toList());
+    }
+
     public boolean dataCompleted() {
         List<Long> aliveBEs = Env.getCurrentSystemInfo().getAllBackendIds();
         if (dataDistributions.size() < aliveBEs.size()) {

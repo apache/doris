@@ -274,7 +274,7 @@ public class SimpleScheduler {
                         backends, locations.size()));
     }
 
-    public static TNetworkAddress getHost(ImmutableMap<Long, Backend> backends,
+    public static TNetworkAddress getHost(Map<Long, Backend> backends,
                                           Reference<Long> backendIdRef)
             throws UserException {
         if (backends.isEmpty()) {
@@ -298,7 +298,7 @@ public class SimpleScheduler {
     }
 
     // get the reason why backends can not be chosen.
-    private static String getBackendErrorMsg(List<Long> backendIds, ImmutableMap<Long, Backend> backends, int limit) {
+    private static String getBackendErrorMsg(List<Long> backendIds, Map<Long, Backend> backends, int limit) {
         List<String> res = Lists.newArrayList();
         for (int i = 0; i < backendIds.size() && i < limit; i++) {
             long beId = backendIds.get(i);

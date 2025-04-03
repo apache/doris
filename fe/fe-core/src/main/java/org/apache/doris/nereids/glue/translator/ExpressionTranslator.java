@@ -571,6 +571,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         FunctionSignature signature = sigAndDict.first;
         Dictionary dictionary = sigAndDict.second;
 
+        context.addVisitingDictionary(dictionary);
+
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(dictGet.getName()), argTypes, signature.returnType.toCatalogDataType(),
                 dictGet.hasVarArguments(), "", TFunctionBinaryType.BUILTIN, true, true,
@@ -600,6 +602,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         Pair<FunctionSignature, Dictionary> sigAndDict = dictGetMany.customSignatureDict();
         FunctionSignature signature = sigAndDict.first;
         Dictionary dictionary = sigAndDict.second;
+
+        context.addVisitingDictionary(dictionary);
 
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(dictGetMany.getName()), argTypes, signature.returnType.toCatalogDataType(),

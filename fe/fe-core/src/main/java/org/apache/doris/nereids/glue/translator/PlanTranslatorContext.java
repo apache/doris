@@ -71,9 +71,8 @@ public class PlanTranslatorContext {
     private final List<PlanFragment> planFragments = Lists.newArrayList();
     // when we translate a expression of a fragment, sometimes we need to mark its' related dictionary to find right BE
     // when we dispatch instances. but the expression's belonging fragment sometimes in planFragments
-    // 
-    private PlanFragment fragmentVisitSupplier = null;
-    private Dictionary dictionaryVisitSupplier = null;
+    private PlanFragment visitingFragment = null;
+    private Set<Dictionary> visitingDictionary = Sets.newHashSet();
 
     private final DescriptorTable descTable = new DescriptorTable();
 
@@ -342,5 +341,34 @@ public class PlanTranslatorContext {
 
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
+    }
+
+    public void setVisitingFragment(int idx) {
+        this.visitingFragment = planFragments.get(idx);
+    }
+
+    public void setVisitingFragment(PlanFragment planFragment) {
+        this.visitingFragment = planFragment;
+    }
+
+    // null means next fragment
+    public void clearVisitingFragment() {
+        if (!this.visitingDictionary.isEmpty()) {
+            throw new IllegalStateException("visiting dictionary is not empty");
+        }
+        this.visitingFragment = null;
+    }
+
+    public void addVisitingDictionary(Dictionary dictionary) {
+        if (visitingFragment != null) {
+            visitingFragment.addVisitedDictionary(dictionary);
+        } else {
+            this.visitingDictionary.add(dictionary);
+        }
+    }
+
+    public void consumeVisitingDictionary() {
+        planFragments.get(planFragments.size()-1).setVisitedDictionary(visitingDictionary);
+        visitingDictionary = Sets.newHashSet();
     }
 }

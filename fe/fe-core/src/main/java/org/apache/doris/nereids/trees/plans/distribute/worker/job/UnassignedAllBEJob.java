@@ -53,7 +53,7 @@ public class UnassignedAllBEJob extends AbstractUnassignedJob {
 
         // for Coordinator to know the right parallelism of DictionarySink
         exchange.getFragment().setParallelExecNum(expectInstanceNum);
-
+        // here no need to consider BERestriction(DictionaryAvailable) because the insert stmt doesn't contains it.
         List<Backend> bes = workerManager.getAllBackend(true);
         if (bes.size() != expectInstanceNum) {
             // BE number changed when planning

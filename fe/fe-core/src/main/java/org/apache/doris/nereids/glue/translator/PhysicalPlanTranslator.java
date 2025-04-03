@@ -351,7 +351,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 PhysicalCTEConsumer consumer = getCTEConsumerChild(distribute);
                 Preconditions.checkState(consumer != null, "consumer not found");
                 for (Slot slot : distribute.getOutput()) {
+                    context.setVisitingFragment(context.getPlanFragments().size() - 1);
                     projectionExprs.add(ExpressionTranslator.translate(consumer.getProducerSlot(slot), context));
+                    context.clearVisitingFragment();
                 }
                 TupleDescriptor projectionTuple = generateTupleDesc(distribute.getOutput(), null, context);
                 dataStreamSink.setProjections(projectionExprs);
@@ -469,12 +471,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         TupleDescriptor olapTuple = generateTupleDesc(olapTableSink.getTargetTableSlots(),
                 olapTableSink.getTargetTable(), context);
+        context.setVisitingFragment(rootFragment);
         List<Expr> partitionExprs = olapTableSink.getPartitionExprList().stream()
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         Map<Long, Expr> syncMvWhereClauses = new HashMap<>();
         for (Map.Entry<Long, Expression> entry : olapTableSink.getSyncMvWhereClauses().entrySet()) {
             syncMvWhereClauses.put(entry.getKey(), ExpressionTranslator.translate(entry.getValue(), context));
         }
+        context.clearVisitingFragment();
         OlapTableSink sink;
         // This statement is only used in the group_commit mode
         if (context.getConnectContext().isGroupCommit()) {
@@ -903,6 +907,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Slot> slots = oneRowRelation.getLogicalProperties().getOutput();
         TupleDescriptor oneRowTuple = generateTupleDesc(slots, null, context);
 
+        context.setVisitingFragment(null);
         List<Expr> legacyExprs = oneRowRelation.getProjects()
                 .stream()
                 .map(expr -> ExpressionTranslator.translate(expr, context))
@@ -923,6 +928,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         PlanFragment planFragment = createPlanFragment(unionNode, DataPartition.UNPARTITIONED, oneRowRelation);
         context.addPlanFragment(planFragment);
+        context.consumeVisitingDictionary();
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), oneRowRelation);
         return planFragment;
     }
@@ -1012,6 +1018,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
 
         // 1. generate slot reference for each group expression
+        context.setVisitingFragment(inputPlanFragment);
         List<SlotReference> groupSlots = collectGroupBySlots(groupByExpressions, outputExpressions);
         ArrayList<Expr> execGroupingExpressions = groupByExpressions.stream()
                 .map(e -> {
@@ -1033,6 +1040,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         ArrayList<FunctionCallExpr> execAggregateFunctions = aggregateExpressionList.stream()
                 .map(aggregateFunction -> (FunctionCallExpr) ExpressionTranslator.translate(aggregateFunction, context))
                 .collect(Collectors.toCollection(ArrayList::new));
+        context.clearVisitingFragment();
 
         // 3. generate output tuple
         List<Slot> slotList = Lists.newArrayList();
@@ -1120,11 +1128,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             List<Expr> orderingExprs = Lists.newArrayList();
             List<Boolean> ascOrders = Lists.newArrayList();
             List<Boolean> nullsFirstParams = Lists.newArrayList();
+            context.setVisitingFragment(inputPlanFragment);
             aggregate.getTopnPushInfo().orderkeys.forEach(k -> {
                 orderingExprs.add(ExpressionTranslator.translate(k.getExpr(), context));
                 ascOrders.add(k.isAsc());
                 nullsFirstParams.add(k.isNullFirst());
             });
+            context.clearVisitingFragment();
             SortInfo sortInfo = new SortInfo(orderingExprs, ascOrders, nullsFirstParams, outputTupleDesc);
             aggregationNode.setSortByGroupKey(sortInfo);
             if (aggregationNode.getLimit() == -1) {
@@ -1287,9 +1297,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         MultiCastDataSink multiCastDataSink = new MultiCastDataSink();
         multiCastPlanFragment.setSink(multiCastDataSink);
 
+        context.setVisitingFragment(multiCastPlanFragment);
         List<Expr> outputs = cteProducer.getOutput().stream()
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
+        context.clearVisitingFragment();
 
         multiCastPlanFragment.setOutputExprs(outputs);
         context.getCteProduceFragments().put(cteId, multiCastPlanFragment);

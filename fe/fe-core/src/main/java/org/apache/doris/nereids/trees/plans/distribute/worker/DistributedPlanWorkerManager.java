@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker;
 
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -26,12 +27,11 @@ import java.util.Map;
 /** DistributedPlanWorkerManager */
 public interface DistributedPlanWorkerManager {
     DistributedPlanWorker getWorker(long backendId);
-
     DistributedPlanWorker getWorker(Backend backend);
 
-    DistributedPlanWorker randomAvailableWorker();
-
-    long randomAvailableWorker(Map<TNetworkAddress, Long> addressToBackendID);
+    DistributedPlanWorker randomAvailableWorker(PlanFragment fragment);
+    // choose from used workers. if not available, rollback to choosing from all workers
+    DistributedPlanWorker randomAvailableWorker(Map<TNetworkAddress, Long> addressToBackendID, PlanFragment fragment);
 
     List<Backend> getAllBackend(boolean needAlive);
 }

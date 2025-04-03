@@ -78,7 +78,7 @@ public class UnassignedGatherScanMultiRemoteTablesJob extends AbstractUnassigned
             scanNodeToScanRanges.put(scanNode, scanRanges);
         }
 
-        DistributedPlanWorker randomWorker = distributeContext.selectedWorkers.tryToSelectRandomUsedWorker();
+        DistributedPlanWorker randomWorker = distributeContext.selectedWorkers.tryToSelectRandomUsedWorker(fragment);
         return ImmutableList.of(
                 assignWorkerAndDataSources(0, connectContext.nextInstanceId(),
                         randomWorker, new DefaultScanSource(scanNodeToScanRanges)
