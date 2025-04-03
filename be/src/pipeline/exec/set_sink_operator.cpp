@@ -20,7 +20,6 @@
 #include <memory>
 
 #include "pipeline/exec/operator.h"
-#include "pipeline/pipeline_task.h"
 #include "vec/common/hash_table/hash_table_set_build.h"
 #include "vec/core/materialize_block.h"
 
