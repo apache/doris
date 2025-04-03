@@ -21,13 +21,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.executor.Rewriter;
-import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -131,12 +125,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         Plan newPlan = plan.accept(this, new Stack<>());
-        CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(), newPlan,
-                PhysicalProperties.ANY);
-        Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                ImmutableList.of(Rewriter.bottomUp(new SetOlapScanPreAgg(olapScanPreAggContexts))))
-                .execute();
-        return cascadesContext.getRewritePlan();
+        return newPlan.accept(new SetOlapScanPreAgg(), olapScanPreAggContexts);
     }
 
     @Override
@@ -221,25 +210,15 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                 .collect(ImmutableList.toImmutableList());
     }
 
-    private static class SetOlapScanPreAgg extends OneRewriteRuleFactory {
-        private Map<RelationId, PreAggInfoContext> olapScanPreAggContexts;
-
-        public SetOlapScanPreAgg(Map<RelationId, PreAggInfoContext> olapScanPreAggContexts) {
-            this.olapScanPreAggContexts = olapScanPreAggContexts;
-        }
-
+    private static class SetOlapScanPreAgg extends DefaultPlanRewriter<Map<RelationId, PreAggInfoContext>> {
         @Override
-        public Rule build() {
-            return logicalOlapScan().when(LogicalOlapScan::isPreAggStatusUnSet)
-                    .thenApply(ctx -> {
-                        LogicalOlapScan scan = ctx.root;
-                        PreAggStatus preAggStatus = PreAggStatus.off("No valid aggregate on scan.");
-                        PreAggInfoContext context = olapScanPreAggContexts.get(scan.getRelationId());
-                        if (context != null) {
-                            preAggStatus = createPreAggStatus(scan, context);
-                        }
-                        return scan.withPreAggStatus(preAggStatus);
-                    }).toRule(RuleType.PREAGG_STATUS_SCAN);
+        public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, Map<RelationId, PreAggInfoContext> context) {
+            PreAggStatus preAggStatus = PreAggStatus.off("No valid aggregate on scan.");
+            PreAggInfoContext preAggInfoContext = context.get(olapScan.getRelationId());
+            if (preAggInfoContext != null) {
+                preAggStatus = createPreAggStatus(olapScan, preAggInfoContext);
+            }
+            return olapScan.withPreAggStatus(preAggStatus);
         }
 
         private PreAggStatus createPreAggStatus(LogicalOlapScan logicalOlapScan, PreAggInfoContext context) {
