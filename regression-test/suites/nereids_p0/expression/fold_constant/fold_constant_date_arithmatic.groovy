@@ -72,4 +72,10 @@ suite("fold_constant_date_arithmatic") {
     testFoldConst("select months_between('2024-03-31', '2024-02-29')")
     testFoldConst("select months_between('2024-03-30', '2024-02-29')")
     testFoldConst("select months_between('2024-03-29', '2024-02-29')")
+
+    // Test next_day
+    testFoldConst("select next_day('2020-02-27', 'SAT');") // 2020-02-29 (leap year)
+    testFoldConst("select next_day('2020-02-29', 'MON');") // 2020-03-02 (leap year to next month)
+    testFoldConst("select next_day('2019-02-26', 'THU');") // 2019-02-28 (non-leap year)
+    testFoldConst("select next_day('2019-02-28', 'SUN');") // 2019-03-03 (non-leap year to next month)
 }
