@@ -49,10 +49,10 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     sql """drop table if exists `${tableName2}`"""
     sql """drop table if exists `${tableName3}`"""
     sql """drop table if exists `${tableName4}`"""
-    sql """drop materialized view if exists ${tableName1};"""
-    sql """drop materialized view if exists ${tableName2};"""
-    sql """drop materialized view if exists ${tableName3};"""
-    sql """drop materialized view if exists ${tableName4};"""
+    sql """drop materialized view if exists ${mtmvName1};"""
+    sql """drop materialized view if exists ${mtmvName2};"""
+    sql """drop materialized view if exists ${mtmvName3};"""
+    sql """drop materialized view if exists ${mtmvName4};"""
 
 
     sql """
@@ -187,6 +187,19 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         """
     waitingMTMVTaskFinishedByMvName(mtmvName3)
 
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mtmvName4}
+            REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT a.* FROM ${tableName1} a inner join ${tableName4} b on a.user_id=b.user_id;
+        """
+    waitingMTMVTaskFinishedByMvName(mtmvName4)
+
+
     def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
     assertTrue(state_mtmv1[0][0] == "NORMAL")
     assertTrue(state_mtmv1[0][1] == "SUCCESS")
@@ -199,5 +212,9 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     assertTrue(state_mtmv3[0][0] == "NORMAL")
     assertTrue(state_mtmv3[0][1] == "SUCCESS")
     assertTrue(state_mtmv3[0][2] == true)
+    def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
+    assertTrue(state_mtmv4[0][0] == "NORMAL")
+    assertTrue(state_mtmv4[0][1] == "SUCCESS")
+    assertTrue(state_mtmv4[0][2] == true)
 
 }
