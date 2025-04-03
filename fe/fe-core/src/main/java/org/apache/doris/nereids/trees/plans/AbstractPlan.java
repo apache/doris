@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.TreeStringPlan.TreeStringNode;
 import org.apache.doris.nereids.trees.plans.logical.AbstractLogicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.util.MutableState;
@@ -125,10 +124,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         return "";
     }
 
-    public boolean canExchangeChildrenForHbo() {
-        return false;
-    }
-
     /**
      * Get fingerprint of plan.
      */
@@ -146,24 +141,20 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             // is with rf's potential influence which will not exactly the same as 'b join a',
             // but when we ignore the join sides as above and want to increase the hbo plan stats.'s adaptability,
             // it may bring the unsuitable matching and increase the dependence for the rf-safe checking.
-            // TODO: add judgment for different join type, etc.
-            // for example, outer join's children can't be sort but inner and union can
-            if (this.canExchangeChildrenForHbo()) {
-                Collections.sort(mutableChildren, new Comparator<Plan>() {
-                    @Override
-                    public int compare(Plan plan1, Plan plan2) {
-                        List<String> scanQualifierList1 = new ArrayList<>();
-                        List<String> scanQualifierList2 = new ArrayList<>();
-                        HboUtils.collectScanQualifierList((AbstractPlan) plan1, scanQualifierList1);
-                        HboUtils.collectScanQualifierList((AbstractPlan) plan2, scanQualifierList2);
-                        Collections.sort(scanQualifierList1);
-                        Collections.sort(scanQualifierList2);
-                        String qualifiedName1 = Utils.qualifiedName(scanQualifierList1, "");
-                        String qualifiedName2 = Utils.qualifiedName(scanQualifierList2, "");
-                        return qualifiedName1.compareTo(qualifiedName2);
-                    }
-                });
-            }
+            Collections.sort(mutableChildren, new Comparator<Plan>() {
+                @Override
+                public int compare(Plan plan1, Plan plan2) {
+                    List<String> scanQualifierList1 = new ArrayList<>();
+                    List<String> scanQualifierList2 = new ArrayList<>();
+                    HboUtils.collectScanQualifierList((AbstractPlan) plan1, scanQualifierList1);
+                    HboUtils.collectScanQualifierList((AbstractPlan) plan2, scanQualifierList2);
+                    Collections.sort(scanQualifierList1);
+                    Collections.sort(scanQualifierList2);
+                    String qualifiedName1 = Utils.qualifiedName(scanQualifierList1, "");
+                    String qualifiedName2 = Utils.qualifiedName(scanQualifierList2, "");
+                    return qualifiedName1.compareTo(qualifiedName2);
+                }
+            });
             for (Plan plan : mutableChildren) {
                 if (plan instanceof GroupPlan) {
                     builder.append(((GroupPlan) plan).getFingerprint());

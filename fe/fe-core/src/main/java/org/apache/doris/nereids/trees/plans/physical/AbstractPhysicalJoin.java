@@ -276,11 +276,6 @@ public abstract class AbstractPhysicalJoin<
     }
 
     @Override
-    public boolean canExchangeChildrenForHbo() {
-        return joinType == JoinType.INNER_JOIN;
-    }
-
-    @Override
     public String toString() {
         List<Object> args = Lists.newArrayList(
                 "stats", statistics,
