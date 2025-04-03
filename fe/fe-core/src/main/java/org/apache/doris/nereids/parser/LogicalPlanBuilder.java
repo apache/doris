@@ -586,7 +586,9 @@ import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
@@ -6429,6 +6431,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitDropResource(DorisParser.DropResourceContext ctx) {
+        boolean ifExist = ctx.EXISTS() != null;
+        String resouceName = visitIdentifierOrText(ctx.identifierOrText());
+        return new DropResourceCommand(ifExist, resouceName);
+    }
+
+    @Override
+    public LogicalPlan visitDropRowPolicy(DorisParser.DropRowPolicyContext ctx) {
+        boolean ifExist = ctx.EXISTS() != null;
+        String policyName = ctx.policyName.getText();
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        UserIdentity userIdentity = ctx.userIdentify() != null ? visitUserIdentify(ctx.userIdentify()) : null;
+        String roleName = ctx.roleName != null ? ctx.roleName.getText() : null;
+        return new DropRowPolicyCommand(ifExist, policyName, tableNameInfo, userIdentity, roleName);
+    }
+
     public LogicalPlan visitDropAnalyzeJob(DorisParser.DropAnalyzeJobContext ctx) {
         long jobId = Long.parseLong(ctx.INTEGER_VALUE().getText());
         return new DropAnalyzeJobCommand(jobId);
