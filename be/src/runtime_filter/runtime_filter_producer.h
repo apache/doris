@@ -61,13 +61,12 @@ public:
 
     // insert data to build filter
     Status insert(vectorized::ColumnPtr column, size_t start) {
-        auto holder = _wrapper.load();
-        if (!holder->is_valid() || _rf_state == State::READY_TO_PUBLISH ||
+        if (!_wrapper->is_valid() || _rf_state == State::READY_TO_PUBLISH ||
             _rf_state == State::PUBLISHED) {
             return Status::OK();
         }
         _check_state({State::WAITING_FOR_DATA});
-        return holder->insert(column, start);
+        return _wrapper->insert(column, start);
     }
     Status publish(RuntimeState* state, bool build_hash_table);
 
@@ -88,8 +87,7 @@ public:
         if (_rf_state == State::PUBLISHED || _rf_state == State::READY_TO_PUBLISH) {
             return;
         }
-        _wrapper.load()->set_state(state,
-                                   reason); // set wrapper firstly to pass set_synced_size's check
+        _wrapper->set_state(state, reason); // set wrapper firstly to pass set_synced_size's check
         set_state(State::READY_TO_PUBLISH);
     }
 
@@ -145,7 +143,7 @@ private:
 
     Status _init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options) override {
         RETURN_IF_ERROR(RuntimeFilter::_init_with_desc(desc, options));
-        _need_sync_filter_size = _wrapper.load()->build_bf_by_runtime_size() && !_is_broadcast_join;
+        _need_sync_filter_size = _wrapper->build_bf_by_runtime_size() && !_is_broadcast_join;
         _rf_state = _need_sync_filter_size ? State::WAITING_FOR_SEND_SIZE : State::WAITING_FOR_DATA;
         _profile->add_info_string("Info", debug_string());
         return Status::OK();

@@ -120,17 +120,20 @@ private:
         }
     }
 
-    void _set_state(State rf_state) {
+    void _set_state(State rf_state, std::shared_ptr<RuntimeFilterWrapper> other = nullptr) {
         std::unique_lock<std::mutex> l(_mtx);
         if (rf_state == State::TIMEOUT) {
             DorisMetrics::instance()->runtime_filter_consumer_timeout_num->increment(1);
             _profile->add_info_string("ReachTimeoutLimit", "true");
-        }
-        if (rf_state == State::READY) {
+        } else if (rf_state == State::READY) {
+            DorisMetrics::instance()->runtime_filter_consumer_ready_num->increment(1);
+            DorisMetrics::instance()->runtime_filter_consumer_wait_ready_ms->increment(
+                    MonotonicMillis() - _registration_time);
             _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED,
                                   RuntimeFilterWrapper::State::IGNORED,
                                   RuntimeFilterWrapper::State::READY});
             _check_state({State::NOT_READY, State::TIMEOUT});
+            _wrapper = other;
         }
         _rf_state = rf_state;
         _profile->add_info_string("Info", debug_string());
