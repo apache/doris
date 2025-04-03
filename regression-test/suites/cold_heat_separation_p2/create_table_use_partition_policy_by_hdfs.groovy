@@ -18,6 +18,9 @@ import groovy.json.JsonSlurper
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("create_table_use_partition_policy_by_hdfs") {
+    if (!enableHdfs()) {
+        logger.info("skip this case because hdfs is not enabled");
+    }
     def fetchBeHttp = { check_func, meta_url ->
         def i = meta_url.indexOf("/api")
         String endPoint = meta_url.substring(0, i)
@@ -47,7 +50,8 @@ suite("create_table_use_partition_policy_by_hdfs") {
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
-    def tableName = "lineitem1"
+    def suffix = UUID.randomUUID().hashCode().abs()
+    def tableName = "lineitem1${suffix}"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     def stream_load_one_part = { partnum ->
         streamLoad {
@@ -114,8 +118,8 @@ suite("create_table_use_partition_policy_by_hdfs") {
         return false;
     }
 
-    def resource_name = "test_table_partition_with_data_resource"
-    def policy_name= "test_table_partition_with_data_policy"
+    def resource_name = "test_table_partition_with_data_resource${suffix}"
+    def policy_name= "test_table_partition_with_data_policy${suffix}"
 
     if (check_storage_policy_exist(policy_name)) {
         sql """
@@ -313,8 +317,9 @@ suite("create_table_use_partition_policy_by_hdfs") {
     SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
     """
     log.info( "test tablets not empty")
+    def retry = 100
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == 0) {
+    while (sizes[1] == 0 && retry --> 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql_return_maparray """
@@ -322,6 +327,7 @@ suite("create_table_use_partition_policy_by_hdfs") {
         """
         fetchDataSize(sizes, tablets[0])
     }
+    assertTrue(sizes[1] != 0, "remote size is still zero, maybe some error occurred")
     assertTrue(tablets.size() > 0)
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]

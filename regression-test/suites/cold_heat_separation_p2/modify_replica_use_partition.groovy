@@ -65,8 +65,8 @@ try {
         assertEquals(code, 0)
         return out
     }
-
-    def tableName = "lineitem3"
+    def suffix = UUID.randomUUID().hashCode().abs()
+    def tableName = "lineitem3${suffix}"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     def stream_load_one_part = { partnum ->
         streamLoad {
@@ -133,8 +133,8 @@ try {
         return false;
     }
 
-    def resource_name = "test_table_replica_with_data_resource"
-    def policy_name= "test_table_replica_with_data_policy"
+    def resource_name = "test_table_replica_with_data_resource${suffix}"
+    def policy_name= "test_table_replica_with_data_policy${suffix}"
 
     if (check_storage_policy_exist(policy_name)) {
         sql """
@@ -222,7 +222,8 @@ try {
     """
     log.info( "test tablets not empty")
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == 0) {
+    def retry = 100
+    while (sizes[1] == 0 && retry --> 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql_return_maparray """
@@ -230,6 +231,7 @@ try {
         """
         fetchDataSize(sizes, tablets[0])
     }
+    assertTrue(sizes[1] != 0, "remote size is still zero, maybe some error occurred")
     assertTrue(tablets.size() > 0)
     def LocalDataSize1 = sizes[0]
     def RemoteDataSize1 = sizes[1]
@@ -263,13 +265,15 @@ try {
     tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
-    while (tablets.size() != 3 * originSize) {
+    retry = 100
+    while (tablets.size() != 3 * originSize && retry --> 0) {
         log.info( "tablets clone not finished(tablets.size = ${tablets.size()}, originSize = ${originSize}), sleep 10s")
         sleep(10000)
         tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName}
         """
     }
+    assertTrue(tablets.size() == 3 * originSize, "tablets clone not finished, maybe some error occurred")
     def compactionStatusIdx = tablets[0].size() - 1
     // check rowsets inside the 3 replica
     def iterate_num = tablets.size() / 3;
@@ -353,7 +357,8 @@ try {
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == 0) {
+    retry = 100
+    while (sizes[1] == 0 && retry --> 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql_return_maparray """
@@ -361,6 +366,7 @@ try {
         """
         fetchDataSize(sizes, tablets[0])
     }
+    assertTrue(sizes[1] != 0, "remote size is still zero, maybe some error occurred")
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
     log.info( "test local size is zero")
@@ -449,7 +455,8 @@ try {
     log.info( "test tablets not empty")
     assertTrue(tablets.size() > 0)
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == 0) {
+    retry = 100
+    while (sizes[1] == 0 && retry --> 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql_return_maparray """
@@ -457,6 +464,7 @@ try {
         """
         fetchDataSize(sizes, tablets[0])
     }
+    assertTrue(sizes[1] != 0, "remote size is still zero, maybe some error occurred")
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
     log.info( "test local size is zero")

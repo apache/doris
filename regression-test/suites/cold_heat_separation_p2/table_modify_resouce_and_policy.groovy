@@ -47,7 +47,8 @@ suite("table_modify_resouce") {
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
-    def tableName = "lineitem4"
+    def suffix = UUID.randomUUID().hashCode().abs()
+    def tableName = "lineitem4${suffix}"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     def stream_load_one_part = { partnum ->
         streamLoad {
@@ -114,8 +115,8 @@ suite("table_modify_resouce") {
         return false;
     }
 
-    def resource_name = "test_table_with_data_resource_modify_1"
-    def policy_name= "test_table_with_data_policy_modify_1"
+    def resource_name = "test_table_with_data_resource_modify_1${suffix}"
+    def policy_name= "test_table_with_data_policy_modify_1${suffix}"
 
     if (check_storage_policy_exist(policy_name)) {
         sql """
@@ -206,7 +207,7 @@ suite("table_modify_resouce") {
         """
         fetchDataSize(sizes, tablets[0])
         try_times -= 1
-        assertTrue(try_times > 0)
+        assertTrue(try_times > 0, "remote size is still zero, maybe some error occurred")
     }
 
     // 修改resource和policy到新值然后查看remote data size是否能对上
@@ -289,7 +290,7 @@ suite("table_modify_resouce") {
         """
         fetchDataSize(sizes, tablets[0])
         try_times -= 1
-        assertTrue(try_times > 0)
+        assertTrue(try_times > 0, "remote size is still zero, maybe some error occurred")
     }
 
     // 修改resource和policy到新值然后查看remote data size是否能对上

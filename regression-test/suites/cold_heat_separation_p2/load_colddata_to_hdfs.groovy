@@ -51,7 +51,8 @@ suite("load_colddata_to_hdfs") {
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
-    def tableName = "lineitem2"
+    def suffix = UUID.randomUUID().hashCode().abs()
+    def tableName = "lineitem2${suffix}"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     def stream_load_one_part = { partnum ->
         streamLoad {
@@ -117,8 +118,8 @@ suite("load_colddata_to_hdfs") {
         return false;
     }
 
-    def resource_name = "test_table_with_data_resource"
-    def policy_name= "test_table_with_data_policy"
+    def resource_name = "test_table_with_data_resource${suffix}"
+    def policy_name= "test_table_with_data_policy${suffix}"
 
     if (check_storage_policy_exist(policy_name)) {
         sql """
@@ -203,7 +204,8 @@ suite("load_colddata_to_hdfs") {
     """
     log.info( "test tablets not empty")
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == 0) {
+    def retry = 100
+    while (sizes[1] == 0 && retry --> 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql_return_maparray """
@@ -211,6 +213,7 @@ suite("load_colddata_to_hdfs") {
         """
         fetchDataSize(sizes, tablets[0])
     }
+    assertTrue(sizes[1] != 0, "remote size is still zero, maybe some error occurred")
     assertTrue(tablets.size() > 0)
     log.info( "test remote size not zero")
     assertEquals(LocalDataSize1, sizes[1])
