@@ -728,6 +728,8 @@ public:
 
             // Test with old index format
             test_read_index_file(data_dir, "x86_256_old", true);
+            test_read_index_file(data_dir, "arm_new", false);
+            test_read_index_file(data_dir, "arm_old", false);
 
         } else {
             // Test x86 architecture cases
@@ -738,6 +740,8 @@ public:
                 // Test with AVX2 optimized index files
                 test_read_index_file(data_dir, "arm_new", false);
                 test_read_index_file(data_dir, "arm_old", true);
+                test_read_index_file(data_dir, "x86_256_new", false);
+                test_read_index_file(data_dir, "x86_256_old", false);
             } else {
                 std::cout << "Testing with SSE support" << std::endl;
                 // Test with SSE optimized index files
