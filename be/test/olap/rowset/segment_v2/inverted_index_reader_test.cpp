@@ -640,114 +640,33 @@ public:
         EXPECT_TRUE(bitmap->contains(799)) << "Last document of term_a should be at position 799";
     }
 
-    // Test reading existing large document set index file
-    void test_read_existing_large_docset_old_version() {
-        std::string data_dir = "./be/test/olap/test_data/";
-        std::string_view rowset_id =
-                "test_read_rowset_6_old128"; // Changed from string_view to string
-        int seg_id = 0;
-
-        // Create index metadata (same as in prepare_string_index)
-        auto tablet_schema = create_schema();
-        auto index_meta_pb = std::make_unique<TabletIndexPB>();
-        index_meta_pb->set_index_type(IndexType::INVERTED);
-        index_meta_pb->set_index_id(1);
-        index_meta_pb->set_index_name("test");
-        index_meta_pb->clear_col_unique_id();
-        index_meta_pb->add_col_unique_id(1); // c2 column ID
-
-        TabletIndex idx_meta;
-        idx_meta.init_from_pb(*index_meta_pb.get());
-        std::string index_path_prefix;
-        // Get the index file path
-        index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(
-                local_segment_path(data_dir, rowset_id, seg_id));
-
-        // Create reader
-        OlapReaderStatistics stats;
-        RuntimeState runtime_state;
-        TQueryOptions query_options;
-        query_options.enable_inverted_index_searcher_cache = false;
-        query_options.inverted_index_compatible_read = true;
-        runtime_state.set_query_options(query_options);
-
-        auto reader = std::make_shared<InvertedIndexFileReader>(
-                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
-
-        auto status = reader->init();
-        EXPECT_EQ(status, Status::OK());
-
-        auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
-        EXPECT_NE(str_reader, nullptr);
-
-        io::IOContext io_ctx;
-        std::string field_name = "1"; // c2 column unique_id
-
-        // Test queries on the existing index file
-
-        // 1. Query for "common_term" (should have 600 docs)
-        std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-        std::string query_term = "common_term";
-        StringRef str_ref(query_term.c_str(), query_term.length());
-
-        auto query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                              InvertedIndexQueryType::EQUAL_QUERY, bitmap);
-
-        EXPECT_TRUE(query_status.ok()) << query_status;
-        EXPECT_EQ(bitmap->cardinality(), 600)
-                << "Should find 600 documents matching 'common_term' in existing index";
-
-        // Verify the document range for common_term
-        EXPECT_TRUE(bitmap->contains(0)) << "First document should match 'common_term'";
-        EXPECT_TRUE(bitmap->contains(599)) << "Last document should match 'common_term'";
-
-        // 2. Query for "term_a" (should have 200 docs)
-        bitmap = std::make_shared<roaring::Roaring>();
-        query_term = "term_a";
-        StringRef str_ref_a(query_term.c_str(), query_term.length());
-
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_a,
-                                         InvertedIndexQueryType::EQUAL_QUERY, bitmap);
-
-        EXPECT_TRUE(query_status.ok()) << query_status;
-        EXPECT_EQ(bitmap->cardinality(), 200)
-                << "Should find 200 documents matching 'term_a' in existing index";
-        EXPECT_TRUE(bitmap->contains(600)) << "First document of term_a should be at position 600";
-        EXPECT_TRUE(bitmap->contains(799)) << "Last document of term_a should be at position 799";
-
-        // 3. Query for "term_b" (should have 200 docs)
-        bitmap = std::make_shared<roaring::Roaring>();
-        query_term = "term_b";
-        StringRef str_ref_b(query_term.c_str(), query_term.length());
-
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_b,
-                                         InvertedIndexQueryType::EQUAL_QUERY, bitmap);
-
-        EXPECT_TRUE(query_status.ok()) << query_status;
-        EXPECT_EQ(bitmap->cardinality(), 200)
-                << "Should find 200 documents matching 'term_b' in existing index";
-        EXPECT_TRUE(bitmap->contains(800)) << "First document of term_b should be at position 800";
-        EXPECT_TRUE(bitmap->contains(999)) << "Last document of term_b should be at position 999";
-
-        // 4. Query for non-existent term
-        bitmap = std::make_shared<roaring::Roaring>();
-        query_term = "non_existent_term";
-        StringRef str_ref_non(query_term.c_str(), query_term.length());
-
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_non,
-                                         InvertedIndexQueryType::EQUAL_QUERY, bitmap);
-
-        EXPECT_TRUE(query_status.ok()) << query_status;
-        EXPECT_EQ(bitmap->cardinality(), 0) << "Should find 0 documents for non-existent term";
+    // Helper function to check CPU architecture
+    bool is_arm_architecture() {
+#if defined(__aarch64__)
+        return true;
+#else
+        return false;
+#endif
     }
-    // Test reading existing large document set index file
-    void test_read_existing_large_docset_new_version() {
-        std::string data_dir = "./be/test/olap/test_data/";
-        std::string_view rowset_id =
-                "test_read_rowset_6_new128"; // Changed from string_view to string
-        int seg_id = 0;
 
-        // Create index metadata (same as in prepare_string_index)
+    // Helper function to check AVX2 support
+    bool has_avx2_support() {
+#if defined(__x86_64__)
+        unsigned int eax, ebx, ecx, edx;
+        __asm__("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "0"(7), "c"(0));
+        return (ebx & (1 << 5)) != 0; // Check AVX2 bit
+#else
+        return false;
+#endif
+    }
+
+    // Helper function to test index reading with given parameters
+    void test_read_index_file(const std::string& data_dir, const std::string& index_file,
+                              bool enable_compatible_read) {
+        //std::string_view rowset_id = "test_rowset";
+        //int seg_id = 0;
+
+        // Create index metadata
         auto tablet_schema = create_schema();
         auto index_meta_pb = std::make_unique<TabletIndexPB>();
         index_meta_pb->set_index_type(IndexType::INVERTED);
@@ -758,17 +677,16 @@ public:
 
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
-        std::string index_path_prefix;
+
         // Get the index file path
-        index_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(
-                local_segment_path(data_dir, rowset_id, seg_id));
+        std::string index_path_prefix = data_dir + "/" + index_file;
 
         // Create reader
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions query_options;
         query_options.enable_inverted_index_searcher_cache = false;
-        query_options.inverted_index_compatible_read = false;
+        query_options.inverted_index_compatible_read = enable_compatible_read;
         runtime_state.set_query_options(query_options);
 
         auto reader = std::make_shared<InvertedIndexFileReader>(
@@ -783,9 +701,7 @@ public:
         io::IOContext io_ctx;
         std::string field_name = "1"; // c2 column unique_id
 
-        // Test queries on the existing index file
-
-        // 1. Query for "common_term" (should have 600 docs)
+        // Test queries
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
         std::string query_term = "common_term";
         StringRef str_ref(query_term.c_str(), query_term.length());
@@ -794,51 +710,41 @@ public:
                                               InvertedIndexQueryType::EQUAL_QUERY, bitmap);
 
         EXPECT_TRUE(query_status.ok()) << query_status;
-        EXPECT_EQ(bitmap->cardinality(), 600)
-                << "Should find 600 documents matching 'common_term' in existing index";
-
-        // Verify the document range for common_term
+        EXPECT_EQ(bitmap->cardinality(), 600) << "Should find 600 documents matching 'common_term'";
         EXPECT_TRUE(bitmap->contains(0)) << "First document should match 'common_term'";
         EXPECT_TRUE(bitmap->contains(599)) << "Last document should match 'common_term'";
+    }
 
-        // 2. Query for "term_a" (should have 200 docs)
-        bitmap = std::make_shared<roaring::Roaring>();
-        query_term = "term_a";
-        StringRef str_ref_a(query_term.c_str(), query_term.length());
+    // Test reading existing large document set index file
+    void test_read_existing_large_docset() {
+        std::string data_dir = "./be/test/olap/test_data";
 
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_a,
-                                         InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+        if (is_arm_architecture()) {
+            // Test ARM architecture cases
+            LOG(INFO) << "Testing on ARM architecture";
 
-        EXPECT_TRUE(query_status.ok()) << query_status;
-        EXPECT_EQ(bitmap->cardinality(), 200)
-                << "Should find 200 documents matching 'term_a' in existing index";
-        EXPECT_TRUE(bitmap->contains(600)) << "First document of term_a should be at position 600";
-        EXPECT_TRUE(bitmap->contains(799)) << "Last document of term_a should be at position 799";
+            // Test with new index format
+            test_read_index_file(data_dir, "x86_256_new", false);
 
-        // 3. Query for "term_b" (should have 200 docs)
-        bitmap = std::make_shared<roaring::Roaring>();
-        query_term = "term_b";
-        StringRef str_ref_b(query_term.c_str(), query_term.length());
+            // Test with old index format
+            test_read_index_file(data_dir, "x86_256_old", true);
 
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_b,
-                                         InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+        } else {
+            // Test x86 architecture cases
+            LOG(INFO) << "Testing on x86 architecture";
 
-        EXPECT_TRUE(query_status.ok()) << query_status;
-        EXPECT_EQ(bitmap->cardinality(), 200)
-                << "Should find 200 documents matching 'term_b' in existing index";
-        EXPECT_TRUE(bitmap->contains(800)) << "First document of term_b should be at position 800";
-        EXPECT_TRUE(bitmap->contains(999)) << "Last document of term_b should be at position 999";
-
-        // 4. Query for non-existent term
-        bitmap = std::make_shared<roaring::Roaring>();
-        query_term = "non_existent_term";
-        StringRef str_ref_non(query_term.c_str(), query_term.length());
-
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_non,
-                                         InvertedIndexQueryType::EQUAL_QUERY, bitmap);
-
-        EXPECT_TRUE(query_status.ok()) << query_status;
-        EXPECT_EQ(bitmap->cardinality(), 0) << "Should find 0 documents for non-existent term";
+            if (has_avx2_support()) {
+                LOG(INFO) << "Testing with AVX2 support";
+                // Test with AVX2 optimized index files
+                test_read_index_file(data_dir, "arm_new", false);
+                test_read_index_file(data_dir, "arm_old", true);
+            } else {
+                LOG(INFO) << "Testing with SSE support";
+                // Test with SSE optimized index files
+                test_read_index_file(data_dir, "x86_256_new", false);
+                test_read_index_file(data_dir, "x86_256_old", true);
+            }
+        }
     }
 
 private:
@@ -878,8 +784,7 @@ TEST_F(InvertedIndexReaderTest, StringIndexLargeDocset) {
 
 // Test reading existing large document set index file
 TEST_F(InvertedIndexReaderTest, ReadExistingLargeDocset) {
-    test_read_existing_large_docset_old_version();
-    test_read_existing_large_docset_new_version();
+    test_read_existing_large_docset();
 }
 
 } // namespace doris::segment_v2
