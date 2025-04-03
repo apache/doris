@@ -162,7 +162,7 @@ public class ImmutableEqualSet<T> {
         T ra = root.get(a);
         ImmutableSet.Builder<T> set = ImmutableSet.builderWithExpectedSize(root.size());
         for (Entry<T, T> kv : root.entrySet()) {
-            if (kv.getValue().equals(ra) && !kv.getKey().equals(ra)) {
+            if (kv.getValue().equals(ra) && !kv.getKey().equals(a)) {
                 set.add(kv.getKey());
             }
         }
