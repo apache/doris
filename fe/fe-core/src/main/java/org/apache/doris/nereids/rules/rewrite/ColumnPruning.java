@@ -226,23 +226,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     @Override
-    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, PruneContext context) {
-        // for fast jump to child
-        Plan originChild = filter.child();
-        if (originChild instanceof OutputPrunable) {
-            Plan newChild = originChild.accept(this, context);
-            if (newChild != originChild) {
-                return filter.withChildren(newChild);
-            }
-            return filter;
-        } else if (!context.childRequiredSlots.isEmpty()) {
-            return newProjectIfNotPruned(filter, context.requiredSlotsIds, context.childRequiredSlots);
-        } else {
-            return super.visitLogicalFilter(filter, context);
-        }
-    }
-
-    @Override
     public Plan visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, PruneContext context) {
         TableValuedFunction tvf = tvfRelation.getFunction();
 
@@ -378,7 +361,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     private Plan skipPruneThisAndFirstLevelChildren(Plan plan) {
-        return pruneChildren(plan, plan.getOutputExprIdBitSet());
+        return pruneChildren(plan, plan.getChildrenOutputExprIdBitSet());
     }
 
     private static Aggregate<? extends Plan> fillUpGroupByAndOutput(Aggregate<? extends Plan> prunedOutputAgg) {
@@ -500,7 +483,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             return plan;
         }
 
-        BitSet childrenRequiredSlotIds = parentRequiredSlotIds;
+        BitSet childrenRequiredSlotIds = (BitSet) parentRequiredSlotIds.clone();
         for (Expression expression : plan.getExpressions()) {
             expression.foreach(e -> {
                 if (e instanceof Slot) {

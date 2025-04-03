@@ -160,6 +160,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
@@ -237,6 +238,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // but it appeared at LogicalApply.right. After the `Subquery unnesting` topic, all slots is placed in a
                 // normal position, then we can check column privileges by these steps
                 //
+                // 1. use ColumnPruning rule to derive the used slots in LogicalView
+                // 2. and then check the column privileges
+                // 3. finally, we can eliminate the LogicalView
+                topic("Inline view and check column privileges",
+                    custom(RuleType.CHECK_PRIVILEGES, ColumnPruning::new)
+                ),
                 topic("Eliminate optimization",
                         bottomUp(
                                 new EliminateLimit(),
@@ -322,7 +329,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 topDown(new PushProjectThroughUnion(), new MergeProjects()),
                                 bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept())
                         ),
-                        bottomUp(new PushProjectIntoOneRowRelation()),
+                        topDown(new PushProjectIntoOneRowRelation()),
                         topic("",
                                 cascadesContext -> cascadesContext.rewritePlanContainsTypes(SetOperation.class),
                                 topDown(new MergeOneRowRelationIntoUnion()),
@@ -341,9 +348,16 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // is because that pulling up predicates from union needs EliminateEmptyRelation in union child
                 topic("Column pruning and infer predicate",
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
-                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                    topic("",
+                            cascadesContext -> !cascadesContext.rewritePlanContainsTypes(
+                                    LogicalJoin.class, LogicalSetOperation.class
+                            ),
+                            bottomUp(RuleSet.PUSH_DOWN_FILTERS)
+                    ),
                     topic("infer predicate",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(
+                                LogicalJoin.class, LogicalSetOperation.class
+                        ),
                         custom(RuleType.INFER_PREDICATES, InferPredicates::new),
                         // column pruning create new project, so we should use PUSH_DOWN_FILTERS
                         // to change filter-project to project-filter
@@ -452,9 +466,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new PruneOlapScanTablet()
                         ),
                         custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
-                        bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                        custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
+                        bottomUp(RuleSet.PUSH_DOWN_FILTERS)
                 ),
+                custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                 topic("adjust preagg status",
                         topDown(new AdjustPreAggStatus())
                 ),
@@ -531,6 +545,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
             )
     );
 
+    private static final List<RewriteJob> WHOLE_TREE_REWRITE_JOBS
+            = getWholeTreeRewriteJobs(true);
+
+    private static final List<RewriteJob> WHOLE_TREE_REWRITE_JOBS_WITHOUT_COST_BASED
+            = getWholeTreeRewriteJobs(false);
+
     private final List<RewriteJob> rewriteJobs;
     private final boolean runCboRules;
 
@@ -541,11 +561,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
     }
 
     public static Rewriter getWholeTreeRewriterWithoutCostBasedJobs(CascadesContext cascadesContext) {
-        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(false), false);
+        return new Rewriter(cascadesContext, WHOLE_TREE_REWRITE_JOBS_WITHOUT_COST_BASED, false);
     }
 
     public static Rewriter getWholeTreeRewriter(CascadesContext cascadesContext) {
-        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(true), true);
+        return new Rewriter(cascadesContext, WHOLE_TREE_REWRITE_JOBS, true);
     }
 
     public static Rewriter getCteChildrenRewriter(CascadesContext cascadesContext, List<RewriteJob> jobs) {

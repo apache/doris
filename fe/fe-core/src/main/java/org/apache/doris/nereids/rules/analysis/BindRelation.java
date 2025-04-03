@@ -125,7 +125,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private Plan doBindRelation(MatchingContext<UnboundRelation> ctx) {
         List<String> nameParts = ctx.root.getNameParts();
         switch (nameParts.size()) {
-            case 1: { // table
+            case 1: {
+                // table
                 // Use current database name from catalog.
                 return bindWithCurrentDb(ctx.cascadesContext, ctx.root);
             }

@@ -248,6 +248,14 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private LogicalPlan bindGenerate(MatchingContext<LogicalGenerate<Plan>> ctx) {
         LogicalGenerate<Plan> generate = ctx.root;
+
+        // already bounded, then fast return
+        for (Slot slot : generate.getGeneratorOutput()) {
+            if (!(slot instanceof UnboundSlot)) {
+                return generate;
+            }
+        }
+
         CascadesContext cascadesContext = ctx.cascadesContext;
 
         Builder<Slot> outputSlots = ImmutableList.builder();

@@ -28,14 +28,14 @@ import org.apache.doris.nereids.util.Utils;
  * We need this rule to cast all filter and join conjunct's return type to boolean after rewrite.
  */
 public class AddProjectForJoin extends OneRewriteRuleFactory {
-    private static final String KEY = "GENERATED_PROJECT";
+    private static final String KEY = "AddProjectForJoin";
 
     @Override
     public Rule build() {
         return logicalJoin()
                 .when(j -> !j.getMutableState(KEY).isPresent())
                 .then(join -> {
-                    join.setMutableState(KEY, true);
+                    join.setMutableState(KEY, Boolean.TRUE);
                     LogicalProject<LogicalJoin<Plan, Plan>> project
                             = new LogicalProject<>(Utils.fastToImmutableList(join.getOutput()), join);
                     return project;
