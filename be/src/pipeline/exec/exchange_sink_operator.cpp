@@ -102,10 +102,10 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             _last_local_channel_idx = i;
         }
     }
-    only_local_exchange = local_size == channels.size();
+    _only_local_exchange = local_size == channels.size();
     _rpc_channels_num = channels.size() - local_size;
 
-    if (!only_local_exchange) {
+    if (!_only_local_exchange) {
         _sink_buffer = p.get_sink_buffer(state->fragment_instance_id().lo);
         register_channels(_sink_buffer.get());
         _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
@@ -221,11 +221,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     id.set_lo(_state->query_id().lo);
 
     if ((_part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
-        !only_local_exchange) {
-        _broadcast_dependency = Dependency::create_shared(
-                _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
-        _broadcast_pb_mem_limiter =
-                vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_broadcast_dependency);
+        !_only_local_exchange) {
+        _pb_mem_limiter = vectorized::PBlockHolderMemLimiter::create_shared(_queue_dependency);
     } else if (_last_local_channel_idx > -1) {
         size_t dep_id = 0;
         for (auto& channel : channels) {
@@ -372,7 +369,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         // 1. serialize depends on it is not local exchange
         // 2. send block
         // 3. rollover block
-        if (local_state.only_local_exchange) {
+        if (local_state._only_local_exchange) {
             if (!block->empty()) {
                 Status status;
                 size_t idx = 0;
@@ -389,7 +386,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 }
             }
         } else {
-            auto block_holder = vectorized::BroadcastPBlockHolder::create_shared();
+            auto block_holder = vectorized::PBlockHolder::create_shared();
             {
                 bool serialized = false;
                 int64_t old_block_mem_bytes = local_state._serializer.mem_usage();
@@ -411,7 +408,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                         block_holder->reset_block();
                     }
 
-                    local_state._broadcast_pb_mem_limiter->acquire(*block_holder);
+                    local_state._pb_mem_limiter->acquire(*block_holder);
 
                     size_t idx = 0;
                     bool moved = false;
@@ -549,9 +546,6 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     }
 
     COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
-    if (_broadcast_dependency) {
-        COUNTER_UPDATE(_wait_broadcast_buffer_timer, _broadcast_dependency->watcher_elapse_time());
-    }
     for (size_t i = 0; i < _local_channels_dependency.size(); i++) {
         COUNTER_UPDATE(_wait_channel_timer[i],
                        _local_channels_dependency[i]->watcher_elapse_time());

@@ -51,10 +51,10 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace vectorized {
-BroadcastPBlockHolder::~BroadcastPBlockHolder() {
+PBlockHolder::~PBlockHolder() {
     // lock the parent queue, if the queue could lock success, then return the block
     // to the queue, to reuse the block
-    std::shared_ptr<BroadcastPBlockHolderMemLimiter> limiter = _parent_creator.lock();
+    std::shared_ptr<PBlockHolderMemLimiter> limiter = _parent_creator.lock();
     if (limiter != nullptr) {
         limiter->release(*this);
     }
@@ -62,27 +62,27 @@ BroadcastPBlockHolder::~BroadcastPBlockHolder() {
     // is a unique ptr.
 }
 
-void BroadcastPBlockHolderMemLimiter::acquire(BroadcastPBlockHolder& holder) {
+void PBlockHolderMemLimiter::acquire(PBlockHolder& holder) {
     std::unique_lock l(_holders_lock);
-    DCHECK(_broadcast_dependency != nullptr);
+    DCHECK(_dependency != nullptr);
     holder.set_parent_creator(shared_from_this());
     auto size = holder._pblock->column_values().size();
     _total_queue_buffer_size += size;
     _total_queue_blocks_count++;
     if (_total_queue_buffer_size >= _total_queue_buffer_size_limit ||
         _total_queue_blocks_count >= _total_queue_blocks_count_limit) {
-        _broadcast_dependency->block();
+        _dependency->block();
     }
 }
 
-void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holder) {
+void PBlockHolderMemLimiter::release(const PBlockHolder& holder) {
     std::unique_lock l(_holders_lock);
-    DCHECK(_broadcast_dependency != nullptr);
+    DCHECK(_dependency != nullptr);
     auto size = holder._pblock->column_values().size();
     _total_queue_buffer_size -= size;
     _total_queue_blocks_count--;
     if (_total_queue_buffer_size <= 0) {
-        _broadcast_dependency->set_ready();
+        _dependency->set_ready();
     }
 }
 
@@ -245,9 +245,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         brpc_request->set_be_number(request.channel->_parent->be_number());
         if (request.block && !request.block->column_metas().empty()) {
             brpc_request->set_allocated_block(request.block.get());
-        }
-        if (!request.exec_status.ok()) {
-            request.exec_status.to_protobuf(brpc_request->mutable_exec_status());
         }
         auto send_callback = request.channel->get_send_callback(id, request.eos);
 
