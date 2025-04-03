@@ -105,6 +105,11 @@ public class SubqueryTest extends AnalyzeCheckTestBase {
                 + "(select sum(t1.k1) from t1 where t0.k1 = t1.k1) "
                 + "and t0.k2 = (select sum(t2.k1) from t2 where t0.v1 = t2.v2)";
         checkAnalyze(sql4);
+
+        String sql5 = "select * from t0 where t0.id = "
+                + "(select sum(t1.k1) from t1 where t0.k1 = "
+                + "(select sum(t2.k1) from t2 where t1.id = t2.v2))";
+        checkAnalyze(sql5);
     }
 
     @Test

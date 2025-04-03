@@ -176,7 +176,7 @@ suite("correlated_scalar_subquery") {
         sql """
               select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select correlated_scalar_t2.c1 from correlated_scalar_t2 join correlated_scalar_t3 on correlated_scalar_t1.c1 = correlated_scalar_t3.c2 );
         """
-        exception "access outer query's column in join is not supported"
+        exception "Unsupported correlated subquery with correlated slot in join conjuncts"
     }
 
     test {
@@ -224,13 +224,6 @@ suite("correlated_scalar_subquery") {
     test {
         sql """
               select * from correlated_scalar_t1 where correlated_scalar_t1.c1 = (select c2 from correlated_scalar_t2 where correlated_scalar_t1.c1 in (select c1 from correlated_scalar_t3));
-        """
-        exception "access outer query column"
-    }
-
-    test {
-        sql """
-              select * from correlated_scalar_t1 where correlated_scalar_t1.c1 = (select c2 from correlated_scalar_t2 where correlated_scalar_t1.c1 = (select c1 from correlated_scalar_t3));
         """
         exception "access outer query column"
     }
