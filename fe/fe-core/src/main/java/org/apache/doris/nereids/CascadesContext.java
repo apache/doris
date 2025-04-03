@@ -235,7 +235,13 @@ public class CascadesContext implements ScheduleContext {
                     this.memo.copyIn(tmpPlanForLaterMvRewrite.get(i), this.memo.getRoot(), false);
                 }
             }
-            this.memo.copyIn(plan, this.memo.getRoot(), false);
+            if (!plan.getLogicalProperties().equals(this.memo.getRoot().getLogicalProperties())) {
+                // aggregate_without_roll_up query_13_0 cause error into targetGroup but differ in logical properties
+                // tmp rewritten plan output is different from final rewritten plan output
+                this.memo = new Memo(getConnectContext(), plan);
+            } else {
+                this.memo.copyIn(plan, this.memo.getRoot(), false);
+            }
         } else {
             this.memo = new Memo(getConnectContext(), plan);
         }
