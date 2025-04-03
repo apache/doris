@@ -155,6 +155,11 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
         return false;
     }
 
+    if (!cluster.has_cluster_name() || cluster.cluster_name() == "") {
+        *err = "not have cluster name";
+        return false;
+    }
+
     std::stringstream ss;
     bool no_err = true;
     int master_num = 0;
