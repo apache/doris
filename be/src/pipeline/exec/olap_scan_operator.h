@@ -87,8 +87,6 @@ private:
 
     Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
 
-    void add_filter_info(int id, const PredicateFilterInfo& info);
-
     Status _build_key_ranges_and_filters();
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
@@ -187,8 +185,6 @@ private:
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
-
-    RuntimeProfile::Counter* _runtime_filter_info = nullptr;
 
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;

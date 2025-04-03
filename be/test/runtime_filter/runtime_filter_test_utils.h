@@ -61,6 +61,7 @@ public:
 
 protected:
     RuntimeProfile _profile = RuntimeProfile("");
+    RuntimeProfile _operator_profile = RuntimeProfile("Operator");
     std::shared_ptr<QueryContext> _query_ctx;
     TQueryOptions _query_options;
     const std::string LOCALHOST = BackendOptions::get_localhost();
