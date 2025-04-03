@@ -48,7 +48,8 @@ suite("add_drop_partition") {
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
-    def tableName = "tbl1"
+    def suffix = UUID.randomUUID().hashCode().abs()
+    def tableName = "tbl1${suffix}"
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     def check_storage_policy_exist = { name->
@@ -63,8 +64,8 @@ suite("add_drop_partition") {
         return false;
     }
 
-    def resource_name = "test_add_drop_partition_resource"
-    def policy_name= "test_add_drop_partition_policy"
+    def resource_name = "test_add_drop_partition_resource${suffix}"
+    def policy_name= "test_add_drop_partition_policy${suffix}"
 
     if (check_storage_policy_exist(policy_name)) {
         sql """
@@ -159,7 +160,8 @@ suite("add_drop_partition") {
     """
     log.info( "test tablets not empty")
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == 0) {
+    def retry = 100
+    while (sizes[1] == 0 && retry --> 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql_return_maparray """
@@ -167,6 +169,7 @@ suite("add_drop_partition") {
         """
         fetchDataSize(sizes, tablets[0])
     }
+    assertTrue(sizes[1] != 0, "remote size is still zero, maybe some error occurred")
     assertTrue(tablets.size() > 0)
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
@@ -193,16 +196,14 @@ suite("add_drop_partition") {
         assertTrue(par[12] == "${policy_name}")
     }
 
-    try_sql """
-    drop storage policy add_policy;
-    """
+    def add_resource = "add_resource${suffix}"
 
     try_sql """
-    drop resource add_resource;
+    drop resource ${add_resource};
     """
 
     sql """
-        CREATE RESOURCE IF NOT EXISTS "add_resource"
+        CREATE RESOURCE IF NOT EXISTS "${add_resource}"
         PROPERTIES(
             "type"="s3",
             "AWS_ENDPOINT" = "${getS3Endpoint()}",
@@ -218,11 +219,6 @@ suite("add_drop_partition") {
         );
     """
 
-    try_sql """
-    create storage policy tmp_policy
-    PROPERTIES( "storage_resource" = "add_resource", "cooldown_ttl" = "300");
-    """
-
     // can not set to one policy with different resource
     try {
         sql """alter table ${tableName} set ("storage_policy" = "add_policy");"""
@@ -230,22 +226,23 @@ suite("add_drop_partition") {
         assertTrue(true)
     }
 
+    def add_policy1 = "add_policy1${suffix}"
     sql """
-        CREATE STORAGE POLICY IF NOT EXISTS add_policy1
+        CREATE STORAGE POLICY IF NOT EXISTS ${add_policy1}
         PROPERTIES(
             "storage_resource" = "${resource_name}",
             "cooldown_ttl" = "60"
         )
     """
 
-    sql """alter table ${tableName} set ("storage_policy" = "add_policy1");"""
+    sql """alter table ${tableName} set ("storage_policy" = "${add_policy1}");"""
 
     // wait for report
     sleep(300000)
     
     partitions = sql "show partitions from ${tableName}"
     for (par in partitions) {
-        assertTrue(par[12] == "add_policy1")
+        assertTrue(par[12] == "${add_policy1}")
     }
 
     
@@ -260,7 +257,7 @@ suite("add_drop_partition") {
 
     partitions = sql "show partitions from ${tableName}"
     for (par in partitions) {
-        assertTrue(par[12] == "add_policy1")
+        assertTrue(par[12] == "${add_policy1}")
     }
 
     sql """
@@ -271,16 +268,12 @@ suite("add_drop_partition") {
     DROP TABLE ${tableName}
     """
 
-    try_sql """
-    drop storage policy add_policy;
+    sql """
+    drop storage policy ${add_policy1};
     """
 
     sql """
-    drop storage policy add_policy1;
-    """
-
-    sql """
-    drop resource add_resource;
+    drop resource ${add_resource};
     """
 
 
