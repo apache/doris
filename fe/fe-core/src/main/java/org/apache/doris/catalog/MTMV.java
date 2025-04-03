@@ -474,6 +474,12 @@ public class MTMV extends OlapTable {
         this.refreshSnapshot = refreshSnapshot;
     }
 
+    public boolean canBeCandidate() {
+        // MTMVRefreshState.FAIL also can be candidate, because may have some sync partitions
+        return getStatus().getState() == MTMVState.NORMAL
+                && getStatus().getRefreshState() != MTMVRefreshState.INIT;
+    }
+
     public void readMvLock() {
         this.mvRwLock.readLock().lock();
     }
@@ -517,6 +523,16 @@ public class MTMV extends OlapTable {
         if (refreshSnapshot == null) {
             refreshSnapshot = new MTMVRefreshSnapshot();
         }
+        try {
+            Optional<String> errMsg = compatibleInternal(Env.getCurrentEnv().getCatalogMgr());
+            if (errMsg.isPresent()) {
+                LOG.info("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getQualifiedDbName(), name,
+                        errMsg.get());
+            }
+        } catch (Throwable t) {
+            LOG.info("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getQualifiedDbName(), name,
+                    t.getMessage());
+        }
     }
 
     // toString() is not easy to find where to call the method
@@ -550,14 +566,38 @@ public class MTMV extends OlapTable {
      * The logic here is to be compatible with older versions by converting ID to name
      */
     public void compatible(CatalogMgr catalogMgr) {
+        Optional<String> errMsg = compatibleInternal(catalogMgr);
+        if (errMsg.isPresent()) {
+            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getQualifiedDbName(), name,
+                    errMsg.get());
+            status.setState(MTMVState.SCHEMA_CHANGE);
+            status.setSchemaChangeDetail("compatible failed, please refresh or recreate it, reason: " + errMsg.get());
+        } else {
+            Env.getCurrentEnv().getMtmvService().deregisterMTMV(this);
+            Env.getCurrentEnv().getMtmvService().registerMTMV(this, this.getDatabase().getId());
+        }
+    }
+
+    private Optional<String> compatibleInternal(CatalogMgr catalogMgr) {
+        Optional<String> errMsg = Optional.empty();
         if (mvPartitionInfo != null) {
-            mvPartitionInfo.compatible(catalogMgr);
+            errMsg = mvPartitionInfo.compatible(catalogMgr);
+            if (errMsg.isPresent()) {
+                return errMsg;
+            }
         }
         if (relation != null) {
-            relation.compatible(catalogMgr);
+            errMsg = relation.compatible(catalogMgr);
+            if (errMsg.isPresent()) {
+                return errMsg;
+            }
         }
         if (refreshSnapshot != null) {
-            refreshSnapshot.compatible(this);
+            errMsg = refreshSnapshot.compatible(this);
+            if (errMsg.isPresent()) {
+                return errMsg;
+            }
         }
+        return errMsg;
     }
 }
