@@ -61,7 +61,7 @@ public:
 
     // insert data to build filter
     Status insert(vectorized::ColumnPtr column, size_t start) {
-        auto holder=_wrapper.load();
+        auto holder = _wrapper.load();
         if (!holder->is_valid() || _rf_state == State::READY_TO_PUBLISH ||
             _rf_state == State::PUBLISHED) {
             return Status::OK();
@@ -88,7 +88,8 @@ public:
         if (_rf_state == State::PUBLISHED || _rf_state == State::READY_TO_PUBLISH) {
             return;
         }
-        _wrapper.load()->set_state(state, reason); // set wrapper firstly to pass set_synced_size's check
+        _wrapper.load()->set_state(state,
+                                   reason); // set wrapper firstly to pass set_synced_size's check
         set_state(State::READY_TO_PUBLISH);
     }
 
