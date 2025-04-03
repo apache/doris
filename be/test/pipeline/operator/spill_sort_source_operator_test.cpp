@@ -102,6 +102,9 @@ TEST_F(SpillSortSourceOperatorTest, GetBlock) {
             std::dynamic_pointer_cast<SpillSortSharedState>(sink_operator->create_shared_state());
     ASSERT_TRUE(shared_state != nullptr);
 
+    st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+
     shared_state->in_mem_shared_state_sptr = std::make_shared<MockSortSharedState>();
     shared_state->in_mem_shared_state =
             static_cast<SortSharedState*>(shared_state->in_mem_shared_state_sptr.get());
