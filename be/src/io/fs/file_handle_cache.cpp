@@ -63,6 +63,16 @@ Status HdfsFileHandle::init(int64_t file_size) {
     return Status::OK();
 }
 
+Status HdfsFileHandle::update_file_size() {
+    hdfsFileInfo* file_info = hdfsGetPathInfo(_fs, _fname.c_str());
+    if (file_info == nullptr) {
+        return Status::InternalError("failed to get file size of {}: {}", _fname, hdfs_error());
+    }
+    _file_size = file_info->mSize;
+    hdfsFreeFileInfo(file_info, 1);
+    return Status::OK();
+}
+
 CachedHdfsFileHandle::CachedHdfsFileHandle(const hdfsFS& fs, const std::string& fname,
                                            int64_t mtime)
         : HdfsFileHandle(fs, fname, mtime) {}
