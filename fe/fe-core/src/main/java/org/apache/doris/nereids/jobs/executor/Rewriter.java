@@ -163,6 +163,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import com.google.common.collect.ImmutableList;
@@ -412,7 +413,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new EliminateJoinByUnique())
                 ),
                 topic("eliminate Aggregate according to fd items",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class),
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
+                                || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
+                                || cascadesContext.rewritePlanContainsTypes(LogicalUnion.class),
                         custom(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, EliminateGroupByKeyByUniform::new),
                         topDown(new EliminateGroupByKey()),
                         topDown(new PushDownAggThroughJoinOnPkFk()),
