@@ -38,7 +38,7 @@ import java.util.Set;
 
 /**
  * eliminate group by constant, like:
- * select 1, 'str', count(*) from t group by t.id, 1, 'str', 3, 2;
+ * select 1, 'str', count(*) from t group by t.id, 1, 'str', 4, 2;
  * transform to:
  * select 1, 'str', count(*) from t group by t.id.
  * we are ensured before:
