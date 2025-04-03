@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.planner.StreamLoadPlanner;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
@@ -147,8 +148,9 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
                     throw new UserException("can not find workload group, id=" + wgId);
                 }
             } else {
-                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroupByUser(routineLoadJob.getUserIdentity(), false);
+                ConnectContext tmpCtx = new ConnectContext();
+                tmpCtx.setCurrentUserIdentity(routineLoadJob.getUserIdentity());
+                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpCtx);
             }
             if (tWgList.size() != 0) {
                 tExecPlanFragmentParams.setWorkloadGroups(tWgList);

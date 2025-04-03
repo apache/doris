@@ -1361,6 +1361,10 @@ public class ConnectContext {
         }
     }
 
+    public Set<String> getComputeGroupNames() {
+        return getComputeGroupSafely().getNames();
+    }
+
     public ComputeGroup getComputeGroup() throws UserException {
         ComputeGroupMgr cgMgr = Env.getCurrentEnv().getComputeGroupMgr();
         if (Config.isCloudMode()) {
