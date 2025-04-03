@@ -17,11 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
@@ -41,13 +43,20 @@ public class KillQueryCommandTest extends TestWithFeService {
         connectContext = createDefaultCtx();
         env = Env.getCurrentEnv();
         accessControllerManager = env.getAccessManager();
+        ConnectScheduler scheduler = new ConnectScheduler(10);
+        connectContext.setQualifiedUser("root");
         new Expectations() {
             {
                 accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
                 minTimes = 0;
                 result = true;
+
+                scheduler.listConnection("root", anyBoolean);
+                minTimes = 0;
+                result = Lists.newArrayList(connectContext.toThreadInfo(false));
             }
         };
+        connectContext.setConnectScheduler(scheduler);
     }
 
     @Test
