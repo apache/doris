@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.copier;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -270,8 +271,14 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                     .deepCopy(join.getMarkJoinSlotReference().get(), context));
 
         }
+        DistributeHint distributeHint = join.getDistributeHint();
+        if (join.getDistributeHint().getSkewExpr() != null) {
+            Expression skewExpr = ExpressionDeepCopier.INSTANCE.deepCopy(join.getDistributeHint().getSkewExpr(),
+                    context);
+            distributeHint = join.getDistributeHint().withSkewExpr(skewExpr);
+        }
         return new LogicalJoin<>(join.getJoinType(), hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
-                join.getDistributeHint(), markJoinSlotReference, children, join.getJoinReorderContext());
+                distributeHint, markJoinSlotReference, children, join.getJoinReorderContext());
     }
 
     @Override
