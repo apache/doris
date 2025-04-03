@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -83,6 +84,7 @@
 #include <string_view>
 
 #include "exprs/math_functions.h"
+#include "pugixml.hpp"
 #include "udf/udf.h"
 #include "util/md5.h"
 #include "util/simd/vstring_function.h"
@@ -122,6 +124,7 @@ struct StringOP {
 
     static void push_value_string(const std::string_view& string_value, size_t index,
                                   ColumnString::Chars& chars, ColumnString::Offsets& offsets) {
+        DCHECK(string_value.data() != nullptr);
         ColumnString::check_chars_length(chars.size() + string_value.size(), offsets.size());
 
         chars.insert(string_value.data(), string_value.data() + string_value.size());
@@ -1233,8 +1236,9 @@ public:
                 auto& target_column = block.get_by_position(arguments[pos]).column;
                 if (auto target_const_column = check_and_get_column<ColumnConst>(*target_column)) {
                     auto target_data = target_const_column->get_data_at(0);
+                    // return NULL, no target data
                     if (target_data.data == nullptr) {
-                        null_map = ColumnUInt8::create(input_rows_count, is_null);
+                        null_map = ColumnUInt8::create(input_rows_count, true);
                         res->insert_many_defaults(input_rows_count);
                     } else {
                         res->insert_data_repeatedly(target_data.data, target_data.size,
@@ -2801,11 +2805,14 @@ public:
             StringRef url_val = url_col->get_data_at(index_check_const<url_const>(i));
             StringRef parse_res;
             if (UrlParser::parse_url(url_val, url_part, &parse_res)) {
+                if (parse_res.empty()) [[unlikely]] {
+                    StringOP::push_empty_string(i, res_chars, res_offsets);
+                    continue;
+                }
                 StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
                                             res_chars, res_offsets);
             } else {
                 StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
-                continue;
             }
         }
         return Status::OK();
@@ -3589,7 +3596,8 @@ struct SubReplaceImpl {
         std::visit(
                 [&](auto origin_str_const, auto new_str_const, auto start_const, auto len_const) {
                     if (simd::VStringFunctions::is_ascii(
-                                StringRef {data_column->get_chars().data(), data_column->size()})) {
+                                StringRef {data_column->get_chars().data(),
+                                           data_column->get_chars().size()})) {
                         vector_ascii<origin_str_const, new_str_const, start_const, len_const>(
                                 data_column, mask_column, start_column->get_data(),
                                 length_column->get_data(), args_null_map->get_data(), result_column,
@@ -4163,13 +4171,6 @@ public:
             std::tie(argument_columns[i], col_const[i]) =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
         }
-        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
-                                                     *block.get_by_position(arguments[0]).column)
-                                                     .convert_to_full_column()
-                                           : block.get_by_position(arguments[0]).column;
-
-        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2, 3}, block,
-                                             arguments);
 
         const auto* col_origin = assert_cast<const ColumnString*>(argument_columns[0].get());
 
@@ -4183,86 +4184,115 @@ public:
 
         ColumnString::MutablePtr col_res = ColumnString::create();
 
-        if (col_const[1] && col_const[2] && col_const[3]) {
-            vector_const(col_origin, col_pos, col_len, col_insert, col_res, input_rows_count);
-        } else {
-            vector(col_origin, col_pos, col_len, col_insert, col_res, input_rows_count);
-        }
-
+        // if all input string is ascii, we can use ascii function to handle it
+        const bool is_all_ascii =
+                simd::VStringFunctions::is_ascii(StringRef {col_origin->get_chars().data(),
+                                                            col_origin->get_chars().size()}) &&
+                simd::VStringFunctions::is_ascii(
+                        StringRef {col_insert->get_chars().data(), col_insert->get_chars().size()});
+        std::visit(
+                [&](auto origin_const, auto pos_const, auto len_const, auto insert_const) {
+                    if (is_all_ascii) {
+                        vector_ascii<origin_const, pos_const, len_const, insert_const>(
+                                col_origin, col_pos, col_len, col_insert, col_res,
+                                input_rows_count);
+                    } else {
+                        vector_utf8<origin_const, pos_const, len_const, insert_const>(
+                                col_origin, col_pos, col_len, col_insert, col_res,
+                                input_rows_count);
+                    }
+                },
+                vectorized::make_bool_variant(col_const[0]),
+                vectorized::make_bool_variant(col_const[1]),
+                vectorized::make_bool_variant(col_const[2]),
+                vectorized::make_bool_variant(col_const[3]));
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();
     }
 
 private:
-    // get the new str size
-    static std::pair<bool, size_t> get_size(size_t& str_size, int& pos, int& len,
-                                            size_t& ins_size) {
-        if (pos > str_size || pos < 1) {
-            return {true, str_size};
-        }
-        if (len < 0 || pos + len - 1 >= str_size) {
-            len = str_size - pos + 1;
-            return {false, pos + ins_size - 1};
-        }
-        return {false, str_size - len + ins_size};
-    }
-
-    static void vector_const(const ColumnString* col_origin, int const* col_pos, int const* col_len,
+    template <bool origin_const, bool pos_const, bool len_const, bool insert_const>
+    static void vector_ascii(const ColumnString* col_origin, int const* col_pos, int const* col_len,
                              const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
                              size_t input_rows_count) {
         auto& col_res_chars = col_res->get_chars();
         auto& col_res_offsets = col_res->get_offsets();
-        StringRef origin_str;
-        StringRef insert_str = col_insert->get_data_at(0);
-        auto pos = col_pos[0];
+        StringRef origin_str, insert_str;
         for (size_t i = 0; i < input_rows_count; i++) {
-            origin_str = col_origin->get_data_at(i);
-            auto len = col_len[0];
-
-            if (auto [is_origin, offset] = get_size(origin_str.size, pos, len, insert_str.size);
-                is_origin) {
-                col_res->insert_data(origin_str.data, offset);
-            } else {
-                const auto old_size = col_res_chars.size();
-                col_res_chars.resize(old_size + offset);
-                // There are three stages here
-                // 1. copy origin_str with index 0 to pos - 2
-                // 2. copy all of insert_str.
-                // 3. copy origin_str from pos+len-1 to the end of the line.
-                memcpy(col_res_chars.data() + old_size, origin_str.data, pos - 1);
-                memcpy(col_res_chars.data() + old_size + pos - 1, insert_str.data, insert_str.size);
-                memcpy(col_res_chars.data() + old_size + pos - 1 + insert_str.size,
-                       origin_str.data + pos + len - 1, origin_str.size - pos - len + 1);
-                col_res_offsets.push_back(offset + old_size);
+            origin_str = col_origin->get_data_at(index_check_const<origin_const>(i));
+            // pos is 1-based index,so we need to minus 1
+            const auto pos = col_pos[index_check_const<pos_const>(i)] - 1;
+            const auto len = col_len[index_check_const<len_const>(i)];
+            insert_str = col_insert->get_data_at(index_check_const<insert_const>(i));
+            const auto origin_size = origin_str.size;
+            if (pos >= origin_size || pos < 0) {
+                // If pos is not within the length of the string, the original string is returned.
+                col_res->insert_data(origin_str.data, origin_str.size);
+                continue;
             }
+            col_res_chars.insert(origin_str.data,
+                                 origin_str.data + pos); // copy origin_str with index 0 to pos - 1
+            if (pos + len > origin_size || len < 0) {
+                col_res_chars.insert(insert_str.begin(),
+                                     insert_str.end()); // copy all of insert_str.
+            } else {
+                col_res_chars.insert(insert_str.begin(),
+                                     insert_str.end()); // copy all of insert_str.
+                col_res_chars.insert(
+                        origin_str.data + pos + len,
+                        origin_str.end()); // copy origin_str from pos+len-1 to the end of the line.
+            }
+            ColumnString::check_chars_length(col_res_chars.size(), col_res_offsets.size());
+            col_res_offsets.push_back(col_res_chars.size());
         }
     }
 
-    static void vector(const ColumnString* col_origin, int const* col_pos, int const* col_len,
-                       const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
-                       size_t input_rows_count) {
+    template <bool origin_const, bool pos_const, bool len_const, bool insert_const>
+    static void vector_utf8(const ColumnString* col_origin, int const* col_pos, int const* col_len,
+                            const ColumnString* col_insert, ColumnString::MutablePtr& col_res,
+                            size_t input_rows_count) {
         auto& col_res_chars = col_res->get_chars();
         auto& col_res_offsets = col_res->get_offsets();
         StringRef origin_str, insert_str;
-        int pos, len;
+        // utf8_origin_offsets is used to store the offset of each utf8 character in the original string.
+        // for example, if the original string is "丝多a睿", utf8_origin_offsets will be {0, 3, 6, 7}.
+        std::vector<size_t> utf8_origin_offsets;
         for (size_t i = 0; i < input_rows_count; i++) {
-            origin_str = col_origin->get_data_at(i);
-            pos = col_pos[i];
-            len = col_len[i];
-            insert_str = col_insert->get_data_at(i);
+            origin_str = col_origin->get_data_at(index_check_const<origin_const>(i));
+            // pos is 1-based index,so we need to minus 1
+            const auto pos = col_pos[index_check_const<pos_const>(i)] - 1;
+            const auto len = col_len[index_check_const<len_const>(i)];
+            insert_str = col_insert->get_data_at(index_check_const<insert_const>(i));
+            utf8_origin_offsets.clear();
 
-            if (auto [is_origin, offset] = get_size(origin_str.size, pos, len, insert_str.size);
-                is_origin) {
-                col_res->insert_data(origin_str.data, offset);
-            } else {
-                const auto old_size = col_res_chars.size();
-                col_res_chars.resize(old_size + offset);
-                memcpy(col_res_chars.data() + old_size, origin_str.data, pos - 1);
-                memcpy(col_res_chars.data() + old_size + pos - 1, insert_str.data, insert_str.size);
-                memcpy(col_res_chars.data() + old_size + pos - 1 + insert_str.size,
-                       origin_str.data + pos + len - 1, origin_str.size - pos - len + 1);
-                col_res_offsets.push_back(offset + old_size);
+            for (size_t i = 0, char_size = 0; i < origin_str.size; i += char_size) {
+                utf8_origin_offsets.push_back(i);
+                char_size = get_utf8_byte_length(origin_str.data[i]);
             }
+
+            const size_t utf8_origin_size = utf8_origin_offsets.size();
+
+            if (pos >= utf8_origin_size || pos < 0) {
+                // If pos is not within the length of the string, the original string is returned.
+                col_res->insert_data(origin_str.data, origin_str.size);
+                continue;
+            }
+            col_res_chars.insert(
+                    origin_str.data,
+                    origin_str.data +
+                            utf8_origin_offsets[pos]); // copy origin_str with index 0 to pos - 1
+            if (pos + len >= utf8_origin_size || len < 0) {
+                col_res_chars.insert(insert_str.begin(),
+                                     insert_str.end()); // copy all of insert_str.
+            } else {
+                col_res_chars.insert(insert_str.begin(),
+                                     insert_str.end()); // copy all of insert_str.
+                col_res_chars.insert(
+                        origin_str.data + utf8_origin_offsets[pos + len],
+                        origin_str.end()); // copy origin_str from pos+len-1 to the end of the line.
+            }
+            ColumnString::check_chars_length(col_res_chars.size(), col_res_offsets.size());
+            col_res_offsets.push_back(col_res_chars.size());
         }
     }
 };
@@ -4557,6 +4587,140 @@ private:
             }
         }
         return result;
+    }
+};
+
+/// xpath_string(xml, xpath) -> String
+/// Returns the text content of the first node that matches the XPath expression.
+/// Returns NULL if either xml or xpath is NULL.
+/// Returns empty string if the XPath expression matches no nodes.
+/// The text content includes the node and all its descendants.
+/// Example:
+///   xpath_string('<a><b>b1</b><b>b2</b></a>', '/a/b[1]') = 'b1'
+///   xpath_string('<a><b>b1</b><b>b2</b></a>', '/a/b[2]') = 'b2'
+///   xpath_string('<a><b>b1</b><b>b2</b></a>', '/a/c') = ''
+///   xpath_string('invalid xml', '/a/b[1]') = NULL
+///   xpath_string(NULL, '/a/b[1]') = NULL
+///   xpath_string('<a><b>b1</b><b>b2</b></a>', NULL) = NULL
+class FunctionXPathString : public IFunction {
+public:
+    static constexpr auto name = "xpath_string";
+    static FunctionPtr create() { return std::make_shared<FunctionXPathString>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        CHECK_EQ(arguments.size(), 2);
+        auto col_res = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+        const auto& [left_col, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_col, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        const auto& xml_col = *assert_cast<const ColumnString*>(left_col.get());
+        const auto& xpath_col = *assert_cast<const ColumnString*>(right_col.get());
+
+        Status status;
+        if (left_const && right_const) {
+            status = execute_vector<true, true>(input_rows_count, xml_col, xpath_col, *col_res);
+        } else if (left_const) {
+            status = execute_vector<true, false>(input_rows_count, xml_col, xpath_col, *col_res);
+        } else if (right_const) {
+            status = execute_vector<false, true>(input_rows_count, xml_col, xpath_col, *col_res);
+        } else {
+            status = execute_vector<false, false>(input_rows_count, xml_col, xpath_col, *col_res);
+        }
+        if (!status.ok()) {
+            return status;
+        }
+
+        block.get_by_position(result).column = std::move(col_res);
+        return Status::OK();
+    }
+
+private:
+    // Build the text of the node and all its children.
+    static std::string get_text(const pugi::xml_node& node) {
+        std::string result;
+        build_text(node, result);
+        return result;
+    }
+
+    static void build_text(const pugi::xml_node& node, std::string& builder) {
+        if (node.type() == pugi::node_pcdata || node.type() == pugi::node_cdata) {
+            builder += node.value();
+        }
+        for (pugi::xml_node child : node.children()) {
+            build_text(child, builder);
+        }
+    }
+
+    static Status parse_xml(const StringRef& xml_str, pugi::xml_document& xml_doc) {
+        pugi::xml_parse_result result = xml_doc.load_buffer(xml_str.data, xml_str.size);
+        if (!result) {
+            return Status::InvalidArgument("Function {} failed to parse XML string: {}", name,
+                                           result.description());
+        }
+        return Status::OK();
+    }
+
+    template <bool left_const, bool right_const>
+    static Status execute_vector(const size_t input_rows_count, const ColumnString& xml_col,
+                                 const ColumnString& xpath_col, ColumnNullable& res_col) {
+        pugi::xml_document xml_doc;
+        StringRef xpath_str;
+        // first check right_const, because we want to check empty input first
+        if constexpr (right_const) {
+            xpath_str = xpath_col.get_data_at(0);
+            if (xpath_str.empty()) {
+                // should return null if xpath_str is empty
+                res_col.insert_many_defaults(input_rows_count);
+                return Status::OK();
+            }
+        }
+        if constexpr (left_const) {
+            auto xml_str = xml_col.get_data_at(0);
+            if (xml_str.empty()) {
+                // should return null if xml_str is empty
+                res_col.insert_many_defaults(input_rows_count);
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(parse_xml(xml_str, xml_doc));
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if constexpr (!right_const) {
+                xpath_str = xpath_col.get_data_at(i);
+                if (xpath_str.empty()) {
+                    // should return null if xpath_str is empty
+                    res_col.insert_default();
+                    continue;
+                }
+            }
+            if constexpr (!left_const) {
+                auto xml_str = xml_col.get_data_at(i);
+                if (xml_str.empty()) {
+                    // should return null if xml_str is empty
+                    res_col.insert_default();
+                    continue;
+                }
+                RETURN_IF_ERROR(parse_xml(xml_str, xml_doc));
+            }
+            // NOTE!!!: don't use to_string_view(), because xpath_str maybe not null-terminated
+            pugi::xpath_node node = xml_doc.select_node(xpath_str.to_string().c_str());
+            if (!node) {
+                // should return empty string if not found
+                auto empty_str = std::string("");
+                res_col.insert_data(empty_str.data(), empty_str.size());
+                continue;
+            }
+            auto text = get_text(node.node());
+            res_col.insert_data(text.data(), text.size());
+        }
+        return Status::OK();
     }
 };
 

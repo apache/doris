@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/dependency.h"
@@ -36,7 +37,7 @@ namespace pipeline {
 
 class PartitionedHashJoinProbeOperatorX;
 
-class PartitionedHashJoinProbeLocalState final
+class PartitionedHashJoinProbeLocalState MOCK_REMOVE(final)
         : public PipelineXSpillLocalState<PartitionedHashJoinSharedState> {
 public:
     using Parent = PartitionedHashJoinProbeOperatorX;
@@ -65,7 +66,9 @@ public:
 
     std::string debug_string(int indentation_level = 0) const override;
 
-    void update_profile_from_inner();
+    MOCK_FUNCTION void update_profile_from_inner();
+
+    void init_counters();
 
     friend class PartitionedHashJoinProbeOperatorX;
 
@@ -89,8 +92,6 @@ private:
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
     bool _need_to_setup_internal_operators {true};
-
-    std::shared_ptr<Dependency> _spill_dependency;
 
     RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
@@ -166,8 +167,6 @@ private:
 
     [[nodiscard]] Status _setup_internal_operators(PartitionedHashJoinProbeLocalState& local_state,
                                                    RuntimeState* state) const;
-    [[nodiscard]] Status _setup_internal_operator_for_non_spill(
-            PartitionedHashJoinProbeLocalState& local_state, RuntimeState* state);
 
     bool _should_revoke_memory(RuntimeState* state) const;
 

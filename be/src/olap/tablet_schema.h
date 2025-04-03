@@ -122,7 +122,6 @@ public:
     void set_is_key(bool is_key) { _is_key = is_key; }
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
     void set_is_auto_increment(bool is_auto_increment) { _is_auto_increment = is_auto_increment; }
-    void set_has_default_value(bool has) { _has_default_value = has; }
     void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function_union(
@@ -371,10 +370,10 @@ public:
         _disable_auto_compaction = disable_auto_compaction;
     }
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
-    void set_variant_enable_flatten_nested(bool flatten_nested) {
-        _variant_enable_flatten_nested = flatten_nested;
+    void set_enable_variant_flatten_nested(bool flatten_nested) {
+        _enable_variant_flatten_nested = flatten_nested;
     }
-    bool variant_flatten_nested() const { return _variant_enable_flatten_nested; }
+    bool variant_flatten_nested() const { return _enable_variant_flatten_nested; }
     void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
         _enable_single_replica_compaction = enable_single_replica_compaction;
     }
@@ -561,6 +560,23 @@ private:
     std::unordered_map<int32_t, int32_t> _field_id_to_index;
     std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
             _field_path_to_index;
+
+    // index_type/col_unique_id/suffix -> idx in _indexes
+    using IndexKey = std::tuple<IndexType, int32_t, std::string>;
+    struct IndexKeyHash {
+        size_t operator()(const IndexKey& t) const {
+            std::size_t seed = 0;
+            seed = doris::HashUtil::hash((const char*)&std::get<0>(t), sizeof(std::get<0>(t)),
+                                         seed);
+            seed = doris::HashUtil::hash((const char*)&std::get<1>(t), sizeof(std::get<1>(t)),
+                                         seed);
+            seed = doris::HashUtil::hash((const char*)std::get<2>(t).c_str(), std::get<2>(t).size(),
+                                         seed);
+            return seed;
+        }
+    };
+    std::unordered_map<IndexKey, int32_t, IndexKeyHash> _col_id_suffix_to_index;
+
     size_t _num_columns = 0;
     size_t _num_variant_columns = 0;
     size_t _num_key_columns = 0;
@@ -594,8 +610,7 @@ private:
     // Contains column ids of which columns should be encoded into row store.
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
-    bool _variant_enable_flatten_nested = false;
-    int64_t _vl_field_mem_size {0}; // variable length field
+    bool _enable_variant_flatten_nested = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

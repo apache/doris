@@ -267,7 +267,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
         RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
         const TDataStreamSink& sink, const std::vector<TPlanFragmentDestination>& destinations,
         const std::vector<TUniqueId>& fragment_instance_ids)
-        : DataSinkOperatorX(operator_id, sink.dest_node_id, 0),
+        : DataSinkOperatorX(operator_id, sink.dest_node_id, std::numeric_limits<int>::max()),
           _texprs(sink.output_partition.partition_exprs),
           _row_desc(row_desc),
           _part_type(sink.output_partition.type),
@@ -280,7 +280,6 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _tablet_sink_tuple_id(sink.tablet_sink_tuple_id),
           _tablet_sink_txn_id(sink.tablet_sink_txn_id),
           _t_tablet_sink_exprs(&sink.tablet_sink_exprs),
-          _enable_local_merge_sort(state->enable_local_merge_sort()),
           _dest_is_merge(sink.__isset.is_merge && sink.is_merge),
           _fragment_instance_ids(fragment_instance_ids) {
 #ifndef BE_TEST
@@ -562,19 +561,6 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
         _sink_buffer->close();
     }
     return Base::close(state, exec_status);
-}
-
-DataDistribution ExchangeSinkOperatorX::required_data_distribution() const {
-    if (_child && _enable_local_merge_sort) {
-        // SORT_OPERATOR -> DATA_STREAM_SINK_OPERATOR
-        // SORT_OPERATOR -> LOCAL_MERGE_SORT -> DATA_STREAM_SINK_OPERATOR
-        if (auto sort_source = std::dynamic_pointer_cast<SortSourceOperatorX>(_child);
-            sort_source && sort_source->use_local_merge()) {
-            // Sort the data local
-            return ExchangeType::LOCAL_MERGE_SORT;
-        }
-    }
-    return DataSinkOperatorX<ExchangeSinkLocalState>::required_data_distribution();
 }
 
 std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::_create_buffer(

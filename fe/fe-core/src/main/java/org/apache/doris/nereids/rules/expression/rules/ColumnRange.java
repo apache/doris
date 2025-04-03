@@ -30,7 +30,7 @@ import java.util.Set;
 
 /** ColumnRange */
 public class ColumnRange {
-    private final RangeSet<ColumnBound> rangeSet;
+    public final RangeSet<ColumnBound> rangeSet;
 
     public ColumnRange() {
         rangeSet = ImmutableRangeSet.of();
@@ -45,9 +45,25 @@ public class ColumnRange {
     }
 
     public ColumnRange intersect(ColumnRange range) {
-        RangeSet<ColumnBound> newSet = TreeRangeSet.create();
-        range.rangeSet.asRanges().forEach(r -> newSet.addAll(rangeSet.subRangeSet(r)));
-        return new ColumnRange(newSet);
+        return new ColumnRange(intersect(rangeSet, range.rangeSet));
+    }
+
+    /** intersect */
+    public static <T extends Comparable<T>> RangeSet<T> intersect(RangeSet<T> r1, RangeSet<T> r2) {
+        RangeSet<T> bigRangeSet;
+        RangeSet<T> smallRangeSet;
+        if (r1.asRanges().size() < r2.asRanges().size()) {
+            bigRangeSet = r2;
+            smallRangeSet = r1;
+        } else {
+            bigRangeSet = r1;
+            smallRangeSet = r2;
+        }
+        RangeSet<T> newSet = TreeRangeSet.create();
+        for (Range<T> smallRange : smallRangeSet.asRanges()) {
+            newSet.addAll(bigRangeSet.subRangeSet(smallRange));
+        }
+        return newSet;
     }
 
     public ColumnRange union(ColumnRange range) {

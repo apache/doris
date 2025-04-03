@@ -475,7 +475,7 @@ public class Config extends ConfigBase {
     public static int query_port = 9030;
 
     @ConfField(description = {"FE Arrow-Flight-SQL server 的端口号", "The port of FE Arrow-Flight-SQL server"})
-    public static int arrow_flight_sql_port = -1;
+    public static int arrow_flight_sql_port = 8070;
 
     @ConfField(description = {"MySQL 服务的 IO 线程数", "The number of IO threads in MySQL service"})
     public static int mysql_service_io_threads_num = 4;
@@ -964,6 +964,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int tablet_stat_update_interval_second = 60;  // 1 min
 
+    // update interval of alive session
+    // Only master FE collect this info from all frontends at each interval
+    @ConfField public static int alive_session_update_interval_second = 5;
+
+    @ConfField public static int fe_session_mgr_threads_num = 1;
+
+    @ConfField public static int fe_session_mgr_blocking_queue_size = 1024;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int loss_conn_fe_temp_table_keep_second = 60;
+
     /**
      * Max bytes a broker scanner can process in one broker load job.
      * Commonly, each Backends has one broker scanner.
@@ -1344,6 +1355,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long dynamic_partition_check_interval_seconds = 600;
+
+    /**
+     * When scheduling dynamic partition tables,
+     * the execution interval of each table to prevent excessive consumption of FE CPU at the same time
+     * default is 0
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long dynamic_partition_step_interval_ms = 0;
 
     /**
      * If set to true, dynamic partition feature will open
@@ -3352,6 +3371,18 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"是否允许使用ShowCacheHotSpotStmt语句",
             "Whether to enable the use of ShowCacheHotSpotStmt, default is false."})
     public static boolean enable_show_file_cache_hotspot_stmt = false;
+
+    @ConfField(mutable = true, description = {"存算分离模式下FE连接meta service的请求超时, 默认30000ms",
+            "Request timeout for FE connecting to meta service in cloud mode, default is 30000ms."})
+    public static int meta_service_brpc_timeout_ms = 30000;
+
+    @ConfField(mutable = true, description = {"存算分离模式下FE连接meta service的连接超时，默认500ms",
+            "Connection timeout for FE connecting to meta service in cloud mode., default is 500ms."})
+    public static int meta_service_brpc_connect_timeout_ms = 500;
+
+    @ConfField(mutable = true, description = {"存算分离模式下FE请求meta service超时的重试次数，默认1次",
+            "In cloud mode, the retry number when the FE requests the meta service times out is 1 by default"})
+    public static int meta_service_rpc_timeout_retry_times = 1;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

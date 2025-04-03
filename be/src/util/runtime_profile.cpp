@@ -33,7 +33,6 @@
 
 #include "common/logging.h"
 #include "common/object_pool.h"
-#include "gutil/integral_types.h"
 #include "util/container_util.hpp"
 #include "util/runtime_profile_counter_tree_node.h"
 #ifdef BE_TEST
@@ -310,15 +309,6 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     return child;
 }
 
-void RuntimeProfile::insert_child_head(doris::RuntimeProfile* child, bool indent) {
-    std::lock_guard<std::mutex> l(_children_lock);
-    DCHECK(child != nullptr);
-    _child_map[child->_name] = child;
-
-    auto it = _children.begin();
-    _children.insert(it, std::make_pair(child, indent));
-}
-
 void RuntimeProfile::add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc) {
     DCHECK(child != nullptr);
     _child_map[child->_name] = child;
@@ -437,6 +427,26 @@ RuntimeProfile::NonZeroCounter* RuntimeProfile::add_nonzero_counter(
     DCHECK(parent_counter_name == ROOT_COUNTER ||
            _counter_map.find(parent_counter_name) != _counter_map.end());
     NonZeroCounter* counter = _pool->add(new NonZeroCounter(type, level, parent_counter_name));
+    _counter_map[name] = counter;
+    std::set<std::string>* child_counters =
+            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
+    child_counters->insert(name);
+    return counter;
+}
+
+RuntimeProfile::CollaborationCounter* RuntimeProfile::add_collaboration_counter(
+        const std::string& name, TUnit::type type, Counter* other_counter,
+        const std::string& parent_counter_name, int64_t level) {
+    std::lock_guard<std::mutex> l(_counter_map_lock);
+    if (_counter_map.find(name) != _counter_map.end()) {
+        DCHECK(dynamic_cast<CollaborationCounter*>(_counter_map[name]));
+        return static_cast<CollaborationCounter*>(_counter_map[name]);
+    }
+
+    DCHECK(parent_counter_name == ROOT_COUNTER ||
+           _counter_map.find(parent_counter_name) != _counter_map.end());
+    CollaborationCounter* counter =
+            _pool->add(new CollaborationCounter(type, level, other_counter));
     _counter_map[name] = counter;
     std::set<std::string>* child_counters =
             find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());

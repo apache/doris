@@ -630,7 +630,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     // TODO:the case where columnPos is not empty has not been considered
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
                             && modColumn.getDataType() == PrimitiveType.VARCHAR) {
-                        ColumnType.checkSupportSchemaChangeForCharType(col.getType(), modColumn.getType());
+                        ColumnType.checkForTypeLengthChange(col.getType(), modColumn.getType());
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
                     if (columnPos == null && col.getDataType().isComplexType()
@@ -1381,12 +1381,21 @@ public class SchemaChangeHandler extends AlterHandler {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        // check row store column has change
+
         boolean hasRowStoreChanged = false;
-        if (storeRowColumn || (rsColumns != null && !rsColumns.isEmpty())) {
+        if (storeRowColumn || rsColumns != null) {
             List<String> oriRowStoreColumns = olapTable.getTableProperty().getCopiedRowStoreColumns();
-            if ((oriRowStoreColumns != null && !oriRowStoreColumns.equals(rsColumns))
-                    || storeRowColumn != olapTable.storeRowColumn()) {
+            // correct the comparison logic for null and empty list
+            boolean columnsChanged = false;
+            if (rsColumns == null) {
+                columnsChanged = oriRowStoreColumns != null;
+            } else if (oriRowStoreColumns == null) {
+                columnsChanged = true;
+            } else {
+                columnsChanged = !oriRowStoreColumns.equals(rsColumns);
+            }
+            // partial row store columns changed, or store_row_column enabled, not supported to disable at present
+            if (columnsChanged || (!olapTable.storeRowColumn() && storeRowColumn)) {
                 // only support mow and duplicate model
                 if (!(olapTable.getKeysType() == KeysType.DUP_KEYS
                         || olapTable.getEnableUniqueKeyMergeOnWrite())) {
@@ -2726,7 +2735,6 @@ public class SchemaChangeHandler extends AlterHandler {
                         olapTable.getTableProperty().getEnableUniqueKeyMergeOnWrite(),
                         olapTable.getInvertedIndexFileStorageFormat(),
                         disableInvertedIndexV1ForVariant);
-                indexDef.getColumnUniqueIds().add(column.getUniqueId());
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
             }
@@ -2737,7 +2745,6 @@ public class SchemaChangeHandler extends AlterHandler {
         // so here update column name in CreateIndexClause after checkColumn for indexDef,
         // there will use the column name in olapTable instead of the column name in CreateIndexClause.
         alterIndex.setColumns(indexDef.getColumns());
-        alterIndex.setColumnUniqueIds(indexDef.getColumnUniqueIds());
         newIndexes.add(alterIndex);
         return false;
     }

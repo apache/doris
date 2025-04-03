@@ -20,9 +20,12 @@
 #include <ctype.h>
 #include <math.h>
 #include <re2/stringpiece.h>
+#include <unicode/unistr.h>
+#include <unicode/ustream.h>
 
 #include <bitset>
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 #include "common/cast_set.h"
@@ -448,19 +451,58 @@ struct TransferImpl {
             return Status::OK();
         }
 
+        const bool is_ascii = simd::VStringFunctions::is_ascii({data.data(), data.size()});
         res_offsets.resize(offset_size);
-        memcpy_small_allow_read_write_overflow15(
-                res_offsets.data(), offsets.data(),
-                offset_size * sizeof(ColumnString::Offsets::value_type));
+        if (is_ascii) {
+            memcpy_small_allow_read_write_overflow15(
+                    res_offsets.data(), offsets.data(),
+                    offset_size * sizeof(ColumnString::Offsets::value_type));
 
-        size_t data_length = data.size();
-        res_data.resize(data_length);
-        if constexpr (std::is_same_v<OpName, NameToUpper>) {
-            simd::VStringFunctions::to_upper(data.data(), data_length, res_data.data());
-        } else if constexpr (std::is_same_v<OpName, NameToLower>) {
-            simd::VStringFunctions::to_lower(data.data(), data_length, res_data.data());
+            size_t data_length = data.size();
+            res_data.resize(data_length);
+            if constexpr (std::is_same_v<OpName, NameToUpper>) {
+                simd::VStringFunctions::to_upper(data.data(), data_length, res_data.data());
+            } else if constexpr (std::is_same_v<OpName, NameToLower>) {
+                simd::VStringFunctions::to_lower(data.data(), data_length, res_data.data());
+            }
+        } else {
+            execute_utf8(data, offsets, res_data, res_offsets);
         }
+
         return Status::OK();
+    }
+
+    static void execute_utf8(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                             ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        std::string result;
+        for (int64_t i = 0; i < offsets.size(); ++i) {
+            const char* begin = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            uint32_t size = offsets[i] - offsets[i - 1];
+
+            result.clear();
+            if constexpr (std::is_same_v<OpName, NameToUpper>) {
+                to_upper_utf8(begin, size, result);
+            } else if constexpr (std::is_same_v<OpName, NameToLower>) {
+                to_lower_utf8(begin, size, result);
+            }
+            StringOP::push_value_string(result, i, res_data, res_offsets);
+        }
+    }
+
+    static void to_upper_utf8(const char* data, uint32_t size, std::string& result) {
+        icu::StringPiece sp;
+        sp.set(data, size);
+        icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
+        unicode_str.toUpper();
+        unicode_str.toUTF8String(result);
+    }
+
+    static void to_lower_utf8(const char* data, uint32_t size, std::string& result) {
+        icu::StringPiece sp;
+        sp.set(data, size);
+        icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
+        unicode_str.toLower();
+        unicode_str.toUTF8String(result);
     }
 };
 
@@ -902,13 +944,15 @@ struct StringSpace {
                          ColumnString::Offsets& res_offsets) {
         res_offsets.resize(data.size());
         size_t input_size = res_offsets.size();
-        // sample to get approximate best reserve size
-        if (input_size > 4) {
-            res_data.reserve(((data[0] + data[input_size >> 1] + data[input_size >> 2] +
-                               data[input_size - 1]) >>
-                              2) *
-                             input_size);
+        int64_t total_size = 0;
+        for (size_t i = 0; i < input_size; ++i) {
+            if (data[i] > 0) {
+                total_size += data[i];
+            }
         }
+        ColumnString::check_chars_length(total_size, input_size);
+        res_data.reserve(total_size);
+
         for (size_t i = 0; i < input_size; ++i) {
             if (data[i] > 0) [[likely]] {
                 res_data.resize_fill(res_data.size() + data[i], ' ');
@@ -1237,6 +1281,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionOverlay>();
     factory.register_function<FunctionStrcmp>();
     factory.register_function<FunctionNgramSearch>();
+    factory.register_function<FunctionXPathString>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");

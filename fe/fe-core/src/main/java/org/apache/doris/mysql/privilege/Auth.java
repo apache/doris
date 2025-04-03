@@ -66,7 +66,7 @@ import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
@@ -563,8 +563,12 @@ public class Auth implements Writable {
         dropUserInternal(stmt.getUserIdentity(), stmt.isSetIfExists(), false);
     }
 
-    public void replayDropUser(UserIdentity userIdent) throws DdlException {
-        dropUserInternal(userIdent, false, true);
+    public void replayDropUser(UserIdentity userIdent) {
+        try {
+            dropUserInternal(userIdent, false, true);
+        } catch (DdlException e) {
+            LOG.error("should not happen", e);
+        }
     }
 
     private void dropUserInternal(UserIdentity userIdent, boolean ignoreIfNonExists, boolean isReplay)
@@ -1141,8 +1145,12 @@ public class Auth implements Writable {
         updateUserPropertyInternal(stmt.getUser(), properties, false /* is replay */);
     }
 
-    public void replayUpdateUserProperty(UserPropertyInfo propInfo) throws UserException {
-        updateUserPropertyInternal(propInfo.getUser(), propInfo.getProperties(), true /* is replay */);
+    public void replayUpdateUserProperty(UserPropertyInfo propInfo) {
+        try {
+            updateUserPropertyInternal(propInfo.getUser(), propInfo.getProperties(), true /* is replay */);
+        } catch (UserException e) {
+            LOG.error("should not happened", e);
+        }
     }
 
     public void updateUserPropertyInternal(String user, List<Pair<String, String>> properties, boolean isReplay)
@@ -1229,10 +1237,10 @@ public class Auth implements Writable {
         }
     }
 
-    public Set<Tag> getResourceTags(String qualifiedUser) {
+    public ComputeGroup getComputeGroup(String qualifiedUser) {
         readLock();
         try {
-            return propertyMgr.getResourceTags(qualifiedUser);
+            return propertyMgr.getComputeGroup(qualifiedUser);
         } finally {
             readUnlock();
         }

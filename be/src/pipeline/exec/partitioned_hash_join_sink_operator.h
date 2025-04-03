@@ -21,8 +21,10 @@
 
 #include <atomic>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/dependency.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/join_build_sink_operator.h"
@@ -51,7 +53,7 @@ public:
     size_t revocable_mem_size(RuntimeState* state) const;
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
     void update_memory_usage();
-    void update_profile_from_inner();
+    MOCK_FUNCTION void update_profile_from_inner();
 
     Dependency* finishdependency() override;
 
@@ -79,6 +81,7 @@ protected:
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
+    std::shared_ptr<Dependency> _finish_dependency;
 
     RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
@@ -143,6 +146,9 @@ public:
 
 private:
     friend class PartitionedHashJoinSinkLocalState;
+#ifdef BE_TEST
+    friend class PartitionedHashJoinSinkOperatorTest;
+#endif
 
     const TJoinDistributionType::type _join_distribution;
 

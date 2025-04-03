@@ -295,6 +295,43 @@ public:
         const std::string _parent_name;
     };
 
+    // When the collaboration Counter modifies itself, it also modifies the other counter.
+
+    class CollaborationCounter : public Counter {
+    public:
+        CollaborationCounter(TUnit::type type, int64_t level, Counter* other_counter,
+                             int64_t value = 0)
+                : Counter(type, value, level), _other_counter(other_counter) {}
+
+        virtual Counter* clone() const override {
+            return new CollaborationCounter(type(), level(), _other_counter, value());
+        }
+
+        void update(int64_t delta) override {
+            if (_other_counter != nullptr) {
+                _other_counter->update(delta);
+            }
+            Counter::update(delta);
+        }
+
+        void set(int64_t value) override {
+            if (_other_counter != nullptr) {
+                _other_counter->set(value);
+            }
+            Counter::set(value);
+        }
+
+        void set(double value) override {
+            if (_other_counter != nullptr) {
+                _other_counter->set(value);
+            }
+            Counter::set(value);
+        }
+
+    private:
+        Counter* _other_counter = nullptr; // Pointer to the other counter to be modified
+    };
+
     // Create a runtime profile object with 'name'.
     RuntimeProfile(const std::string& name, bool is_averaged_profile = false);
 
@@ -306,8 +343,6 @@ public:
     // If location is non-null, child will be inserted after location.  Location must
     // already be added to the profile.
     void add_child(RuntimeProfile* child, bool indent, RuntimeProfile* location = nullptr);
-
-    void insert_child_head(RuntimeProfile* child, bool indent);
 
     void add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc);
 
@@ -347,6 +382,11 @@ public:
 
     NonZeroCounter* add_nonzero_counter(
             const std::string& name, TUnit::type type,
+            const std::string& parent_counter_name = RuntimeProfile::ROOT_COUNTER,
+            int64_t level = 2);
+
+    CollaborationCounter* add_collaboration_counter(
+            const std::string& name, TUnit::type type, Counter* other_counter,
             const std::string& parent_counter_name = RuntimeProfile::ROOT_COUNTER,
             int64_t level = 2);
 

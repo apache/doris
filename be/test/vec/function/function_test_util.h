@@ -41,6 +41,7 @@
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_struct.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -208,7 +209,7 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
                               const InputTypeSet& output_types);
 void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types,
                               const InputDataSet& input_set, const InputTypeSet& output_types,
-                              const InputDataSet& output_set);
+                              const InputDataSet& output_set, bool test_get_value_func = false);
 
 // Null values are represented by Null()
 // The type of the constant column is represented as follows: Consted {TypeIndex::String}
@@ -317,6 +318,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
     EXPECT_TRUE(column);
+    if (const auto* column_str = check_and_get_column<ColumnString>(column.get())) {
+        column_str->sanity_check();
+    }
 
     for (int i = 0; i < row_size; ++i) {
         // update current line
