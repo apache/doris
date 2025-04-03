@@ -84,6 +84,14 @@ public:
         return Field(String(value.value(), value.size()));
     }
 
+    // Return JsonbField.
+    Field get_type_field(const IColumn& column, size_t row) const override {
+        const auto& column_data = static_cast<const ColumnString&>(column);
+        Field field =
+                JsonbField(column_data.get_data_at(row).data, column_data.get_data_at(row).size);
+        return VariantField(std::move(field), TypeIndex::JSONB);
+    }
+
     bool equals(const IDataType& rhs) const override;
 
     bool have_subtypes() const override { return false; }

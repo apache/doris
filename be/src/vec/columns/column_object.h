@@ -77,7 +77,11 @@ struct FieldInfo {
     /// we need to convert scalars to the common type.
     bool need_convert;
     /// Number of dimension in array. 0 if field is scalar.
-    size_t num_dimensions;
+    size_t num_dimensions = 0;
+
+    // decimal info
+    int scale = 0;
+    int precision = 0;
 };
 
 void get_field_info(const Field& field, FieldInfo* info);
@@ -126,6 +130,10 @@ public:
         bool is_finalized() const;
 
         const DataTypePtr& get_least_common_type() const { return least_common_type.get(); }
+
+        const TypeIndex& get_least_common_base_type_id() const {
+            return least_common_type.get_base_type_id();
+        }
 
         const DataTypePtr& get_least_common_typeBase() const {
             return least_common_type.get_base();

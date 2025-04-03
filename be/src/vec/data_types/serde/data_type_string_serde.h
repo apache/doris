@@ -345,26 +345,6 @@ public:
         cur_batch->numElements = end - start;
         return Status::OK();
     }
-    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int64_t row_num) const override {
-        const auto& col = assert_cast<const ColumnType&>(column);
-        const auto& data_ref = col.get_data_at(row_num);
-        result.SetString(data_ref.data, cast_set<rapidjson::SizeType>(data_ref.size));
-        return Status::OK();
-    }
-    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override {
-        auto& col = assert_cast<ColumnType&>(column);
-        if (!result.IsString()) {
-            rapidjson::StringBuffer buffer;
-            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-            result.Accept(writer);
-            col.insert_data(buffer.GetString(), buffer.GetSize());
-            return Status::OK();
-        }
-        col.insert_data(result.GetString(), result.GetStringLength());
-        return Status::OK();
-    }
 
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override {

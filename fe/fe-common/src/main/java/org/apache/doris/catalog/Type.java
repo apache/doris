@@ -136,6 +136,8 @@ public abstract class Type {
     private static final ArrayList<Type> arraySubTypes;
     private static final ArrayList<Type> mapSubTypes;
     private static final ArrayList<Type> structSubTypes;
+
+    private static final ArrayList<Type> variantSubTypes;
     private static final ArrayList<ScalarType> trivialTypes;
 
     static {
@@ -171,6 +173,8 @@ public abstract class Type {
         typeMap.put("MAP", Type.MAP);
         typeMap.put("OBJECT", Type.UNSUPPORTED);
         typeMap.put("ARRAY", Type.ARRAY);
+        typeMap.put("IPV4", Type.IPV4);
+        typeMap.put("IPV6", Type.IPV6);
         typeMap.put("QUANTILE_STATE", Type.QUANTILE_STATE);
     }
 
@@ -307,6 +311,27 @@ public abstract class Type {
         structSubTypes.add(ARRAY);
         structSubTypes.add(MAP);
         structSubTypes.add(STRUCT);
+
+        variantSubTypes = Lists.newArrayList();
+        variantSubTypes.add(BOOLEAN);
+        variantSubTypes.addAll(integerTypes);
+        variantSubTypes.add(FLOAT);
+        variantSubTypes.add(DOUBLE);
+        variantSubTypes.add(DECIMAL32); // same DEFAULT_DECIMALV3
+        variantSubTypes.add(DECIMAL64);
+        variantSubTypes.add(DECIMAL128);
+        variantSubTypes.add(DECIMAL256);
+        variantSubTypes.add(DATE);
+        variantSubTypes.add(DATETIME);
+        variantSubTypes.add(DATEV2);
+        variantSubTypes.add(DATETIMEV2);
+        variantSubTypes.add(IPV4);
+        variantSubTypes.add(IPV6);
+        variantSubTypes.add(CHAR);
+        variantSubTypes.add(VARCHAR);
+        variantSubTypes.add(STRING);
+        variantSubTypes.add(ARRAY);
+        variantSubTypes.add(NULL);
     }
 
     public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
@@ -373,6 +398,10 @@ public abstract class Type {
 
     public static ArrayList<Type> getStructSubTypes() {
         return structSubTypes;
+    }
+
+    public static ArrayList<Type> getVariantSubTypes() {
+        return variantSubTypes;
     }
 
     /**

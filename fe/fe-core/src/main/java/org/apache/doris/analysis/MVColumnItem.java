@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
@@ -195,7 +196,7 @@ public class MVColumnItem {
             }
         }
         if (result.getType().isVariantType()) {
-            ScalarType variantType = (ScalarType) this.getType();
+            VariantType variantType = (VariantType) this.getType();
             if (variantType.getVariantMaxSubcolumnsCount() != olapTable.getVariantMaxSubcolumnsCount()) {
                 throw new DdlException("MVColumnItem variantType is error");
             }
