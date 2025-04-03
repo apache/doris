@@ -19,9 +19,11 @@ package org.apache.doris.resource.computegroup;
 
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 
+import com.aliyuncs.utils.StringUtils;
 import com.google.common.collect.Sets;
 
 import java.util.Set;
@@ -34,9 +36,14 @@ public class ComputeGroupMgr {
         this.systemInfoService = systemInfoService;
     }
 
-    public ComputeGroup getComputeGroupByName(String name) {
+    public ComputeGroup getComputeGroupByName(String name) throws UserException {
         if (Config.isCloudMode()) {
-            return new CloudComputeGroup("", name, (CloudSystemInfoService) systemInfoService);
+            CloudSystemInfoService cloudSystemInfoService = (CloudSystemInfoService) systemInfoService;
+            String clusterId = cloudSystemInfoService.getCloudClusterIdByName(name);
+            if (StringUtils.isEmpty(clusterId)) {
+                throw new UserException("Can not find compute group:" + name);
+            }
+            return new CloudComputeGroup(clusterId, name, cloudSystemInfoService);
         } else {
             return new ComputeGroup("", name, systemInfoService);
         }

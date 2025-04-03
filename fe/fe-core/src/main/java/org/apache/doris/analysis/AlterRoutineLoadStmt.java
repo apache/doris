@@ -35,6 +35,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import lombok.Getter;
 import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 import java.util.Optional;
@@ -248,9 +249,12 @@ public class AlterRoutineLoadStmt extends DdlStmt implements NotFallbackInParser
         }
         if (jobProperties.containsKey(CreateRoutineLoadStmt.WORKLOAD_GROUP)) {
             String workloadGroup = jobProperties.get(CreateRoutineLoadStmt.WORKLOAD_GROUP);
-            long wgId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getWorkloadGroup(ConnectContext.get().getCurrentUserIdentity(), workloadGroup);
-            analyzedJobProperties.put(CreateRoutineLoadStmt.WORKLOAD_GROUP, String.valueOf(wgId));
+            if (!StringUtils.isEmpty(workloadGroup)) {
+                long wgId = Env.getCurrentEnv().getWorkloadGroupMgr()
+                        .getWorkloadGroupByName(ConnectContext.get().getCurrentUserIdentity(), workloadGroup).get(0)
+                        .getId();
+                analyzedJobProperties.put(CreateRoutineLoadStmt.WORKLOAD_GROUP, String.valueOf(wgId));
+            }
         }
         if (jobProperties.containsKey(LoadStmt.KEY_ENCLOSE)) {
             analyzedJobProperties.put(LoadStmt.KEY_ENCLOSE, jobProperties.get(LoadStmt.KEY_ENCLOSE));
