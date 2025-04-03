@@ -118,7 +118,7 @@ public:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -128,8 +128,7 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-        if (iter->get_inverted_index_reader_type() ==
-            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+        if (iter->get_reader()->is_fulltext_index()) {
             // parser is not none we can not make sure the result is correct in expr combination
             // for example, filter: !array_index(array, 'tall:120cm, weight: 35kg')
             // here we have rows [tall:120cm, weight: 35kg, hobbies: reading book] which be tokenized
@@ -147,7 +146,6 @@ public:
             return Status::OK();
         }
 
-        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
         if (iter->has_null()) {
             segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
@@ -157,9 +155,14 @@ public:
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
                                                                            query_param));
-        RETURN_IF_ERROR(iter->read_from_inverted_index(
-                data_type_with_name.first, query_param->get_value(),
-                segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, roaring));
+        InvertedIndexParam param;
+        param.column_name = data_type_with_name.first;
+        param.query_value = query_param->get_value();
+        param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+        param.num_rows = num_rows;
+        param.roaring = std::make_shared<roaring::Roaring>();
+        ;
+        RETURN_IF_ERROR(iter->read_from_index(&param));
         // here debug for check array_contains function really filter rows by inverted index correctly
         DBUG_EXECUTE_IF("array_func.array_contains", {
             auto result_bitmap = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
@@ -168,14 +171,14 @@ public:
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "result_bitmap count cannot be negative");
             }
-            if (roaring->cardinality() != result_bitmap) {
+            if (param.roaring->cardinality() != result_bitmap) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "array_contains really filtered {} by inverted index not equal to expected "
                         "{}",
-                        roaring->cardinality(), result_bitmap);
+                        param.roaring->cardinality(), result_bitmap);
             }
         })
-        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        segment_v2::InvertedIndexResultBitmap result(param.roaring, null_bitmap);
         bitmap_result = result;
         bitmap_result.mask_out_null();
 

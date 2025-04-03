@@ -50,11 +50,12 @@
 #include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/x_index_file_reader.h"
 #include "olap/schema.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
@@ -261,7 +262,7 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _schema(schema),
           _column_iterators(_schema->num_columns()),
           _bitmap_index_iterators(_schema->num_columns()),
-          _inverted_index_iterators(_schema->num_columns()),
+          _index_iterators(_schema->num_columns()),
           _cur_rowid(0),
           _lazy_materialization_read(false),
           _lazy_inited(false),
@@ -368,7 +369,7 @@ void SegmentIterator::_initialize_predicate_results() {
 Status SegmentIterator::init_iterators() {
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
-    RETURN_IF_ERROR(_init_inverted_index_iterators());
+    RETURN_IF_ERROR(_init_index_iterators());
     return Status::OK();
 }
 
@@ -508,7 +509,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     {
         if (_opts.runtime_state &&
             _opts.runtime_state->query_options().enable_inverted_index_query &&
-            has_inverted_index_in_iterators()) {
+            has_index_in_iterators()) {
             SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
             size_t input_rows = _row_bitmap.cardinality();
             RETURN_IF_ERROR(_apply_inverted_index());
@@ -755,7 +756,7 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
         return false;
     }
     auto pred_column_id = pred->column_id();
-    if (_inverted_index_iterators[pred_column_id] == nullptr) {
+    if (_index_iterators[pred_column_id] == nullptr) {
         //this column without inverted index
         return false;
     }
@@ -773,10 +774,12 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
 
     // UNTOKENIZED strings exceed ignore_above, they are written as null, causing range query errors
     if (PredicateTypeTraits::is_range(pred->type()) &&
-        _inverted_index_iterators[pred_column_id] != nullptr &&
-        _inverted_index_iterators[pred_column_id]->get_inverted_index_reader_type() ==
-                InvertedIndexReaderType::STRING_TYPE) {
-        return false;
+        _index_iterators[pred_column_id] != nullptr) {
+        if (_index_iterators[pred_column_id]->type() == IndexType::INVERTED) {
+            if (_index_iterators[pred_column_id]->get_reader()->is_string_index()) {
+                return false;
+            }
+        }
     }
 
     // Function filter no apply inverted index
@@ -852,9 +855,12 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
 }
 
 bool SegmentIterator::_column_has_fulltext_index(int32_t cid) {
-    bool has_fulltext_index = _inverted_index_iterators[cid] != nullptr &&
-                              _inverted_index_iterators[cid]->get_inverted_index_reader_type() ==
-                                      InvertedIndexReaderType::FULLTEXT;
+    if (_index_iterators[cid]->type() != IndexType::INVERTED) {
+        return false;
+    }
+
+    bool has_fulltext_index = _index_iterators[cid] != nullptr &&
+                              _index_iterators[cid]->get_reader()->is_fulltext_index();
 
     return has_fulltext_index;
 }
@@ -871,9 +877,9 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
     } else {
         bool need_remaining_after_evaluate = _column_has_fulltext_index(pred->column_id()) &&
                                              PredicateTypeTraits::is_equal_or_list(pred->type());
-        Status res = pred->evaluate(_storage_name_and_type[pred->column_id()],
-                                    _inverted_index_iterators[pred->column_id()].get(), num_rows(),
-                                    &_row_bitmap);
+        Status res =
+                pred->evaluate(_storage_name_and_type[pred->column_id()],
+                               _index_iterators[pred->column_id()].get(), num_rows(), &_row_bitmap);
         if (!res.ok()) {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 remaining_predicates.emplace_back(pred);
@@ -1068,24 +1074,24 @@ Status SegmentIterator::_init_bitmap_index_iterators() {
     return Status::OK();
 }
 
-Status SegmentIterator::_init_inverted_index_iterators() {
-    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_inverted_index_iterators_timer_ns);
+Status SegmentIterator::_init_index_iterators() {
+    SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_index_iterators_timer_ns);
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
     for (auto cid : _schema->column_ids()) {
         // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
-        if (_inverted_index_iterators[cid] == nullptr) {
+        if (_index_iterators[cid] == nullptr) {
             // In the _opts.tablet_schema, the sub-column type information for the variant is FieldType::OLAP_FIELD_TYPE_VARIANT.
             // This is because the sub-column is created in create_materialized_variant_column.
             // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
             const auto& column = _opts.tablet_schema->column(cid);
             int32_t col_unique_id =
                     column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
-            RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
+            RETURN_IF_ERROR(_segment->new_index_iterator(
                     column,
                     _segment->_tablet_schema->inverted_index(col_unique_id, column.suffix_path()),
-                    _opts, &_inverted_index_iterators[cid]));
+                    _opts, &_index_iterators[cid]));
         }
     }
     return Status::OK();
@@ -2010,7 +2016,7 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
 void SegmentIterator::_clear_iterators() {
     _column_iterators.clear();
     _bitmap_index_iterators.clear();
-    _inverted_index_iterators.clear();
+    _index_iterators.clear();
 }
 
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
@@ -2440,7 +2446,7 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
 
 Status SegmentIterator::_construct_compound_expr_context() {
     auto inverted_index_context = std::make_shared<vectorized::InvertedIndexContext>(
-            _schema->column_ids(), _inverted_index_iterators, _storage_name_and_type,
+            _schema->column_ids(), _index_iterators, _storage_name_and_type,
             _common_expr_inverted_index_status);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         vectorized::VExprContextSPtr context;

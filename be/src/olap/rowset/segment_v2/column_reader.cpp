@@ -38,13 +38,14 @@
 #include "olap/inverted_index_parser.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/ann_index_reader.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
+#include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
@@ -52,6 +53,7 @@
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/x_index_file_reader.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h" // for TypeInfo
@@ -338,15 +340,16 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
     return Status::OK();
 }
 
-Status ColumnReader::new_inverted_index_iterator(
-        std::shared_ptr<InvertedIndexFileReader> index_file_reader, const TabletIndex* index_meta,
-        const StorageReadOptions& read_options, std::unique_ptr<InvertedIndexIterator>* iterator) {
-    RETURN_IF_ERROR(_ensure_inverted_index_loaded(std::move(index_file_reader), index_meta));
+Status ColumnReader::new_index_iterator(std::shared_ptr<XIndexFileReader> index_file_reader,
+                                        const TabletIndex* index_meta,
+                                        const StorageReadOptions& read_options,
+                                        std::unique_ptr<IndexIterator>* iterator) {
+    RETURN_IF_ERROR(_ensure_index_loaded(std::move(index_file_reader), index_meta));
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
-        if (_inverted_index) {
-            RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.io_ctx, read_options.stats,
-                                                          read_options.runtime_state, iterator));
+        if (_index_reader) {
+            RETURN_IF_ERROR(_index_reader->new_iterator(read_options.io_ctx, read_options.stats,
+                                                        read_options.runtime_state, iterator));
         }
     }
     return Status::OK();
@@ -624,12 +627,12 @@ Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory
     return Status::OK();
 }
 
-Status ColumnReader::_load_inverted_index_index(
-        std::shared_ptr<InvertedIndexFileReader> index_file_reader, const TabletIndex* index_meta) {
+Status ColumnReader::_load_index_index(std::shared_ptr<XIndexFileReader> index_file_reader,
+                                       const TabletIndex* index_meta) {
     std::unique_lock<std::shared_mutex> wlock(_load_index_lock);
 
-    if (_inverted_index && index_meta &&
-        _inverted_index->get_index_id() == index_meta->index_id()) {
+    if (_index_reader != nullptr && index_meta &&
+        _index_reader->get_index_id() == index_meta->index_id()) {
         return Status::OK();
     }
 
@@ -642,32 +645,37 @@ Status ColumnReader::_load_inverted_index_index(
         type = _type_info->type();
     }
 
-    if (is_string_type(type)) {
-        if (parser_type != InvertedIndexParserType::PARSER_NONE) {
+    if (index_meta->index_type() == IndexType::INVERTED) {
+        if (is_string_type(type)) {
+            if (parser_type != InvertedIndexParserType::PARSER_NONE) {
+                try {
+                    _index_reader =
+                            FullTextIndexReader::create_shared(index_meta, index_file_reader);
+                } catch (const CLuceneError& e) {
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "create FullTextIndexReader error: {}", e.what());
+                }
+            } else {
+                try {
+                    _index_reader = StringTypeInvertedIndexReader::create_shared(index_meta,
+                                                                                 index_file_reader);
+                } catch (const CLuceneError& e) {
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "create StringTypeInvertedIndexReader error: {}", e.what());
+                }
+            }
+        } else if (is_numeric_type(type)) {
             try {
-                _inverted_index = FullTextIndexReader::create_shared(index_meta, index_file_reader);
+                _index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                        "create FullTextIndexReader error: {}", e.what());
+                        "create BkdIndexReader error: {}", e.what());
             }
         } else {
-            try {
-                _inverted_index =
-                        StringTypeInvertedIndexReader::create_shared(index_meta, index_file_reader);
-            } catch (const CLuceneError& e) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                        "create StringTypeInvertedIndexReader error: {}", e.what());
-            }
+            _index_reader.reset();
         }
-    } else if (is_numeric_type(type)) {
-        try {
-            _inverted_index = BkdIndexReader::create_shared(index_meta, index_file_reader);
-        } catch (const CLuceneError& e) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "create BkdIndexReader error: {}", e.what());
-        }
-    } else {
-        _inverted_index.reset();
+    } else if (index_meta->index_type() == IndexType::ANN) {
+        _index_reader = std::make_shared<AnnIndexReader>(index_meta, index_file_reader);
     }
     // TODO: move has null to inverted_index_reader's query function
     //bool has_null = true;

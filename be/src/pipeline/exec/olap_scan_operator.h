@@ -212,7 +212,7 @@ private:
     RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_bitmap_index_iterators_timer = nullptr;
-    RuntimeProfile::Counter* _segment_iterator_init_inverted_index_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_index_iterators_timer = nullptr;
 
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;

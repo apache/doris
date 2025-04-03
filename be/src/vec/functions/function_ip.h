@@ -648,7 +648,7 @@ public:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -659,7 +659,7 @@ public:
             return Status::OK();
         }
 
-        if (iter->get_inverted_index_reader_type() != segment_v2::InvertedIndexReaderType::BKD) {
+        if (!iter->get_reader()->is_bkd_index()) {
             // Not support only bkd index
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, ip range reader can only support by bkd "
@@ -707,40 +707,48 @@ public:
                     " can not support this cidr " + arg_column->get_data_at(0).to_string());
         }
         // apply for inverted index
-        std::shared_ptr<roaring::Roaring> res_roaring = std::make_shared<roaring::Roaring>();
-        std::shared_ptr<roaring::Roaring> max_roaring = std::make_shared<roaring::Roaring>();
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
 
         auto param_type = data_type_with_name.second->get_type_as_type_descriptor().type;
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
+
         // >= min ip
+        segment_v2::InvertedIndexParam res_param;
+        res_param.column_name = data_type_with_name.first;
+        res_param.query_type = segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY;
+        res_param.query_value = query_param->get_value();
+        res_param.num_rows = num_rows;
+        res_param.roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &min_ip, query_param));
-        RETURN_IF_ERROR(iter->read_from_inverted_index(
-                data_type_with_name.first, query_param->get_value(),
-                segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY, num_rows, res_roaring));
+        RETURN_IF_ERROR(iter->read_from_index(&res_param));
+
         // <= max ip
+        segment_v2::InvertedIndexParam max_param;
+        res_param.column_name = data_type_with_name.first;
+        res_param.query_type = segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY;
+        res_param.query_value = query_param->get_value();
+        res_param.num_rows = num_rows;
+        res_param.roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &max_ip, query_param));
-        RETURN_IF_ERROR(iter->read_from_inverted_index(
-                data_type_with_name.first, query_param->get_value(),
-                segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY, num_rows, max_roaring));
+        RETURN_IF_ERROR(iter->read_from_index(&res_param));
 
         DBUG_EXECUTE_IF("ip.inverted_index_filtered", {
             auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
                     "ip.inverted_index_filtered", "req_id", 0);
             LOG(INFO) << "execute inverted index req_id: " << req_id
-                      << " min: " << res_roaring->cardinality();
+                      << " min: " << res_param.roaring->cardinality();
         });
-        *res_roaring &= *max_roaring;
+        *res_param.roaring &= *max_param.roaring;
         DBUG_EXECUTE_IF("ip.inverted_index_filtered", {
             auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
                     "ip.inverted_index_filtered", "req_id", 0);
             LOG(INFO) << "execute inverted index req_id: " << req_id
-                      << " max: " << max_roaring->cardinality()
-                      << " result: " << res_roaring->cardinality();
+                      << " max: " << max_param.roaring->cardinality()
+                      << " result: " << res_param.roaring->cardinality();
         });
-        segment_v2::InvertedIndexResultBitmap result(res_roaring, null_bitmap);
+        segment_v2::InvertedIndexResultBitmap result(res_param.roaring, null_bitmap);
         bitmap_result = result;
         bitmap_result.mask_out_null();
         return Status::OK();
