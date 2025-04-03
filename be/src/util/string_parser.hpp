@@ -510,15 +510,7 @@ T StringParser::string_to_float_internal(const char* __restrict s, int len, Pars
 
     if (res.ec == std::errc() && res.ptr == s + j + 1) {
         if (abs(val) == std::numeric_limits<T>::infinity()) {
-            auto contain_inf = false;
-            for (int k = i; k < j + 1; k++) {
-                if (s[k] == 'i' || s[k] == 'I') {
-                    contain_inf = true;
-                    break;
-                }
-            }
-
-            *result = contain_inf ? PARSE_SUCCESS : PARSE_OVERFLOW;
+            *result = PARSE_OVERFLOW;
         } else {
             *result = PARSE_SUCCESS;
         }
