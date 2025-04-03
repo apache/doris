@@ -46,28 +46,33 @@ PredicateType MatchPredicate::type() const {
 }
 
 Status MatchPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                                InvertedIndexIterator* iterator, uint32_t num_rows,
+                                IndexIterator* iterator, uint32_t num_rows,
                                 roaring::Roaring* bitmap) const {
     if (iterator == nullptr) {
         return Status::OK();
     }
     if (_check_evaluate(iterator)) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                 "phrase queries require setting support_phrase = true");
     }
     auto type = name_with_type.second;
     const std::string& name = name_with_type.first;
-    std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     auto inverted_index_query_type = _to_inverted_index_query_type(_match_type);
     TypeDescriptor column_desc = type->get_type_as_type_descriptor();
+
+    InvertedIndexParam param;
+    param.column_name = name;
+    param.query_type = inverted_index_query_type;
+    param.num_rows = num_rows;
+    param.roaring = std::make_shared<roaring::Roaring>();
     if (is_string_type(column_desc.type) ||
         (column_desc.type == TYPE_ARRAY && is_string_type(column_desc.children[0].type))) {
         StringRef match_value;
         auto length = _value.length();
         char* buffer = const_cast<char*>(_value.c_str());
         match_value.replace(buffer, int32_t(length)); //is it safe?
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(
-                name, &match_value, inverted_index_query_type, num_rows, roaring));
+        param.query_value = &match_value;
+        RETURN_IF_ERROR(iterator->read_from_index(&param));
     } else if (column_desc.type == TYPE_ARRAY &&
                is_numeric_type(
                        TabletColumn::get_field_type_by_type(column_desc.children[0].type))) {
@@ -75,8 +80,9 @@ Status MatchPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& nam
         const TypeInfo* type_info = get_scalar_type_info(
                 TabletColumn::get_field_type_by_type(column_desc.children[0].type));
         RETURN_IF_ERROR(type_info->from_string(buf.data(), _value));
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(
-                name, buf.data(), inverted_index_query_type, num_rows, roaring, true));
+        param.query_value = buf.data();
+        param.skip_try = true;
+        RETURN_IF_ERROR(iterator->read_from_index(&param));
     }
 
     // mask out null_bitmap, since NULL cmp VALUE will produce NULL
@@ -91,7 +97,7 @@ Status MatchPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& nam
         }
     }
 
-    *bitmap &= *roaring;
+    *bitmap &= *param.roaring;
     return Status::OK();
 }
 
@@ -122,12 +128,11 @@ InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType m
     return ret;
 }
 
-bool MatchPredicate::_check_evaluate(InvertedIndexIterator* iterator) const {
+bool MatchPredicate::_check_evaluate(IndexIterator* iterator) const {
     if (_match_type == MatchType::MATCH_PHRASE || _match_type == MatchType::MATCH_PHRASE_PREFIX ||
         _match_type == MatchType::MATCH_PHRASE_EDGE) {
-        if (iterator->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
-            get_parser_phrase_support_string_from_properties(iterator->get_index_properties()) ==
-                    INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
+        if (iterator->get_reader()->is_fulltext_index() &&
+            !iterator->get_reader()->is_support_phrase()) {
             return true;
         }
     }

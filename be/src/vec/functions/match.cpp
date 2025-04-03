@@ -28,7 +28,7 @@ namespace doris::vectorized {
 Status FunctionMatchBase::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-        std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+        std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
         segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
     DCHECK(arguments.size() == 1);
     DCHECK(data_type_with_names.size() == 1);
@@ -42,14 +42,11 @@ Status FunctionMatchBase::evaluate_inverted_index(
 
     if (function_name == MATCH_PHRASE_FUNCTION || function_name == MATCH_PHRASE_PREFIX_FUNCTION ||
         function_name == MATCH_PHRASE_EDGE_FUNCTION) {
-        if (iter->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
-            get_parser_phrase_support_string_from_properties(iter->get_index_properties()) ==
-                    INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+        if (iter->get_reader()->is_fulltext_index() && !iter->get_reader()->is_support_phrase()) {
+            return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                     "phrase queries require setting support_phrase = true");
         }
     }
-    std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     Field param_value;
     arguments[0].column->get(0, param_value);
     if (param_value.is_null()) {
@@ -58,19 +55,23 @@ Status FunctionMatchBase::evaluate_inverted_index(
     }
     auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
     if (!is_string_type(param_type)) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                 "arguments for match must be string");
     }
     std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
     RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(param_type, &param_value,
                                                                        query_param));
+
+    InvertedIndexParam param;
+    param.column_name = data_type_with_name.first;
+    param.query_value = query_param->get_value();
+    param.query_type = get_query_type_from_fn_name();
+    param.num_rows = num_rows;
+    param.roaring = std::make_shared<roaring::Roaring>();
     if (is_string_type(param_type)) {
-        auto inverted_index_query_type = get_query_type_from_fn_name();
-        RETURN_IF_ERROR(
-                iter->read_from_inverted_index(data_type_with_name.first, query_param->get_value(),
-                                               inverted_index_query_type, num_rows, roaring));
+        RETURN_IF_ERROR(iter->read_from_index(&param));
     } else {
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                 "invalid params type for FunctionMatchBase::evaluate_inverted_index {}",
                 param_type);
     }
@@ -80,7 +81,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
         RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
         null_bitmap = null_bitmap_cache_handle.get_bitmap();
     }
-    segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+    segment_v2::InvertedIndexResultBitmap result(param.roaring, null_bitmap);
     bitmap_result = result;
     bitmap_result.mask_out_null();
 
@@ -463,13 +464,13 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
         err_message.append(compile_err->message);
         LOG(ERROR) << err_message;
         hs_free_compile_error(compile_err);
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(err_message);
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(err_message);
     }
 
     if (hs_alloc_scratch(database, &scratch) != HS_SUCCESS) {
         LOG(ERROR) << "hyperscan could not allocate scratch space.";
         hs_free_database(database);
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                 "hyperscan could not allocate scratch space.");
     }
 

@@ -25,8 +25,8 @@
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
+#include "olap/rowset/segment_v2/x_index_file_reader.h"
 #include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
@@ -230,7 +230,7 @@ Status IndexBuilder::update_inverted_index_info() {
         } else {
             for (int seg_id = 0; seg_id < num_segments; seg_id++) {
                 auto seg_path = DORIS_TRY(input_rowset->segment_path(seg_id));
-                auto idx_file_reader = std::make_unique<InvertedIndexFileReader>(
+                auto idx_file_reader = std::make_unique<XIndexFileReader>(
                         context.fs(),
                         std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
                         output_rs_tablet_schema->get_inverted_index_storage_format());
@@ -243,7 +243,7 @@ Status IndexBuilder::update_inverted_index_info() {
                 if (!st.ok() && !st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
                     return st;
                 }
-                _inverted_index_file_readers.emplace(
+                _index_file_readers.emplace(
                         std::make_pair(output_rs_writer->rowset_id().to_string(), seg_id),
                         std::move(idx_file_reader));
             }
@@ -292,11 +292,11 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             const auto& output_rowset_schema = output_rowset_meta->tablet_schema();
             size_t inverted_index_size = 0;
             for (auto& seg_ptr : segments) {
-                auto idx_file_reader_iter = _inverted_index_file_readers.find(
+                auto idx_file_reader_iter = _index_file_readers.find(
                         std::make_pair(output_rowset_meta->rowset_id().to_string(), seg_ptr->id()));
                 DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_can_not_find_reader_drop_op",
-                                { idx_file_reader_iter = _inverted_index_file_readers.end(); })
-                if (idx_file_reader_iter == _inverted_index_file_readers.end()) {
+                                { idx_file_reader_iter = _index_file_readers.end(); })
+                if (idx_file_reader_iter == _index_file_readers.end()) {
                     LOG(ERROR) << "idx_file_reader_iter" << output_rowset_meta->rowset_id() << ":"
                                << seg_ptr->id() << " cannot be found";
                     continue;
@@ -363,11 +363,11 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             std::unique_ptr<XIndexFileWriter> x_index_file_writer = nullptr;
             if (output_rowset_schema->get_inverted_index_storage_format() >=
                 InvertedIndexStorageFormatPB::V2) {
-                auto idx_file_reader_iter = _inverted_index_file_readers.find(
+                auto idx_file_reader_iter = _index_file_readers.find(
                         std::make_pair(output_rowset_meta->rowset_id().to_string(), seg_ptr->id()));
                 DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_can_not_find_reader",
-                                { idx_file_reader_iter = _inverted_index_file_readers.end(); })
-                if (idx_file_reader_iter == _inverted_index_file_readers.end()) {
+                                { idx_file_reader_iter = _index_file_readers.end(); })
+                if (idx_file_reader_iter == _index_file_readers.end()) {
                     LOG(ERROR) << "idx_file_reader_iter" << output_rowset_meta->rowset_id() << ":"
                                << seg_ptr->id() << " cannot be found";
                     continue;

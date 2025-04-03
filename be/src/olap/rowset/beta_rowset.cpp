@@ -41,7 +41,7 @@
 #include "olap/rowset/beta_rowset_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
+#include "olap/rowset/segment_v2/x_index_file_reader.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
@@ -759,10 +759,10 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
 
         auto seg_path = DORIS_TRY(segment_path(seg_id));
         auto index_file_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
-        auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
+        auto index_file_reader = std::make_unique<XIndexFileReader>(
                 fs, std::string(index_file_path_prefix), storage_format);
-        RETURN_IF_ERROR(inverted_index_file_reader->init());
-        auto dirs = inverted_index_file_reader->get_all_directories();
+        RETURN_IF_ERROR(index_file_reader->init());
+        auto dirs = index_file_reader->get_all_directories();
 
         auto add_file_info_to_json = [&](const std::string& path,
                                          rapidjson::Value& json_value) -> Status {
@@ -780,15 +780,15 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
             return Status::OK();
         };
 
-        auto process_files = [&allocator, &inverted_index_file_reader](
-                                     auto& index_meta, rapidjson::Value& indices,
-                                     rapidjson::Value& index) -> Status {
+        auto process_files = [&allocator, &index_file_reader](auto& index_meta,
+                                                              rapidjson::Value& indices,
+                                                              rapidjson::Value& index) -> Status {
             rapidjson::Value files_value(rapidjson::kArrayType);
             std::vector<std::string> files;
-            auto ret = inverted_index_file_reader->open(&index_meta);
+            auto ret = index_file_reader->open(&index_meta);
             if (!ret.has_value()) {
-                LOG(INFO) << "InvertedIndexFileReader open error:" << ret.error();
-                return Status::InternalError("InvertedIndexFileReader open error");
+                LOG(INFO) << "XIndexFileReader open error:" << ret.error();
+                return Status::InternalError("XIndexFileReader open error");
             }
             using T = std::decay_t<decltype(ret)>;
             auto reader = std::forward<T>(ret).value();

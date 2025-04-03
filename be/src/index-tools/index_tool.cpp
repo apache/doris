@@ -45,8 +45,8 @@
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
+#include "olap/rowset/segment_v2/x_index_file_reader.h"
 #include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/tablet_schema.h"
 
@@ -54,7 +54,7 @@ using doris::segment_v2::DorisCompoundReader;
 using doris::segment_v2::DorisFSDirectoryFactory;
 using doris::segment_v2::XIndexFileWriter;
 using doris::segment_v2::InvertedIndexDescriptor;
-using doris::segment_v2::InvertedIndexFileReader;
+using doris::segment_v2::XIndexFileReader;
 using doris::io::FileInfo;
 using doris::TabletIndex;
 using namespace doris::segment_v2;
@@ -610,11 +610,11 @@ int main(int argc, char** argv) {
         std::string index_path_prefix = StripSuffixString(FLAGS_idx_file_path, ".idx");
         auto fs = doris::io::global_local_filesystem();
         try {
-            auto index_file_reader = std::make_unique<InvertedIndexFileReader>(
+            auto index_file_reader = std::make_unique<XIndexFileReader>(
                     fs, index_path_prefix, doris::InvertedIndexStorageFormatPB::V2);
             auto st = index_file_reader->init(4096);
             if (!st.ok()) {
-                std::cerr << "InvertedIndexFileReader init error:" << st.msg() << std::endl;
+                std::cerr << "XIndexFileReader init error:" << st.msg() << std::endl;
                 return -1;
             }
             std::cout << "Nested files for " << index_path_prefix << std::endl;
@@ -635,7 +635,7 @@ int main(int argc, char** argv) {
                 CLuceneError err;
                 auto ret = index_file_reader->open(&index_meta);
                 if (!ret.has_value()) {
-                    std::cerr << "InvertedIndexFileReader open error:" << ret.error() << std::endl;
+                    std::cerr << "XIndexFileReader open error:" << ret.error() << std::endl;
                     return -1;
                 }
                 using T = std::decay_t<decltype(ret)>;
@@ -656,11 +656,11 @@ int main(int argc, char** argv) {
         std::string index_path_prefix = StripSuffixString(FLAGS_idx_file_path, ".idx");
         auto fs = doris::io::global_local_filesystem();
         try {
-            auto index_file_reader = std::make_unique<InvertedIndexFileReader>(
+            auto index_file_reader = std::make_unique<XIndexFileReader>(
                     fs, index_path_prefix, doris::InvertedIndexStorageFormatPB::V2);
             auto st = index_file_reader->init(4096);
             if (!st.ok()) {
-                std::cerr << "InvertedIndexFileReader init error:" << st.msg() << std::endl;
+                std::cerr << "XIndexFileReader init error:" << st.msg() << std::endl;
                 return -1;
             }
             std::vector<std::string> files;
@@ -673,7 +673,7 @@ int main(int argc, char** argv) {
             index_meta.init_from_pb(index_pb);
             auto ret = index_file_reader->open(&index_meta);
             if (!ret.has_value()) {
-                std::cerr << "InvertedIndexFileReader open error:" << ret.error() << std::endl;
+                std::cerr << "XIndexFileReader open error:" << ret.error() << std::endl;
                 return -1;
             }
             using T = std::decay_t<decltype(ret)>;

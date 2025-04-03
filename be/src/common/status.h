@@ -278,7 +278,7 @@ namespace ErrorCode {
     E(PIP_WAIT_FOR_SC, -3121, false);                        \
     E(ROWSET_ADD_TO_BINLOG_FAILED, -3122, true);             \
     E(ROWSET_BINLOG_NOT_ONLY_ONE_VERSION, -3123, true);      \
-    E(INVERTED_INDEX_INVALID_PARAMETERS, -6000, false);      \
+    E(INDEX_INVALID_PARAMETERS, -6000, false);               \
     E(INVERTED_INDEX_NOT_SUPPORTED, -6001, false);           \
     E(INVERTED_INDEX_CLUCENE_ERROR, -6002, false);           \
     E(INVERTED_INDEX_FILE_NOT_FOUND, -6003, false);          \

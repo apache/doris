@@ -60,7 +60,7 @@ public:
 
     //evaluate predicate on inverted
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                    InvertedIndexIterator* iterator, uint32_t num_rows,
+                    IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override;
 
     bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
@@ -78,7 +78,7 @@ private:
         std::string info = "MatchPredicate";
         return info;
     }
-    bool _check_evaluate(InvertedIndexIterator* iterator) const;
+    bool _check_evaluate(IndexIterator* iterator) const;
 
 private:
     std::string _value;
