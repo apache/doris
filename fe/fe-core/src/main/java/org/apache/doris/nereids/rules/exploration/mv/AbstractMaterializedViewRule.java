@@ -180,21 +180,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     () -> String.format("matchMode is %s", matchMode));
             return rewriteResults;
         }
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        int materializedViewRelationMappingMaxCount = sessionVariable.getMaterializedViewRelationMappingMaxCount();
         List<RelationMapping> queryToViewTableMappings = RelationMapping.generate(queryStructInfo.getRelations(),
-                viewStructInfo.getRelations());
+                viewStructInfo.getRelations(), materializedViewRelationMappingMaxCount);
         // if any relation in query and view can not map, bail out.
         if (queryToViewTableMappings == null) {
             materializationContext.recordFailReason(queryStructInfo,
                     "Query to view table mapping is null", () -> "");
             return rewriteResults;
         }
-        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
-        int materializedViewRelationMappingMaxCount = sessionVariable.getMaterializedViewRelationMappingMaxCount();
-        if (queryToViewTableMappings.size() > materializedViewRelationMappingMaxCount) {
-            LOG.warn("queryToViewTableMappings is over limit and be intercepted");
-            queryToViewTableMappings = queryToViewTableMappings.subList(0, materializedViewRelationMappingMaxCount);
-        }
-
         for (RelationMapping queryToViewTableMapping : queryToViewTableMappings) {
             SlotMapping queryToViewSlotMapping =
                     materializationContext.getSlotMappingFromCache(queryToViewTableMapping);
