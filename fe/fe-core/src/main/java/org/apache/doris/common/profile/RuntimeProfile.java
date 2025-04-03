@@ -837,7 +837,7 @@ public class RuntimeProfile {
                         item.setInputRows(value.sum.getValue());
                         if (isBuildSinkOperator) {
                             item.setJoinBuilderRows(value.sum.getValue());
-                            if (value.sum.getValue() == 0) {
+                            if (value.sum.getValue() == 0 || value.sum.getValue() / value.number == 0) {
                                 // builder side may be empty, set 1 directly for passing skew checking
                                 item.setJoinBuilderSkewRatio(1);
                             } else {
@@ -848,7 +848,7 @@ public class RuntimeProfile {
                         break;
                     case "ProbeRows":
                         item.setJoinProbeRows(value.sum.getValue());
-                        if (value.sum.getValue() == 0) {
+                        if (value.sum.getValue() == 0 || value.sum.getValue() / value.number == 0) {
                             // probe side may be empty, set 1 directly for passing skew checking
                             item.setJoinProberSkewRatio(1);
                         } else {

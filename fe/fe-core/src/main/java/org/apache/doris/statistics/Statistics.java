@@ -59,20 +59,21 @@ public class Statistics {
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
-            Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount) {
+            Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount, boolean isFromHbo) {
         this.rowCount = rowCount;
         this.widthInJoinCluster = widthInJoinCluster;
         this.expressionToColumnStats = expressionToColumnStats;
         this.deltaRowCount = deltaRowCount;
+        this.isFromHbo = isFromHbo;
     }
 
     public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        this(rowCount, 1, expressionToColumnStats, 0);
+        this(rowCount, 1, expressionToColumnStats, 0, false);
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
             Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        this(rowCount, widthInJoinCluster, expressionToColumnStats, 0);
+        this(rowCount, widthInJoinCluster, expressionToColumnStats, 0, false);
     }
 
     public ColumnStatistic findColumnStatistics(Expression expression) {
@@ -88,18 +89,20 @@ public class Statistics {
     }
 
     public Statistics withRowCount(double rowCount) {
-        return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
+        return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats),
+                0, isFromHbo);
     }
 
     public Statistics withExpressionToColumnStats(Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
+        return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, 0, isFromHbo);
     }
 
     /**
      * Update by count.
      */
     public Statistics withRowCountAndEnforceValid(double rowCount) {
-        Statistics statistics = new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
+        Statistics statistics = new Statistics(rowCount, widthInJoinCluster,
+                expressionToColumnStats, 0, isFromHbo);
         statistics.normalizeColumnStatistics();
         return statistics;
     }
@@ -154,7 +157,8 @@ public class Statistics {
             return this;
         }
         double newCount = rowCount * notNullSel + numNull;
-        return new Statistics(newCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
+        return new Statistics(newCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats),
+                0, isFromHbo);
     }
 
     public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
@@ -307,5 +311,9 @@ public class Statistics {
 
     public void setFromHbo(boolean isFromHbo) {
         this.isFromHbo = isFromHbo;
+    }
+
+    public boolean isFromHbo() {
+        return this.isFromHbo;
     }
 }
