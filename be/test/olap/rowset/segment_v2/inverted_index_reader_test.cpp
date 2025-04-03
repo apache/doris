@@ -651,7 +651,7 @@ public:
 
     // Helper function to check AVX2 support
     bool has_avx2_support() {
-#if defined(__x86_64__)
+#if defined(USE_AVX2) && defined(__x86_64__)
         unsigned int eax, ebx, ecx, edx;
         __asm__("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "0"(7), "c"(0));
         return (ebx & (1 << 5)) != 0; // Check AVX2 bit
@@ -721,7 +721,7 @@ public:
 
         if (is_arm_architecture()) {
             // Test ARM architecture cases
-            LOG(INFO) << "Testing on ARM architecture";
+            std::cout << "Testing on ARM architecture" << std::endl;
 
             // Test with new index format
             test_read_index_file(data_dir, "x86_256_new", false);
@@ -731,18 +731,20 @@ public:
 
         } else {
             // Test x86 architecture cases
-            LOG(INFO) << "Testing on x86 architecture";
+            std::cout << "Testing on x86 architecture" << std::endl;
 
             if (has_avx2_support()) {
-                LOG(INFO) << "Testing with AVX2 support";
+                std::cout << "Testing with AVX2 support" << std::endl;
                 // Test with AVX2 optimized index files
                 test_read_index_file(data_dir, "arm_new", false);
                 test_read_index_file(data_dir, "arm_old", true);
             } else {
-                LOG(INFO) << "Testing with SSE support";
+                std::cout << "Testing with SSE support" << std::endl;
                 // Test with SSE optimized index files
                 test_read_index_file(data_dir, "x86_256_new", false);
                 test_read_index_file(data_dir, "x86_256_old", true);
+                test_read_index_file(data_dir, "arm_new", false);
+                test_read_index_file(data_dir, "arm_old", true);
             }
         }
     }
