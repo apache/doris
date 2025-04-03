@@ -1248,7 +1248,9 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
 }
 
 Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(const CloudTablet& tablet,
-                                                             DeleteBitmap* delete_bitmap) {
+                                                             DeleteBitmap* delete_bitmap,
+                                                             int64_t pre_rowset_agg_start_version,
+                                                             int64_t pre_rowset_agg_end_version) {
     LOG(INFO) << "cloud_update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id()
               << ",delete_bitmap size:" << delete_bitmap->delete_bitmap.size();
     UpdateDeleteBitmapRequest req;
@@ -1264,11 +1266,19 @@ Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(const CloudTablet& 
         req.add_rowset_ids(std::get<0>(key).to_string());
         req.add_segment_ids(std::get<1>(key));
         req.add_versions(std::get<2>(key));
+        DCHECK(pre_rowset_agg_end_version > 0 ? pre_rowset_agg_end_version == std::get<2>(key)
+                                              : true)
+                << "pre_rowset_agg_end_version=" << pre_rowset_agg_end_version
+                << " not equal to version=" << std::get<2>(key);
         // To save space, convert array and bitmap containers to run containers
         bitmap.runOptimize();
         std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
         bitmap.write(bitmap_data.data());
         *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
+    }
+    if (pre_rowset_agg_start_version > 0 && pre_rowset_agg_end_version > 0) {
+        req.set_pre_rowset_agg_start_version(pre_rowset_agg_start_version);
+        req.set_pre_rowset_agg_end_version(pre_rowset_agg_end_version);
     }
     return retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
 }
