@@ -69,7 +69,6 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                         // set isPruned so that it won't go pass the partition prune again
                         selectedPartitions = new SelectedPartitions(0, ImmutableMap.of(), true);
                     }
-
                     LogicalFileScan rewrittenScan = scan.withSelectedPartitions(selectedPartitions);
                     return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
                 }).toRule(RuleType.FILE_SCAN_PARTITION_PRUNE);
