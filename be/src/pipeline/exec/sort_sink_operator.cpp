@@ -35,13 +35,7 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
             ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageSortBlocks", TUnit::BYTES, 1);
     _append_blocks_timer = ADD_TIMER(profile(), "AppendBlockTime");
     _update_runtime_predicate_timer = ADD_TIMER(profile(), "UpdateRuntimePredicateTime");
-    return Status::OK();
-}
 
-Status SortSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<SortSinkOperatorX>();
 
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
@@ -68,6 +62,15 @@ Status SortSinkLocalState::open(RuntimeState* state) {
         return Status::InvalidArgument("Invalid sort algorithm!");
     }
     }
+
+    return Status::OK();
+}
+
+Status SortSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
+    auto& p = _parent->cast<SortSinkOperatorX>();
 
     _shared_state->sorter->init_sink_profile(_profile);
 
