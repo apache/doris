@@ -125,6 +125,10 @@ private:
         if (rf_state == State::TIMEOUT) {
             DorisMetrics::instance()->runtime_filter_consumer_timeout_num->increment(1);
             _profile->add_info_string("ReachTimeoutLimit", "true");
+            if (_rf_state != State::NOT_READY) {
+                // reach timeout but do not change State::ready to State::timeout
+                return;
+            }
         } else if (rf_state == State::READY) {
             DorisMetrics::instance()->runtime_filter_consumer_ready_num->increment(1);
             DorisMetrics::instance()->runtime_filter_consumer_wait_ready_ms->increment(
