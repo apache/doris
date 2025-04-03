@@ -41,7 +41,8 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
     std::shared_ptr<RuntimeFilterMgr> local_runtime_filter_mgr;
     std::shared_ptr<QueryContext> ctx;
     RuntimeState state;
-    auto profile = std::make_shared<RuntimeProfile>("Test");
+    auto profile = std::make_unique<RuntimeProfile>("RFHelperTest");
+    auto operator_profile = std::make_unique<RuntimeProfile>("TestOperator");
     auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build();
     {
         // Create
@@ -66,7 +67,8 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
         EXPECT_TRUE(global_runtime_filter_mgr->get_consume_filters(filter_id).empty());
         std::shared_ptr<RuntimeFilterConsumer> consumer_filter;
         EXPECT_TRUE(global_runtime_filter_mgr
-                            ->register_consumer_filter(desc, 0, &consumer_filter, profile.get())
+                            ->register_consumer_filter(desc, 0, &consumer_filter,
+                                                       operator_profile.get(), profile.get())
                             .ok());
         EXPECT_FALSE(global_runtime_filter_mgr->get_consume_filters(filter_id).empty());
     }
