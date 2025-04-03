@@ -878,7 +878,7 @@ public class ColocateTableIndex implements Writable {
     }
 
     private void modifyColocateGroupReplicaAllocation(GroupId groupId, ReplicaAllocation replicaAlloc,
-            Map<Tag, List<List<Long>>> backendsPerBucketSeq, boolean needEditLog) throws UserException {
+            Map<Tag, List<List<Long>>> backendsPerBucketSeq, boolean isReplay) throws UserException {
         ColocateGroupSchema groupSchema = getGroupSchema(groupId);
         if (groupSchema == null) {
             LOG.warn("not found group {}", groupId);
@@ -912,7 +912,7 @@ public class ColocateTableIndex implements Writable {
                     origDynamicProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
                             replicaAlloc.toCreateStmt());
                     Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(
-                            origDynamicProperties, table, db);
+                            origDynamicProperties, table, db, isReplay);
                     tableProperty.modifyTableProperties(analyzedDynamicPartition);
                     tableProperty.buildDynamicProperty();
                 }
@@ -932,11 +932,11 @@ public class ColocateTableIndex implements Writable {
         groupSchema.setReplicaAlloc(replicaAlloc);
         setBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
 
-        if (needEditLog) {
+        if (!isReplay) {
             ColocatePersistInfo info = ColocatePersistInfo.createForModifyReplicaAlloc(groupId,
                     replicaAlloc, backendsPerBucketSeq);
             Env.getCurrentEnv().getEditLog().logColocateModifyRepliaAlloc(info);
         }
-        LOG.info("modify group {} replication allocation to {}, is replay {}", groupId, replicaAlloc, !needEditLog);
+        LOG.info("modify group {} replication allocation to {}, is replay {}", groupId, replicaAlloc, isReplay);
     }
 }
