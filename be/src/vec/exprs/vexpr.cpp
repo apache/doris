@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <memory>
 #include <stack>
+#include <utility>
 
 #include "common/config.h"
 #include "common/exception.h"
@@ -368,25 +369,20 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
     }
 
     // non-recursive traversal
-    std::stack<std::pair<VExprSPtr, int>> s;
-    s.emplace(root, root_children);
+    using VExprSPtrCountPair = std::pair<VExprSPtr, int>;
+    std::stack<std::shared_ptr<VExprSPtrCountPair>> s;
+    s.emplace(std::make_shared<VExprSPtrCountPair>(root, root_children));
     while (!s.empty()) {
-        VExprSPtr parent_expr;
-        {
-            auto& top = s.top();
-            // copy the shared ptr resource to avoid dangling reference
-            parent_expr = top.first;
-            DCHECK(parent_expr != nullptr);
-            // Decrement or pop
-            Defer defer {[&] {
-                if (top.second > 1) {
-                    top.second -= 1;
-                } else {
-                    s.pop();
-                }
-            }};
+        // copy the shared ptr resource to avoid dangling reference
+        auto parent = s.top();
+        // Decrement or pop
+        if (parent->second > 1) {
+            parent->second -= 1;
+        } else {
+            s.pop();
         }
 
+        DCHECK(parent->first != nullptr);
         if (++*node_idx >= nodes.size()) {
             return Status::InternalError("Failed to reconstruct expression tree from thrift.");
         }
@@ -394,11 +390,11 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
         VExprSPtr expr;
         RETURN_IF_ERROR(create_expr(nodes[*node_idx], expr));
         DCHECK(expr != nullptr);
-        parent_expr->add_child(expr);
+        parent->first->add_child(expr);
         // push to stack if has children
         int num_children = nodes[*node_idx].num_children;
         if (num_children > 0) {
-            s.emplace(expr, num_children);
+            s.emplace(std::make_shared<VExprSPtrCountPair>(expr, num_children));
         }
     }
     return Status::OK();
