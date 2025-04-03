@@ -80,9 +80,8 @@ public:
     PartitionSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                     ObjectPool* pool, std::vector<bool>& is_asc_order,
                     std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
-                    RuntimeState* state, RuntimeProfile* profile, bool has_global_limit,
-                    int64_t partition_inner_limit, TopNAlgorithm::type top_n_algorithm,
-                    SortCursorCmp* previous_row);
+                    RuntimeState* state, bool has_global_limit, int64_t partition_inner_limit,
+                    TopNAlgorithm::type top_n_algorithm, SortCursorCmp* previous_row);
 
     ~PartitionSorter() override = default;
 
@@ -92,10 +91,15 @@ public:
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
+    void init_source_profile(RuntimeProfile* runtime_profile) override {
+        _read_row_num_timer = ADD_TIMER(runtime_profile, "ReadRowNumTime");
+        _read_row_rank_timer = ADD_TIMER(runtime_profile, "ReadRowRankTime");
+    }
+
     size_t data_size() const override { return _state->data_size(); }
     int64 get_output_rows() const { return _output_total_rows; }
     void reset_sorter_state(RuntimeState* runtime_state);
-    bool prepared_finish() { return _prepared_finish; }
+    bool prepared_finish() const { return _prepared_finish; }
     void set_prepared_finish() { _prepared_finish = true; }
 
 private:
@@ -123,6 +127,8 @@ private:
     TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::type::ROW_NUMBER;
     SortCursorCmp* _previous_row = nullptr;
     bool _prepared_finish = false;
+    RuntimeProfile::Counter* _read_row_num_timer = nullptr;
+    RuntimeProfile::Counter* _read_row_rank_timer = nullptr;
 };
 
 #include "common/compile_check_end.h"

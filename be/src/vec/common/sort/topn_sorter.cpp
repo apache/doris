@@ -19,7 +19,6 @@
 
 #include <glog/logging.h>
 
-#include <algorithm>
 #include <queue>
 
 #include "common/object_pool.h"
@@ -42,9 +41,9 @@ namespace doris::vectorized {
 TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
-                       RuntimeState* state, RuntimeProfile* profile)
+                       RuntimeState* state)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)),
+          _state(MergeSorterState::create_unique(row_desc, offset, limit, state)),
           _row_desc(row_desc) {}
 
 Status TopNSorter::append_block(Block* block) {
@@ -58,7 +57,13 @@ Status TopNSorter::prepare_for_read() {
 }
 
 Status TopNSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
+    SCOPED_TIMER(_merge_sort_read_timer);
     return _state->merge_sort_read(block, state->batch_size(), eos);
+}
+
+void TopNSorter::init_source_profile(RuntimeProfile* runtime_profile) {
+    _merge_sort_read_timer = ADD_TIMER(runtime_profile, "MergeSortReadTime");
+    _insert_data_timer = ADD_TIMER(runtime_profile, "InsertDataTime");
 }
 
 Status TopNSorter::_do_sort(Block* block) {

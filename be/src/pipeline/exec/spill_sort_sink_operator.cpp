@@ -95,7 +95,7 @@ Status SpillSortSinkLocalState::setup_in_memory_sort_op(RuntimeState* state) {
 
     RETURN_IF_ERROR(sink_local_state->open(state));
 
-    _profile->add_info_string("TOP-N", *sink_local_state->profile()->get_info_string("TOP-N"));
+    _profile->add_child(sink_local_state->profile(), true, nullptr);
     return Status::OK();
 }
 

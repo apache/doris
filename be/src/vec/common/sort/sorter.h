@@ -53,7 +53,7 @@ class MergeSorterState {
 
 public:
     MergeSorterState(const RowDescriptor& row_desc, int64_t offset, int64_t limit,
-                     RuntimeState* state, RuntimeProfile* profile)
+                     RuntimeState* state)
             // create_empty_block should ignore invalid slots, unsorted_block
             // should be same structure with arrival block from child node
             // since block from child node may ignored these slots
@@ -67,7 +67,7 @@ public:
 
     Status build_merge_tree(const SortDescription& sort_description);
 
-    Status merge_sort_read(doris::vectorized::Block* block, int batch_size, bool* eos);
+    Status merge_sort_read(vectorized::Block* block, int batch_size, bool* eos);
 
     size_t data_size() const {
         size_t size = _unsorted_block->bytes();
@@ -85,7 +85,7 @@ public:
     std::unique_ptr<Block>& unsorted_block() { return _unsorted_block; }
 
 private:
-    Status _merge_sort_read_impl(int batch_size, doris::vectorized::Block* block, bool* eos);
+    Status _merge_sort_read_impl(int batch_size, vectorized::Block* block, bool* eos);
 
     std::unique_ptr<Block> _unsorted_block;
     MergeSorterQueue _queue;
@@ -122,11 +122,13 @@ public:
 
     virtual ~Sorter() = default;
 
-    virtual void init_profile(RuntimeProfile* runtime_profile) {
+    virtual void init_sink_profile(RuntimeProfile* runtime_profile) {
         _partial_sort_timer = ADD_TIMER(runtime_profile, "PartialSortTime");
         _merge_block_timer = ADD_TIMER(runtime_profile, "MergeBlockTime");
         _partial_sort_counter = ADD_COUNTER(runtime_profile, "PartialSortCounter", TUnit::UNIT);
     }
+
+    virtual void init_source_profile(RuntimeProfile* runtime_profile) {}
 
     virtual Status append_block(Block* block) = 0;
 
@@ -142,7 +144,7 @@ public:
     const SortDescription& get_sort_description() const { return _sort_description; }
     virtual Field get_top_value() { return Field {Field::Types::Null}; }
 
-    virtual Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
+    virtual Status merge_sort_read_for_spill(RuntimeState* state, vectorized::Block* block,
                                              int batch_size, bool* eos);
     virtual void reset() {}
 
@@ -177,7 +179,7 @@ class FullSorter final : public Sorter {
 public:
     FullSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset, ObjectPool* pool,
                std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
-               const RowDescriptor& row_desc, RuntimeState* state, RuntimeProfile* profile);
+               const RowDescriptor& row_desc, RuntimeState* state);
 
     ~FullSorter() override = default;
 
@@ -187,12 +189,16 @@ public:
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
+    void init_source_profile(RuntimeProfile* runtime_profile) override {
+        _merge_sort_read_timer = ADD_TIMER(runtime_profile, "MergeSortReadTime");
+    }
+
     size_t data_size() const override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const override;
 
-    Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
-                                     int batch_size, bool* eos) override;
+    Status merge_sort_read_for_spill(RuntimeState* state, vectorized::Block* block, int batch_size,
+                                     bool* eos) override;
     void reset() override;
 
 private:
@@ -213,6 +219,8 @@ private:
 
     size_t _buffered_block_size = SPILL_BUFFERED_BLOCK_SIZE;
     size_t _buffered_block_bytes = SPILL_BUFFERED_BLOCK_BYTES;
+
+    RuntimeProfile::Counter* _merge_sort_read_timer = nullptr;
 };
 
 #include "common/compile_check_end.h"

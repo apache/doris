@@ -43,11 +43,11 @@ namespace doris::vectorized {
 PartitionSorter::PartitionSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                                  ObjectPool* pool, std::vector<bool>& is_asc_order,
                                  std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
-                                 RuntimeState* state, RuntimeProfile* profile,
-                                 bool has_global_limit, int64_t partition_inner_limit,
-                                 TopNAlgorithm::type top_n_algorithm, SortCursorCmp* previous_row)
+                                 RuntimeState* state, bool has_global_limit,
+                                 int64_t partition_inner_limit, TopNAlgorithm::type top_n_algorithm,
+                                 SortCursorCmp* previous_row)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)),
+          _state(MergeSorterState::create_unique(row_desc, offset, limit, state)),
           _row_desc(row_desc),
           _partition_inner_limit(partition_inner_limit),
           _top_n_algorithm(
@@ -81,7 +81,7 @@ Status PartitionSorter::prepare_for_read() {
 void PartitionSorter::reset_sorter_state(RuntimeState* runtime_state) {
     std::priority_queue<MergeSortBlockCursor> empty_queue;
     std::swap(_block_priority_queue, empty_queue);
-    _state = MergeSorterState::create_unique(_row_desc, _offset, _limit, runtime_state, nullptr);
+    _state = MergeSorterState::create_unique(_row_desc, _offset, _limit, runtime_state);
     // _previous_row->impl inited at partition_sort_read function,
     // but maybe call get_next after do_partition_topn_sort() function, and running into else if branch at line 92L
     // so _previous_row->impl == nullptr and no need reset.
@@ -95,8 +95,10 @@ void PartitionSorter::reset_sorter_state(RuntimeState* runtime_state) {
 
 Status PartitionSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
     if (_top_n_algorithm == TopNAlgorithm::ROW_NUMBER) {
+        SCOPED_TIMER(_read_row_num_timer);
         return _read_row_num(block, eos, state->batch_size());
     } else {
+        SCOPED_TIMER(_read_row_rank_timer);
         return _read_row_rank(block, eos, state->batch_size());
     }
 }

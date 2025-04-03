@@ -32,6 +32,7 @@ class SortLocalState final : public PipelineXLocalState<SortSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(SortLocalState);
     SortLocalState(RuntimeState* state, OperatorXBase* parent);
+    Status open(RuntimeState* state) override;
     ~SortLocalState() override = default;
 
 private:

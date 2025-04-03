@@ -55,13 +55,13 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     case TSortAlgorithm::TOPN_SORT: {
         _shared_state->sorter = vectorized::TopNSorter::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child->row_desc(), state, _profile);
+                p._child->row_desc(), state);
         break;
     }
     case TSortAlgorithm::FULL_SORT: {
         _shared_state->sorter = vectorized::FullSorter::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child->row_desc(), state, _profile);
+                p._child->row_desc(), state);
         break;
     }
     default: {
@@ -69,9 +69,9 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     }
     }
 
-    _shared_state->sorter->init_profile(_profile);
+    _shared_state->sorter->init_sink_profile(_profile);
 
-    _profile->add_info_string("TOP-N", p._limit == -1 ? "false" : "true");
+    _profile->add_info_string("LIMIT", std::to_string(p._limit));
     _profile->add_info_string(
             "SortAlgorithm",
             p._algorithm == TSortAlgorithm::HEAP_SORT
