@@ -466,6 +466,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
+    public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
+
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
     /**
@@ -1252,7 +1254,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeBloomFilterMinSize = 1048576;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
-    private int runtimeBloomFilterMaxSize = 16777216;
+    private int runtimeBloomFilterMaxSize = 67108864;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS, needForward = true)
     private int runtimeFilterWaitTimeMs = 1000;
@@ -1268,7 +1270,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFilterType = 12;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM, needForward = true, fuzzy = true)
-    private int runtimeFilterMaxInNum = 1024;
+    private int runtimeFilterMaxInNum = 40960;
 
     @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true, fuzzy = true)
     private boolean enableSyncRuntimeFilterSize = true;
@@ -1794,6 +1796,13 @@ public class SessionVariable implements Serializable, Writable {
     public int numPartitionsInBatchMode = 1024;
 
     @VariableMgr.VarAttr(
+            name = NUM_FILES_IN_BATCH_MODE,
+            description = {"如果文件数量超过阈值，BE将通过batch方式获取scan ranges",
+                    "If the number of files exceeds the threshold, scan ranges will be got through batch mode."},
+            needForward = true)
+    public int numFilesInBatchMode = 1024;
+
+    @VariableMgr.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,
             description = {"batch方式中BE获取splits的最大等待时间",
                     "The max wait time of getting splits in batch mode."},
@@ -2173,6 +2182,13 @@ public class SessionVariable implements Serializable, Writable {
     public int minimumOperatorMemoryRequiredKB = 1000;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
+
+    public static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
+    @VariableMgr.VarAttr(
+            name = ENABLE_EXTERNAL_TABLE_BATCH_MODE,
+            description = {"使能外表的batch mode功能", "Enable the batch mode function of the external table."},
+            needForward = true)
+    public boolean enableExternalTableBatchMode = true;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
@@ -3347,6 +3363,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setNumSplitsInBatchMode(int numPartitionsInBatchMode) {
         this.numPartitionsInBatchMode = numPartitionsInBatchMode;
+    }
+
+    public int getNumFilesInBatchMode() {
+        return numFilesInBatchMode;
     }
 
     public long getFetchSplitsMaxWaitTime() {
@@ -4661,5 +4681,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableLocalMergeSort() {
         return enableLocalMergeSort;
+    }
+
+    public boolean getEnableExternalTableBatchMode() {
+        return enableExternalTableBatchMode;
     }
 }

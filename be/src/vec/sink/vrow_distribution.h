@@ -33,6 +33,7 @@
 #include "exec/tablet_info.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"

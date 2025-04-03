@@ -321,6 +321,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
@@ -475,6 +476,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XpathString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -815,6 +817,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MonthFloor.class, "month_floor"),
             scalar(MonthName.class, "monthname"),
             scalar(MonthsAdd.class, "months_add", "add_months"),
+            scalar(MonthsBetween.class, "months_between"),
             scalar(MonthsDiff.class, "months_diff"),
             scalar(MonthsSub.class, "months_sub"),
             scalar(MultiMatchAny.class, "multi_match_any"),
@@ -974,6 +977,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(XxHash32.class, "xxhash_32"),
             scalar(XxHash64.class, "xxhash_64"),
             scalar(Xor.class, "xor"),
+            scalar(XpathString.class, "xpath_string"),
             scalar(Year.class, "year"),
             scalar(YearCeil.class, "year_ceil"),
             scalar(YearFloor.class, "year_floor"),
