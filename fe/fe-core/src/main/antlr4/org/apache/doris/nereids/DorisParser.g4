@@ -330,7 +330,8 @@ supportedShowStatement
     | SHOW DATABASE databaseId=INTEGER_VALUE                                        #showDatabaseId
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
-    | SHOW statementScope? STATUS                                       #showStatus
+    | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters    
+    | SHOW statementScope? STATUS                                                   #showStatus
     | SHOW WHITELIST                                                                #showWhitelist
     | SHOW TABLETS BELONG
         tabletIds+=INTEGER_VALUE (COMMA tabletIds+=INTEGER_VALUE)*                  #showTabletsBelong
@@ -425,7 +426,6 @@ unsupportedShowStatement
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
-    | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters
     | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
     | SHOW COPY ((FROM | IN) database=multipartIdentifier)?
         whereClause? sortClause? limitClause?                                       #showCopy
