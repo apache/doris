@@ -32,6 +32,8 @@ add_library(Geo STATIC
     geo_tobinary.cpp
     ByteOrderValues.cpp
     machine.h
+    geo_utils.cpp
+    s2_bridge.cpp
 )
 pch_reuse(Geo)
 
