@@ -333,7 +333,11 @@ public class Alter {
             newBaseTableInfo = Optional.of(new BaseTableInfo(olapTable));
         } else if (currentAlterOps.hasReplaceTableOp()) {
             processReplaceTable(db, olapTable, alterClauses);
+            // after replace table, olapTable may still be old name, so need set it to new name
+            ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
+            String newTblName = clause.getTblName();
             newBaseTableInfo = Optional.of(new BaseTableInfo(olapTable));
+            newBaseTableInfo.get().setTableName(newTblName);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_PROPERTY_SYNC)) {
             needProcessOutsideTableLock = true;
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_DISTRIBUTION)) {
@@ -843,10 +847,7 @@ public class Alter {
             } else {
                 Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
             }
-            // if not set, origTable and newTbl both is origName
-            origTable.checkAndSetName(newTblName, false);
             if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
-                Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) origTable);
                 if (!isReplay) {
                     Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) origTable);
                 }
