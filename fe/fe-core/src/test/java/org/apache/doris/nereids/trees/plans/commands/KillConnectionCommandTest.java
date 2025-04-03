@@ -21,47 +21,43 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
 import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class KillConnectionCommandTest {
+import java.io.IOException;
 
-    @Mocked
+public class KillConnectionCommandTest extends TestWithFeService {
     private ConnectContext connectContext;
-    @Mocked
     private Env env;
-    @Mocked
     private AccessControllerManager accessControllerManager;
 
-    private void runBefore() {
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
+        ConnectScheduler scheduler = new ConnectScheduler(10);
+        connectContext.setQualifiedUser("root");
         new Expectations() {
             {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
                 accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
                 minTimes = 0;
                 result = true;
+
+                scheduler.listConnection("root", anyBoolean);
+                minTimes = 0;
+                result = Lists.newArrayList(connectContext.toThreadInfo(false));
             }
         };
+        connectContext.setConnectScheduler(scheduler);
+        scheduler.registerConnection(connectContext);
+
     }
 
     @Test
