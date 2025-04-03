@@ -559,8 +559,12 @@ public class Auth implements Writable {
         dropUserInternal(stmt.getUserIdentity(), stmt.isSetIfExists(), false);
     }
 
-    public void replayDropUser(UserIdentity userIdent) throws DdlException {
-        dropUserInternal(userIdent, false, true);
+    public void replayDropUser(UserIdentity userIdent) {
+        try {
+            dropUserInternal(userIdent, false, true);
+        } catch (DdlException e) {
+            LOG.error("should not happen", e);
+        }
     }
 
     private void dropUserInternal(UserIdentity userIdent, boolean ignoreIfNonExists, boolean isReplay)
@@ -1114,8 +1118,12 @@ public class Auth implements Writable {
         updateUserPropertyInternal(stmt.getUser(), properties, false /* is replay */);
     }
 
-    public void replayUpdateUserProperty(UserPropertyInfo propInfo) throws UserException {
-        updateUserPropertyInternal(propInfo.getUser(), propInfo.getProperties(), true /* is replay */);
+    public void replayUpdateUserProperty(UserPropertyInfo propInfo) {
+        try {
+            updateUserPropertyInternal(propInfo.getUser(), propInfo.getProperties(), true /* is replay */);
+        } catch (UserException e) {
+            LOG.error("should not happened", e);
+        }
     }
 
     public void updateUserPropertyInternal(String user, List<Pair<String, String>> properties, boolean isReplay)
