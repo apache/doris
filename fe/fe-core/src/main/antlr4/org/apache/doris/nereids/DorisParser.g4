@@ -67,6 +67,7 @@ statementBase
     | supportedOtherStatement           #supportedOtherStatementAlias
     | supportedKillStatement            #supportedKillStatementAlias
     | supportedStatsStatement           #supportedStatsStatementAlias
+    | supportedOutlineStatement         #supportedOutlineStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -353,6 +354,12 @@ supportedShowStatement
 supportedLoadStatement
     : SYNC                                                                          #sync
     | createRoutineLoad                                                             #createRoutineLoadAlias
+    ;
+
+supportedOutlineStatement
+    : CREATE (OR REPLACE)? OUTLINE outline_name=identifierOrText ON (query (TO query)? |
+      sql_id=STRING_LITERAL USING HINT_START identifier HINT_END )                  #createOutline
+    | DROP OUTLINE (IF EXISTS)? outline_name=identifierOrText                       #dropOutline
     ;
 
 supportedOtherStatement
@@ -1978,6 +1985,7 @@ nonReserved
     | ONLY
     | OPEN
     | OPTIMIZED
+    | OUTLINE
     | PARAMETER
     | PARSED
     | PASSWORD
