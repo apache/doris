@@ -51,8 +51,13 @@ namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
 class PipelineXFragmentContext;
+class PipelineFragmentContext;
 class PipelineXTask;
 } // namespace pipeline
+
+namespace vectorized {
+class TaskHandle;
+}
 
 class DescriptorTbl;
 class ObjectPool;
@@ -694,6 +699,20 @@ public:
         return _partial_update_auto_inc_column;
     };
 
+    pipeline::PipelineFragmentContext* pipeline_fragment_ctx() const {
+        return _pipeline_fragment_ctx;
+    }
+
+    void set_pipeline_fragment_ctx(pipeline::PipelineFragmentContext* ctx) {
+        _pipeline_fragment_ctx = ctx;
+    }
+
+    void set_fragment_task_handle(std::shared_ptr<vectorized::TaskHandle> task_handle) {
+        _task_handle = task_handle;
+    }
+
+    std::shared_ptr<vectorized::TaskHandle> fragment_task_handle() const { return _task_handle; }
+
 private:
     Status create_error_log_file();
 
@@ -827,6 +846,10 @@ private:
 
     pipeline::PipelineXTask* _task;
     vectorized::ColumnInt64* _partial_update_auto_inc_column;
+
+    pipeline::PipelineFragmentContext* _pipeline_fragment_ctx = nullptr;
+
+    std::shared_ptr<vectorized::TaskHandle> _task_handle = nullptr;
 };
 
 #define RETURN_IF_CANCELLED(state)                                                    \

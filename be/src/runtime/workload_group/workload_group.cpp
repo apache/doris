@@ -376,7 +376,7 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& tworkload_g
                 tworkload_group_info.max_remote_scan_thread_num;
     }
 
-    // 11 min remote scan thread num
+    /// 11 min remote scan thread num
     workload_group_info->min_remote_scan_thread_num =
             config::doris_scanner_min_thread_pool_thread_num;
     if (tworkload_group_info.__isset.min_remote_scan_thread_num &&
