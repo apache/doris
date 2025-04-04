@@ -30,7 +30,7 @@ const std::string ROWID_COL = "__DORIS_ROWID_COL__";
 const std::string ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
 const std::string DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
 const std::string PARTIAL_UPDATE_AUTO_INC_COL = "__PARTIAL_UPDATE_AUTO_INC_COLUMN__";
-
+const std::string PARQUET = "parquet";
 /// The maximum precision representable by a 4-byte decimal (Decimal4Value)
 constexpr int MAX_DECIMAL32_PRECISION = 9;
 /// The maximum precision representable by a 8-byte decimal (Decimal8Value)
