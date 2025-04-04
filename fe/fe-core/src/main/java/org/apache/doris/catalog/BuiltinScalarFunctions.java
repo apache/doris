@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPushBack;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPushFront;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReduce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRepeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
@@ -543,6 +544,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayPushBack.class, "Array_pushback"),
             scalar(ArrayPushFront.class, "Array_pushfront"),
             scalar(ArrayRange.class, "array_range", "sequence"),
+            scalar(ArrayReduce.class, "array_reduce"),
             scalar(ArrayRemove.class, "array_remove"),
             scalar(ArrayRepeat.class, "array_repeat"),
             scalar(ArrayReverseSort.class, "array_reverse_sort"),

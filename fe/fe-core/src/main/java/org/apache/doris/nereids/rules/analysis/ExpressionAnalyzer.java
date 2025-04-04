@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
@@ -889,6 +890,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // bindLambdaFunction
         Lambda lambda = (Lambda) unboundFunction.children().get(0);
         Expression lambdaFunction = lambda.getLambdaFunction();
+        if (unboundFunction.getName().equals("array_reduce") && subChildren.size() == 2) {
+            if (!subChildren.get(1).getDataType().isNumericType()) {
+                throw new AnalysisException(String.format(
+                    "lambda %s second argument should be literal or column in table", lambda.toSql()));
+            }
+            subChildren.set(1, ((Expression) new Array(subChildren.get(1))));
+        }
         List<ArrayItemReference> arrayItemReferences = lambda.makeArguments(subChildren);
 
         List<Slot> boundedSlots = arrayItemReferences.stream()

@@ -88,6 +88,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.StateComb
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReduce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
@@ -547,6 +548,52 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         LambdaFunctionCallExpr functionCallExpr =
                 new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
         functionCallExpr.setNullableFromNereids(arrayMap.nullable());
+        return functionCallExpr;
+    }
+
+    @Override
+    public Expr visitArrayReduce(ArrayReduce arrayReduce, PlanTranslatorContext context) {
+        Lambda lambda = (Lambda) arrayReduce.child(0);
+        List<Expr> arguments = new ArrayList<>(arrayReduce.children().size());
+        arguments.add(null);
+        int columnId = 0;
+        for (ArrayItemReference arrayItemReference : lambda.getLambdaArguments()) {
+            String argName = arrayItemReference.getName();
+            Expr expr = arrayItemReference.getArrayExpression().accept(this, context);
+            arguments.add(expr);
+
+            ColumnRefExpr column = new ColumnRefExpr();
+            column.setName(argName);
+            column.setColumnId(columnId);
+            column.setNullable(true);
+            column.setType(((ArrayType) expr.getType()).getItemType());
+            context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
+            columnId += 1;
+        }
+
+        List<Type> argTypes = arrayReduce.getArguments().stream()
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .collect(Collectors.toList());
+        lambda.getLambdaArguments().stream()
+                .map(ArrayItemReference::getArrayExpression)
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .forEach(argTypes::add);
+        NullableMode nullableMode = arrayReduce.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
+        org.apache.doris.catalog.Function catalogFunction = new Function(
+                new FunctionName(arrayReduce.getName()), argTypes,
+                lambda.getRetType().toCatalogDataType(),
+                true, true, nullableMode);
+
+        // create catalog FunctionCallExpr without analyze again
+        Expr lambdaBody = visitLambda(lambda, context);
+        arguments.set(0, lambdaBody);
+        LambdaFunctionCallExpr functionCallExpr =
+                new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+        functionCallExpr.setNullableFromNereids(arrayReduce.nullable());
         return functionCallExpr;
     }
 
