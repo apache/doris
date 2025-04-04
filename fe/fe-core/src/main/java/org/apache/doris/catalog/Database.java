@@ -141,7 +141,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         if (this.fullQualifiedName == null) {
             this.fullQualifiedName = "";
         }
-        this.rwLock = new MonitoredReentrantReadWriteLock(true);
+        this.rwLock = new MonitoredReentrantReadWriteLock(true, "Database[" + fullQualifiedName + "]");
         this.idToTable = Maps.newConcurrentMap();
         this.nameToTable = Maps.newConcurrentMap();
         this.lowerCaseToTableName = Maps.newConcurrentMap();
