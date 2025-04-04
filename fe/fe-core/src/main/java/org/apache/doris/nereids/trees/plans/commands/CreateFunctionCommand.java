@@ -460,6 +460,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         function.setBinaryType(binaryType);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
+        function.setStaticLoad(isStaticLoad);
+        function.setExpirationTime(expirationTime);
     }
 
     private void analyzeUdf() throws AnalysisException {
@@ -889,6 +891,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     private void analyzeAliasFunction(ConnectContext ctx) throws AnalysisException {
         function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
                 Type.VARCHAR, argsDef.isVariadic(), parameters, translateToLegacyExpr(originFunction, ctx));
+        ((AliasFunction) function).analyze();
     }
 
     /**
