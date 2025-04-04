@@ -45,7 +45,7 @@ public class SetVariableTest {
 
     @Test
     public void testSqlMode() throws Exception {
-        String setStr = "set sql_mode = concat(@@sql_mode, 'STRICT_TRANS_TABLES');";
+        String setStr = "set sql_mode = concat_ws(',', @@sql_mode, 'STRICT_TRANS_TABLES');";
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, setStr);
         stmtExecutor.execute();
