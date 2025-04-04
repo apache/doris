@@ -42,8 +42,11 @@ public class StructField {
 
     public static final String DEFAULT_FIELD_NAME = "col";
 
+    // The struct field name should remain the same as it was defined when it was created, which stored in FE Meta
+    // When we query by field name, it should be case-insensitive.
+    // So field name "A" and "a" cannot exist in a struct at the same time
     public StructField(String name, Type type, String comment, boolean containsNull) {
-        this.name = name.toLowerCase();
+        this.name = name;
         this.type = type;
         this.comment = comment;
         this.containsNull = containsNull;
@@ -154,7 +157,7 @@ public class StructField {
             return false;
         }
         StructField otherStructField = (StructField) other;
-        return otherStructField.name.equals(name) && otherStructField.type.equals(type)
+        return otherStructField.name.equalsIgnoreCase(name) && otherStructField.type.equals(type)
                 && otherStructField.containsNull == containsNull;
     }
 

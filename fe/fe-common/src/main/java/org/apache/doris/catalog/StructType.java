@@ -52,9 +52,17 @@ public class StructType extends Type {
     public StructType(ArrayList<StructField> fields) {
         Preconditions.checkNotNull(fields);
         this.fields = fields;
+        HashMap<String, String> lowerCaseFieldMap = new HashMap<>();
         for (int i = 0; i < this.fields.size(); ++i) {
+            String fieldName = this.fields.get(i).getName();
+            String lowerCaseFieldName = fieldName.toLowerCase();
+            if (lowerCaseFieldMap.containsKey(lowerCaseFieldName)) {
+                throw new IllegalArgumentException("Field names must be unique (case insensitive). Duplicate field: "
+                        + fieldName);
+            }
             this.fields.get(i).setPosition(i);
-            fieldMap.put(this.fields.get(i).getName().toLowerCase(), this.fields.get(i));
+            fieldMap.put(fieldName, this.fields.get(i));
+            lowerCaseFieldMap.put(lowerCaseFieldName, fieldName);
         }
     }
 
@@ -155,9 +163,15 @@ public class StructType extends Type {
     }
 
     public void addField(StructField field) {
+        String fieldName = field.getName();
+        String lowerCaseFieldName = fieldName.toLowerCase();
+        if (fieldMap.keySet().stream().map(String::toLowerCase).anyMatch(lowerCaseFieldName::equals)) {
+            throw new IllegalArgumentException("Field names must be unique (case insensitive). Duplicate field: "
+                    + fieldName);
+        }
         field.setPosition(fields.size());
         fields.add(field);
-        fieldMap.put(field.getName().toLowerCase(), field);
+        fieldMap.put(fieldName, field);
     }
 
     public ArrayList<StructField> getFields() {
@@ -165,7 +179,13 @@ public class StructType extends Type {
     }
 
     public StructField getField(String fieldName) {
-        return fieldMap.get(fieldName.toLowerCase());
+        String lowerCaseFieldName = fieldName.toLowerCase();
+        for (String key : fieldMap.keySet()) {
+            if (key.toLowerCase().equals(lowerCaseFieldName)) {
+                return fieldMap.get(key);
+            }
+        }
+        return null;
     }
 
     public void clearFields() {
@@ -292,15 +312,6 @@ public class StructType extends Type {
             return Lists.newArrayList(new StructType(types));
         }
         return Lists.newArrayList(this);
-    }
-
-    public StructType replaceFieldsWithNames(List<String> names) {
-        Preconditions.checkState(names.size() == fields.size());
-        ArrayList<StructField> newFields = Lists.newArrayList();
-        for (int i = 0; i < names.size(); i++) {
-            newFields.add(new StructField(names.get(i), fields.get(i).type));
-        }
-        return new StructType(newFields);
     }
 
     @Override

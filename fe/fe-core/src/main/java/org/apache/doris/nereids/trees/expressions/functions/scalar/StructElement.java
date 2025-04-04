@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
@@ -85,11 +86,12 @@ public class StructElement extends ScalarFunction
             }
         } else if (child(1) instanceof StringLikeLiteral) {
             String name = ((StringLikeLiteral) child(1)).getStringValue();
-            if (!structArgType.getNameToFields().containsKey(name)) {
-                throw new AnalysisException("the specified field name " + name + " was not found: " + this.toSql());
-            } else {
-                retType = structArgType.getNameToFields().get(name).getDataType();
-            }
+            StructField field = structArgType.getFields().stream()
+                    .filter(f -> f.getName().equalsIgnoreCase(name))
+                    .findFirst()
+                    .orElseThrow(() -> new AnalysisException("the specified field name " + name + " was not found: "
+                            + this.toSql()));
+            retType = field.getDataType();
         } else {
             throw new AnalysisException("struct_element only allows"
                     + " constant int or string second parameter: " + this.toSql());

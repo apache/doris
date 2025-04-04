@@ -68,6 +68,19 @@ private:
 public:
     static constexpr bool is_parametric = true;
 
+    // Add helper function for case-insensitive comparison
+    static bool case_insensitive_equals(const String& a, const String& b) {
+        if (a.size() != b.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (tolower(a[i]) != tolower(b[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     explicit DataTypeStruct(const DataTypes& elems);
     DataTypeStruct(const DataTypes& elems, const Strings& names);
 
