@@ -508,6 +508,13 @@ BASE64_NAME="v0.5.2.tar.gz"
 BASE64_SOURCE="base64-0.5.2"
 BASE64_MD5SUM="49e5a6c98bd0192aedd16c16eec39974"
 
+
+# icu
+ICU_DOWNLOAD="https://github.com/unicode-org/icu/archive/refs/tags/release-75-1.tar.gz"
+ICU_NAME=release-75-1.tar.gz
+ICU_SOURCE=icu-release-75-1
+ICU_MD5SUM="4003649b8731f938c852748ffa393847"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -583,6 +590,7 @@ export TP_ARCHIVES=(
     'LIBUUID'
     'ALI_SDK'
     'BASE64'
+    'ICU'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
