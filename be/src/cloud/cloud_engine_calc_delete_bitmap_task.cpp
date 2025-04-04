@@ -259,7 +259,8 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
 
         // we still need to update delete bitmap KVs to MS when we skip to calcalate delete bitmaps,
         // because the pending delete bitmap KVs in MS we wrote before may have been removed and replaced by other txns
-        RETURN_IF_ERROR(tablet->save_delete_bitmap_to_ms(_version, _transaction_id, delete_bitmap));
+        RETURN_IF_ERROR(tablet->save_delete_bitmap_to_ms(_version, _transaction_id, delete_bitmap,
+                                                         _version));
 
         LOG(INFO) << "tablet=" << _tablet_id << ", txn=" << _transaction_id
                   << ", publish_status=SUCCEED, not need to re-calculate delete_bitmaps.";
