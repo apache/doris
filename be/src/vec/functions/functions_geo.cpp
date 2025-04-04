@@ -667,13 +667,15 @@ struct StRelationFunction {
         for (int i = 0; i < 2; ++i) {
             std::unique_ptr<GeoShape> shape(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
             shapes[i] = std::move(shape);
-            if (shapes[i] == nullptr) {
+            if (!shapes[i]) {
                 null_map[row] = 1;
                 break;
             }
         }
-        auto relation_value = Func::evaluate(shapes[0].get(), shapes[1].get());
-        res->get_data()[row] = relation_value;
+        if (shapes[0] && shapes[1]) {
+            auto relation_value = Func::evaluate(shapes[0].get(), shapes[1].get());
+            res->get_data()[row] = relation_value;
+        }
     }
 
     static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
