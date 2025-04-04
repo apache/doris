@@ -73,7 +73,9 @@ import java.util.Optional;
 import java.util.Set;
 
 class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
-    static final double RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR = 0.1;
+    private static double RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR = 0.1;
+    private static double NESTLOOP_JOIN_PENALTY_ROWCOUNT_THRESHOLD = 1000;
+
     private final int beNumber;
     private final int parallelInstance;
 
@@ -513,13 +515,19 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     public Cost visitPhysicalNestedLoopJoin(
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin,
             PlanContext context) {
-        // TODO: copy from physicalHashJoin, should update according to physical nested loop join properties.
         Preconditions.checkState(context.arity() == 2);
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
+        double penalty = 1.0;
+        if (leftStatistics.getRowCount() >= NESTLOOP_JOIN_PENALTY_ROWCOUNT_THRESHOLD
+                || rightStatistics.getRowCount() >= NESTLOOP_JOIN_PENALTY_ROWCOUNT_THRESHOLD) {
+            if (ConnectContext.get() != null) {
+                penalty = ConnectContext.get().getSessionVariable().nestLoopJoinPenalty;
+            }
+        }
         return CostV1.of(context.getSessionVariable(),
-                leftStatistics.getRowCount() * rightStatistics.getRowCount(),
-                rightStatistics.getRowCount(),
+                leftStatistics.getRowCount() * rightStatistics.getRowCount() * penalty,
+                rightStatistics.getRowCount() * penalty,
                 0);
     }
 
