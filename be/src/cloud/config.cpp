@@ -76,7 +76,7 @@ DEFINE_mInt32(tablet_txn_info_min_expired_seconds, "1800");
 
 DEFINE_mBool(enable_use_cloud_unique_id_from_fe, "true");
 
-DEFINE_mBool(enable_cloud_tablet_report, "false");
+DEFINE_mBool(enable_cloud_tablet_report, "true");
 
 DEFINE_mInt32(delete_bitmap_rpc_retry_times, "25");
 
