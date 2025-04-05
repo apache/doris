@@ -65,8 +65,7 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
         // Get / Register consumer
         EXPECT_TRUE(global_runtime_filter_mgr->get_consume_filters(filter_id).empty());
         std::shared_ptr<RuntimeFilterConsumer> consumer_filter;
-        EXPECT_TRUE(global_runtime_filter_mgr
-                            ->register_consumer_filter(desc, 0, &consumer_filter, profile.get())
+        EXPECT_TRUE(global_runtime_filter_mgr->register_consumer_filter(desc, 0, &consumer_filter)
                             .ok());
         EXPECT_FALSE(global_runtime_filter_mgr->get_consume_filters(filter_id).empty());
     }
