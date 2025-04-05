@@ -53,6 +53,7 @@ import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -744,6 +745,25 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
         // only retain restore partitions
         tblInfo.retainPartitions(partitionNames == null ? null : partitionNames.getPartitionNames());
+    }
+
+    public void cancel(CancelBackupCommand command) throws DdlException {
+        String dbName = command.getDbName();
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
+        AbstractJob job = getCurrentJob(db.getId());
+        if (job == null || (job instanceof BackupJob && command.isRestore())
+                || (job instanceof RestoreJob && !command.isRestore())) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "No "
+                    + (command.isRestore() ? "restore" : "backup" + " job")
+                    + " is currently running");
+        }
+
+        Status status = job.cancel();
+        if (!status.ok()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Failed to cancel job: " + status.getErrMsg());
+        }
+
+        LOG.info("finished to cancel {} job: {}", (command.isRestore() ? "restore" : "backup"), job);
     }
 
     public void cancel(CancelBackupStmt stmt) throws DdlException {
