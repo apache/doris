@@ -99,6 +99,173 @@ struct AggregateFunctionRegrData {
         return slope;
     }
 };
+template <typename T>
+struct AggregateFunctionRegrSxxData {
+    using Type = T;
+    UInt64 count = 0;
+    Float64 sum_x {};
+    Float64 sum_of_x_squared {};
+
+    void write(BufferWritable& buf) const {
+        write_binary(sum_x, buf);
+        write_binary(sum_of_x_squared, buf);
+        write_binary(count, buf);
+    }
+
+    void read(BufferReadable& buf) {
+        read_binary(sum_x, buf);
+        read_binary(sum_of_x_squared, buf);
+        read_binary(count, buf);
+    }
+
+    void reset() {
+        sum_x = {};
+        sum_of_x_squared = {};
+        count = 0;
+    }
+
+    void merge(const AggregateFunctionRegrSxxData& rhs) {
+        if (rhs.count == 0) {
+            return;
+        }
+        sum_x += rhs.sum_x;
+        sum_of_x_squared += rhs.sum_of_x_squared;
+        count += rhs.count;
+    }
+
+    void add(T value_y, T value_x) {
+        sum_x += value_x;
+        sum_of_x_squared += value_x * value_x;
+        count += 1;
+    }
+
+    Float64 get_regr_sxx_result() const {
+        // count == 0
+        // The result of a query for an empty table is a null value
+        Float64 result = sum_of_x_squared - (sum_x * sum_x / count);
+        return result;
+    }
+};
+template <typename T>
+struct AggregateFunctionRegrSxyData {
+    using Type = T;
+    UInt64 count = 0;
+    Float64 sum_x {};
+    Float64 sum_y {};
+    Float64 sum_of_x_mul_y {};
+
+    void write(BufferWritable& buf) const {
+        write_binary(sum_x, buf);
+        write_binary(sum_y, buf);
+        write_binary(sum_of_x_mul_y, buf);
+        write_binary(count, buf);
+    }
+
+    void read(BufferReadable& buf) {
+        read_binary(sum_x, buf);
+        read_binary(sum_y, buf);
+        read_binary(sum_of_x_mul_y, buf);
+        read_binary(count, buf);
+    }
+
+    void reset() {
+        sum_x = {};
+        sum_y = {};
+        sum_of_x_mul_y = {};
+        count = 0;
+    }
+
+    void merge(const AggregateFunctionRegrSxyData& rhs) {
+        if (rhs.count == 0) {
+            return;
+        }
+        sum_x += rhs.sum_x;
+        sum_y += rhs.sum_y;
+        sum_of_x_mul_y += rhs.sum_of_x_mul_y;
+        count += rhs.count;
+    }
+
+    void add(T value_y, T value_x) {
+        sum_x += value_x;
+        sum_y += value_y;
+        sum_of_x_mul_y += value_x * value_y;
+        count += 1;
+    }
+
+    Float64 get_regr_sxy_result() const {
+        // count == 0
+        // The result of a query for an empty table is a null value
+        Float64 result = sum_of_x_mul_y - (sum_x * sum_y / count);
+        return result;
+    }
+};
+template <typename T>
+struct AggregateFunctionRegrSyyData {
+    using Type = T;
+    UInt64 count = 0;
+    Float64 sum_y {};
+    Float64 sum_of_y_squared {};
+
+    void write(BufferWritable& buf) const {
+        write_binary(sum_y, buf);
+        write_binary(sum_of_y_squared, buf);
+        write_binary(count, buf);
+    }
+
+    void read(BufferReadable& buf) {
+        read_binary(sum_y, buf);
+        read_binary(sum_of_y_squared, buf);
+        read_binary(count, buf);
+    }
+
+    void reset() {
+        sum_y = {};
+        sum_of_y_squared = {};
+        count = 0;
+    }
+
+    void merge(const AggregateFunctionRegrSyyData& rhs) {
+        if (rhs.count == 0) {
+            return;
+        }
+        sum_y += rhs.sum_y;
+        sum_of_y_squared += rhs.sum_of_y_squared;
+        count += rhs.count;
+    }
+
+    void add(T value_y, T value_x) {
+        sum_y += value_y;
+        sum_of_y_squared += value_y * value_y;
+        count += 1;
+    }
+
+    Float64 get_regr_syy_result() const {
+        // count == 0
+        // The result of a query for an empty table is a null value
+        Float64 result = sum_of_y_squared - (sum_y * sum_y / count);
+        return result;
+    }
+};
+template <typename T>
+struct RegrSxxFunc : AggregateFunctionRegrSxxData<T> {
+    static constexpr const char* name = "regr_sxx";
+
+    Float64 get_result() const { return this->get_regr_sxx_result(); }
+};
+
+template <typename T>
+struct RegrSxyFunc : AggregateFunctionRegrSxyData<T> {
+    static constexpr const char* name = "regr_sxy";
+
+    Float64 get_result() const { return this->get_regr_sxy_result(); }
+};
+
+template <typename T>
+struct RegrSyyFunc : AggregateFunctionRegrSyyData<T> {
+    static constexpr const char* name = "regr_syy";
+
+    Float64 get_result() const { return this->get_regr_syy_result(); }
+};
 
 template <typename T>
 struct RegrSlopeFunc : AggregateFunctionRegrData<T> {
