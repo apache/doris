@@ -626,6 +626,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowClustersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowColumnHistogramStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowColumnsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
@@ -6319,6 +6320,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
         List<String> columnNames = visitIdentifierList(ctx.columnList);
         return new ShowColumnHistogramStatsCommand(tableNameInfo, columnNames);
+    }
+
+    @Override
+    public LogicalPlan visitShowColumns(DorisParser.ShowColumnsContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        if (ctx.database != null) {
+            String databaseName = stripQuotes(ctx.database.getText());
+            tableNameInfo.setDb(databaseName);
+        }
+        boolean isVerbose = ctx.FULL() != null;
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                return new ShowColumnsCommand(tableNameInfo, isVerbose,
+                        stripQuotes(ctx.wildWhere().STRING_LITERAL().getText()), null);
+            } else {
+                Expression expr = (Expression) ctx.wildWhere().expression().accept(this);
+                return new ShowColumnsCommand(tableNameInfo, isVerbose, null, expr);
+            }
+        }
+        return new ShowColumnsCommand(tableNameInfo, isVerbose, null, null);
     }
 
     @Override

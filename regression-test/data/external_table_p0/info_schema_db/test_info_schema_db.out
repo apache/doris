@@ -26,10 +26,10 @@ id	int		NO	YES	\N
 name	varchar(20)		NO	YES	\N			
 
 -- !sql13 --
-id	int	\N	NO	DUP	\N			
+id	int	\N	NO	YES	\N
 
 -- !sql14 --
-id	int	NO	DUP	\N	
+id	int	NO	YES	\N
 
 -- !sql15 --
 id	int	NO	YES	\N	
