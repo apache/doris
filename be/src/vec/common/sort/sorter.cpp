@@ -21,13 +21,10 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <functional>
 #include <ostream>
-#include <string>
 #include <utility>
 
 #include "common/object_pool.h"
-#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
@@ -87,15 +84,14 @@ Status MergeSorterState::build_merge_tree(const SortDescription& sort_descriptio
     return Status::OK();
 }
 
-Status MergeSorterState::merge_sort_read(doris::vectorized::Block* block, int batch_size,
-                                         bool* eos) {
+Status MergeSorterState::merge_sort_read(vectorized::Block* block, int batch_size, bool* eos) {
     DCHECK(_sorted_blocks.empty());
     DCHECK(unsorted_block()->empty());
     RETURN_IF_ERROR(_merge_sort_read_impl(batch_size, block, eos));
     return Status::OK();
 }
 
-Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized::Block* block,
+Status MergeSorterState::_merge_sort_read_impl(int batch_size, vectorized::Block* block,
                                                bool* eos) {
     size_t num_columns = unsorted_block()->columns();
 
@@ -147,7 +143,7 @@ Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized
     return Status::OK();
 }
 
-Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
+Status Sorter::merge_sort_read_for_spill(RuntimeState* state, vectorized::Block* block,
                                          int batch_size, bool* eos) {
     return get_next(state, block, eos);
 }
@@ -207,9 +203,9 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
 FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
-                       RuntimeState* state, RuntimeProfile* profile)
+                       RuntimeState* state)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)) {}
+          _state(MergeSorterState::create_unique(row_desc, offset, limit, state)) {}
 
 // check whether the unsorted block can hold more data from input block and no need to alloc new memory
 bool FullSorter::has_enough_capacity(Block* input_block, Block* unsorted_block) const {
@@ -294,10 +290,11 @@ Status FullSorter::prepare_for_read() {
 }
 
 Status FullSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
+    SCOPED_TIMER(_merge_sort_read_timer);
     return _state->merge_sort_read(block, state->batch_size(), eos);
 }
 
-Status FullSorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
+Status FullSorter::merge_sort_read_for_spill(RuntimeState* state, vectorized::Block* block,
                                              int batch_size, bool* eos) {
     return _state->merge_sort_read(block, batch_size, eos);
 }

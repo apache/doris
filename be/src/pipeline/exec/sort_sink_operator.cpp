@@ -35,13 +35,7 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
             ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageSortBlocks", TUnit::BYTES, 1);
     _append_blocks_timer = ADD_TIMER(profile(), "AppendBlockTime");
     _update_runtime_predicate_timer = ADD_TIMER(profile(), "UpdateRuntimePredicateTime");
-    return Status::OK();
-}
 
-Status SortSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<SortSinkOperatorX>();
 
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
@@ -55,13 +49,13 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     case TSortAlgorithm::TOPN_SORT: {
         _shared_state->sorter = vectorized::TopNSorter::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child->row_desc(), state, _profile);
+                p._child->row_desc(), state);
         break;
     }
     case TSortAlgorithm::FULL_SORT: {
         _shared_state->sorter = vectorized::FullSorter::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child->row_desc(), state, _profile);
+                p._child->row_desc(), state);
         break;
     }
     default: {
@@ -69,9 +63,18 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     }
     }
 
-    _shared_state->sorter->init_profile(_profile);
+    return Status::OK();
+}
 
-    _profile->add_info_string("TOP-N", p._limit == -1 ? "false" : "true");
+Status SortSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
+    auto& p = _parent->cast<SortSinkOperatorX>();
+
+    _shared_state->sorter->init_sink_profile(_profile);
+
+    _profile->add_info_string("LIMIT", std::to_string(p._limit));
     _profile->add_info_string(
             "SortAlgorithm",
             p._algorithm == TSortAlgorithm::HEAP_SORT

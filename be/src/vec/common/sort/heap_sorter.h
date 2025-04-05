@@ -83,7 +83,7 @@ public:
 
     ~HeapSorter() override = default;
 
-    void init_profile(RuntimeProfile* runtime_profile) override {
+    void init_sink_profile(RuntimeProfile* runtime_profile) override {
         _topn_filter_timer = ADD_TIMER(runtime_profile, "TopNFilterTime");
         _topn_filter_rows_counter = ADD_COUNTER(runtime_profile, "TopNFilterRows", TUnit::UNIT);
         _materialize_timer = ADD_TIMER(runtime_profile, "MaterializeTime");
@@ -98,8 +98,6 @@ public:
     size_t data_size() const override;
 
     Field get_top_value() override;
-
-    static constexpr size_t HEAP_SORT_THRESHOLD = 1024;
 
 private:
     void _do_filter(HeapSortCursorBlockView& block_view, size_t num_rows);
