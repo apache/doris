@@ -463,6 +463,8 @@ private:
     void run_background_monitor();
     void run_background_ttl_gc();
     void run_background_gc();
+    void run_background_lru_dump();
+    void restore_lru_queues_from_disk();
     void run_background_evict_in_advance();
 
     bool try_reserve_from_other_queue_by_time_interval(FileCacheType cur_type,
@@ -504,6 +506,7 @@ private:
     std::thread _cache_background_ttl_gc_thread;
     std::thread _cache_background_gc_thread;
     std::thread _cache_background_evict_in_advance_thread;
+    std::thread _cache_background_lru_dump_thread;
     std::atomic_bool _async_open_done {false};
     // disk space or inode is less than the specified value
     bool _disk_resource_limit_mode {false};
