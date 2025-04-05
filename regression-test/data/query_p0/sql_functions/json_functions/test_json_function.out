@@ -155,3 +155,8 @@ true
 -- !sql --
 \N
 
+-- !sql --
+\N	\N
+false	\N
+true	\N
+

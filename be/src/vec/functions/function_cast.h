@@ -444,7 +444,7 @@ struct ConvertImpl {
                     // 300 -> 00:03:00  360 will be parse failed , so value maybe null
                     ColumnUInt8::MutablePtr col_null_map_to;
                     ColumnUInt8::Container* vec_null_map_to = nullptr;
-                    col_null_map_to = ColumnUInt8::create(size);
+                    col_null_map_to = ColumnUInt8::create(size, 0);
                     vec_null_map_to = &col_null_map_to->get_data();
                     for (size_t i = 0; i < size; ++i) {
                         (*vec_null_map_to)[i] = !TimeCast::try_parse_time(
@@ -525,7 +525,7 @@ struct ConvertImplToTimeType {
 
             // create null column
             ColumnUInt8::MutablePtr col_null_map_to;
-            col_null_map_to = ColumnUInt8::create(size);
+            col_null_map_to = ColumnUInt8::create(size, 0);
             auto& vec_null_map_to = col_null_map_to->get_data();
 
             if constexpr (std::is_same_v<FromDataType, DataTypeTimeV2>) {
@@ -620,7 +620,7 @@ struct ConvertImplGenericFromString {
             size_t size = col_from.size();
             col_to->reserve(size);
 
-            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
+            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 0);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
             const bool is_complex = is_complex_type(data_type_to);
             DataTypeSerDe::FormatOptions format_options;
@@ -744,7 +744,7 @@ struct ConvertImplGenericFromJsonb {
             size_t size = col_from.size();
             col_to->reserve(size);
 
-            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
+            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 0);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
             const bool is_complex = is_complex_type(data_type_to);
             const bool is_dst_string = is_string_or_fixed_string(data_type_to);
@@ -824,7 +824,7 @@ struct ConvertImplGenericToJsonb {
         auto column_string = ColumnString::create();
         JsonbWriter writer;
 
-        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(col_from.size());
+        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(col_from.size(), 0);
         ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
         DataTypeSerDe::FormatOptions format_options;
         format_options.converted_from_string = true;
@@ -1412,7 +1412,7 @@ struct StringParsing {
 
         ColumnUInt8::MutablePtr col_null_map_to;
         ColumnUInt8::Container* vec_null_map_to [[maybe_unused]] = nullptr;
-        col_null_map_to = ColumnUInt8::create(row);
+        col_null_map_to = ColumnUInt8::create(row, 0);
         vec_null_map_to = &col_null_map_to->get_data();
 
         const ColumnString::Chars* chars = &col_from_string->get_chars();
