@@ -43,8 +43,8 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
     _get_data_timer = ADD_TIMER(_runtime_profile, "GetDataTime");
     _materialize_data_timer = ADD_TIMER(_runtime_profile, "MaterializeDataTime");
-    RETURN_IF_ERROR(_helper.init(state, profile(), false, _filter_dependencies, p.operator_id(),
-                                 p.node_id(), p.get_name() + "_FILTER_DEPENDENCY"));
+    RETURN_IF_ERROR(_helper.init(state, false, _filter_dependencies, p.operator_id(), p.node_id(),
+                                 p.get_name() + "_FILTER_DEPENDENCY"));
     return Status::OK();
 }
 
@@ -81,7 +81,7 @@ Status MultiCastDataStreamSourceLocalState::close(RuntimeState* state) {
         rf_time += dep->watcher_elapse_time();
     }
     COUNTER_SET(_wait_for_rf_timer, rf_time);
-
+    _helper.collect_realtime_profile(profile());
     return Base::close(state);
 }
 
