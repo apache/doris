@@ -27,8 +27,6 @@ import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -45,38 +43,20 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.analyzer.Scope;
-import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.jobs.executor.Rewriter;
-import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.analysis.BindRelation;
-import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnDesc;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadDeleteOnClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadPartitionNames;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadPrecedingFilterClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 
@@ -302,41 +282,10 @@ public class CreateRoutineLoadInfo {
         ImportSequenceStmt importSequenceStmt = null;
         PartitionNames partitionNames = null;
         ImportDeleteOnStmt importDeleteOnStmt = null;
-        CascadesContext cascadesContext = null;
-        ExpressionAnalyzer analyzer = null;
-        PlanTranslatorContext context = null;
-        if (!isMultiTable) {
-            List<String> nameParts = Lists.newArrayList();
-            nameParts.add(dbName);
-            nameParts.add(tableName);
-            Plan unboundRelation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), nameParts);
-            cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), unboundRelation,
-                PhysicalProperties.ANY);
-            Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                ImmutableList.of(Rewriter.bottomUp(new BindRelation()))).execute();
-            Plan boundRelation = cascadesContext.getRewritePlan();
-            // table could have delete sign in LogicalFilter above
-            if (cascadesContext.getRewritePlan() instanceof LogicalFilter) {
-                boundRelation = (Plan) ((LogicalFilter) cascadesContext.getRewritePlan()).child();
-            }
-            context = new PlanTranslatorContext(cascadesContext);
-            List<Slot> slots = boundRelation.getOutput();
-            Scope scope = new Scope(slots);
-            analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
-
-            Map<SlotReference, SlotRef> translateMap = Maps.newHashMap();
-
-            TupleDescriptor tupleDescriptor = context.generateTupleDesc();
-            tupleDescriptor.setTable(((OlapScan) boundRelation).getTable());
-            for (int i = 0; i < boundRelation.getOutput().size(); i++) {
-                SlotReference slotReference = (SlotReference) boundRelation.getOutput().get(i);
-                SlotRef slotRef = new SlotRef(null, slotReference.getName());
-                translateMap.put(slotReference, slotRef);
-                context.createSlotDesc(tupleDescriptor, slotReference, ((OlapScan) boundRelation).getTable());
-            }
-        }
 
         if (loadPropertyMap != null) {
+            Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+            Table table = Strings.isNullOrEmpty(tableName) ? null : db.getTableOrAnalysisException(tableName);
             for (LoadProperty loadProperty : loadPropertyMap.values()) {
                 loadProperty.validate();
                 if (loadProperty instanceof LoadSeparator) {
@@ -350,8 +299,7 @@ public class CreateRoutineLoadInfo {
                     List<ImportColumnDesc> importColumnDescList = new ArrayList<>();
                     for (LoadColumnDesc columnDesc : ((LoadColumnClause) loadProperty).getColumns()) {
                         if (columnDesc.getExpression() != null) {
-                            Expr expr = translateToLegacyExpr(columnDesc.getExpression(), analyzer,
-                                    context, cascadesContext);
+                            Expr expr = PlanUtils.translateToLegacyExpr(columnDesc.getExpression(), table, ctx);
                             importColumnDescList.add(new ImportColumnDesc(columnDesc.getColumnName(), expr));
                         } else {
                             importColumnDescList.add(new ImportColumnDesc(columnDesc.getColumnName(), null));
@@ -362,20 +310,23 @@ public class CreateRoutineLoadInfo {
                     if (isMultiTable) {
                         throw new AnalysisException("Multi-table load does not support setting columns info");
                     }
-                    Expr expr = translateToLegacyExpr(((LoadWhereClause) loadProperty).getExpression(),
-                            analyzer, context, cascadesContext);
-                    if (((LoadWhereClause) loadProperty).isPreceding()) {
-                        precedingImportWhereStmt = new ImportWhereStmt(expr,
-                                ((LoadWhereClause) loadProperty).isPreceding());
-                    } else {
-                        importWhereStmt = new ImportWhereStmt(expr, ((LoadWhereClause) loadProperty).isPreceding());
+                    Expr expr = PlanUtils.translateToLegacyExpr(((LoadWhereClause) loadProperty).getExpression(),
+                            table, ctx);
+                    importWhereStmt = new ImportWhereStmt(expr, false);
+                } else if (loadProperty instanceof LoadPrecedingFilterClause) {
+                    if (isMultiTable) {
+                        throw new AnalysisException("Multi-table load does not support setting columns info");
                     }
+                    Expr expr = PlanUtils
+                            .translateToLegacyExpr(((LoadPrecedingFilterClause) loadProperty).getExpression(), null,
+                                    ctx);
+                    precedingImportWhereStmt = new ImportWhereStmt(expr, true);
                 } else if (loadProperty instanceof LoadPartitionNames) {
                     partitionNames = new PartitionNames(((LoadPartitionNames) loadProperty).isTemp(),
                             ((LoadPartitionNames) loadProperty).getPartitionNames());
                 } else if (loadProperty instanceof LoadDeleteOnClause) {
-                    Expr expr = translateToLegacyExpr(((LoadDeleteOnClause) loadProperty).getExpression(),
-                            analyzer, context, cascadesContext);
+                    Expr expr = PlanUtils.translateToLegacyExpr(((LoadDeleteOnClause) loadProperty).getExpression(),
+                            table, ctx);
                     importDeleteOnStmt = new ImportDeleteOnStmt(expr);
                 } else if (loadProperty instanceof LoadSequenceClause) {
                     importSequenceStmt = new ImportSequenceStmt(
@@ -387,19 +338,6 @@ public class CreateRoutineLoadInfo {
             precedingImportWhereStmt, importWhereStmt,
             partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
             importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
-    }
-
-    private Expr translateToLegacyExpr(Expression expr, ExpressionAnalyzer analyzer, PlanTranslatorContext context,
-                                       CascadesContext cascadesContext) {
-        Expression expression;
-        try {
-            expression = analyzer.analyze(expr, new ExpressionRewriteContext(cascadesContext));
-        } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException("In where clause '"
-                + expr.toSql() + "', "
-                + Utils.convertFirstChar(e.getMessage()));
-        }
-        return ExpressionTranslator.translate(expression, context);
     }
 
     private void checkJobProperties() throws UserException {
