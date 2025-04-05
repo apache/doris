@@ -1434,5 +1434,22 @@ suite("nereids_scalar_fn_Array") {
     qt_sql """select array_flatten([[[1,2,3,4,5]]]);;"""
     qt_sql """select array_flatten([ [[1,2,3,4,5]],[[6,7],[8,9]] ]);"""
     qt_sql """select array_flatten([[[[[[1,2,3,4,5],[6,7],[8,9],[10,11],[12]]]]]]);"""
+    
+    // array_reduce
+ 	// for table
+ 	qt_sql_array_reduce_1 "select kaint, array_reduce((s,x)->s+x, kaint, 0) from fn_test_array_reduce order by id"
+ 	qt_sql_array_reduce_2 "select kaint, array_reduce((s,x)->s-x, kaint, 0) from fn_test_array_reduce order by id"
+ 	qt_sql_array_reduce_3 "select kaint, array_reduce((s,x)->s!=null, kaint, 0) from fn_test_array_reduce order by id"
+ 	qt_sql_array_reduce_4 "select kaint, array_reduce((s,x)->IF (x is NULL, s+1, s), kaint, 0) from fn_test_array_reduce order by id"
+ 	qt_sql_array_reduce_5 "select kaint, array_reduce((s,x)->IF (x is not NULL, s+1, s), kaint, 0) from fn_test_array_reduce order by id"
+ 	qt_sql_array_reduce_6 "select kaint, array_reduce((s,x)->s*x, kaint, 1) from fn_test_array_reduce order by id"
 
+ 	// for literal
+ 	qt_sql_array_reduce_7 "select array_reduce((s,x)->s+x, array(1, 2, 3), 0)"
+    qt_sql_array_reduce_8 "select array_reduce((s,x)->s+x, array(1, 2, 3, null), 0)"
+ 	qt_sql_array_reduce_9 "select array_reduce((s,x)->s-x, array(1, 2, 3), 0)"
+ 	qt_sql_array_reduce_10 "select array_reduce((s,x)->s+x, array(), 0)"
+ 	qt_sql_array_reduce_11 "select array_reduce((s,x)->IF (x is NULL, s+1, s), array(null, null, 1), 0)"
+ 	qt_sql_array_reduce_12 "select array_reduce((s,x)->IF (x is not NULL, s+1, s), array(1, 2, 3), 0)"
+ 	qt_sql_array_reduce_13 "select array_reduce((s,x)->s*x, array(1, 2, 3), 1)"
 }

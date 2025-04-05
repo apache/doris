@@ -880,4 +880,25 @@ suite("load") {
         }
     }
 
+    // array_match_any && array_match_all
+ 	sql """ drop table if exists fn_test_array_reduce """
+ 	sql """ CREATE TABLE IF NOT EXISTS fn_test_array_reduce (id int, kastr array<string>, kaint array<int>) engine=olap
+                                                                                          DISTRIBUTED BY HASH(`id`) BUCKETS 4
+                                                                                          properties("replication_num" = "1") """
+     streamLoad {
+         table "fn_test_array_reduce"
+         db "regression_test_nereids_function_p0"
+         file "fn_test_array_reduce.csv"
+         time 60000
+
+         check { result, exception, startTime, endTime ->
+             if (exception != null) {
+                 throw exception
+             }
+             log.info("Stream load result: ${result}".toString())
+             def json = parseJson(result)
+             assertEquals(100, json.NumberTotalRows)
+             assertEquals(100, json.NumberLoadedRows)
+         }
+     }
 }
