@@ -296,6 +296,11 @@ public class FunctionRegistry {
             Map<String, List<FunctionBuilder>> builders = name2UdfBuilders.getOrDefault(dbName, ImmutableMap.of());
             builders.getOrDefault(name, Lists.newArrayList())
                     .removeIf(builder -> ((UdfBuilder) builder).getArgTypes().equals(argTypes));
+
+            // the name will be used when show functions, so remove the name when it's dropped
+            if (builders.getOrDefault(name, Lists.newArrayList()).isEmpty()) {
+                builders.remove(name);
+            }
         }
     }
 
