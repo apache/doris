@@ -16,20 +16,16 @@
 // under the License.
 
 #include <gtest/gtest.h>
-#include <stdint.h>
 
-#include <iomanip>
 #include <string>
-#include <vector>
 
-#include "common/status.h"
 #include "function_test_util.h"
-#include "runtime/runtime_state.h"
 #include "testutil/any_type.h"
 #include "util/timezone_utils.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time.h"
@@ -1158,7 +1154,7 @@ TEST(VTimestampFunctionsTest, months_add_v2_test) {
         static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::Int32};
+        InputTypeSet input_types = {{TypeIndex::DateTimeV2, 3}, TypeIndex::Int32};
 
         DataSet data_set = {{{std::string("2020-10-23 00:00:11.123"), -4},
                              str_to_datetime_v2("2020-06-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
@@ -1170,7 +1166,7 @@ TEST(VTimestampFunctionsTest, months_add_v2_test) {
                             {{Null(), 4}, Null()}};
 
         static_cast<void>(
-                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+                check_function<DataTypeDateTimeV2, true, 3>(func_name, input_types, data_set));
     }
 }
 
