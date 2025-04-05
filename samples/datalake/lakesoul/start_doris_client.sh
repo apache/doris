@@ -17,4 +17,4 @@
 # specific language governing permissions and limitations
 # under the License.
 
-sudo docker exec -it doris-lakesoul-doris sh -c "mysql -u root -h doris -P 9030"
+sudo docker exec -it doris-lakesoul-doris sh -c "mysql -u root -h doris -P 9030 -A --prompt=\"Doris> \""

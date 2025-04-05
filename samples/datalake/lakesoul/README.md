@@ -33,7 +33,7 @@ bash start_doris_client.sh
 After entering the doris client, the lakesoul catalog has been created here, so the data of the lakesoul table can be directly queried.
 
 ```sql
-mysql> show catalogs;
+Doris> show catalogs;
 +-----------+-------------+----------+-----------+-------------------------------+----------------+------------------------+
 | CatalogId | CatalogName | Type     | IsCurrent | CreateTime                    | LastUpdateTime | Comment                |
 +-----------+-------------+----------+-----------+-------------------------------+----------------+------------------------+
@@ -42,13 +42,13 @@ mysql> show catalogs;
 +-----------+-------------+----------+-----------+-------------------------------+----------------+------------------------+
 2 rows in set (0.04 sec)
 
-mysql> use lakesoul.tpch;
+Doris> use lakesoul.tpch;
 Reading table information for completion of table and column names
 You can turn off this feature to get a quicker startup with -A
 
 Database changed
 
-mysql> show tables;
+Doris> show tables;
 +---------------------+
 | Tables_in_tpch      |
 +---------------------+
@@ -56,7 +56,7 @@ mysql> show tables;
 +---------------------+
 1 row in set (0.00 sec)
 
-mysql> select * from customer_from_spark where c_nationkey = 1 order by c_custkey limit 4;
+Doris> select * from customer_from_spark where c_nationkey = 1 order by c_custkey limit 4;
 +-----------+--------------------+-----------------------------------------+-------------+-----------------+-----------+--------------+--------------------------------------------------------------------------------------------------------+
 | c_custkey | c_name             | c_address                               | c_nationkey | c_phone         | c_acctbal | c_mktsegment | c_comment                                                                                              |
 +-----------+--------------------+-----------------------------------------+-------------+-----------------+-----------+--------------+--------------------------------------------------------------------------------------------------------+
@@ -67,7 +67,7 @@ mysql> select * from customer_from_spark where c_nationkey = 1 order by c_custke
 +-----------+--------------------+-----------------------------------------+-------------+-----------------+-----------+--------------+--------------------------------------------------------------------------------------------------------+
 4 rows in set (3.14 sec)
 
-mysql> select * from customer_from_spark where c_nationkey = 1 order by c_custkey desc limit 4;
+Doris> select * from customer_from_spark where c_nationkey = 1 order by c_custkey desc limit 4;
 +-----------+--------------------+-----------------------------------------+-------------+-----------------+-----------+--------------+-------------------------------------------------------------------------------------------------+
 | c_custkey | c_name             | c_address                               | c_nationkey | c_phone         | c_acctbal | c_mktsegment | c_comment                                                                                       |
 +-----------+--------------------+-----------------------------------------+-------------+-----------------+-----------+--------------+-------------------------------------------------------------------------------------------------+
@@ -82,7 +82,7 @@ mysql> select * from customer_from_spark where c_nationkey = 1 order by c_custke
 Doris can perform partition pruning on LakeSoul and speed up the query process through native reading. We can check this through `explain verbose`.
 
 ```sql
-mysql> explain verbose select * from customer_from_spark where c_nationkey < 3;
+Doris> explain verbose select * from customer_from_spark where c_nationkey < 3;
 +----------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 | Explain String(Old Planner)                                                                                                                                          |
 +----------------------------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -172,7 +172,7 @@ Job has been submitted with JobID d1b3641dcd1ad85c6b373d49b1867e68
 Flink CDC Job will be launched. We can check the process of launching at `doris client` by recreate the lakesoul catalog. After the Flink CDC Job has been launched, we can see the syncing LakeSoul CDC table at `doris client`.
 
 ```sql
-mysql> show tables;
+Doris> show tables;
 +---------------------+
 | Tables_in_tpch      |
 +---------------------+
@@ -181,13 +181,13 @@ mysql> show tables;
 2 rows in set (0.00 sec)
 
 
-mysql> drop catalog if exists lakesoul;
+Doris> drop catalog if exists lakesoul;
 Query OK, 0 rows affected (0.00 sec)
 
-mysql> create catalog `lakesoul`  properties ('type'='lakesoul', 'lakesoul.pg.username'='lakesoul_test', 'lakesoul.pg.password'='lakesoul_test', 'lakesoul.pg.url'='jdbc:postgresql://lakesoul-meta-pg:5432/lakesoul_test?stringtype=unspecified', 'minio.endpoint'='http://minio:9000', 'minio.access_key'='admin', 'minio.secret_key'='password');
+Doris> create catalog `lakesoul`  properties ('type'='lakesoul', 'lakesoul.pg.username'='lakesoul_test', 'lakesoul.pg.password'='lakesoul_test', 'lakesoul.pg.url'='jdbc:postgresql://lakesoul-meta-pg:5432/lakesoul_test?stringtype=unspecified', 'minio.endpoint'='http://minio:9000', 'minio.access_key'='admin', 'minio.secret_key'='password');
 Query OK, 0 rows affected (0.01 sec)
 
-mysql> show tables;
+Doris> show tables;
 +---------------------+
 | Tables_in_tpch      |
 +---------------------+
@@ -196,7 +196,7 @@ mysql> show tables;
 +---------------------+
 2 rows in set (0.00 sec)
 
-mysql> select c_custkey, c_name, c_address, c_nationkey , c_phone, c_acctbal , c_mktsegment , c_comment from lakesoul.tpch.customer where c_custkey < 10;
+Doris> select c_custkey, c_name, c_address, c_nationkey , c_phone, c_acctbal , c_mktsegment , c_comment from lakesoul.tpch.customer where c_custkey < 10;
 +-----------+--------------------+---------------------------------------+-------------+-----------------+-----------+--------------+-------------------------------------------------------------------------------------------------------------------+
 | c_custkey | c_name             | c_address                             | c_nationkey | c_phone         | c_acctbal | c_mktsegment | c_comment                                                                                                         |
 +-----------+--------------------+---------------------------------------+-------------+-----------------+-----------+--------------+-------------------------------------------------------------------------------------------------------------------+
@@ -231,7 +231,7 @@ Rows matched: 1  Changed: 1  Warnings: 0
 Back to `doris client` and check the data changing.
 
 ```sql
-mysql> select c_custkey, c_name, c_address, c_nationkey , c_phone, c_acctbal , c_mktsegment , c_comment from lakesoul.tpch.customer where c_custkey < 10;
+Doris> select c_custkey, c_name, c_address, c_nationkey , c_phone, c_acctbal , c_mktsegment , c_comment from lakesoul.tpch.customer where c_custkey < 10;
 +-----------+--------------------+---------------------------------------+-------------+-----------------+-----------+--------------+-------------------------------------------------------------------------------------------------------------------+
 | c_custkey | c_name             | c_address                             | c_nationkey | c_phone         | c_acctbal | c_mktsegment | c_comment                                                                                                         |
 +-----------+--------------------+---------------------------------------+-------------+-----------------+-----------+--------------+-------------------------------------------------------------------------------------------------------------------+
@@ -259,7 +259,7 @@ Query OK, 1 row affected (0.01 sec)
 Back to `doris client` and check the data changing.
 
 ```sql
-mysql> select c_custkey, c_name, c_address, c_nationkey , c_phone, c_acctbal , c_mktsegment , c_comment from lakesoul.tpch.customer where c_custkey < 10;
+Doris> select c_custkey, c_name, c_address, c_nationkey , c_phone, c_acctbal , c_mktsegment , c_comment from lakesoul.tpch.customer where c_custkey < 10;
 +-----------+--------------------+---------------------------------------+-------------+-----------------+-----------+--------------+-------------------------------------------------------------------------------------------------------------------+
 | c_custkey | c_name             | c_address                             | c_nationkey | c_phone         | c_acctbal | c_mktsegment | c_comment                                                                                                         |
 +-----------+--------------------+---------------------------------------+-------------+-----------------+-----------+--------------+-------------------------------------------------------------------------------------------------------------------+
