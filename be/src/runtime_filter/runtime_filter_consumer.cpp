@@ -17,11 +17,11 @@
 
 #include "runtime_filter/runtime_filter_consumer.h"
 
-#include "exprs/create_predicate_function.h"
+#include "exprs/minmax_predicate.h"
+#include "util/runtime_profile.h"
 #include "vec/exprs/vbitmap_predicate.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -38,23 +38,9 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
 
     auto origin_size = push_exprs.size();
     RETURN_IF_ERROR(_get_push_exprs(push_exprs, _probe_expr));
-    // The runtime filter is pushed down, adding filtering information.
-    auto* expr_filtered_rows_counter = _execution_profile->add_collaboration_counter(
-            "ExprFilteredRows", TUnit::UNIT, _rf_filter);
-    auto* expr_input_rows_counter =
-            _execution_profile->add_collaboration_counter("ExprInputRows", TUnit::UNIT, _rf_input);
-    auto* expr_always_true_counter =
-            ADD_COUNTER(_execution_profile, "AlwaysTruePassRows", TUnit::UNIT);
-
-    auto* predicate_filtered_rows_counter = _storage_profile->add_collaboration_counter(
-            "PredicateFilteredRows", TUnit::UNIT, _rf_filter);
-    auto* predicate_input_rows_counter = _storage_profile->add_collaboration_counter(
-            "PredicateInputRows", TUnit::UNIT, _rf_input);
 
     for (auto i = origin_size; i < push_exprs.size(); i++) {
-        push_exprs[i]->attach_profile_counter(
-                expr_filtered_rows_counter, expr_input_rows_counter, expr_always_true_counter,
-                predicate_filtered_rows_counter, predicate_input_rows_counter);
+        push_exprs[i]->attach_profile_counter(_rf_input, _rf_filter, _always_true_counter);
     }
     return Status::OK();
 }
@@ -223,6 +209,29 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         break;
     }
     return Status::OK();
+}
+
+void RuntimeFilterConsumer::collect_realtime_profile(RuntimeProfile* parent_operator_profile) {
+    DCHECK(parent_operator_profile != nullptr);
+
+    // Counter* is owned by RuntimeProfile, so no need to free.
+    RuntimeProfile::Counter* c = parent_operator_profile->add_counter(
+            fmt::format("RF{} InputRows", _filter_id), TUnit::UNIT, "RuntimeFilterInfo", 1);
+    c->update(_rf_input->value());
+
+    c = parent_operator_profile->add_counter(fmt::format("RF{} FilterRows", _filter_id),
+                                             TUnit::UNIT, "RuntimeFilterInfo", 1);
+    c->update(_rf_filter->value());
+    c = parent_operator_profile->add_counter(fmt::format("RF{} WaitTime", _filter_id),
+                                             TUnit::TIME_NS, "RuntimeFilterInfo", 2);
+    c->update(_wait_timer->value());
+
+    c = parent_operator_profile->add_counter(fmt::format("RF{} AlwaysTrueFilterRows", _filter_id),
+                                             TUnit::UNIT, "RuntimeFilterInfo", 1);
+    c->update(_always_true_counter->value());
+
+    parent_operator_profile->add_description(fmt::format("RF{} Info", _filter_id), debug_string(),
+                                             "RuntimeFilterInfo");
 }
 
 } // namespace doris

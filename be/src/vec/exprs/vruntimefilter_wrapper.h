@@ -17,8 +17,11 @@
 
 #pragma once
 
+#include <gen_cpp/Metrics_types.h>
+
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include "common/config.h"
@@ -61,21 +64,17 @@ public:
 
     VExprSPtr get_impl() const override { return _impl; }
 
-    void attach_profile_counter(RuntimeProfile::Counter* expr_filtered_rows_counter,
-                                RuntimeProfile::Counter* expr_input_rows_counter,
-                                RuntimeProfile::Counter* always_true_counter,
-                                RuntimeProfile::Counter* predicate_filtered_rows_counter,
-                                RuntimeProfile::Counter* predicate_input_rows_counter) {
-        _expr_filtered_rows_counter = expr_filtered_rows_counter;
-        _expr_input_rows_counter = expr_input_rows_counter;
-        _always_true_counter = always_true_counter;
-        _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
-        _predicate_input_rows_counter = predicate_input_rows_counter;
+    void attach_profile_counter(std::shared_ptr<RuntimeProfile::Counter> rf_input_rows,
+                                std::shared_ptr<RuntimeProfile::Counter> rf_filter_rows,
+                                std::shared_ptr<RuntimeProfile::Counter> always_true_filter_rows) {
+        _rf_input_rows = rf_input_rows;
+        _rf_filter_rows = rf_filter_rows;
+        _always_true_filter_rows = always_true_filter_rows;
     }
 
     void update_counters(int64_t filter_rows, int64_t input_rows) {
-        COUNTER_UPDATE(_expr_filtered_rows_counter, filter_rows);
-        COUNTER_UPDATE(_expr_input_rows_counter, input_rows);
+        COUNTER_UPDATE(_rf_filter_rows, filter_rows);
+        COUNTER_UPDATE(_rf_input_rows, input_rows);
     }
 
     template <typename T>
@@ -100,8 +99,12 @@ public:
         }
     }
 
-    auto* predicate_filtered_rows_counter() const { return _predicate_filtered_rows_counter; }
-    auto* predicate_input_rows_counter() const { return _predicate_input_rows_counter; }
+    std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter() const {
+        return _rf_filter_rows;
+    }
+    std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter() const {
+        return _rf_input_rows;
+    }
 
 private:
     void reset_judge_selectivity() {
@@ -125,15 +128,12 @@ private:
     std::atomic_uint64_t _judge_filter_rows = 0;
     std::atomic_int _always_true = false;
 
-    RuntimeProfile::Counter* _expr_filtered_rows_counter = nullptr;
-    RuntimeProfile::Counter* _expr_input_rows_counter = nullptr;
-    RuntimeProfile::Counter* _always_true_counter = nullptr;
-
-    // Used to record filtering information on predicates.
-    // The transfer relationship of these counters is:
-    // RuntimeFilterConsumer(create) ==> VRuntimeFilterWrapper(pass) ==> FilterOlapParam(pass) ==> ColumnPredicate(record)
-    RuntimeProfile::Counter* _predicate_filtered_rows_counter = nullptr;
-    RuntimeProfile::Counter* _predicate_input_rows_counter = nullptr;
+    std::shared_ptr<RuntimeProfile::Counter> _rf_input_rows =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+    std::shared_ptr<RuntimeProfile::Counter> _rf_filter_rows =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+    std::shared_ptr<RuntimeProfile::Counter> _always_true_filter_rows =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
 
     std::string _expr_name;
     double _ignore_thredhold;

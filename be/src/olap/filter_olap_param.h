@@ -24,18 +24,22 @@ namespace doris {
 template <typename T>
 struct FilterOlapParam {
     FilterOlapParam(std::string column_name, T filter, int runtime_filter_id,
-                    RuntimeProfile::Counter* filtered_counter,
-                    RuntimeProfile::Counter* input_counter)
+                    std::shared_ptr<RuntimeProfile::Counter> filtered_counter,
+                    std::shared_ptr<RuntimeProfile::Counter> input_counter)
             : column_name(std::move(column_name)),
               filter(std::move(filter)),
               runtime_filter_id(runtime_filter_id),
               filtered_rows_counter(filtered_counter),
-              input_rows_counter(input_counter) {}
+              input_rows_counter(input_counter) {
+        DCHECK(filtered_rows_counter != nullptr);
+        DCHECK(input_rows_counter != nullptr);
+    }
+
     std::string column_name;
     T filter;
     int runtime_filter_id;
-    RuntimeProfile::Counter* filtered_rows_counter = nullptr;
-    RuntimeProfile::Counter* input_rows_counter = nullptr;
+    std::shared_ptr<RuntimeProfile::Counter> filtered_rows_counter = nullptr;
+    std::shared_ptr<RuntimeProfile::Counter> input_rows_counter = nullptr;
 };
 
 } // namespace doris
