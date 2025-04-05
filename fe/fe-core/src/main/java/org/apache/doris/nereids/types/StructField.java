@@ -19,7 +19,6 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.nereids.util.Utils;
 
-import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -37,9 +36,12 @@ public class StructField {
      *  @param name The name of this field
      *  @param dataType The data type of this field
      *  @param nullable Indicates if values of this field can be `null` values
+     *     Note: The struct field name should remain the same as it was defined when it was created,
+     *     which stored in FE Meta, When we query by field name, it should be case-insensitive.
+     *     So field name "A" and "a" cannot exist in a struct at the same time
      */
     public StructField(String name, DataType dataType, boolean nullable, String comment) {
-        this.name = Objects.requireNonNull(name, "name should not be null").toLowerCase(Locale.ROOT);
+        this.name = Objects.requireNonNull(name, "name should not be null");
         this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
         this.nullable = nullable;
         this.comment = Objects.requireNonNull(comment, "comment should not be null");
@@ -96,7 +98,7 @@ public class StructField {
             return false;
         }
         StructField that = (StructField) o;
-        return nullable == that.nullable && Objects.equals(name, that.name) && Objects.equals(dataType,
+        return nullable == that.nullable && name.equalsIgnoreCase(that.name) && Objects.equals(dataType,
                 that.dataType);
     }
 
