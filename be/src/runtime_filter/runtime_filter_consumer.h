@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/Metrics_types.h>
+
 #include <string>
 
 #include "pipeline/dependency.h"
@@ -40,9 +42,10 @@ public:
 
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                          int node_id, std::shared_ptr<RuntimeFilterConsumer>* res,
-                         RuntimeProfile* parent_profile) {
-        *res = std::shared_ptr<RuntimeFilterConsumer>(
-                new RuntimeFilterConsumer(state, desc, node_id, parent_profile));
+                         RuntimeProfile* consumer_helper_profile,
+                         RuntimeProfile* parent_operator_profile) {
+        *res = std::shared_ptr<RuntimeFilterConsumer>(new RuntimeFilterConsumer(
+                state, desc, node_id, consumer_helper_profile, parent_operator_profile));
         RETURN_IF_ERROR((*res)->_init_with_desc(desc, &state->get_query_ctx()->query_options()));
         (*res)->_profile->add_info_string("Info", ((*res)->debug_string()));
         return Status::OK();
@@ -80,12 +83,13 @@ public:
 
 private:
     RuntimeFilterConsumer(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
-                          int node_id, RuntimeProfile* parent_profile)
+                          int node_id, RuntimeProfile* consumer_helper_profile,
+                          RuntimeProfile* parent_operator_profile)
             : RuntimeFilter(state, desc),
               _probe_expr(desc->planId_to_target_expr.find(node_id)->second),
               _profile(new RuntimeProfile(fmt::format("RF{}", desc->filter_id))),
-              _storage_profile(new RuntimeProfile(fmt::format("Storage", desc->filter_id))),
-              _execution_profile(new RuntimeProfile(fmt::format("Execution", desc->filter_id))),
+              _storage_profile(new RuntimeProfile(fmt::format("Storage"))),
+              _execution_profile(new RuntimeProfile(fmt::format("Execution"))),
               _registration_time(MonotonicMillis()),
               _rf_state(State::NOT_READY) {
         // If bitmap filter is not applied, it will cause the query result to be incorrect
@@ -93,17 +97,37 @@ private:
                                _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER;
         _rf_wait_time_ms = wait_infinitely ? _state->get_query_ctx()->execution_timeout() * 1000
                                            : _state->get_query_ctx()->runtime_filter_wait_time_ms();
-        _profile->add_info_string("TimeoutLimit", std::to_string(_rf_wait_time_ms) + "ms");
+        /*
+        XXX_OPERATOR(id=x)
+            -  RuntimeFilterInfo:
+                -  RF0  InputRows:  20
+                -  RF0  FilterRows:  2
+            RuntimeFilterConsumerHelper:
+                RF0:
+                    -  TimeoutLimit:  1000ms
+                    -  Info: Consumer: ([id:  0,  state:  [READY],  type:  MINMAX_FILTER,  column_type:  INT],  mode:  LOCAL,  state:  APPLIED)
+                    Storage:
+                    Execution:
+        */
+        consumer_helper_profile->add_child(_profile.get(), true, nullptr);
 
-        parent_profile->add_child(_profile.get(), true, nullptr);
+        _profile->add_info_string("TimeoutLimit", std::to_string(_rf_wait_time_ms) + "ms");
         _profile->add_child(_storage_profile.get(), true, nullptr);
         _profile->add_child(_execution_profile.get(), true, nullptr);
         _wait_timer = ADD_TIMER(_profile, "WaitTime");
 
-        _rf_filter = ADD_COUNTER_WITH_LEVEL(
-                parent_profile, fmt::format("RF{} FilterRows", desc->filter_id), TUnit::UNIT, 1);
-        _rf_input = ADD_COUNTER_WITH_LEVEL(
-                parent_profile, fmt::format("RF{} InputRows", desc->filter_id), TUnit::UNIT, 1);
+        if (parent_operator_profile->get_counter("RuntimeFilterInfo") == nullptr) {
+            parent_operator_profile->add_counter_with_level("RuntimeFilterInfo", TUnit::UNIT, 1);
+        }
+
+        _rf_filter = parent_operator_profile->add_counter(
+                fmt::format("RF{} FilterRows", desc->filter_id), TUnit::UNIT, "RuntimeFilterInfo",
+                1);
+
+        _rf_input =
+                parent_operator_profile->add_counter(fmt::format("RF{} InputRows", desc->filter_id),
+                                                     TUnit::UNIT, "RuntimeFilterInfo", 1);
+
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);
     }
 

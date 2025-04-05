@@ -1587,6 +1587,22 @@ struct TFetchRoutineLoadJobResult {
     1: optional list<TRoutineLoadJob> routineLoadJobs
 }
 
+struct TPlanNodeRuntimeStatsItem {
+    // node_id means PlanNodeId, add this field so that we can merge RuntimeProfile of same node more easily
+    1: optional i32 node_id
+    2: optional i64 input_rows
+    3: optional i64 output_rows
+    4: optional i64 common_filter_rows
+    5: optional i64 common_filter_input_rows
+    6: optional i64 runtime_filter_rows
+    7: optional i64 runtime_filter_input_rows
+    8: optional i64 join_builder_rows
+    9: optional i64 join_probe_rows
+    10: optional double join_builder_skew_ratio
+    11: optional double join_prober_skew_ratio
+    12: optional i32 instance_num
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)

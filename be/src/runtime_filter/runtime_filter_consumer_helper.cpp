@@ -28,28 +28,33 @@ RuntimeFilterConsumerHelper::RuntimeFilterConsumerHelper(
         : _node_id(_node_id),
           _runtime_filter_descs(runtime_filters),
           _row_descriptor_ref(row_descriptor),
-          _profile(new RuntimeProfile("RuntimeFilterConsumerHelper")) {
+          _consumer_profile(new RuntimeProfile("RuntimeFilterConsumerHelper")) {
     _blocked_by_rf = std::make_shared<std::atomic_bool>(false);
 }
 
 Status RuntimeFilterConsumerHelper::init(
-        RuntimeState* state, RuntimeProfile* profile, bool need_local_merge,
+        RuntimeState* state, RuntimeProfile* parent_operator_profile, bool need_local_merge,
         std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>& dependencies, const int id,
         const int node_id, const std::string& name) {
     _state = state;
-    profile->add_child(_profile.get(), true, nullptr);
+    _parent_operator_profile = parent_operator_profile;
+    _parent_operator_profile->add_child(_consumer_profile.get(), true, nullptr);
     RETURN_IF_ERROR(_register_runtime_filter(need_local_merge));
-    _acquire_runtime_filter_timer = ADD_TIMER(_profile, "AcquireRuntimeFilterTime");
+    _acquire_runtime_filter_timer = ADD_TIMER(_consumer_profile.get(), "AcquireRuntimeFilterTime");
     _init_dependency(dependencies, id, node_id, name);
     return Status::OK();
 }
 
 Status RuntimeFilterConsumerHelper::_register_runtime_filter(bool need_local_merge) {
+    DCHECK(_consumer_profile != nullptr);
+    DCHECK(_parent_operator_profile != nullptr);
+
     size_t filter_size = _runtime_filter_descs.size();
     for (size_t i = 0; i < filter_size; ++i) {
         std::shared_ptr<RuntimeFilterConsumer> filter;
         RETURN_IF_ERROR(_state->register_consumer_runtime_filter(
-                _runtime_filter_descs[i], need_local_merge, _node_id, &filter, _profile.get()));
+                _runtime_filter_descs[i], need_local_merge, _node_id, &filter,
+                _consumer_profile.get(), _parent_operator_profile));
         _consumers.emplace_back(filter);
     }
     return Status::OK();
