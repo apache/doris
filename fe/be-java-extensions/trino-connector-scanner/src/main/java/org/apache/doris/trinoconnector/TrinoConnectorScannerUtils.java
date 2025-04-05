@@ -30,7 +30,8 @@ public class TrinoConnectorScannerUtils {
             JsonCodec<T> jsonCodec = new JsonCodecFactory(objectMapperProvider).jsonCodec(type);
             return jsonCodec.fromJson(encodedStr);
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to decode string to "
+                    + type.getName() + ". String: " + encodedStr, e);
         }
     }
 
@@ -40,7 +41,8 @@ public class TrinoConnectorScannerUtils {
             JsonCodec<List<T>> listJsonCodec = new JsonCodecFactory(objectMapperProvider).listJsonCodec(type);
             return listJsonCodec.fromJson(encodedStr);
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to decode string to List<"
+                    + type.getName() + ">. String: " + encodedStr, e);
         }
     }
 }

@@ -274,6 +274,11 @@ public:
 
     static Status fill_block(Block* block, const ColumnNumbers& arguments, long table_address);
 
+    /**
+     * Get the Java scanner object for direct method calls
+     */
+    jobject get_scanner_obj() const { return _jni_scanner_obj; }
+
 protected:
     void _collect_profile_before_close() override;
 
