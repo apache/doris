@@ -42,6 +42,9 @@ public enum AlterOpType {
     MODIFY_TABLE_COMMENT,
     MODIFY_COLUMN_COMMENT,
     MODIFY_ENGINE,
+    CANCEL_ROLLUP,
+    CANCEL_MV,
+    CANCEL_COLUMN,
     INVALID_OP; // INVALID_OP must be the last one
 
     // true means 2 operations have no conflict.
