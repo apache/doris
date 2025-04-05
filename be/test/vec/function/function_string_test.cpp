@@ -496,6 +496,13 @@ TEST(function_string_test, function_string_lower_test) {
                 {{std::string("123ABC_")}, std::string("123abc_")},
                 {{std::string("MYtestSTR")}, std::string("myteststr")},
                 {{std::string("")}, std::string("")},
+                {{std::string("ÀÇ")}, std::string("àç")},
+                {{std::string("ÀÇAC123")}, std::string("àçac123")},
+                {{std::string("İstanbul")}, std::string("i̇stanbul")},
+                {{std::string("KIZILAY")}, std::string("kizilay")},
+                {{std::string("GROSSE")}, std::string("grosse")},
+                {{std::string("Å")}, std::string("å")},
+                {{std::string("ΣΟΦΟΣ")}, std::string("σοφος")},
                 {{Null()}, Null()},
                 //bug{{std::string("ΔΟΚΙΜΑΣΤΙΚΌ ΚΕΊΜΕΝΟ")}, std::string("δοκιμαστικό κείμενο")},
         };
@@ -536,12 +543,13 @@ TEST(function_string_test, function_string_upper_test) {
                 {{std::string("โพสต์ทดสอบ")}, std::string("โพสต์ทดสอบ")},
                 {{std::string("יידיש טעקסט")}, std::string("יידיש טעקסט")},
                 //bug{{std::string("Exámplè wïth âccents")}, std::string("EXÁMPLÈ WÏTH ÂCCENTS")},
-                {{std::string("ⓔⓧⓐⓜⓟⓛⓔ ⓦⓘⓣⓗ ⓒⓘⓡⓒⓛⓔ ⓛⓔⓣⓣⓔⓡⓢ")},
-                 std::string("ⓔⓧⓐⓜⓟⓛⓔ ⓦⓘⓣⓗ ⓒⓘⓡⓒⓛⓔ ⓛⓔⓣⓣⓔⓡⓢ")},
-                {{std::string("🅴🆇🅰🅼🅿🅻🅴 🆆🅸🆃🅷 🆂🆀🆄🅰🆁🅴 🅻🅴🆃🆃🅴🆁🆂")},
-                 std::string("🅴🆇🅰🅼🅿🅻🅴 🆆🅸🆃🅷 🆂🆀🆄🅰🆁🅴 🅻🅴🆃🆃🅴🆁🆂")},
+                {{std::string("àç")}, std::string("ÀÇ")},
+                {{std::string("straße")}, std::string("STRASSE")},
+                {{std::string("àçac123")}, std::string("ÀÇAC123")},
+                {{std::string("ﬃ")}, std::string("FFI")},
+                {{std::string("ǅ")}, std::string("Ǆ")},
+                {{std::string("Ångström")}, std::string("ÅNGSTRÖM")},
         };
-
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
         check_function_all_arg_comb<DataTypeString, true>(std::string("ucase"), input_types,
                                                           data_set);
