@@ -394,10 +394,10 @@ HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.9"
 HDFS3_MD5SUM="b3eaa03e5b184521e5ad5bf6cabea97e"
 
 #libdivide
-LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
-LIBDIVIDE_NAME="libdivide-5.0.tar.gz"
-LIBDIVIDE_SOURCE="libdivide-5.0"
-LIBDIVIDE_MD5SUM="7fd16b0bb4ab6812b2e2fdc7bfb81641"
+LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/refs/tags/v5.2.0.tar.gz"
+LIBDIVIDE_NAME="libdivide-5.2.0.tar.gz"
+LIBDIVIDE_SOURCE="libdivide-5.2.0"
+LIBDIVIDE_MD5SUM="4ba77777192c295d6de2b86d88f3239a"
 
 #pdqsort
 PDQSORT_DOWNLOAD="https://raw.githubusercontent.com/orlp/pdqsort/b1ef26a55cdb60d236a5cb199c4234c704f46726/pdqsort.h"
