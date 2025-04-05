@@ -451,6 +451,8 @@ LoadStream::~LoadStream() {
 }
 
 Status LoadStream::init(const POpenLoadStreamRequest* request) {
+    DBUG_EXECUTE_IF("LoadStream.init",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(300 * 1000)); });
     _txn_id = request->txn_id();
     _total_streams = request->total_streams();
     _is_incremental = (_total_streams == 0);
@@ -594,6 +596,8 @@ void LoadStream::_parse_header(butil::IOBuf* const message, PStreamHeader& hdr) 
 
 Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data) {
     SCOPED_TIMER(_append_data_timer);
+    DBUG_EXECUTE_IF("LoadStream.append_data",
+                    { std::this_thread::sleep_for(std::chrono::milliseconds(300 * 1000)); });
     IndexStreamSharedPtr index_stream;
 
     int64_t index_id = header.index_id();
