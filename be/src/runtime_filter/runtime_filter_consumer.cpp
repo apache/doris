@@ -227,7 +227,7 @@ void RuntimeFilterConsumer::collect_realtime_profile(RuntimeProfile* parent_oper
     c->update(_wait_timer->value());
 
     c = parent_operator_profile->add_counter(fmt::format("RF{} AlwaysTrueFilterRows", _filter_id),
-                                             TUnit::UNIT, "RuntimeFilterInfo", 1);
+                                             TUnit::UNIT, "RuntimeFilterInfo", 2);
     c->update(_always_true_counter->value());
 
     parent_operator_profile->add_description(fmt::format("RF{} Info", _filter_id), debug_string(),
