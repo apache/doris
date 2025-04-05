@@ -56,7 +56,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * normalize aggregate's group keys and AggregateFunction's child to SlotReference
@@ -110,10 +109,12 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalHaving(logicalAggregate().whenNot(LogicalAggregate::isNormalized))
+                logicalHaving(logicalAggregate()
+                        .whenNot(LogicalAggregate::isNormalized))
                         .then(having -> normalizeAgg(having.child(), Optional.of(having)))
                         .toRule(RuleType.NORMALIZE_AGGREGATE),
-                logicalAggregate().whenNot(LogicalAggregate::isNormalized)
+                logicalAggregate()
+                        .whenNot(LogicalAggregate::isNormalized)
                         .then(aggregate -> normalizeAgg(aggregate, Optional.empty()))
                         .toRule(RuleType.NORMALIZE_AGGREGATE));
     }
@@ -151,41 +152,54 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         List<NamedExpression> aggregateOutput = aggregate.getOutputExpressions();
         List<AggregateFunction> aggFuncs = CollectNonWindowedAggFuncs.collect(aggregateOutput);
 
-        // split non-distinct agg child as two part
+        // split agg child as two part
         // TRUE part 1: need push down itself, if it contains subquery or window expression
         // FALSE part 2: need push down its input slots, if it DOES NOT contain subquery or window expression
-        Map<Boolean, ImmutableSet<Expression>> categorizedNoDistinctAggsChildren = aggFuncs.stream()
-                .filter(aggFunc -> !aggFunc.isDistinct())
-                .flatMap(agg -> agg.children().stream())
-                // should not push down literal under aggregate
-                // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
-                .filter(arg -> !(arg instanceof Literal))
-                .collect(Collectors.groupingBy(
-                        child -> child.containsType(SubqueryExpr.class, WindowExpression.class),
-                        ImmutableSet.toImmutableSet()));
+        ImmutableSet.Builder<Expression> needPushDownItSelf = ImmutableSet.builder();
+        ImmutableSet.Builder<Expression> needPushDownInputs = ImmutableSet.builder();
+        for (AggregateFunction aggFunc : aggFuncs) {
+            if (!aggFunc.isDistinct()) {
+                for (Expression arg : aggFunc.children()) {
+                    // should not push down literal under aggregate
+                    // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
+                    if (arg instanceof Literal) {
+                        continue;
+                    }
+                    if (arg.containsType(SubqueryExpr.class, WindowExpression.class)) {
+                        needPushDownItSelf.add(arg);
+                    } else {
+                        needPushDownInputs.add(arg);
+                    }
+                }
+            } else {
+                for (Expression arg : aggFunc.children()) {
+                    // should not push down literal under aggregate
+                    // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
+                    if (arg instanceof Literal) {
+                        continue;
+                    }
 
-        // split distinct agg child as two parts
-        // TRUE part 1: need push down itself, if it is NOT SlotReference or Literal
-        // FALSE part 2: need push down its input slots, if it is SlotReference or Literal
-        Map<Boolean, ImmutableSet<Expression>> categorizedDistinctAggsChildren = aggFuncs.stream()
-                .filter(AggregateFunction::isDistinct)
-                .flatMap(agg -> agg.children().stream())
-                // should not push down literal under aggregate
-                // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
-                .filter(arg -> !(arg instanceof Literal))
-                .flatMap(arg -> arg instanceof OrderExpression ? arg.getInputSlots().stream() : Stream.of(arg))
-                .collect(
-                        Collectors.groupingBy(
-                                child -> !(child instanceof SlotReference),
-                                ImmutableSet.toImmutableSet())
-                );
+                    if (arg instanceof OrderExpression) {
+                        for (Expression child : arg.children()) {
+                            if (child instanceof SlotReference) {
+                                needPushDownItSelf.add(child);
+                            } else {
+                                needPushDownInputs.add(child);
+                            }
+                        }
+                    } else {
+                        if (arg instanceof SlotReference) {
+                            needPushDownItSelf.add(arg);
+                        } else {
+                            needPushDownInputs.add(arg);
+                        }
+                    }
+                }
+            }
+        }
 
-        Set<Expression> needPushSelf = Sets.union(
-                categorizedNoDistinctAggsChildren.getOrDefault(true, ImmutableSet.of()),
-                categorizedDistinctAggsChildren.getOrDefault(true, ImmutableSet.of()));
-        Set<Slot> needPushInputSlots = ExpressionUtils.getInputSlotSet(Sets.union(
-                categorizedNoDistinctAggsChildren.getOrDefault(false, ImmutableSet.of()),
-                categorizedDistinctAggsChildren.getOrDefault(false, ImmutableSet.of())));
+        Set<Expression> needPushSelf = needPushDownItSelf.build();
+        Set<Slot> needPushInputSlots = ExpressionUtils.getInputSlotSet(needPushDownInputs.build());
 
         Set<Alias> existsAlias =
                 ExpressionUtils.mutableCollect(aggregateOutput, Alias.class::isInstance);

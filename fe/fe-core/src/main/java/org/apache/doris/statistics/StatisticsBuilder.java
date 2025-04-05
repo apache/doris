@@ -32,15 +32,15 @@ public class StatisticsBuilder {
     private double deltaRowCount = 0.0;
 
     public StatisticsBuilder() {
-        expressionToColumnStats = new HashMap<>();
+        this.expressionToColumnStats = new HashMap<>();
     }
 
     public StatisticsBuilder(Statistics statistics) {
         this.rowCount = statistics.getRowCount();
         this.widthInJoinCluster = statistics.getWidthInJoinCluster();
         this.deltaRowCount = statistics.getDeltaRowCount();
-        expressionToColumnStats = new HashMap<>();
-        expressionToColumnStats.putAll(statistics.columnStatistics());
+        this. expressionToColumnStats = new HashMap<>();
+        this.expressionToColumnStats.putAll(statistics.columnStatistics());
     }
 
     public StatisticsBuilder setRowCount(double rowCount) {

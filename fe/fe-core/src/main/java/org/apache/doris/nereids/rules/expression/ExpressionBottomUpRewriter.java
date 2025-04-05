@@ -35,6 +35,9 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
     public static final String BATCH_ID_KEY = "batch_id";
     private static final Logger LOG = LogManager.getLogger(ExpressionBottomUpRewriter.class);
     private static final AtomicInteger rewriteBatchId = new AtomicInteger();
+
+    public final String name = "Rewrite_" + this;
+
     private final ExpressionPatternRules rules;
     private final ExpressionPatternTraverseListeners listeners;
 
@@ -43,16 +46,25 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
         this.listeners = listeners;
     }
 
+    @Override
+    public String getRewriteStateKey() {
+        return name;
+    }
+
     // entrance
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
         int currentBatch = rewriteBatchId.incrementAndGet();
-        return rewriteBottomUp(expr, ctx, currentBatch, null, rules, listeners);
+        return rewriteBottomUp(expr, ctx, currentBatch, null, rules, listeners, name);
     }
 
     private static Expression rewriteBottomUp(
             Expression expression, ExpressionRewriteContext context, int currentBatch, @Nullable Expression parent,
-            ExpressionPatternRules rules, ExpressionPatternTraverseListeners listeners) {
+            ExpressionPatternRules rules, ExpressionPatternTraverseListeners listeners, String name) {
+
+        if (!rules.hasCurrentAndChildrenRules(expression) || expression.getMutableState(name).isPresent()) {
+            return expression;
+        }
 
         Optional<Integer> rewriteState = expression.getMutableState(BATCH_ID_KEY);
         if (!rewriteState.isPresent() || rewriteState.get() != currentBatch) {
@@ -68,7 +80,7 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
             Expression afterRewrite = expression;
             try {
                 Expression beforeRewrite;
-                afterRewrite = rewriteChildren(expression, context, currentBatch, rules, listeners);
+                afterRewrite = rewriteChildren(expression, context, currentBatch, rules, listeners, name);
                 // use rewriteTimes to avoid dead loop
                 int rewriteTimes = 0;
                 boolean changed;
@@ -82,13 +94,14 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
                     if (changed) {
                         afterRewrite = applied.get();
                         // ensure children are rewritten
-                        afterRewrite = rewriteChildren(afterRewrite, context, currentBatch, rules, listeners);
+                        afterRewrite = rewriteChildren(afterRewrite, context, currentBatch, rules, listeners, name);
                     }
                     rewriteTimes++;
-                } while (changed && rewriteTimes < 100);
+                } while (changed && rewriteTimes < 100 && rules.hasCurrentAndChildrenRules(beforeRewrite));
 
                 // set rewritten
                 afterRewrite.setMutableState(BATCH_ID_KEY, currentBatch);
+                afterRewrite.setMutableState(name, true);
             } finally {
                 if (hasChildren && listener != null) {
                     listener.onExit(afterRewrite);
@@ -103,11 +116,11 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
     }
 
     private static Expression rewriteChildren(Expression parent, ExpressionRewriteContext context, int currentBatch,
-            ExpressionPatternRules rules, ExpressionPatternTraverseListeners listeners) {
+            ExpressionPatternRules rules, ExpressionPatternTraverseListeners listeners, String name) {
         boolean changed = false;
         ImmutableList.Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(parent.arity());
         for (Expression child : parent.children()) {
-            Expression newChild = rewriteBottomUp(child, context, currentBatch, parent, rules, listeners);
+            Expression newChild = rewriteBottomUp(child, context, currentBatch, parent, rules, listeners, name);
             changed |= !child.equals(newChild);
             newChildren.add(newChild);
         }

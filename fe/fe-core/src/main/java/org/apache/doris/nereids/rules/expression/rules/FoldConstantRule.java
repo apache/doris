@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.ExpressionBottomUpRewriter;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.ImmutableList;
@@ -35,10 +35,11 @@ public class FoldConstantRule implements ExpressionPatternRuleFactory {
 
     public static final FoldConstantRule INSTANCE = new FoldConstantRule();
 
-    private static final ExpressionBottomUpRewriter FULL_FOLD_REWRITER = ExpressionRewrite.bottomUp(
-            FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE,
-            FoldConstantRuleOnBE.INSTANCE
-    );
+    private static final ExpressionRewriteRule<ExpressionRewriteContext> FULL_FOLD_REWRITER
+            = ExpressionRewrite.bottomUp(
+                FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE,
+                FoldConstantRuleOnBE.INSTANCE
+            );
 
     /** evaluate by pattern match */
     @Override
