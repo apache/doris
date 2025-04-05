@@ -79,8 +79,7 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
         for (Map.Entry<DistinctAndExpr, List<AggregateFunction>> entry : funcMap.entrySet()) {
             List<Literal> literals = new ArrayList<>();
             for (AggregateFunction aggFunc : entry.getValue()) {
-                List<Expression> literal = aggFunc.child(1).collectToList(expr -> expr instanceof Literal);
-                literals.add((Literal) literal.get(0));
+                literals.add((Literal) aggFunc.child(1));
             }
             ArrayLiteral arrayLiteral = new ArrayLiteral(literals);
             PercentileArray percentileArray = null;
@@ -103,6 +102,9 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
         Map<DistinctAndExpr, List<AggregateFunction>> funcMap = new HashMap<>();
         for (AggregateFunction func : aggregateFunctions) {
             if (!(func instanceof Percentile)) {
+                continue;
+            }
+            if (!(func.child(1) instanceof Literal)) {
                 continue;
             }
             DistinctAndExpr distictAndExpr = new DistinctAndExpr(func.child(0), func.isDistinct());
