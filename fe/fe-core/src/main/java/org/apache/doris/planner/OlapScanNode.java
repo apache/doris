@@ -1265,9 +1265,9 @@ public class OlapScanNode extends ScanNode {
             if (sortExpr instanceof SlotRef) {
                 SlotRef slotRef = (SlotRef) sortExpr;
                 if (tableKey.equals(slotRef.getColumn())) {
-                    // ORDER BY DESC NULLS FIRST can not be optimized to only read file tail,
+                    // ORDER BY DESC NULLS FIRST OR ASC NULLS LAST can not be optimized to only read file tail,
                     // since NULLS is at file head but data is at tail
-                    if (tableKey.isAllowNull() && nullsFirsts.get(i) && !isAscOrders.get(i)) {
+                    if (tableKey.isAllowNull() && nullsFirsts.get(i) != isAscOrders.get(i)) {
                         return false;
                     }
                 } else {
