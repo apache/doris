@@ -235,7 +235,7 @@ Status FunctionMatchBase::check(FunctionContext* context, const std::string& fun
 
     DBUG_EXECUTE_IF("match.invert_index_not_support_execute_match", {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "{} not support execute_match", function_name);
+                "debug point: {} not support execute_match", function_name);
     });
 
     return Status::OK();
