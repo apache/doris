@@ -189,6 +189,9 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
             return ret;
         }
         desc.children.push_back(sub_desc.type_desc);
+        if (sub_desc.is_nullable) {
+            sub_type = make_nullable(sub_type);
+        }
         type = std::make_shared<DataTypeArray>(sub_type);
         return ret + 1;
     }
