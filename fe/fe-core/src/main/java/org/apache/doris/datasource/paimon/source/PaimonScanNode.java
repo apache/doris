@@ -192,7 +192,11 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (optDeletionFile.isPresent()) {
             DeletionFile deletionFile = optDeletionFile.get();
             TPaimonDeletionFileDesc tDeletionFile = new TPaimonDeletionFileDesc();
-            tDeletionFile.setPath(deletionFile.path());
+            // convert the deletion file uri to make sure FileReader can read it in be
+            LocationPath locationPath = new LocationPath(deletionFile.path(),
+                    source.getCatalog().getProperties());
+            String path = locationPath.toStorageLocation().toString();
+            tDeletionFile.setPath(path);
             tDeletionFile.setOffset(deletionFile.offset());
             tDeletionFile.setLength(deletionFile.length());
             fileDesc.setDeletionFile(tDeletionFile);
