@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "olap/task/engine_task.h"
 
@@ -31,6 +32,8 @@ class TTabletInfo;
 class StorageEngine;
 
 class EngineBatchLoadTask final : public EngineTask {
+    ENABLE_FACTORY_CREATOR(EngineBatchLoadTask);
+
 public:
     EngineBatchLoadTask(StorageEngine& engine, TPushReq& push_req,
                         std::vector<TTabletInfo>* tablet_infos);
