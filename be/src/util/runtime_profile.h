@@ -439,6 +439,8 @@ public:
     // Divides all counters by n
     void divide(int n);
 
+    RuntimeProfile* get_child(std::string name);
+
     void get_children(std::vector<RuntimeProfile*>* children);
 
     // Gets all profiles in tree, including this one.

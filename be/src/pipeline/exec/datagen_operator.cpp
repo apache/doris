@@ -86,8 +86,8 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
-    _table_function_execution_timer = ADD_TIMER(profile(), "TableFunctionExecutionTime");
-    _filter_timer = ADD_TIMER(profile(), "FilterTime");
+    _table_function_execution_timer = ADD_TIMER(custom_profile(), "TableFunctionExecutionTime");
+    _filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
     auto& p = _parent->cast<DataGenSourceOperatorX>();
     _table_func = std::make_shared<VNumbersTVF>(p._tuple_id, p._tuple_desc);
     _table_func->set_tuple_desc(p._tuple_desc);
@@ -97,7 +97,7 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     for (const auto& filter_desc : p._runtime_filter_descs) {
         std::shared_ptr<RuntimeFilterConsumer> filter;
         RETURN_IF_ERROR(state->register_consumer_runtime_filter(
-                filter_desc, p.is_serial_operator(), p.node_id(), &filter, _runtime_profile.get()));
+                filter_desc, p.is_serial_operator(), p.node_id(), &filter, operator_profile()));
     }
     return Status::OK();
 }
