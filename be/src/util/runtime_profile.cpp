@@ -454,7 +454,7 @@ void RuntimeProfile::add_description(const std::string& name, const std::string&
 
     if (_counter_map.find(name) != _counter_map.end()) {
         Counter* counter = _counter_map[name];
-        if (DesctiptionEntry* derived_counter = dynamic_cast<DesctiptionEntry*>(counter)) {
+        if (DescriptionEntry* derived_counter = dynamic_cast<DescriptionEntry*>(counter)) {
             derived_counter->update(description);
 
         } else {
@@ -467,7 +467,7 @@ void RuntimeProfile::add_description(const std::string& name, const std::string&
     // Parent counter must already exist.
     DCHECK(parent_counter_name == ROOT_COUNTER ||
            _counter_map.find(parent_counter_name) != _counter_map.end());
-    DesctiptionEntry* counter = _pool->add(new DesctiptionEntry(name, description));
+    DescriptionEntry* counter = _pool->add(new DescriptionEntry(name, description));
     _counter_map[name] = counter;
     std::set<std::string>* child_counters =
             find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());

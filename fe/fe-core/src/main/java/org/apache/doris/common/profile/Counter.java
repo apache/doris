@@ -20,8 +20,8 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TUnit;
-import com.google.common.base.Strings;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;

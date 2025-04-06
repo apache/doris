@@ -295,13 +295,13 @@ public:
         const std::string _parent_name;
     };
 
-    class DesctiptionEntry : public Counter {
+    class DescriptionEntry : public Counter {
     public:
-        DesctiptionEntry(const std::string& name, const std::string& description)
+        DescriptionEntry(const std::string& name, const std::string& description)
                 : Counter(TUnit::NONE, 0, 2), _description(description), _name(name) {}
 
         virtual Counter* clone() const override {
-            return new DesctiptionEntry(_name, _description);
+            return new DescriptionEntry(_name, _description);
         }
 
         void set(int64_t value) override {

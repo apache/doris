@@ -17,8 +17,6 @@
 
 #include "runtime_filter/runtime_filter_consumer_helper.h"
 
-#include <mutex>
-
 #include "pipeline/pipeline_task.h"
 #include "runtime_filter/runtime_filter_consumer.h"
 #include "util/runtime_profile.h"
