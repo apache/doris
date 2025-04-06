@@ -72,8 +72,9 @@ public:
                           int* result_column_id, const DataTypePtr& result_type,
                           const VExprSPtrs& children) override {
         ReduceLambdaArgs args;
+        std::vector<int>& output_slot_ref_indexs = args.output_slot_ref_indexs;
         // collect used slot ref in lambda function body
-        _collect_slot_ref_column_id(children[0], args);
+        _collect_slot_ref_column_id(children[0], output_slot_ref_indexs);
 
         int gap = 0;
         if (!args.output_slot_ref_indexs.empty()) {
@@ -87,7 +88,7 @@ public:
         DataTypes data_types(gap);
 
         for (int i = 0; i < gap; ++i) {
-            if (_contains_column_id(args, i)) {
+            if (_contains_column_id(output_slot_ref_indexs, i)) {
                 names[i] = block->get_by_position(i).name;
                 data_types[i] = block->get_by_position(i).type;
             } else {
@@ -151,7 +152,7 @@ public:
             Block final_block;
             for (int i = 0; i < gap; i++) {
                 ColumnWithTypeAndName data_column;
-                if (_contains_column_id(args, i) || i >= gap) {
+                if (_contains_column_id(output_slot_ref_indexs, i) || i >= gap) {
                     data_column = ColumnWithTypeAndName(data_types[i], names[i]);
                 } else {
                     data_column = ColumnWithTypeAndName(
@@ -246,34 +247,6 @@ public:
     }
 
 private:
-    bool _contains_column_id(ReduceLambdaArgs& args, int id) {
-        const auto it = std::find(args.output_slot_ref_indexs.begin(),
-                                  args.output_slot_ref_indexs.end(), id);
-        return it != args.output_slot_ref_indexs.end();
-    }
-
-    void _set_column_ref_column_id(VExprSPtr expr, int gap) {
-        for (const auto& child : expr->children()) {
-            if (child->is_column_ref()) {
-                auto* ref = static_cast<VColumnRef*>(child.get());
-                ref->set_gap(gap);
-            } else {
-                _set_column_ref_column_id(child, gap);
-            }
-        }
-    }
-
-    void _collect_slot_ref_column_id(VExprSPtr expr, ReduceLambdaArgs& args) {
-        for (const auto& child : expr->children()) {
-            if (child->is_slot_ref()) {
-                const auto* ref = static_cast<VSlotRef*>(child.get());
-                args.output_slot_ref_indexs.push_back(ref->column_id());
-            } else {
-                _collect_slot_ref_column_id(child, args);
-            }
-        }
-    }
-
     void _add_initial_value_column_in_reduce(std::vector<MutableColumnPtr>& columns, Block* block,
                                              ReduceLambdaArgs& args, int res_col_id,
                                              int src_col_id) {
