@@ -1425,9 +1425,9 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     RETURN_IF_ERROR(std::dynamic_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
     auto t1 = watch.get_elapse_time_us();
 
+    int64_t next_visible_version = txn_info->is_txn_load ? txn_info->next_visible_version
+                                                         : txn_info->rowset->start_version();
     {
-        int64_t next_visible_version = txn_info->is_txn_load ? txn_info->next_visible_version
-                                                             : txn_info->rowset->start_version();
         std::shared_lock meta_rlock(self->_meta_lock);
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
         if (self->tablet_state() == TABLET_NOTREADY) {
@@ -1572,7 +1572,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     auto t5 = watch.get_elapse_time_us();
     int64_t lock_id = txn_info->is_txn_load ? txn_info->lock_id : -1;
     RETURN_IF_ERROR(self->save_delete_bitmap(txn_info, txn_id, delete_bitmap,
-                                             transient_rs_writer.get(), cur_rowset_ids, lock_id));
+                                             transient_rs_writer.get(), cur_rowset_ids, lock_id,
+                                             next_visible_version));
 
     // defensive check, check that the delete bitmap cache we wrote is correct
     RETURN_IF_ERROR(self->check_delete_bitmap_cache(txn_id, delete_bitmap.get()));
