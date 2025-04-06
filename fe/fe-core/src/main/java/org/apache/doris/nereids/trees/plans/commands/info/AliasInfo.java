@@ -28,14 +28,20 @@ import java.util.Objects;
 public class AliasInfo {
     private final String name;
     private final String alias;
+    private final boolean enableQuota;
 
-    public AliasInfo(String name, String alias) {
+    public AliasInfo(String name, String alias, boolean enableQuota) {
         this.name = Objects.requireNonNull(name);
         this.alias = alias;
+        this.enableQuota = false;
     }
 
     public static AliasInfo of(String name, String alias) {
-        return new AliasInfo(name, alias);
+        return new AliasInfo(name, alias, false);
+    }
+
+    public static AliasInfo of(String name, String alias, boolean enableQuota) {
+        return new AliasInfo(name, alias, enableQuota);
     }
 
     public String getName() {
@@ -49,7 +55,7 @@ public class AliasInfo {
     @Override
     public String toString() {
         return alias == null || alias.isEmpty()
-                ? String.format("`%s`", name)
-                : String.format("`%s` AS `%s`", name, alias);
+                ? enableQuota ? String.format("`%s`", name) : String.format("%s", name)
+                : enableQuota ? String.format("`%s` AS `%s`", name, alias) : String.format("%s AS `%s`", name, alias);
     }
 }
