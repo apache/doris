@@ -218,7 +218,7 @@ public:
                 res_name = lambda_block.get_by_position(*result_column_id).name;
 
                 final_block.get_by_position(gap + array_size) = ColumnWithTypeAndName(
-                        cast_to_type(res_col, result_type), result_type, "lambda tmp result");
+                        _cast_to_type(res_col, result_type), result_type, "lambda tmp result");
             }
 
             auto res_col = final_block.get_by_position(gap + array_size)

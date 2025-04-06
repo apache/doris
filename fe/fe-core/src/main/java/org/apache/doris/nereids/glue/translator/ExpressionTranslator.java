@@ -505,10 +505,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         return functionExpr;
     }
 
-    @Override
-    public Expr visitArrayMap(ArrayMap arrayMap, PlanTranslatorContext context) {
-        Lambda lambda = (Lambda) arrayMap.child(0);
-        List<Expr> arguments = new ArrayList<>(arrayMap.children().size());
+    private Expr visitLambdaArrayFunc(Expression arrayFunc, PlanTranslatorContext context) {
+        Lambda lambda = (Lambda) arrayFunc.child(0);
+        List<Expr> arguments = new ArrayList<>(arrayFunc.children().size());
         arguments.add(null);
         int columnId = 0;
         for (ArrayItemReference arrayItemReference : lambda.getLambdaArguments()) {
@@ -525,76 +524,60 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             columnId += 1;
         }
 
-        List<Type> argTypes = arrayMap.getArguments().stream()
+        List<Type> argTypes = arrayFunc.getArguments().stream()
                 .map(Expression::getDataType)
                 .map(DataType::toCatalogDataType)
                 .collect(Collectors.toList());
         lambda.getLambdaArguments().stream()
-                .map(ArrayItemReference::getArrayExpression)
-                .map(Expression::getDataType)
-                .map(DataType::toCatalogDataType)
-                .forEach(argTypes::add);
-        NullableMode nullableMode = arrayMap.nullable()
+            .map(ArrayItemReference::getArrayExpression)
+            .map(Expression::getDataType)
+            .map(DataType::toCatalogDataType)
+            .forEach(argTypes::add);
+        NullableMode nullableMode = arrayFunc.nullable()
                 ? NullableMode.ALWAYS_NULLABLE
                 : NullableMode.ALWAYS_NOT_NULLABLE;
-        org.apache.doris.catalog.Function catalogFunction = new Function(
-                new FunctionName(arrayMap.getName()), argTypes,
-                ArrayType.create(lambda.getRetType().toCatalogDataType(), true),
-                true, true, nullableMode);
 
-        // create catalog FunctionCallExpr without analyze again
-        Expr lambdaBody = visitLambda(lambda, context);
-        arguments.set(0, lambdaBody);
-        LambdaFunctionCallExpr functionCallExpr =
-                new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-        functionCallExpr.setNullableFromNereids(arrayMap.nullable());
-        return functionCallExpr;
+        if (arrayFunc instanceof ArrayReduce) {
+            ArrayReduce arrayReduce = (ArrayReduce) arrayFunc;
+            org.apache.doris.catalog.Function catalogFunction = new Function(
+                    new FunctionName(arrayReduce.getName()), argTypes,
+                    lambda.getRetType().toCatalogDataType(),
+                    true, true, nullableMode);
+
+            // create catalog FunctionCallExpr without analyze again
+            Expr lambdaBody = visitLambda(lambda, context);
+            arguments.set(0, lambdaBody);
+            LambdaFunctionCallExpr functionCallExpr =
+                    new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+            functionCallExpr.setNullableFromNereids(arrayReduce.nullable());
+            return functionCallExpr;
+        } else if (arrayFunc instanceof ArrayMap) {
+            ArrayMap arrayMap = (ArrayMap) arrayFunc;
+            org.apache.doris.catalog.Function catalogFunction = new Function(
+                    new FunctionName(arrayMap.getName()), argTypes,
+                    ArrayType.create(lambda.getRetType().toCatalogDataType(), true),
+                    true, true, nullableMode);
+
+            // create catalog FunctionCallExpr without analyze again
+            Expr lambdaBody = visitLambda(lambda, context);
+            arguments.set(0, lambdaBody);
+            LambdaFunctionCallExpr functionCallExpr =
+                    new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+            functionCallExpr.setNullableFromNereids(arrayMap.nullable());
+            return functionCallExpr;
+        } else {
+            throw new RuntimeException("Unsupported array function: " + arrayFunc);
+        }
+    }
+
+    @Override
+    public Expr visitArrayMap(ArrayMap arrayMap, PlanTranslatorContext context) {
+        return visitLambdaArrayFunc(arrayMap, context);
     }
 
     @Override
     public Expr visitArrayReduce(ArrayReduce arrayReduce, PlanTranslatorContext context) {
-        Lambda lambda = (Lambda) arrayReduce.child(0);
-        List<Expr> arguments = new ArrayList<>(arrayReduce.children().size());
-        arguments.add(null);
-        int columnId = 0;
-        for (ArrayItemReference arrayItemReference : lambda.getLambdaArguments()) {
-            String argName = arrayItemReference.getName();
-            Expr expr = arrayItemReference.getArrayExpression().accept(this, context);
-            arguments.add(expr);
-
-            ColumnRefExpr column = new ColumnRefExpr();
-            column.setName(argName);
-            column.setColumnId(columnId);
-            column.setNullable(true);
-            column.setType(((ArrayType) expr.getType()).getItemType());
-            context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
-            columnId += 1;
-        }
-
-        List<Type> argTypes = arrayReduce.getArguments().stream()
-                .map(Expression::getDataType)
-                .map(DataType::toCatalogDataType)
-                .collect(Collectors.toList());
-        lambda.getLambdaArguments().stream()
-                .map(ArrayItemReference::getArrayExpression)
-                .map(Expression::getDataType)
-                .map(DataType::toCatalogDataType)
-                .forEach(argTypes::add);
-        NullableMode nullableMode = arrayReduce.nullable()
-                ? NullableMode.ALWAYS_NULLABLE
-                : NullableMode.ALWAYS_NOT_NULLABLE;
-        org.apache.doris.catalog.Function catalogFunction = new Function(
-                new FunctionName(arrayReduce.getName()), argTypes,
-                lambda.getRetType().toCatalogDataType(),
-                true, true, nullableMode);
-
-        // create catalog FunctionCallExpr without analyze again
-        Expr lambdaBody = visitLambda(lambda, context);
-        arguments.set(0, lambdaBody);
-        LambdaFunctionCallExpr functionCallExpr =
-                new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
-        functionCallExpr.setNullableFromNereids(arrayReduce.nullable());
-        return functionCallExpr;
+        return visitLambdaArrayFunc(arrayReduce, context);
     }
 
     @Override
