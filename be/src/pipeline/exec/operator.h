@@ -1088,5 +1088,48 @@ protected:
     std::shared_ptr<Dependency> _finish_dependency;
 };
 
+#ifdef BE_TEST
+class DummyOperatorLocalState final : public PipelineXLocalState<FakeSharedState> {
+public:
+    ENABLE_FACTORY_CREATOR(DummyOperatorLocalState);
+
+    DummyOperatorLocalState(RuntimeState* state, OperatorXBase* parent)
+            : PipelineXLocalState<FakeSharedState>(state, parent) {}
+    ~DummyOperatorLocalState() = default;
+};
+
+class DummyOperator final : public OperatorX<DummyOperatorLocalState> {
+public:
+    DummyOperator() : OperatorX<DummyOperatorLocalState>(nullptr, 0, 0) {}
+
+    [[nodiscard]] bool is_source() const override { return true; }
+
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+        *eos = _eos;
+        return Status::OK();
+    }
+
+private:
+    friend class AssertNumRowsLocalState;
+    bool _eos = false;
+};
+
+class DummySinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
+public:
+    using Base = PipelineXSinkLocalState<BasicSharedState>;
+    ENABLE_FACTORY_CREATOR(DummySinkLocalState);
+    DummySinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
+};
+
+class DummySinkOperatorX final : public DataSinkOperatorX<DummySinkLocalState> {
+public:
+    DummySinkOperatorX(int op_id, int node_id, int dest_id)
+            : DataSinkOperatorX<DummySinkLocalState>(op_id, node_id, dest_id) {}
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
+        return Status::OK();
+    }
+};
+#endif
+
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -312,9 +312,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
             downstream_runtime_state.get(), memory_used_counter, dest0, 1, 1,
             downstream_pipeline_profile.get(), false, block_mem_usage - 1);
     std::vector<TScanRangeParams> scan_ranges;
-    EXPECT_EQ(_pipeline_tasks[cur_pipe->id()].back()->prepare(scan_ranges, 0, tsink,
-                                                              _query_ctx.get()),
-              Status::OK());
+    EXPECT_EQ(_pipeline_tasks[cur_pipe->id()].back()->prepare(scan_ranges, 0, tsink), Status::OK());
 
     auto& local_state = _runtime_states.back()
                                 .front()
@@ -973,8 +971,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
     for (size_t i = 0; i < _pipelines.size(); i++) {
         for (int j = 0; j < parallelism; j++) {
             std::vector<TScanRangeParams> scan_ranges;
-            EXPECT_EQ(_pipeline_tasks[_pipelines[i]->id()][j]->prepare(scan_ranges, j, tsink,
-                                                                       _query_ctx.get()),
+            EXPECT_EQ(_pipeline_tasks[_pipelines[i]->id()][j]->prepare(scan_ranges, j, tsink),
                       Status::OK());
             if (i == 1) {
                 auto& local_state = _runtime_states[i][j]
