@@ -279,4 +279,34 @@ TEST_F(RuntimeProfileCounterTreeNodeTest, NonZeroCounterToThrfit) {
     ASSERT_EQ(child_counter_map[RuntimeProfile::ROOT_COUNTER].size(), 0);
 }
 
+TEST_F(RuntimeProfileCounterTreeNodeTest, CollaborationCounterTest) {
+    auto root_counter = std::make_unique<RuntimeProfile::Counter>(TUnit::UNIT);
+    auto child_counter1 = std::make_unique<RuntimeProfile::CollaborationCounter>(
+            TUnit::UNIT, 2, root_counter.get());
+    auto child_counter2 = std::make_unique<RuntimeProfile::CollaborationCounter>(
+            TUnit::UNIT, 2, root_counter.get());
+
+    auto c1 = std::make_unique<RuntimeProfile::CollaborationCounter>(TUnit::UNIT, 2,
+                                                                     child_counter1.get());
+    auto c2 = std::make_unique<RuntimeProfile::CollaborationCounter>(TUnit::UNIT, 2,
+                                                                     child_counter1.get());
+    auto c3 = std::make_unique<RuntimeProfile::CollaborationCounter>(TUnit::UNIT, 2,
+                                                                     child_counter2.get());
+    auto c4 = std::make_unique<RuntimeProfile::CollaborationCounter>(TUnit::UNIT, 2,
+                                                                     child_counter2.get());
+
+    c1->update(1);
+    c2->update(10);
+    c3->update(100);
+    c4->update(1000);
+
+    ASSERT_EQ(root_counter->value(), 1111);
+    ASSERT_EQ(child_counter1->value(), 11);
+    ASSERT_EQ(child_counter2->value(), 1100);
+    ASSERT_EQ(c1->value(), 1);
+    ASSERT_EQ(c2->value(), 10);
+    ASSERT_EQ(c3->value(), 100);
+    ASSERT_EQ(c4->value(), 1000);
+}
+
 } // namespace doris

@@ -1381,12 +1381,21 @@ public class SchemaChangeHandler extends AlterHandler {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        // check row store column has change
+
         boolean hasRowStoreChanged = false;
-        if (storeRowColumn || (rsColumns != null && !rsColumns.isEmpty())) {
+        if (storeRowColumn || rsColumns != null) {
             List<String> oriRowStoreColumns = olapTable.getTableProperty().getCopiedRowStoreColumns();
-            if ((oriRowStoreColumns != null && !oriRowStoreColumns.equals(rsColumns))
-                    || storeRowColumn != olapTable.storeRowColumn()) {
+            // correct the comparison logic for null and empty list
+            boolean columnsChanged = false;
+            if (rsColumns == null) {
+                columnsChanged = oriRowStoreColumns != null;
+            } else if (oriRowStoreColumns == null) {
+                columnsChanged = true;
+            } else {
+                columnsChanged = !oriRowStoreColumns.equals(rsColumns);
+            }
+            // partial row store columns changed, or store_row_column enabled, not supported to disable at present
+            if (columnsChanged || (!olapTable.storeRowColumn() && storeRowColumn)) {
                 // only support mow and duplicate model
                 if (!(olapTable.getKeysType() == KeysType.DUP_KEYS
                         || olapTable.getEnableUniqueKeyMergeOnWrite())) {
@@ -2107,6 +2116,19 @@ public class SchemaChangeHandler extends AlterHandler {
                                 throw new DdlException("BUILD INDEX operation failed: The index "
                                         + existedIdx.getIndexName() + " of type " + existedIdx.getIndexType()
                                         + " does not support lightweight index changes.");
+                            }
+                            for (Column column : olapTable.getBaseSchema()) {
+                                if (!column.getType().isVariantType()) {
+                                    continue;
+                                }
+                                // variant type column can not support for building index
+                                for (String indexColumn : existedIdx.getColumns()) {
+                                    if (column.getName().equalsIgnoreCase(indexColumn)) {
+                                        throw new DdlException("BUILD INDEX operation failed: The "
+                                                + indexDef.getIndexName() + " index can not be built on the "
+                                                + indexColumn + " column, because it is a variant type column.");
+                                    }
+                                }
                             }
                             index = existedIdx.clone();
                             if (indexDef.getPartitionNames().isEmpty()) {

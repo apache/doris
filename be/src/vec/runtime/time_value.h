@@ -35,9 +35,19 @@ public:
     constexpr static int64_t ONE_HOUR_MICROSECONDS = 60 * ONE_MINUTE_MICROSECONDS;
     constexpr static int64_t ONE_MINUTE_SECONDS = 60;
     constexpr static int64_t ONE_HOUR_SECONDS = 60 * ONE_MINUTE_SECONDS;
+    constexpr static uint32_t MICROS_SCALE = 6;
 
     using TimeType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType;
     using ColumnTime = vectorized::DataTypeTimeV2::ColumnType;
+
+    static int64_t round_time(TimeType value, uint32_t scale) {
+        int64_t time = value;
+        DCHECK(scale <= MICROS_SCALE);
+        int64_t factor = std::pow(10, 6 - scale);
+        int64_t roundedValue = (time >= 0) ? (time + factor / 2) / factor * factor
+                                           : (time - factor / 2) / factor * factor;
+        return roundedValue;
+    }
 
     // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
     // the time value between '-838:59:59' and '838:59:59'

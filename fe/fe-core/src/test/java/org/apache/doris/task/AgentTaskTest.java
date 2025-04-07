@@ -26,6 +26,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TCompressionType;
@@ -89,6 +90,7 @@ public class AgentTaskTest {
 
     @Before
     public void setUp() throws AnalysisException {
+        MetricRepo.init();
         agentBatchTask = new AgentBatchTask();
 
         columns = new LinkedList<Column>();
