@@ -118,12 +118,10 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, InitLocalState) {
     ASSERT_TRUE(st.ok()) << "Prepare failed: " << st.to_string();
 
     RuntimeProfile runtime_profile("test");
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
     TDataSink t_sink;
     LocalSinkStateInfo info {.parent_profile = &runtime_profile,
                              .shared_state = shared_state.get(),
-                             .le_state_map = le_state_map,
+                             .shared_state_map = {},
                              .tsink = t_sink};
     st = local_state->init(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st) << "init failed: " << st.to_string();
@@ -222,12 +220,10 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, SinkEosAndSpill) {
 
     auto shared_state = std::make_shared<MockPartitionedHashJoinSharedState>();
 
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
     LocalSinkStateInfo sink_info {.task_idx = 0,
                                   .parent_profile = _helper.runtime_profile.get(),
                                   .shared_state = shared_state.get(),
-                                  .le_state_map = le_state_map,
+                                  .shared_state_map = {},
                                   .tsink = TDataSink()};
     auto st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
     ASSERT_TRUE(st.ok()) << "Setup local state failed: " << st.to_string();
@@ -351,6 +347,10 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
 
     sink_state->_shared_state->inner_runtime_state->emplace_sink_local_state(
             0, std::move(inner_sink_local_state));
+
+    sink_state->_finish_dependency =
+            Dependency::create_shared(sink_operator->operator_id(), sink_operator->node_id(),
+                                      "HashJoinBuildFinishDependency", true);
 
     // Expect revoke memory to trigger spilling
     status = sink_state->revoke_memory(_helper.runtime_state.get(), nullptr);

@@ -369,9 +369,6 @@ public class CoordinatorContext {
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             queryOptions.setMemLimit(memLimit);
-            queryOptions.setMaxReservation(memLimit);
-            queryOptions.setInitialReservationTotalClaims(memLimit);
-            queryOptions.setBufferPoolLimit(memLimit);
         }
     }
 

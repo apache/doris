@@ -17,10 +17,8 @@
 
 #pragma once
 
-#include <stdint.h>
-
-#include "olap/olap_common.h"
 #include "operator.h"
+#include "runtime_filter/runtime_filter_producer_helper_set.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -46,6 +44,8 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
+    Status terminate(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
 private:
     friend class SetSinkOperatorX<is_intersect>;
@@ -57,6 +57,9 @@ private:
 
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
+
+    std::shared_ptr<RuntimeFilterProducerHelperSet> _runtime_filter_producer_helper;
+    std::shared_ptr<CountedFinishDependency> _finish_dependency;
 };
 
 template <bool is_intersect>
@@ -71,14 +74,26 @@ public:
     SetSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
                      const TPlanNode& tnode, const DescriptorTbl& descs)
             : Base(sink_id, tnode.node_id, dest_id),
-              _cur_child_id(child_id),
               _child_quantity(tnode.node_type == TPlanNodeType::type::INTERSECT_NODE
                                       ? tnode.intersect_node.result_expr_lists.size()
                                       : tnode.except_node.result_expr_lists.size()),
               _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
                                         : tnode.except_node.is_colocate),
               _partition_exprs(is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
-                                            : tnode.except_node.result_expr_lists[child_id]) {}
+                                            : tnode.except_node.result_expr_lists[child_id]),
+              _runtime_filter_descs(tnode.runtime_filters) {
+        DCHECK_EQ(child_id, _cur_child_id);
+        DCHECK_GT(_child_quantity, 1);
+    }
+
+#ifdef BE_TEST
+    SetSinkOperatorX(int _child_quantity)
+            : _cur_child_id(0),
+              _child_quantity(_child_quantity),
+              _is_colocate(false),
+              _partition_exprs() {}
+#endif
+
     ~SetSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -107,13 +122,15 @@ private:
                                  vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs,
                                  size_t& rows);
 
-    const int _cur_child_id;
+    const int _cur_child_id = 0;
     const size_t _child_quantity;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
     const bool _is_colocate;
     const std::vector<TExpr> _partition_exprs;
     using OperatorBase::_child;
+
+    const std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
 #include "common/compile_check_end.h"
 

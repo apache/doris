@@ -267,7 +267,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
         RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
         const TDataStreamSink& sink, const std::vector<TPlanFragmentDestination>& destinations,
         const std::vector<TUniqueId>& fragment_instance_ids)
-        : DataSinkOperatorX(operator_id, sink.dest_node_id, 0),
+        : DataSinkOperatorX(operator_id, sink.dest_node_id, std::numeric_limits<int>::max()),
           _texprs(sink.output_partition.partition_exprs),
           _row_desc(row_desc),
           _part_type(sink.output_partition.type),

@@ -66,8 +66,8 @@ private:
         range.start_offset = 0;
         range.size = 1293;
         auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
-        auto status = reader->init_reader(&column_names, nullptr, {}, false, tuple_desc, &row_desc,
-                                          nullptr, nullptr);
+        auto status = reader->init_reader(&column_names, {}, nullptr, {}, false, tuple_desc,
+                                          &row_desc, nullptr, nullptr);
         EXPECT_TRUE(status.ok());
 
         // deserialize expr
