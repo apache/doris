@@ -274,7 +274,6 @@ public class NereidsPlanner extends Planner {
         }
 
         optimize();
-        cascadesContext.setRewritePlan(null);
         // print memo before choose plan.
         // if chooseNthPlan failed, we could get memo to debug
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {

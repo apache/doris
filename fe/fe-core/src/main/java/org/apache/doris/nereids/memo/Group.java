@@ -420,7 +420,7 @@ public class Group {
         return false;
     }
 
-    public StructInfoMap getstructInfoMap() {
+    public StructInfoMap getStructInfoMap() {
         return structInfoMap;
     }
 
