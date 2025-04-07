@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -419,17 +420,19 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         }
         // 2. Regenerate a group by list without constant key
         List<Expression> newNormalizedGroupExprs = new ArrayList<>();
-        Expression lit = null;
         for (Expression normalizedGroupExpr : normalizedGroupExprs) {
             if (!slotToLiteral.containsKey((Slot) normalizedGroupExpr)) {
                 newNormalizedGroupExprs.add(normalizedGroupExpr);
-            } else {
-                lit = normalizedGroupExpr;
             }
         }
-        if (newNormalizedGroupExprs.isEmpty() && lit != null) {
-            newNormalizedGroupExprs.add(lit);
-            slotToLiteral.remove(lit);
+        if (newNormalizedGroupExprs.isEmpty()) {
+            Alias tinyInt = new Alias(new TinyIntLiteral((byte) 1));
+            bottomProjects = new HashSet<>(bottomProjects);
+            bottomProjects.add(tinyInt);
+            normalizedAggOutput = new ArrayList<>(normalizedAggOutput);
+            Slot tinyIntSlot = tinyInt.toSlot();
+            normalizedAggOutput.add(tinyIntSlot);
+            newNormalizedGroupExprs.add(tinyIntSlot);
         }
         if (slotToLiteral.isEmpty() || newNormalizedGroupExprs.size() == normalizedGroupExprs.size()) {
             return new LogicalProject<>(upperProjects, newAggregate);
