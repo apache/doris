@@ -27,6 +27,8 @@ SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
 
 Status SortLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(PipelineXLocalState<SortSharedState>::open(state));
+    DCHECK(_shared_state->sorter != nullptr);
+    DCHECK(_runtime_profile != nullptr);
     _shared_state->sorter->init_source_profile(_runtime_profile.get());
     return Status::OK();
 }

@@ -68,6 +68,14 @@ TEST_F(SpillSortSourceOperatorTest, Basic) {
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
 
+    LocalSinkStateInfo sink_info {0, _helper.runtime_profile.get(), -1, shared_state.get(), {}, {}};
+
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+    st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+
     auto* local_state = _helper.runtime_state->get_local_state(source_operator->operator_id());
     ASSERT_TRUE(local_state != nullptr);
 
@@ -102,9 +110,6 @@ TEST_F(SpillSortSourceOperatorTest, GetBlock) {
             std::dynamic_pointer_cast<SpillSortSharedState>(sink_operator->create_shared_state());
     ASSERT_TRUE(shared_state != nullptr);
 
-    st = sink_operator->init(tnode, _helper.runtime_state.get());
-    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
-
     shared_state->in_mem_shared_state_sptr = std::make_shared<MockSortSharedState>();
     shared_state->in_mem_shared_state =
             static_cast<SortSharedState*>(shared_state->in_mem_shared_state_sptr.get());
@@ -117,6 +122,14 @@ TEST_F(SpillSortSourceOperatorTest, GetBlock) {
 
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+    LocalSinkStateInfo sink_info {0, _helper.runtime_profile.get(), -1, shared_state.get(), {}, {}};
+
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+    st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
 
     auto* local_state = _helper.runtime_state->get_local_state(source_operator->operator_id());
     ASSERT_TRUE(local_state != nullptr);
