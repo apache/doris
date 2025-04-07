@@ -660,24 +660,13 @@ public:
 #endif
     }
 
-    // Helper function to test index reading with given parameters
-    void test_read_index_file(const std::string& data_dir, const std::string& index_file,
-                              bool enable_compatible_read) {
-        //std::string_view rowset_id = "test_rowset";
-        //int seg_id = 0;
-
-        // Create index metadata
-        auto tablet_schema = create_schema();
-        auto index_meta_pb = std::make_unique<TabletIndexPB>();
-        index_meta_pb->set_index_type(IndexType::INVERTED);
-        index_meta_pb->set_index_id(1);
-        index_meta_pb->set_index_name("test");
-        index_meta_pb->clear_col_unique_id();
-        index_meta_pb->add_col_unique_id(1); // c2 column ID
-
-        TabletIndex idx_meta;
-        idx_meta.init_from_pb(*index_meta_pb.get());
-
+    // Helper function to test index reading with inline validation
+    void test_read_index_file(
+            const TabletIndex& idx_meta, const std::string& data_dir, const std::string& index_file,
+            const std::string& field_name, const std::string& query_term,
+            InvertedIndexStorageFormatPB storage_format, bool enable_compatible_read,
+            uint64_t expected_cardinality,                   // Added expected cardinality parameter
+            const std::vector<uint32_t>& expected_doc_ids) { // Added expected doc IDs parameter
         // Get the index file path
         std::string index_path_prefix = data_dir + "/" + index_file;
 
@@ -689,47 +678,101 @@ public:
         query_options.inverted_index_compatible_read = enable_compatible_read;
         runtime_state.set_query_options(query_options);
 
-        auto reader = std::make_shared<InvertedIndexFileReader>(
-                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        auto reader = std::make_shared<InvertedIndexFileReader>(io::global_local_filesystem(),
+                                                                index_path_prefix, storage_format);
 
         auto status = reader->init();
-        EXPECT_EQ(status, Status::OK());
+        ASSERT_TRUE(status.ok()) << "Failed to initialize InvertedIndexFileReader for "
+                                 << index_file << ": " << status.to_string();
 
-        auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
-        EXPECT_NE(str_reader, nullptr);
+        auto index_reader = FullTextIndexReader::create_shared(&idx_meta, reader);
+        ASSERT_NE(index_reader, nullptr)
+                << "Failed to create FullTextIndexReader for " << index_file;
 
         io::IOContext io_ctx;
-        std::string field_name = "1"; // c2 column unique_id
 
         // Test queries
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-        std::string query_term = "common_term";
         StringRef str_ref(query_term.c_str(), query_term.length());
 
-        auto query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                              InvertedIndexQueryType::EQUAL_QUERY, bitmap);
+        auto query_status =
+                index_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
+                                    InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
 
-        EXPECT_TRUE(query_status.ok()) << query_status;
-        EXPECT_EQ(bitmap->cardinality(), 600) << "Should find 600 documents matching 'common_term'";
-        EXPECT_TRUE(bitmap->contains(0)) << "First document should match 'common_term'";
-        EXPECT_TRUE(bitmap->contains(599)) << "Last document should match 'common_term'";
+        ASSERT_TRUE(query_status.ok()) << "Query failed for term '" << query_term << "' in file "
+                                       << index_file << ": " << query_status.to_string();
+
+        // Perform validation inline
+        ASSERT_NE(bitmap, nullptr)
+                << "Bitmap is null after successful query for file: " << index_file;
+        EXPECT_EQ(bitmap->cardinality(), expected_cardinality)
+                << "File: " << index_file << " - Incorrect cardinality for term '" << query_term
+                << "'";
+        //std::cout << "doc ids:" << bitmap->toString() << std::endl;
+
+        for (uint32_t doc_id : expected_doc_ids) {
+            EXPECT_TRUE(bitmap->contains(doc_id))
+                    << "File: " << index_file << " - Bitmap should contain doc ID " << doc_id
+                    << " for term '" << query_term << "'";
+        }
     }
 
     // Test reading existing large document set index file
     void test_read_existing_large_docset() {
         std::string data_dir = "./be/test/olap/test_data";
 
+        // Helper lambda to create TabletIndex easily
+        auto create_test_index_meta = [](int64_t index_id, const std::string& index_name,
+                                         int64_t col_unique_id) {
+            auto index_meta_pb = std::make_unique<TabletIndexPB>();
+            index_meta_pb->set_index_type(IndexType::INVERTED);
+            index_meta_pb->set_index_id(index_id);
+            index_meta_pb->set_index_name(index_name);
+            index_meta_pb->clear_col_unique_id();
+            index_meta_pb->add_col_unique_id(col_unique_id);
+            index_meta_pb->mutable_properties()->insert({"parser", "english"});
+            index_meta_pb->mutable_properties()->insert({"lower_case", "true"});
+            index_meta_pb->mutable_properties()->insert({"support_phrase", "true"});
+            TabletIndex idx_meta;
+            idx_meta.init_from_pb(*index_meta_pb.get());
+            return idx_meta;
+        };
+
+        // Default metadata, query parameters, and expected results
+        int64_t default_index_id = 10071;
+        std::string default_index_name = "test";
+        int64_t default_col_unique_id = 1;
+        std::string default_field_name = "request";
+        std::string default_query_term = "gif";
+        uint64_t expected_gif_cardinality = 27296;
+        std::vector<uint32_t> expected_gif_doc_ids = {0, 19, 22, 23, 24, 26, 1000, 10278, 44702};
+
         if (is_arm_architecture()) {
             // Test ARM architecture cases
             std::cout << "Testing on ARM architecture" << std::endl;
 
-            // Test with new index format
-            test_read_index_file(data_dir, "x86_256_new", false);
+            TabletIndex meta_x86_new = create_test_index_meta(default_index_id, default_index_name,
+                                                              default_col_unique_id);
+            test_read_index_file(meta_x86_new, data_dir, "x86_256_new", default_field_name,
+                                 default_query_term, InvertedIndexStorageFormatPB::V2, false,
+                                 expected_gif_cardinality, expected_gif_doc_ids);
 
-            // Test with old index format
-            test_read_index_file(data_dir, "x86_256_old", true);
-            test_read_index_file(data_dir, "arm_new", false);
-            test_read_index_file(data_dir, "arm_old", false);
+            TabletIndex meta_x86_old = create_test_index_meta(1743693997395, "request_idx", 2);
+            test_read_index_file(meta_x86_old, data_dir, "x86_256_old", "2", default_query_term,
+                                 InvertedIndexStorageFormatPB::V1, true, expected_gif_cardinality,
+                                 expected_gif_doc_ids);
+
+            TabletIndex meta_arm_new = create_test_index_meta(default_index_id, default_index_name,
+                                                              default_col_unique_id);
+            test_read_index_file(meta_arm_new, data_dir, "arm_new", default_field_name,
+                                 default_query_term, InvertedIndexStorageFormatPB::V2, false,
+                                 expected_gif_cardinality, expected_gif_doc_ids);
+
+            TabletIndex meta_arm_old = create_test_index_meta(default_index_id, default_index_name,
+                                                              default_col_unique_id);
+            test_read_index_file(meta_arm_old, data_dir, "arm_old", default_field_name,
+                                 default_query_term, InvertedIndexStorageFormatPB::V1, true,
+                                 expected_gif_cardinality, expected_gif_doc_ids);
 
         } else {
             // Test x86 architecture cases
@@ -737,18 +780,353 @@ public:
 
             if (has_avx2_support()) {
                 std::cout << "Testing with AVX2 support" << std::endl;
-                // Test with AVX2 optimized index files
-                test_read_index_file(data_dir, "arm_new", false);
-                test_read_index_file(data_dir, "arm_old", true);
-                test_read_index_file(data_dir, "x86_256_new", false);
-                test_read_index_file(data_dir, "x86_256_old", false);
+                {
+                    TabletIndex meta_arm_old_v2 =
+                            create_test_index_meta(1744016478578, "request_idx", 2);
+                    std::string field_name_avx2 = "2";
+                    default_query_term = "gif";
+                    expected_gif_cardinality = 37284;
+                    expected_gif_doc_ids = {0,    19,   110,   1000,  2581,
+                                            7197, 9091, 16711, 29676, 44702};
+                    test_read_index_file(meta_arm_old_v2, data_dir, "arm_old_v2", field_name_avx2,
+                                         default_query_term, InvertedIndexStorageFormatPB::V2, true,
+                                         expected_gif_cardinality, expected_gif_doc_ids);
+                    default_query_term = "/english/index.html";
+                    expected_gif_cardinality = 359;
+                    expected_gif_doc_ids = {
+                            25,    63,    66,    135,   214,   276,   287,   321,   653,   819,
+                            968,   1038,  1115,  1210,  1305,  1394,  1650,  1690,  1761,  1934,
+                            1935,  2101,  2114,  2544,  2815,  2912,  3028,  3104,  3475,  3953,
+                            3991,  4052,  4097,  4424,  4430,  4458,  4504,  4571,  4629,  4704,
+                            4711,  4838,  5021,  5322,  5362,  5414,  5461,  5524,  5681,  5828,
+                            5877,  6031,  6123,  6249,  6298,  6575,  6626,  6637,  6692,  6708,
+                            6765,  6926,  6953,  7061,  7089,  7144,  7147,  7184,  7342,  7461,
+                            7615,  7703,  7818,  8002,  8014,  8280,  8369,  8398,  8440,  8554,
+                            8675,  8682,  8780,  9064,  9379,  9448,  9455,  9639,  10036, 10124,
+                            10164, 10224, 10246, 10568, 10736, 10750, 10914, 10930, 10944, 10970,
+                            11149, 11434, 11435, 11534, 11862, 11961, 12187, 12247, 12344, 12479,
+                            12632, 12923, 13015, 13018, 13122, 13277, 13357, 13459, 13466, 13597,
+                            13792, 13857, 13952, 14096, 14127, 14211, 14221, 14344, 14563, 14567,
+                            14588, 14606, 14692, 14868, 14880, 14990, 15085, 15101, 15211, 15218,
+                            15439, 15530, 15564, 15676, 15695, 15727, 15754, 15846, 15895, 15904,
+                            15983, 16004, 16299, 16423, 16476, 16530, 16954, 17045, 17202, 17393,
+                            17592, 17693, 17829, 17852, 18018, 18224, 18335, 18881, 18942, 19162,
+                            19387, 19401, 19418, 19434, 19525, 19710, 19805, 20054, 20126, 20127,
+                            20407, 20572, 20742, 20929, 21023, 21024, 21248, 21267, 21354, 21452,
+                            21704, 21810, 21831, 21847, 21900, 22202, 22328, 22599, 22629, 22671,
+                            22761, 22762, 22824, 23139, 23478, 23784, 23797, 23884, 23886, 23983,
+                            24128, 24137, 24176, 24253, 24434, 24484, 24518, 24538, 24655, 24849,
+                            24853, 24865, 24888, 25163, 25256, 25274, 25307, 25613, 25816, 26225,
+                            26323, 26459, 26461, 26476, 26580, 26598, 26800, 26932, 26962, 27202,
+                            27499, 27506, 27768, 27923, 28049, 28133, 28305, 28468, 28535, 28670,
+                            28717, 28782, 29154, 29692, 29742, 30112, 30125, 30289, 30353, 30437,
+                            30734, 30741, 30848, 30933, 31332, 31399, 31581, 31841, 31867, 32025,
+                            32446, 32463, 32712, 32947, 33038, 33210, 33325, 33563, 33572, 33757,
+                            33947, 33975, 34016, 34041, 34210, 34627, 34684, 34732, 35064, 35684,
+                            35787, 35809, 35811, 35996, 36272, 36389, 36418, 36420, 36568, 36847,
+                            36956, 37022, 37189, 37200, 37401, 37484, 37581, 37852, 37939, 38156,
+                            38269, 38785, 38874, 39072, 39081, 39094, 39157, 39187, 39308, 39562,
+                            39676, 39690, 39814, 39848, 40134, 40350, 40352, 40684, 41143, 41249,
+                            41416, 41463, 41738, 41840, 41875, 42028, 42077, 42104, 42439, 42467,
+                            42528, 42784, 42793, 42970, 43020, 43418, 43430, 43571, 43809, 43811,
+                            44040, 44057, 44081, 44168, 44288, 44329, 44608, 44624, 44690};
+                    test_read_index_file(meta_arm_old_v2, data_dir, "arm_old_v2", field_name_avx2,
+                                         default_query_term, InvertedIndexStorageFormatPB::V2, true,
+                                         expected_gif_cardinality, expected_gif_doc_ids);
+                }
+                {
+                    TabletIndex meta_arm_old_v1 =
+                            create_test_index_meta(1744016478651, "request_idx", 2);
+                    std::string field_name_avx2 = "request";
+                    default_query_term = "gif";
+                    expected_gif_cardinality = 40962;
+                    expected_gif_doc_ids = {0,    21,   110,   1000,  2581,
+                                            7196, 9091, 16712, 26132, 44702};
+                    test_read_index_file(meta_arm_old_v1, data_dir, "arm_old", field_name_avx2,
+                                         default_query_term, InvertedIndexStorageFormatPB::V1, true,
+                                         expected_gif_cardinality, expected_gif_doc_ids);
+                    default_query_term = "/english/index.html";
+                    expected_gif_cardinality = 402;
+                    expected_gif_doc_ids = {
+                            36,    41,    242,   628,   716,   741,   884,   902,   1025,  1129,
+                            1349,  1401,  1871,  1873,  2074,  2184,  2420,  2815,  3138,  3164,
+                            3189,  3302,  3308,  3347,  3430,  3475,  3645,  3772,  3803,  3921,
+                            4036,  4080,  4127,  4419,  4424,  4450,  4526,  4546,  4608,  4668,
+                            4701,  5223,  5274,  5366,  5438,  5670,  6109,  6176,  6386,  6412,
+                            6466,  6554,  6594,  6761,  6941,  6957,  7076,  7173,  7178,  7208,
+                            7263,  7370,  7489,  7726,  7800,  8293,  8309,  8469,  8588,  8759,
+                            8914,  9242,  9254,  9334,  9354,  9422,  9476,  9515,  9545,  9709,
+                            9714,  9741,  9982,  9995,  10145, 10284, 10384, 10464, 10508, 10641,
+                            10720, 10771, 10810, 10935, 11097, 11367, 11525, 11554, 11574, 11660,
+                            11857, 11930, 12025, 12078, 12203, 12237, 12245, 12297, 12432, 12466,
+                            12601, 12745, 12893, 12928, 13127, 13157, 13173, 13336, 13458, 13517,
+                            13553, 13681, 13747, 13893, 13935, 14108, 14191, 14265, 14408, 14439,
+                            14468, 14528, 14565, 14587, 14618, 14642, 14993, 15010, 15260, 15358,
+                            15453, 15539, 15557, 15586, 15594, 15728, 15893, 15904, 16156, 16304,
+                            16408, 16532, 16789, 16974, 17015, 17294, 17330, 17347, 17733, 17773,
+                            17981, 17992, 18015, 18209, 18211, 18278, 18566, 18603, 18643, 18912,
+                            19327, 19419, 19538, 19700, 19714, 19872, 19873, 19895, 19971, 20118,
+                            20379, 20515, 20526, 20781, 20967, 21108, 21163, 21179, 21431, 21474,
+                            21595, 21749, 21822, 21848, 21999, 22314, 22476, 22539, 22677, 23070,
+                            23071, 23491, 23841, 23986, 24017, 24109, 24139, 24196, 24301, 24355,
+                            24742, 24965, 24970, 24987, 25254, 25268, 25287, 25331, 26050, 26133,
+                            26238, 26364, 26388, 26435, 26804, 26844, 26849, 26934, 27190, 27294,
+                            27441, 27467, 27679, 27702, 27762, 27772, 27821, 27844, 27860, 27912,
+                            28068, 28115, 28301, 28304, 28379, 28440, 28816, 28885, 28948, 28966,
+                            29348, 29484, 29509, 29902, 29908, 29917, 29951, 30127, 30181, 30693,
+                            30779, 30861, 30903, 31061, 31358, 31646, 31658, 31713, 31782, 31815,
+                            31905, 31967, 32019, 32333, 32376, 32394, 32452, 32635, 32709, 32973,
+                            33505, 33506, 33602, 33693, 33751, 33793, 33942, 33993, 34106, 34413,
+                            34508, 34526, 34798, 34974, 34999, 35033, 35106, 35159, 35200, 35288,
+                            35305, 35355, 35373, 35522, 35583, 35602, 35716, 35956, 36022, 36035,
+                            36264, 36315, 36359, 36525, 36601, 36616, 36627, 36677, 36939, 36970,
+                            37050, 37139, 37218, 37287, 37445, 37467, 37502, 37521, 37552, 37635,
+                            37705, 37737, 37786, 37855, 38242, 38410, 38790, 38881, 39036, 39051,
+                            39103, 39123, 39165, 39195, 39373, 39425, 39464, 39476, 39499, 39627,
+                            39657, 39754, 39804, 40029, 40510, 40651, 40660, 40745, 40974, 41163,
+                            41275, 41515, 41847, 41931, 42030, 42174, 42385, 42448, 42462, 43183,
+                            43243, 43279, 43417, 43645, 43698, 44144, 44425, 44430, 44625, 44739,
+                            44849, 44993, 45335, 45343, 45561, 45594, 45734, 45978, 46070, 46162,
+                            46378, 46449, 46704, 46833, 47257, 47268, 47548, 47984, 47990, 48101,
+                            48545, 48661};
+                    test_read_index_file(meta_arm_old_v1, data_dir, "arm_old", field_name_avx2,
+                                         default_query_term, InvertedIndexStorageFormatPB::V1, true,
+                                         expected_gif_cardinality, expected_gif_doc_ids);
+                }
+                {
+                    TabletIndex meta_arm_new_v2 = create_test_index_meta(1744017919311, "request_idx", 2);
+                    std::string field_name_avx2 = "2";
+                    default_query_term = "gif";
+                    expected_gif_cardinality = 37170;
+                    expected_gif_doc_ids = {0, 18, 110, 1000, 2581, 7196, 9090, 16711, 10276, 44702};
+                    test_read_index_file(meta_arm_new_v2, data_dir, "arm_new_v2", field_name_avx2,
+                                         default_query_term, InvertedIndexStorageFormatPB::V2, false,
+                                         expected_gif_cardinality, expected_gif_doc_ids);
+                    default_query_term = "/english/index.html";
+                    expected_gif_cardinality = 356;
+                    expected_gif_doc_ids = {
+                            260,   329,   334,   347,   459,   471,   568,   676,   689,   718,
+                            760,   1267,  1421,  1477,  2363,  2523,  2571,  2725,  2941,  3125,
+                            3148,  3306,  3459,  3808,  3856,  3933,  4022,  4076,  4386,  4815,
+                            4818,  4898,  4938,  4970,  4975,  5192,  5302,  5320,  5417,  5470,
+                            5752,  5875,  6007,  6143,  6425,  6597,  6639,  6761,  6961,  6977,
+                            6983,  7045,  7179,  7214,  7350,  7393,  7436,  7485,  7518,  7592,
+                            7739,  7856,  7921,  7957,  8006,  8116,  8411,  8664,  8716,  8728,
+                            8747,  8809,  8883,  8907,  8931,  8995,  9089,  9393,  9611,  9746,
+                            9787,  9963,  10080, 10230, 10348, 10464, 10494, 10547, 10552, 10666,
+                            10813, 10847, 10989, 11134, 11298, 11531, 11605, 11654, 11720, 11791,
+                            11835, 11994, 12012, 12068, 12232, 12272, 12336, 12438, 12537, 12646,
+                            12738, 12768, 12923, 12925, 13173, 13186, 13187, 13251, 13503, 13830,
+                            13973, 14121, 14291, 14378, 14380, 14389, 14453, 14495, 14508, 14620,
+                            14686, 14872, 15241, 15275, 15491, 15564, 15652, 15951, 15966, 16287,
+                            16289, 16531, 16681, 16914, 16919, 17079, 17382, 17393, 17860, 17961,
+                            18158, 18191, 18578, 18692, 18741, 18987, 19038, 19117, 19271, 19641,
+                            19723, 20253, 20259, 20473, 20766, 20863, 21419, 21424, 21908, 22325,
+                            22327, 22449, 22701, 22852, 22867, 22906, 22912, 22958, 23175, 23203,
+                            23332, 23461, 23493, 23746, 23921, 24257, 24328, 24411, 24479, 24747,
+                            24816, 25462, 25492, 25528, 25872, 25944, 26164, 26414, 26463, 26688,
+                            26779, 27033, 27283, 27303, 27858, 27948, 28248, 28372, 28402, 28460,
+                            28478, 28897, 29019, 29053, 29140, 29216, 29299, 29393, 29414, 29575,
+                            29789, 29803, 29805, 29934, 30270, 30278, 30291, 30301, 30433, 30493,
+                            30698, 30723, 30737, 30751, 31015, 31167, 31447, 32136, 32138, 32296,
+                            32318, 32374, 32585, 32747, 32815, 32964, 33060, 33144, 33159, 33315,
+                            33342, 33543, 33753, 33767, 33990, 34176, 34375, 34422, 34455, 34538,
+                            34563, 34708, 34738, 35050, 35130, 35137, 35220, 35422, 35484, 35487,
+                            35603, 35697, 35717, 35986, 36114, 36116, 36230, 36288, 36332, 36469,
+                            36520, 36572, 36727, 36959, 37099, 37152, 37400, 37473, 37712, 37838,
+                            37920, 38264, 38354, 38431, 38646, 38692, 38757, 38888, 38909, 38945,
+                            39078, 39103, 39125, 39138, 39155, 39274, 39412, 39553, 39577, 39583,
+                            39653, 39706, 39895, 39934, 39978, 40023, 40154, 40250, 40259, 40310,
+                            40357, 40376, 40457, 40643, 40665, 40881, 40990, 41368, 41379, 41519,
+                            41578, 41641, 41680, 42260, 42357, 42391, 42461, 42561, 42575, 42781,
+                            42810, 42844, 43026, 43028, 43046, 43145, 43386, 43388, 43576, 43667,
+                            43798, 43983, 44280, 44453, 44591, 44634};
+                    test_read_index_file(meta_arm_new_v2, data_dir, "arm_new_v2", field_name_avx2,
+                                         default_query_term, InvertedIndexStorageFormatPB::V2, false,
+                                         expected_gif_cardinality, expected_gif_doc_ids);
+                }
+                {
+                    TabletIndex meta_arm_new_v1 =
+                        create_test_index_meta(1744017919441, "request_idx", 2);
+                    std::string field_name_avx2 = "request";
+                    default_query_term = "gif";
+                    expected_gif_cardinality = 37343;
+                    expected_gif_doc_ids = {0, 21, 110, 1000, 2580, 7195, 9091, 16711, 26131, 44702};
+                    test_read_index_file(meta_arm_new_v1, data_dir, "arm_new", field_name_avx2,
+                                         default_query_term, InvertedIndexStorageFormatPB::V1, false,
+                                         expected_gif_cardinality, expected_gif_doc_ids);
+                    default_query_term = "/english/index.html";
+                    expected_gif_cardinality = 346;
+                    expected_gif_doc_ids = {
+                            3,     222,   502,   649,   671,   814,   1101,  1110,  1286,  1329,
+                            1350,  1409,  1478,  1598,  1621,  1627,  1686,  1895,  2218,  2304,
+                            2429,  2654,  2735,  2798,  2799,  2828,  2966,  3050,  3083,  3261,
+                            3296,  3574,  3625,  3653,  4053,  4128,  4192,  4200,  4594,  4623,
+                            4747,  5284,  5371,  5379,  5467,  5567,  5694,  5714,  5723,  5903,
+                            5954,  6120,  6187,  6226,  6451,  6664,  6723,  6748,  6958,  7319,
+                            7933,  7947,  8041,  8156,  8203,  8205,  8568,  8626,  8777,  8923,
+                            8999,  9088,  9193,  9239,  9282,  9358,  9386,  9531,  9589,  9599,
+                            9864,  10006, 10229, 10370, 10523, 10751, 10854, 10864, 10883, 11045,
+                            11077, 11134, 11149, 11252, 11258, 11260, 11432, 11488, 11578, 11599,
+                            11765, 11826, 11929, 12124, 12154, 12277, 12339, 12410, 12432, 12500,
+                            12612, 12618, 12654, 12872, 12929, 12987, 13173, 13293, 13306, 13397,
+                            13559, 13800, 14017, 14180, 14195, 14283, 14385, 14481, 14659, 14728,
+                            14738, 15150, 15574, 15586, 15774, 15914, 15968, 16093, 16131, 16155,
+                            16337, 16340, 16391, 16420, 16577, 16632, 16836, 16874, 16883, 16896,
+                            16954, 17060, 17241, 17302, 17359, 17601, 17985, 18017, 18043, 18084,
+                            18334, 18539, 18637, 18831, 18864, 19068, 19075, 19140, 19445, 19487,
+                            19495, 19559, 19648, 19656, 19770, 19880, 20284, 20311, 20358, 20439,
+                            21103, 21252, 21382, 21429, 21678, 21765, 21773, 21779, 21877, 22067,
+                            22318, 22607, 22713, 22719, 22929, 23074, 23148, 23209, 23500, 23611,
+                            23614, 23709, 23761, 23952, 23999, 24120, 24217, 24503, 24656, 24675,
+                            24842, 24924, 24970, 25144, 25582, 25767, 25923, 26184, 26206, 26344,
+                            26376, 26529, 26682, 26686, 26803, 26896, 26921, 26951, 26982, 27033,
+                            27075, 27163, 27166, 27299, 27567, 27682, 28010, 28173, 28368, 28423,
+                            28440, 28590, 28801, 28990, 28994, 29138, 29256, 29300, 29657, 29769,
+                            30018, 30086, 30154, 30189, 30382, 30385, 30445, 30456, 30489, 30545,
+                            30908, 30931, 31009, 31267, 31297, 31336, 31696, 31728, 31735, 31943,
+                            32155, 32244, 32342, 32431, 32569, 32733, 32799, 32817, 32903, 33078,
+                            33552, 34064, 34604, 34705, 35186, 35256, 35284, 35295, 35494, 35745,
+                            35943, 36051, 36343, 36430, 36452, 36666, 36697, 36763, 36822, 36890,
+                            37511, 37547, 37706, 38256, 38581, 38911, 38931, 38955, 38998, 39131,
+                            39135, 39255, 39312, 39394, 39459, 39635, 39707, 40190, 40215, 40708,
+                            41063, 41264, 41361, 41593, 41699, 41864, 42190, 42363, 42444, 42873,
+                            42983, 43314, 43587, 43693, 43880, 43908, 43909, 43925, 43978, 43986,
+                            44071, 44183, 44340, 44398, 44466, 44498};
+                    test_read_index_file(meta_arm_new_v1, data_dir, "arm_new", field_name_avx2,
+                                         default_query_term, InvertedIndexStorageFormatPB::V1, false,
+                                         expected_gif_cardinality, expected_gif_doc_ids);
+                }
+                {
+                    TabletIndex meta_x86_old_v2 = create_test_index_meta(10083, "request_idx", 2);
+                    std::string field_name_avx2 = "2";
+                    default_query_term = "gif";
+                    expected_gif_cardinality = 37343;
+                    expected_gif_doc_ids = {0,    19,   110,   1000,  2581,
+                                            7196, 9090, 16711, 10278, 44702};
+                    test_read_index_file(meta_x86_old_v2, data_dir, "x86_old_v2", field_name_avx2,
+                                         default_query_term, InvertedIndexStorageFormatPB::V2,
+                                         false, expected_gif_cardinality, expected_gif_doc_ids);
+                    default_query_term = "/english/index.html";
+                    expected_gif_cardinality = 346;
+                    expected_gif_doc_ids = {
+                            3,     222,   502,   649,   671,   814,   1101,  1110,  1286,  1329,
+                            1350,  1409,  1478,  1598,  1621,  1627,  1686,  1895,  2218,  2304,
+                            2429,  2654,  2735,  2798,  2799,  2828,  2966,  3050,  3083,  3261,
+                            3296,  3574,  3625,  3653,  4053,  4128,  4192,  4200,  4594,  4623,
+                            4747,  5284,  5371,  5379,  5467,  5567,  5694,  5714,  5723,  5903,
+                            5954,  6120,  6187,  6226,  6451,  6664,  6723,  6748,  6958,  7319,
+                            7933,  7947,  8041,  8156,  8203,  8205,  8568,  8626,  8777,  8923,
+                            8999,  9088,  9193,  9239,  9282,  9358,  9386,  9531,  9589,  9599,
+                            9864,  10006, 10229, 10370, 10523, 10751, 10854, 10864, 10883, 11045,
+                            11077, 11134, 11149, 11252, 11258, 11260, 11432, 11488, 11578, 11599,
+                            11765, 11826, 11929, 12124, 12154, 12277, 12339, 12410, 12432, 12500,
+                            12612, 12618, 12654, 12872, 12929, 12987, 13173, 13293, 13306, 13397,
+                            13559, 13800, 14017, 14180, 14195, 14283, 14385, 14481, 14659, 14728,
+                            14738, 15150, 15574, 15586, 15774, 15914, 15968, 16093, 16131, 16155,
+                            16337, 16340, 16391, 16420, 16577, 16632, 16836, 16874, 16883, 16896,
+                            16954, 17060, 17241, 17302, 17359, 17601, 17985, 18017, 18043, 18084,
+                            18334, 18539, 18637, 18831, 18864, 19068, 19075, 19140, 19445, 19487,
+                            19495, 19559, 19648, 19656, 19770, 19880, 20284, 20311, 20358, 20439,
+                            21103, 21252, 21382, 21429, 21678, 21765, 21773, 21779, 21877, 22067,
+                            22318, 22607, 22713, 22719, 22929, 23074, 23148, 23209, 23500, 23611,
+                            23614, 23709, 23761, 23952, 23999, 24120, 24217, 24503, 24656, 24675,
+                            24842, 24924, 24970, 25144, 25582, 25767, 25923, 26184, 26206, 26344,
+                            26376, 26529, 26682, 26686, 26803, 26896, 26921, 26951, 26982, 27033,
+                            27075, 27163, 27166, 27299, 27567, 27682, 28010, 28173, 28368, 28423,
+                            28440, 28590, 28801, 28990, 28994, 29138, 29256, 29300, 29657, 29769,
+                            30018, 30086, 30154, 30189, 30382, 30385, 30445, 30456, 30489, 30545,
+                            30908, 30931, 31009, 31267, 31297, 31336, 31696, 31728, 31735, 31943,
+                            32155, 32244, 32342, 32431, 32569, 32733, 32799, 32817, 32903, 33078,
+                            33552, 34064, 34604, 34705, 35186, 35256, 35284, 35295, 35494, 35745,
+                            35943, 36051, 36343, 36430, 36452, 36666, 36697, 36763, 36822, 36890,
+                            37511, 37547, 37706, 38256, 38581, 38911, 38931, 38955, 38998, 39131,
+                            39135, 39255, 39312, 39394, 39459, 39635, 39707, 40190, 40215, 40708,
+                            41063, 41264, 41361, 41593, 41699, 41864, 42190, 42363, 42444, 42873,
+                            42983, 43314, 43587, 43693, 43880, 43908, 43909, 43925, 43978, 43986,
+                            44071, 44183, 44340, 44398, 44466, 44498};
+                    test_read_index_file(meta_x86_old_v2, data_dir, "x86_old_v2", field_name_avx2,
+                                         default_query_term, InvertedIndexStorageFormatPB::V2,
+                                         false, expected_gif_cardinality, expected_gif_doc_ids);
+                }
+                {
+                    TabletIndex meta_x86_old_v1 = create_test_index_meta(10248, "request_idx", 2);
+                    std::string field_name_avx2 = "request";
+                    default_query_term = "gif";
+                    expected_gif_cardinality = 40893;
+                    expected_gif_doc_ids = {0,    19,   110,   1001,  2581,
+                                            7196, 9090, 16711, 10278, 44701};
+                    test_read_index_file(meta_x86_old_v1, data_dir, "x86_old", field_name_avx2,
+                                         default_query_term, InvertedIndexStorageFormatPB::V1,
+                                         false, expected_gif_cardinality, expected_gif_doc_ids);
+                    default_query_term = "/english/index.html";
+                    expected_gif_cardinality = 356;
+                    expected_gif_doc_ids = {
+                            622,   754,   1021,  1186,  1403,  1506,  1655,  1661,  1833,  2287,
+                            2356,  2425,  2849,  3198,  3350,  3365,  3416,  3423,  3499,  3541,
+                            3609,  3682,  3936,  4117,  4198,  4589,  4591,  4808,  4959,  5282,
+                            5332,  5495,  5560,  5624,  5773,  5831,  6138,  6180,  6361,  6372,
+                            6621,  6777,  6878,  6911,  6983,  7048,  7148,  7207,  7273,  7274,
+                            7385,  7545,  7735,  7904,  7912,  8150,  8215,  8238,  8363,  8598,
+                            8672,  8765,  8877,  9188,  9264,  9761,  9864,  9866,  9946,  10022,
+                            10139, 10143, 10146, 10184, 10291, 10304, 10308, 10332, 10371, 10695,
+                            10707, 11056, 11095, 11111, 11505, 11752, 11860, 11989, 12119, 12156,
+                            12655, 12764, 12792, 13055, 13636, 13824, 13902, 13912, 14061, 14152,
+                            14315, 14355, 14618, 14712, 14788, 15050, 15057, 15110, 15122, 15249,
+                            15267, 15281, 15735, 15848, 15939, 16117, 16327, 16331, 16597, 16739,
+                            16868, 17092, 17458, 17553, 17602, 17664, 17781, 18061, 18353, 18397,
+                            18468, 18717, 18726, 19131, 19209, 19402, 19551, 19812, 20128, 20146,
+                            20232, 20322, 20407, 20431, 20436, 20466, 20757, 20960, 20994, 21197,
+                            21254, 21487, 21561, 21602, 21662, 21710, 21754, 21826, 21965, 22091,
+                            22200, 22203, 22291, 22317, 22561, 22584, 22606, 22950, 23140, 23315,
+                            23442, 23858, 24026, 24322, 24581, 24617, 24655, 24756, 24974, 25191,
+                            25246, 25287, 25406, 25599, 25830, 26020, 26109, 26149, 26402, 26431,
+                            26451, 26458, 26495, 26766, 26777, 26848, 26966, 27053, 27089, 27177,
+                            27519, 27595, 27693, 28294, 28719, 28755, 29073, 29323, 29472, 29496,
+                            29604, 29761, 29772, 29953, 30030, 30083, 30139, 30210, 30719, 30774,
+                            30868, 30897, 31200, 31347, 31811, 31880, 31903, 32040, 32048, 32225,
+                            32335, 32357, 32517, 32579, 32679, 32821, 33294, 33393, 33509, 33675,
+                            33802, 34390, 34441, 34474, 34547, 34557, 35057, 35262, 35327, 35348,
+                            35455, 35482, 35668, 35811, 35845, 35953, 36098, 36151, 36602, 36711,
+                            36946, 37036, 37220, 37291, 37436, 37721, 37747, 37864, 37890, 37923,
+                            38045, 38588, 38654, 38730, 38930, 39169, 39814, 40401, 40689, 40762,
+                            40822, 41249, 41399, 41419, 41572, 41736, 41768, 41946, 41989, 42077,
+                            42079, 42225, 42360, 42524, 42576, 42595, 42691, 42784, 42892, 42930,
+                            43210, 43299, 43348, 43468, 43510, 43622, 43795, 43824, 43893, 43972,
+                            43975, 43998, 44008, 44023, 44031, 44049, 44139, 44518, 44555, 44597,
+                            44815, 44879, 45014, 45020, 45054, 45084, 45100, 45464, 45471, 45505,
+                            45580, 45593, 45686, 45991, 46019, 46021, 46107, 46138, 46197, 46209,
+                            46551, 46658, 46988, 47027, 47046, 47071, 47106, 47190, 47225, 47439,
+                            47465, 47531, 47602, 47660, 48453, 48575};
+                    test_read_index_file(meta_x86_old_v1, data_dir, "x86_old", field_name_avx2,
+                                         default_query_term, InvertedIndexStorageFormatPB::V1,
+                                         false, expected_gif_cardinality, expected_gif_doc_ids);
+                }
             } else {
                 std::cout << "Testing with SSE support" << std::endl;
-                // Test with SSE optimized index files
-                test_read_index_file(data_dir, "x86_256_new", false);
-                test_read_index_file(data_dir, "x86_256_old", true);
-                test_read_index_file(data_dir, "arm_new", false);
-                test_read_index_file(data_dir, "arm_old", true);
+                TabletIndex meta_x86_new_sse = create_test_index_meta(
+                        default_index_id, default_index_name, default_col_unique_id);
+                test_read_index_file(meta_x86_new_sse, data_dir, "x86_256_new", default_field_name,
+                                     default_query_term, InvertedIndexStorageFormatPB::V2, false,
+                                     expected_gif_cardinality, expected_gif_doc_ids);
+
+                TabletIndex meta_x86_old_sse =
+                        create_test_index_meta(1743693997395, "request_idx", 2);
+                test_read_index_file(meta_x86_old_sse, data_dir, "x86_256_old", "2",
+                                     default_query_term, InvertedIndexStorageFormatPB::V1, true,
+                                     expected_gif_cardinality, expected_gif_doc_ids);
+
+                TabletIndex meta_arm_new_sse = create_test_index_meta(
+                        default_index_id, default_index_name, default_col_unique_id);
+                test_read_index_file(meta_arm_new_sse, data_dir, "arm_new", default_field_name,
+                                     default_query_term, InvertedIndexStorageFormatPB::V2, false,
+                                     expected_gif_cardinality, expected_gif_doc_ids);
+
+                TabletIndex meta_arm_old_sse = create_test_index_meta(
+                        default_index_id, default_index_name, default_col_unique_id);
+                test_read_index_file(meta_arm_old_sse, data_dir, "arm_old", default_field_name,
+                                     default_query_term, InvertedIndexStorageFormatPB::V1, true,
+                                     expected_gif_cardinality, expected_gif_doc_ids);
             }
         }
     }
