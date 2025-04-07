@@ -79,7 +79,7 @@ suite("month_quarter_cast_in_prune") {
     };
     explain {
         sql "select * from test_month where cast(dt as date) > '2022-02-26'"
-        contains("partitions=5/11 (p7,p8,p9,p10,p11)")
+        contains("partitions=1/11 (p11)")
     }
 
     explain {
@@ -88,7 +88,7 @@ suite("month_quarter_cast_in_prune") {
     }
     explain {
         sql "select * from test_month where quarter(dt)>1 or cast(dt as date) > '2022-02-26'"
-        contains("partitions=8/11 (p1,p4,p5,p7,p8,p9,p10,p11)")
+        contains("partitions=4/11 (p1,p4,p5,p11)")
     }
     explain {
         sql "select * from test_month where day(dt)>80"

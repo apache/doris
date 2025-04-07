@@ -57,7 +57,7 @@ suite("test_get_binlog_case_index") {
             `hobbies` text NULL,
             `score` int(11) NULL,
             index index_name (name) using inverted,
-            index index_hobbies (hobbies) using inverted properties("parser"="english"),
+            index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
             index index_score (score) using inverted
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
@@ -75,7 +75,7 @@ suite("test_get_binlog_case_index") {
             `hobbies` text NULL,
             `score` int(11) NULL,
             index index_name (name) using inverted,
-            index index_hobbies (hobbies) using inverted properties("parser"="english"),
+            index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
             index index_score (score) using inverted
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)
@@ -93,7 +93,7 @@ suite("test_get_binlog_case_index") {
             `hobbies` text NULL,
             `score` int(11) NULL,
             index index_name (name) using inverted,
-            index index_hobbies (hobbies) using inverted properties("parser"="english"),
+            index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
             index index_score (score) using inverted
         ) ENGINE=OLAP
         UNIQUE KEY(`id`)
@@ -114,7 +114,7 @@ suite("test_get_binlog_case_index") {
             `hobbies` text NULL,
             `score` int(11) NULL,
             index index_name (name) using inverted,
-            index index_hobbies (hobbies) using inverted properties("parser"="english"),
+            index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
             index index_score (score) using inverted
         ) ENGINE=OLAP
         UNIQUE KEY(`id`)
@@ -216,7 +216,7 @@ suite("test_get_binlog_case_index") {
             `hobbies` text NULL,
             `score` int(11) NULL,
             index index_name (name) using inverted,
-            index index_hobbies (hobbies) using inverted properties("parser"="english"),
+            index index_hobbies (hobbies) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
             index index_score (score) using inverted
         ) ENGINE=OLAP
         DUPLICATE KEY(`id`)

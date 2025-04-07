@@ -27,10 +27,14 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -98,6 +102,12 @@ public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId
         }
         if (removedExpression.isEmpty()) {
             return aggregate;
+        }
+        /* select 1 c1 from test group by c; -> select 1 c1 from test limit 1 */
+        if (newGroupBy.isEmpty() && aggregate.getAggregateFunctions().isEmpty()) {
+            LogicalProject<Plan> newProject = new LogicalProject<>(
+                    Utils.fastToImmutableList(aggregate.getOutput()), aggregate.child());
+            return new LogicalLimit<Plan>(1, 0, LimitPhase.GLOBAL, newProject);
         }
         // when newGroupBy is empty, need retain one expr in group by, otherwise the result may be wrong in empty table
         if (newGroupBy.isEmpty()) {

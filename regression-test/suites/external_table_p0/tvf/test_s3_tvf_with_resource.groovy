@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_s3_tvf_with_resource", "p0") {
+suite("test_s3_tvf_with_resource", "p0,external,external_docker") {
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
@@ -203,7 +203,7 @@ suite("test_s3_tvf_with_resource", "p0") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
     // not have usage priv, can not select tvf with resource
     connect(user, "${pwd}", url) {

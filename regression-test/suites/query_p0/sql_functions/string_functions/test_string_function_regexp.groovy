@@ -91,7 +91,7 @@ suite("test_string_function_regexp") {
             ("billie eillish"),
             ("billie eillish")
         """
-    qt_sql_regexp_null "SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/regexp_extract(k, cast(null as varchar), 1) from test_string_function_regexp;"
+    qt_sql_regexp_null "SELECT /*+SET_VAR(parallel_pipeline_task_num=1)*/regexp_extract(k, cast(null as varchar), 1) from test_string_function_regexp;"
     // end bug fix
 
     sql "DROP TABLE ${tbName};"

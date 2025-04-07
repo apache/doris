@@ -110,6 +110,7 @@ public class DateLiteral extends LiteralExpr {
     private static Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
     private static Set<Character> TIME_PART_SET = Sets.newHashSet();
+    private static String MICRO_SECOND_FORMATTER = "%f";
     private static final int[] DAYS_IN_MONTH = new int[]{0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     private static final WeekFields weekFields = WeekFields.of(DayOfWeek.SUNDAY, 7);
 
@@ -669,7 +670,7 @@ public class DateLiteral extends LiteralExpr {
             return diff < 0 ? -1 : (diff == 0 ? 0 : 1);
         }
         // date time will not overflow when doing addition and subtraction
-        return getStringValue().compareTo(expr.getStringValue());
+        return Integer.signum(getStringValue().compareTo(expr.getStringValue()));
     }
 
     @Override
@@ -1025,6 +1026,10 @@ public class DateLiteral extends LiteralExpr {
 
     public static boolean hasTimePart(String format) {
         return format.chars().anyMatch(c -> TIME_PART_SET.contains((char) c));
+    }
+
+    public static boolean hasMicroSecondPart(String format) {
+        return format.indexOf(MICRO_SECOND_FORMATTER) != -1;
     }
 
     // Return the date stored in the dateliteral as pattern format.

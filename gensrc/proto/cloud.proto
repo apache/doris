@@ -514,6 +514,7 @@ message TabletCompactionJobPB {
         CUMULATIVE = 2;
         EMPTY_CUMULATIVE = 3; // just update cumulative point
         FULL = 4;
+        STOP_TOKEN = 5; // fail existing compactions and deny newly incomming compactions
     }
     // IP and port of the node which initiates this job
     optional string initiator = 1; // prepare
@@ -995,6 +996,16 @@ message GetRowsetResponse {
     optional SchemaCloudDictionary schema_dict = 4; 
 }
 
+message GetSchemaDictRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 index_id = 2;
+}
+
+message GetSchemaDictResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional SchemaCloudDictionary schema_dict = 2;
+}
+
 message IndexRequest {
     optional string cloud_unique_id = 1; // For auth
     repeated int64 index_ids = 2;
@@ -1095,6 +1106,8 @@ message AlterClusterRequest {
     optional string cloud_unique_id = 2; // For auth
     optional ClusterPB cluster = 3;
     optional Operation op = 4;
+    // for SQL mode rename cluster, rename to cluster name eq instance empty cluster name, need drop empty cluster
+    optional bool replace_if_existing_empty_target_cluster = 5;
 }
 
 message AlterClusterResponse {
@@ -1381,13 +1394,15 @@ enum MetaServiceCode {
     LOCK_EXPIRED = 8001;
     LOCK_CONFLICT = 8002;
     ROWSETS_EXPIRED = 8003;
-    PENDING_DELETE_BITMAP_WRONG = 8004;
+    VERSION_NOT_MATCH = 8004;
 
     // partial update
     ROWSET_META_NOT_FOUND = 9001;
 
     // The meta service retries KV_TXN_CONFLICT error but is exceeded the max times.
     KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES = 10001;
+
+    SCHEMA_DICT_NOT_FOUND = 11001;
 
     UNDEFINED_ERR = 1000000;
 }
@@ -1405,6 +1420,12 @@ message UpdateDeleteBitmapRequest {
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 10;
     optional bool unlock = 11;
+    // to determine whether this is in an explicit txn and whether it's the first sub txn
+    optional bool is_explicit_txn = 12;
+    optional int64 txn_id = 13;
+
+    // for load txn only
+    optional int64 next_visible_version = 14;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1447,13 +1468,16 @@ message RemoveDeleteBitmapResponse {
 
 message PendingDeleteBitmapPB {
     repeated bytes delete_bitmap_keys = 1;
-    optional int64 lock_id = 2;
 }
 
 message DeleteBitmapUpdateLockPB {
     optional int64 lock_id = 1;
     optional int64 expiration = 2;
     repeated int64 initiators = 3;
+}
+
+message MowTabletCompactionPB {
+    optional int64 expiration = 1;
 }
 
 message GetDeleteBitmapUpdateLockRequest {
@@ -1472,6 +1496,7 @@ message GetDeleteBitmapUpdateLockResponse {
     repeated int64 base_compaction_cnts = 2;
     repeated int64 cumulative_compaction_cnts = 3;
     repeated int64 cumulative_points = 4;
+    repeated int64 tablet_states = 5;
 }
 
 message RemoveDeleteBitmapUpdateLockRequest {
@@ -1554,6 +1579,7 @@ service MetaService {
     rpc commit_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
     rpc update_tmp_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
     rpc get_rowset(GetRowsetRequest) returns (GetRowsetResponse);
+    rpc get_schema_dict(GetSchemaDictRequest) returns (GetSchemaDictResponse);
     rpc prepare_index(IndexRequest) returns (IndexResponse);
     rpc commit_index(IndexRequest) returns (IndexResponse);
     rpc drop_index(IndexRequest) returns (IndexResponse);

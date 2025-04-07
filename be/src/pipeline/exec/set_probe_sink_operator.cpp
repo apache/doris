@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_task.h"
 #include "vec/common/hash_table/hash_table_set_probe.h"
 
 namespace doris {
@@ -56,8 +57,8 @@ Status SetProbeSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, Runtime
 }
 
 template <bool is_intersect>
-Status SetProbeSinkOperatorX<is_intersect>::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::open(state));
+Status SetProbeSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_exprs, state, _child->row_desc()));
     return vectorized::VExpr::open(_child_exprs, state);
 }
@@ -69,8 +70,9 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
 
-    uint32_t probe_rows = cast_set<uint32_t>(in_block->rows());
+    const auto probe_rows = cast_set<uint32_t>(in_block->rows());
     if (probe_rows > 0) {
         {
             SCOPED_TIMER(local_state._extract_probe_data_timer);
@@ -86,14 +88,14 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                                 process_hashtable_ctx(&local_state, probe_rows);
                         return process_hashtable_ctx.mark_data_in_hashtable(arg);
                     } else {
-                        LOG(FATAL) << "FATAL: uninited hash table";
-                        __builtin_unreachable();
+                        LOG(WARNING) << "Uninited hash table in Set Probe Sink Operator";
+                        return Status::OK();
                     }
                 },
                 local_state._shared_state->hash_table_variants->method_variant));
     }
 
-    if (eos) {
+    if (eos && !local_state._terminated) {
         _finalize_probe(local_state);
     }
     return Status::OK();
@@ -203,6 +205,12 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
 }
 
 template <bool is_intersect>
+size_t SetProbeSinkOperatorX<is_intersect>::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    return local_state._estimate_memory_usage;
+}
+
+template <bool is_intersect>
 void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
         SetProbeSinkLocalState<is_intersect>& local_state) {
     auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
@@ -258,8 +266,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
 
                     arg.reset();
                 } else {
-                    LOG(FATAL) << "FATAL: uninited hash table";
-                    __builtin_unreachable();
+                    LOG(WARNING) << "Uninited hash table in Set Probe Sink Operator";
                 }
             },
             hash_table_variants->method_variant);

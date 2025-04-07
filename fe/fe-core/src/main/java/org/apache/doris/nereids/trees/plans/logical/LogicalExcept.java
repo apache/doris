@@ -104,14 +104,11 @@ public class LogicalExcept extends LogicalSetOperation {
                 Optional.empty(), Optional.empty(), children);
     }
 
-    Map<Slot, Slot> constructReplaceMapForChild(int index) {
+    private Map<Slot, Slot> constructReplaceMapForChild(int index) {
         Map<Slot, Slot> replaceMap = new HashMap<>();
         List<Slot> output = getOutput();
-        List<? extends Slot> originalOutputs = regularChildrenOutputs.isEmpty()
-                ? child(index).getOutput()
-                : regularChildrenOutputs.get(index);
         for (int i = 0; i < output.size(); i++) {
-            replaceMap.put(originalOutputs.get(i), output.get(i));
+            replaceMap.put(regularChildrenOutputs.get(index).get(i), output.get(i));
         }
         return replaceMap;
     }

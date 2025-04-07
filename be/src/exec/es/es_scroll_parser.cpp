@@ -32,7 +32,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "rapidjson/document.h"
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
@@ -401,8 +400,7 @@ Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
     };
 
     if (pure_doc_value && col.IsArray() && !col.Empty()) {
-        if (col.IsNumber()) {
-            RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
+        if (col[0].IsNumber()) {
             T value = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
             col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
             return Status::OK();

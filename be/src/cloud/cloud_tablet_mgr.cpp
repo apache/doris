@@ -180,8 +180,10 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             auto tablet = std::make_shared<CloudTablet>(_engine, std::move(tablet_meta));
             auto value = std::make_unique<Value>(tablet, *_tablet_map);
             // MUST sync stats to let compaction scheduler work correctly
-            st = _engine.meta_mgr().sync_tablet_rowsets(tablet.get(), warmup_data,
-                                                        sync_delete_bitmap);
+            SyncOptions options;
+            options.warmup_delta_data = warmup_data;
+            options.sync_delete_bitmap = sync_delete_bitmap;
+            st = _engine.meta_mgr().sync_tablet_rowsets(tablet.get(), options);
             if (!st.ok()) {
                 LOG(WARNING) << "failed to sync tablet " << tablet_id << ": " << st;
                 return nullptr;
@@ -238,7 +240,9 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
 
         num_vacuumed += t->delete_expired_stale_rowsets();
     }
-    LOG_INFO("finish vacuum stale rowsets").tag("num_vacuumed", num_vacuumed);
+    LOG_INFO("finish vacuum stale rowsets")
+            .tag("num_vacuumed", num_vacuumed)
+            .tag("num_tablets", tablets_to_vacuum.size());
 }
 
 std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {
@@ -287,8 +291,10 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
                     continue;
                 }
             }
-
-            st = tablet->sync_rowsets(-1);
+            SyncOptions options;
+            options.query_version = -1;
+            options.merge_schema = true;
+            st = tablet->sync_rowsets(options);
             if (!st) {
                 LOG_WARNING("failed to sync tablet rowsets {}", tablet->tablet_id()).error(st);
             }
@@ -417,6 +423,52 @@ void CloudTabletMgr::get_tablet_info(int64_t num_tablets, std::vector<TabletInfo
         }
         tablets_info->push_back(tablet->get_tablet_info());
     }
+}
+
+void CloudTabletMgr::get_topn_tablet_delete_bitmap_score(
+        uint64_t* max_delete_bitmap_score, uint64_t* max_base_rowset_delete_bitmap_score) {
+    int64_t max_delete_bitmap_score_tablet_id = 0;
+    OlapStopWatch watch;
+    uint64_t total_delete_map_count = 0;
+    int64_t max_base_rowset_delete_bitmap_score_tablet_id = 0;
+    int n = config::check_tablet_delete_bitmap_score_top_n;
+    std::vector<std::pair<std::shared_ptr<CloudTablet>, int64_t>> buf;
+    buf.reserve(n + 1);
+    auto handler = [&](const std::weak_ptr<CloudTablet>& tablet_wk) {
+        auto t = tablet_wk.lock();
+        if (!t) return;
+        uint64_t delete_bitmap_count =
+                t.get()->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
+        total_delete_map_count += delete_bitmap_count;
+        if (delete_bitmap_count > *max_delete_bitmap_score) {
+            max_delete_bitmap_score_tablet_id = t->tablet_id();
+            *max_delete_bitmap_score = delete_bitmap_count;
+        }
+        buf.emplace_back(std::move(t), delete_bitmap_count);
+        std::sort(buf.begin(), buf.end(), [](auto& a, auto& b) { return a.second > b.second; });
+        if (buf.size() > n) {
+            buf.pop_back();
+        }
+    };
+    auto weak_tablets = get_weak_tablets();
+    std::for_each(weak_tablets.begin(), weak_tablets.end(), handler);
+    for (auto& [t, _] : buf) {
+        t->get_base_rowset_delete_bitmap_count(max_base_rowset_delete_bitmap_score,
+                                               &max_base_rowset_delete_bitmap_score_tablet_id);
+    }
+    std::stringstream ss;
+    for (auto& i : buf) {
+        ss << i.first->tablet_id() << ":" << i.second << ",";
+    }
+    LOG(INFO) << "get_topn_tablet_delete_bitmap_score, n=" << n
+              << ",tablet size=" << weak_tablets.size()
+              << ",total_delete_map_count=" << total_delete_map_count
+              << ",cost(us)=" << watch.get_elapse_time_us()
+              << ",max_delete_bitmap_score=" << *max_delete_bitmap_score
+              << ",max_delete_bitmap_score_tablet_id=" << max_delete_bitmap_score_tablet_id
+              << ",max_base_rowset_delete_bitmap_score=" << *max_base_rowset_delete_bitmap_score
+              << ",max_base_rowset_delete_bitmap_score_tablet_id="
+              << max_base_rowset_delete_bitmap_score_tablet_id << ",tablets=[" << ss.str() << "]";
 }
 
 } // namespace doris

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
@@ -56,6 +57,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -273,6 +275,14 @@ public class ExpressionUtils {
             return new Or(new Not(new IsNull(expression)), new NullLiteral(BooleanType.INSTANCE));
         } else {
             return BooleanLiteral.TRUE;
+        }
+    }
+
+    public static Expression toInPredicateOrEqualTo(Expression reference, Collection<? extends Expression> values) {
+        if (values.size() < 2) {
+            return or(values.stream().map(value -> new EqualTo(reference, value)).collect(Collectors.toList()));
+        } else {
+            return new InPredicate(reference, ImmutableList.copyOf(values));
         }
     }
 
@@ -577,9 +587,9 @@ public class ExpressionUtils {
     /**
      * return true if all children are literal but not null literal.
      */
-    public static boolean isAllNonNullLiteral(List<Expression> children) {
+    public static boolean isAllNonNullComparableLiteral(List<Expression> children) {
         for (Expression child : children) {
-            if ((!(child instanceof Literal)) || (child instanceof NullLiteral)) {
+            if ((!(child instanceof ComparableLiteral)) || (child instanceof NullLiteral)) {
                 return false;
             }
         }
@@ -656,7 +666,7 @@ public class ExpressionUtils {
              * markSlotSize = 3 -> loopCount = 8  ---- 000, 001, 010, 011, 100, 101, 110, 111
              * markSlotSize = 4 -> loopCount = 16 ---- 0000, 0001, ... 1111
              */
-            int loopCount = 2 << markSlotSize;
+            int loopCount = 1 << markSlotSize;
             for (int i = 0; i < loopCount; ++i) {
                 replaceMap.clear();
                 /*
@@ -684,10 +694,13 @@ public class ExpressionUtils {
                     } else {
                         meetNullOrFalse = true;
                     }
+                } else {
+                    return false;
                 }
             }
+            return true;
         }
-        return true;
+        return false;
     }
 
     private static boolean isNullOrFalse(Expression expression) {
@@ -895,11 +908,11 @@ public class ExpressionUtils {
         }
         if (expression instanceof InPredicate) {
             InPredicate predicate = ((InPredicate) expression);
-            if (!predicate.getCompareExpr().isSlot()) {
+            if (!predicate.getCompareExpr().isSlot()
+                    || predicate.getOptions().size() > Config.max_distribution_pruner_recursion_depth) {
                 return Optional.empty();
             }
-            return Optional.ofNullable(predicate.getOptions().stream()
-                    .allMatch(Expression::isLiteral) ? expression : null);
+            return Optional.ofNullable(predicate.optionsAreLiterals() ? expression : null);
         } else if (expression instanceof ComparisonPredicate) {
             ComparisonPredicate predicate = ((ComparisonPredicate) expression);
             if (predicate.left() instanceof Literal) {

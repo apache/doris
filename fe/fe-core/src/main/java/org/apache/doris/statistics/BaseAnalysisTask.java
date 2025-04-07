@@ -81,7 +81,7 @@ public abstract class BaseAnalysisTask {
             + "         NOW() AS `update_time` "
             + " FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index}";
 
-    protected static final String LINEAR_ANALYZE_TEMPLATE = " SELECT "
+    protected static final String LINEAR_ANALYZE_TEMPLATE = "SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
             + "${catalogId} AS `catalog_id`, "
             + "${dbId} AS `db_id`, "
@@ -214,7 +214,8 @@ public abstract class BaseAnalysisTask {
                 || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
             if (col == null) {
-                throw new RuntimeException(String.format("Column with name %s not exists", tbl.getName()));
+                throw new RuntimeException(String.format("Column with name %s not exists in table %s",
+                        info.colName, tbl.getName()));
             }
             Preconditions.checkArgument(!StatisticsUtil.isUnsupportedType(col.getType()),
                     String.format("Column with type %s is not supported", col.getType().toString()));

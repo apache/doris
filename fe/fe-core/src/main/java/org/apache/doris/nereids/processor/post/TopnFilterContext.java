@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
@@ -38,22 +39,22 @@ import java.util.Map;
  * topN runtime filter context
  */
 public class TopnFilterContext {
-    private final Map<TopN, TopnFilter> filters = Maps.newHashMap();
+    private final Map<ObjectId, TopnFilter> filters = Maps.newHashMap();
 
     /**
      * add topN filter
      */
     public void addTopnFilter(TopN topn, PhysicalRelation scan, Expression expr) {
-        TopnFilter filter = filters.get(topn);
+        TopnFilter filter = filters.get(topn.getObjectId());
         if (filter == null) {
-            filters.put(topn, new TopnFilter(topn, scan, expr));
+            filters.put(topn.getObjectId(), new TopnFilter(topn, scan, expr));
         } else {
             filter.addTarget(scan, expr);
         }
     }
 
     public boolean isTopnFilterSource(TopN topn) {
-        return filters.containsKey(topn);
+        return filters.containsKey(topn.getObjectId());
     }
 
     public List<TopnFilter> getTopnFilters() {
@@ -77,7 +78,7 @@ public class TopnFilterContext {
      * translate topn-filter
      */
     public void translateSource(TopN topn, SortNode sortNode) {
-        TopnFilter filter = filters.get(topn);
+        TopnFilter filter = filters.get(topn.getObjectId());
         if (filter == null) {
             return;
         }
@@ -97,8 +98,8 @@ public class TopnFilterContext {
         String indent = "   ";
         String arrow = " -> ";
         builder.append("filters:\n");
-        for (TopN topn : filters.keySet()) {
-            builder.append(indent).append(arrow).append(filters.get(topn)).append("\n");
+        for (ObjectId topnId : filters.keySet()) {
+            builder.append(indent).append(arrow).append(filters.get(topnId)).append("\n");
         }
         return builder.toString();
     }

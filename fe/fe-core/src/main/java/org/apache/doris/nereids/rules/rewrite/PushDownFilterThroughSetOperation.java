@@ -44,16 +44,16 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
         return logicalFilter(logicalSetOperation()).then(f -> {
             LogicalSetOperation setOperation = f.child();
             List<Plan> newChildren = new ArrayList<>();
-            for (Plan child : setOperation.children()) {
+            for (int childIdx = 0; childIdx < setOperation.children().size(); ++childIdx) {
                 Map<Expression, Expression> replaceMap = new HashMap<>();
                 for (int i = 0; i < setOperation.getOutputs().size(); ++i) {
                     NamedExpression output = setOperation.getOutputs().get(i);
-                    replaceMap.put(output, child.getOutput().get(i));
+                    replaceMap.put(output, setOperation.getRegularChildOutput(childIdx).get(i));
                 }
 
                 Set<Expression> newFilterPredicates = f.getConjuncts().stream().map(conjunct ->
                         ExpressionUtils.replace(conjunct, replaceMap)).collect(ImmutableSet.toImmutableSet());
-                newChildren.add(new LogicalFilter<>(newFilterPredicates, child));
+                newChildren.add(new LogicalFilter<>(newFilterPredicates, setOperation.child(childIdx)));
             }
 
             return setOperation.withChildren(newChildren);

@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <memory>
 #include <stack>
+#include <utility>
 
 #include "common/config.h"
 #include "common/exception.h"
@@ -368,26 +369,32 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
     }
 
     // non-recursive traversal
-    std::stack<std::pair<VExprSPtr, int>> s;
-    s.emplace(root, root_children);
+    using VExprSPtrCountPair = std::pair<VExprSPtr, int>;
+    std::stack<std::shared_ptr<VExprSPtrCountPair>> s;
+    s.emplace(std::make_shared<VExprSPtrCountPair>(root, root_children));
     while (!s.empty()) {
-        auto& parent = s.top();
-        if (parent.second > 1) {
-            parent.second -= 1;
+        // copy the shared ptr resource to avoid dangling reference
+        auto parent = s.top();
+        // Decrement or pop
+        if (parent->second > 1) {
+            parent->second -= 1;
         } else {
             s.pop();
         }
 
+        DCHECK(parent->first != nullptr);
         if (++*node_idx >= nodes.size()) {
             return Status::InternalError("Failed to reconstruct expression tree from thrift.");
         }
+
         VExprSPtr expr;
         RETURN_IF_ERROR(create_expr(nodes[*node_idx], expr));
         DCHECK(expr != nullptr);
-        parent.first->add_child(expr);
+        parent->first->add_child(expr);
+        // push to stack if has children
         int num_children = nodes[*node_idx].num_children;
         if (num_children > 0) {
-            s.emplace(expr, num_children);
+            s.emplace(std::make_shared<VExprSPtrCountPair>(expr, num_children));
         }
     }
     return Status::OK();
@@ -579,12 +586,6 @@ Status VExpr::init_function_context(RuntimeState* state, VExprContext* context,
             constant_cols.push_back(const_col);
         }
         fn_ctx->set_constant_cols(constant_cols);
-    } else {
-        if (function->is_udf_function()) {
-            auto* timer = ADD_TIMER(state->get_task()->get_task_profile(),
-                                    "UDF[" + function->get_name() + "]");
-            fn_ctx->set_udf_execute_timer(timer);
-        }
     }
 
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
@@ -653,7 +654,7 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                         context->get_inverted_index_context()
                                 ->get_storage_name_and_type_by_column_id(column_id);
                 auto storage_type = remove_nullable(storage_name_type->second);
-                auto target_type = cast_expr->get_target_type();
+                auto target_type = remove_nullable(cast_expr->get_target_type());
                 auto origin_primitive_type = storage_type->get_type_as_type_descriptor().type;
                 auto target_primitive_type = target_type->get_type_as_type_descriptor().type;
                 if (is_complex_type(storage_type)) {
@@ -673,7 +674,7 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                     }
                 }
                 if (origin_primitive_type != TYPE_VARIANT &&
-                    (origin_primitive_type == target_primitive_type ||
+                    (storage_type->equals(*target_type) ||
                      (is_string_type(target_primitive_type) &&
                       is_string_type(origin_primitive_type)))) {
                     children_exprs.emplace_back(expr_without_cast(child));
@@ -737,6 +738,24 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         }
     }
     return Status::OK();
+}
+
+size_t VExpr::estimate_memory(const size_t rows) {
+    if (is_const_and_have_executed()) {
+        return 0;
+    }
+
+    size_t estimate_size = 0;
+    for (auto& child : _children) {
+        estimate_size += child->estimate_memory(rows);
+    }
+
+    if (_data_type->have_maximum_size_of_value()) {
+        estimate_size += rows * _data_type->get_size_of_value_in_memory();
+    } else {
+        estimate_size += rows * 64; /// TODO: need a more reasonable value
+    }
+    return estimate_size;
 }
 
 bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,

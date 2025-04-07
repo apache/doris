@@ -20,20 +20,23 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.catalog.PartitionItem;
 
 import com.google.common.collect.Maps;
+import org.apache.paimon.partition.Partition;
 
 import java.util.Map;
 
 public class PaimonPartitionInfo {
-    private final Map<String, PartitionItem> nameToPartitionItem;
-    private final Map<String, PaimonPartition> nameToPartition;
+    public static final PaimonPartitionInfo EMPTY = new PaimonPartitionInfo();
 
-    public PaimonPartitionInfo() {
+    private final Map<String, PartitionItem> nameToPartitionItem;
+    private final Map<String, Partition> nameToPartition;
+
+    private PaimonPartitionInfo() {
         this.nameToPartitionItem = Maps.newHashMap();
         this.nameToPartition = Maps.newHashMap();
     }
 
     public PaimonPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
-            Map<String, PaimonPartition> nameToPartition) {
+            Map<String, Partition> nameToPartition) {
         this.nameToPartitionItem = nameToPartitionItem;
         this.nameToPartition = nameToPartition;
     }
@@ -42,7 +45,12 @@ public class PaimonPartitionInfo {
         return nameToPartitionItem;
     }
 
-    public Map<String, PaimonPartition> getNameToPartition() {
+    public Map<String, Partition> getNameToPartition() {
         return nameToPartition;
+    }
+
+    public boolean isPartitionInvalid() {
+        // when transfer to partitionItem failed, will not equal
+        return nameToPartitionItem.size() != nameToPartition.size();
     }
 }

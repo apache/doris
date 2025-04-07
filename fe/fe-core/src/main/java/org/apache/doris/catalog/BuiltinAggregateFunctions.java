@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
@@ -131,6 +132,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(MapAgg.class, "map_agg"),
             agg(Max.class, "max"),
             agg(MaxBy.class, "max_by"),
+            agg(Median.class, "median"),
             agg(Min.class, "min"),
             agg(MinBy.class, "min_by"),
             agg(MultiDistinctCount.class, "multi_distinct_count"),
@@ -143,7 +145,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(OrthogonalBitmapIntersect.class, "orthogonal_bitmap_intersect"),
             agg(OrthogonalBitmapIntersectCount.class, "orthogonal_bitmap_intersect_count"),
             agg(OrthogonalBitmapUnionCount.class, "orthogonal_bitmap_union_count"),
-            agg(Percentile.class, "percentile"),
+            agg(Percentile.class, "percentile", "percentile_cont"),
             agg(PercentileApprox.class, "percentile_approx"),
             agg(PercentileApproxWeighted.class, "percentile_approx_weighted"),
             agg(PercentileArray.class, "percentile_array"),

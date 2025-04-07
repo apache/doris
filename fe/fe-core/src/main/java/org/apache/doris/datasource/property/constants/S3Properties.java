@@ -119,6 +119,8 @@ public class S3Properties extends BaseProperties {
         public static final String DEFAULT_MAX_CONNECTIONS = "50";
         public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
         public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
+        public static final String NEED_OVERRIDE_ENDPOINT = "AWS_NEED_OVERRIDE_ENDPOINT";
+
         public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
         public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, TOKEN,
                 ROOT_PATH, BUCKET, MAX_CONNECTIONS, REQUEST_TIMEOUT_MS, CONNECTION_TIMEOUT_MS);
@@ -323,6 +325,8 @@ public class S3Properties extends BaseProperties {
             builder.setSk(properties.get(S3Properties.SECRET_KEY));
         }
         if (properties.containsKey(S3Properties.ROOT_PATH)) {
+            Preconditions.checkArgument(!Strings.isNullOrEmpty(properties.get(S3Properties.ROOT_PATH)),
+                    "%s cannot be empty", S3Properties.ROOT_PATH);
             builder.setPrefix(properties.get(S3Properties.ROOT_PATH));
         }
         if (properties.containsKey(S3Properties.BUCKET)) {

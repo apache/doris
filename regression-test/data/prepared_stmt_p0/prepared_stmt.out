@@ -105,6 +105,66 @@ a
 1236	100320.111390000	laa    ddd	Will we ignore LIMIT ?,?	2021-01-01	2020-01-01T12:36:38	2.7692	6022-01-01	[null]
 1237	120939.111300000	a    ddd	Will we ignore LIMIT ?,?	2021-01-01	2020-01-01T12:36:38	22.822	7022-01-01	["2025-01-01 11:30:38"]
 
--- !select16 --
-mytable1	CREATE TABLE `mytable1` (\n  `siteid` INT NULL DEFAULT "10",\n  `citycode` SMALLINT NULL,\n  `username` VARCHAR(32) NULL DEFAULT "",\n  `pv` BIGINT SUM NULL DEFAULT "0"\n) ENGINE=OLAP\nAGGREGATE KEY(`siteid`, `citycode`, `username`)\nDISTRIBUTED BY HASH(`siteid`) BUCKETS 10\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"min_load_replica_num" = "-1",\n"is_being_synced" = "false",\n"storage_medium" = "hdd",\n"storage_format" = "V2",\n"inverted_index_storage_format" = "V2",\n"light_schema_change" = "true",\n"disable_auto_compaction" = "false",\n"enable_single_replica_compaction" = "false",\n"group_commit_interval_ms" = "10000",\n"group_commit_data_bytes" = "134217728"\n);
+-- !select17 --
+3
+
+-- !select18 --
+1	[1, 2, 3]	\N	["1"]	\N	\N	[1.111]
+
+-- !select18_1 --
+1	[1, 2, 3]	\N
+
+-- !select18_2 --
+1	[1, null, 3]	\N	[null]	\N	\N	[null, null]
+
+-- !select19 --
+1	{"a":1}	\N
+
+-- !select20 --
+1	{"col1":"a", "col2":1, "col3":"doris", "col4":"aaaaa", "col5":1.32}	\N
+
+-- !select21 --
+1	[[1, 2], [3, 4]]	\N
+
+-- !select22 --
+1	{"a":{"b":2}}	\N
+
+-- !select23 --
+1	{"col1":"name", "col2":"doris", "col3":"values", "col4":[1, 2, 3]}	\N
+
+-- !select24 --
+1	\N	[{"id":"1", "name":"doris"}, {"id":"2", "name":"apache"}, null]	\N
+
+-- !overflow_2 --
+2
+
+-- !overflow_2 --
+2
+
+-- !overflow_3 --
+3
+
+-- !overflow_3 --
+3
+
+-- !overflow_4 --
+4
+
+-- !overflow_4 --
+4
+
+-- !overflow_5 --
+5
+
+-- !overflow_5 --
+5
+
+-- !overflow_6 --
+6
+
+-- !overflow_6 --
+6
+
+-- !overflow_6 --
+6
 

@@ -1059,7 +1059,7 @@ suite("test_stream_load", "p0") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO common_user""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO common_user""";
     }
 
     streamLoad {
@@ -1615,7 +1615,7 @@ suite("test_stream_load", "p0") {
                 def json = parseJson(result)
                 assertEquals("fail", json.Status.toLowerCase())
                 assertTrue(result.contains("ErrorURL"))
-                assertTrue(json.Message.contains("Encountered unqualified data, stop processing"))
+                assertTrue(json.Message.contains("Encountered unqualified data, stop processing. Please"))
             }
         }
     } finally {

@@ -42,6 +42,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "util/defer_op.h"
 #include "util/proto_util.h"
 #include "util/time.h"
 #include "vec/sink/vdata_stream_sender.h"
@@ -68,8 +69,8 @@ void BroadcastPBlockHolderMemLimiter::acquire(BroadcastPBlockHolder& holder) {
     auto size = holder._pblock->column_values().size();
     _total_queue_buffer_size += size;
     _total_queue_blocks_count++;
-    if (_total_queue_buffer_size >= config::exchg_node_buffer_size_bytes ||
-        _total_queue_blocks_count >= config::num_broadcast_buffer) {
+    if (_total_queue_buffer_size >= _total_queue_buffer_size_limit ||
+        _total_queue_blocks_count >= _total_queue_blocks_count_limit) {
         _broadcast_dependency->block();
     }
 }
@@ -89,13 +90,14 @@ void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holde
 
 namespace pipeline {
 ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
-                                       RuntimeState* state,
+                                       PlanNodeId node_id, RuntimeState* state,
                                        const std::vector<InstanceLoId>& sender_ins_ids)
         : HasTaskExecutionCtx(state),
           _queue_capacity(0),
           _is_failed(false),
           _query_id(std::move(query_id)),
           _dest_node_id(dest_node_id),
+          _node_id(node_id),
           _state(state),
           _context(state->get_query_ctx()),
           _exchange_sink_num(sender_ins_ids.size()) {
@@ -413,7 +415,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
 }
 
 void ExchangeSinkBuffer::_ended(InstanceLoId id) {
-    if (!_instance_to_package_queue_mutex.template contains(id)) {
+    if (!_instance_to_package_queue_mutex.contains(id)) {
         std::stringstream ss;
         ss << "failed find the instance id:" << id
            << " now mutex map size:" << _instance_to_package_queue_mutex.size();
@@ -434,6 +436,8 @@ void ExchangeSinkBuffer::_ended(InstanceLoId id) {
 
 void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
     _is_failed = true;
+    LOG(INFO) << "send rpc failed, instance id: " << id << ", _dest_node_id: " << _dest_node_id
+              << ", node id: " << _node_id << ", err: " << err;
     _context->cancel(Status::Cancelled(err));
 }
 
@@ -442,7 +446,8 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
     // When the receiving side reaches eof, it means the receiver has finished early.
     // The remaining data in the current rpc_channel does not need to be sent,
     // and the rpc_channel should be turned off immediately.
-    _turn_off_channel(id, lock);
+    Defer turn_off([&]() { _turn_off_channel(id, lock); });
+
     std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
             _instance_to_broadcast_package_queue[id];
     for (; !broadcast_q.empty(); broadcast_q.pop()) {
@@ -458,9 +463,19 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
 
     std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
     for (; !q.empty(); q.pop()) {
+        // Must update _total_queue_size here, otherwise if _total_queue_size > _queue_capacity at EOF,
+        // ExchangeSinkQueueDependency will be blocked and pipeline will be deadlocked
+        _total_queue_size--;
         if (q.front().block) {
             COUNTER_UPDATE(q.front().channel->_parent->memory_used_counter(),
                            -q.front().block->ByteSizeLong());
+        }
+    }
+
+    // Try to wake up pipeline after clearing the queue
+    if (_total_queue_size <= _queue_capacity) {
+        for (auto& [_, dep] : _queue_deps) {
+            dep->set_ready();
         }
     }
 
@@ -543,7 +558,9 @@ void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
     _avg_rpc_timer->set(sum_time / std::max(static_cast<int64_t>(1), _rpc_count.load()));
 
     auto max_count = _state->rpc_verbose_profile_max_instance_count();
-    if (_state->enable_verbose_profile() && max_count > 0) {
+    // This counter will lead to performance degradation.
+    // So only collect this information when the profile level is greater than 3.
+    if (_state->profile_level() > 3 && max_count > 0) {
         std::vector<RpcInstanceStatistics> tmp_rpc_stats_vec;
         for (const auto& stats : _instance_to_rpc_stats_vec) {
             tmp_rpc_stats_vec.emplace_back(*stats);
@@ -573,6 +590,16 @@ void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
             }
         }
     }
+}
+
+std::string ExchangeSinkBuffer::debug_each_instance_queue_size() {
+    fmt::memory_buffer debug_string_buffer;
+    for (auto& [id, m] : _instance_to_package_queue_mutex) {
+        std::unique_lock<std::mutex> lock(*m);
+        fmt::format_to(debug_string_buffer, "Instance: {}, queue size: {}\n", id,
+                       _instance_to_package_queue[id].size());
+    }
+    return fmt::to_string(debug_string_buffer);
 }
 
 } // namespace pipeline

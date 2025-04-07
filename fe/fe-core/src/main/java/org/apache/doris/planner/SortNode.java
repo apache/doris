@@ -71,11 +71,13 @@ public class SortNode extends PlanNode {
     // exchange node, and the sort node is used for the ORDER BY .
     private boolean mergeByexchange = false;
 
-    private boolean isDefaultLimit;
+    private boolean useLocalMerge = false;
+
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
     private boolean isColocate = false;
     private DataPartition inputPartition;
+    TSortAlgorithm algorithm;
 
     private boolean isUnusedExprRemoved = false;
 
@@ -84,42 +86,49 @@ public class SortNode extends PlanNode {
     /**
      * Constructor.
      */
-    public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN,
-            boolean isDefaultLimit, long offset) {
+    public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN, long offset) {
         super(id, useTopN ? "TOP-N" : "SORT", StatisticalType.SORT_NODE);
         this.info = info;
         this.useTopN = useTopN;
-        this.isDefaultLimit = isDefaultLimit;
         this.tupleIds.addAll(Lists.newArrayList(info.getSortTupleDescriptor().getId()));
         this.tblRefIds.addAll(Lists.newArrayList(info.getSortTupleDescriptor().getId()));
         this.nullableTupleIds.addAll(input.getNullableTupleIds());
         this.children.add(input);
         this.offset = offset;
         Preconditions.checkArgument(info.getOrderingExprs().size() == info.getIsAscOrder().size());
+        updateSortAlgorithm();
     }
 
     public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN) {
-        this(id, input, info, useTopN, true, 0);
+        this(id, input, info, useTopN, 0);
     }
 
-    /**
-     * Clone 'inputSortNode' for distributed Top-N.
-     */
-    public SortNode(PlanNodeId id, SortNode inputSortNode, PlanNode child) {
-        super(id, inputSortNode, inputSortNode.useTopN ? "TOP-N" : "SORT", StatisticalType.SORT_NODE);
-        this.info = inputSortNode.info;
-        this.useTopN = inputSortNode.useTopN;
-        this.isDefaultLimit = inputSortNode.isDefaultLimit;
-        this.children.add(child);
-        this.offset = inputSortNode.offset;
-    }
-
-    /**
-     * set isDefaultLimit when translate PhysicalLimit
-     * @param defaultLimit
-     */
-    public void setDefaultLimit(boolean defaultLimit) {
-        isDefaultLimit = defaultLimit;
+    private void updateSortAlgorithm() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && !connectContext.getSessionVariable().forceSortAlgorithm.isEmpty()) {
+            String algo = connectContext.getSessionVariable().forceSortAlgorithm;
+            if (algo.equals("heap")) {
+                algorithm = TSortAlgorithm.HEAP_SORT;
+            } else if (algo.equals("topn")) {
+                algorithm = TSortAlgorithm.TOPN_SORT;
+            } else {
+                algorithm = TSortAlgorithm.FULL_SORT;
+            }
+        } else {
+            if (limit <= 0) {
+                algorithm = TSortAlgorithm.FULL_SORT;
+            } else if (hasRuntimePredicate || useTwoPhaseReadOpt) {
+                algorithm = TSortAlgorithm.HEAP_SORT;
+            } else {
+                if (limit + offset < 50000) {
+                    algorithm = TSortAlgorithm.HEAP_SORT;
+                } else if (limit + offset < 20000000) {
+                    algorithm = TSortAlgorithm.FULL_SORT;
+                } else {
+                    algorithm = TSortAlgorithm.TOPN_SORT;
+                }
+            }
+        }
     }
 
     public void setIsAnalyticSort(boolean v) {
@@ -144,6 +153,17 @@ public class SortNode extends PlanNode {
 
     public void setMergeByExchange() {
         this.mergeByexchange = true;
+        // mergeByexchange = true means that the sort data will be merged once at the
+        // exchange node
+        // If enable_local_merge = true at the same time, it can be merged once before
+        // the exchange node
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().getEnableLocalMergeSort()
+                && this.mergeByexchange) {
+            this.useLocalMerge = true;
+        } else {
+            this.useLocalMerge = false;
+        }
     }
 
     public boolean getUseTopnOpt() {
@@ -160,6 +180,7 @@ public class SortNode extends PlanNode {
 
     public void setUseTwoPhaseReadOpt(boolean useTwoPhaseReadOpt) {
         this.useTwoPhaseReadOpt = useTwoPhaseReadOpt;
+        updateSortAlgorithm();
     }
 
     public List<Expr> getResolvedTupleExprs() {
@@ -201,17 +222,20 @@ public class SortNode extends PlanNode {
         }
 
         output.append(detailPrefix + "algorithm: ");
-        boolean isFixedLength = info.getOrderingExprs().stream().allMatch(e -> !e.getType().isStringType()
-                && !e.getType().isCollectionType());
-        if (limit > 0 && limit + offset < 1024 && (useTwoPhaseReadOpt || hasRuntimePredicate
-                || isFixedLength)) {
+        if (algorithm == TSortAlgorithm.HEAP_SORT) {
             output.append("heap sort\n");
-        } else if (limit > 0 && !isFixedLength && limit + offset < 256) {
+        } else if (algorithm == TSortAlgorithm.TOPN_SORT) {
             output.append("topn sort\n");
         } else {
             output.append("full sort\n");
         }
 
+        if (useLocalMerge) {
+            output.append(detailPrefix + "local merge sort\n");
+        }
+        if (mergeByexchange) {
+            output.append(detailPrefix + "merge by exchange\n");
+        }
         output.append(detailPrefix).append("offset: ").append(offset).append("\n");
         return output.toString();
     }
@@ -337,35 +361,11 @@ public class SortNode extends PlanNode {
         msg.sort_node.setOffset(offset);
         msg.sort_node.setUseTopnOpt(useTopnOpt);
         msg.sort_node.setMergeByExchange(this.mergeByexchange);
+        msg.sort_node.setUseLocalMerge(this.useLocalMerge);
         msg.sort_node.setIsAnalyticSort(isAnalyticSort);
         msg.sort_node.setIsColocate(isColocate);
 
-        ConnectContext connectContext = ConnectContext.get();
-        TSortAlgorithm algorithm;
-        if (connectContext != null && !connectContext.getSessionVariable().forceSortAlgorithm.isEmpty()) {
-            String algo = connectContext.getSessionVariable().forceSortAlgorithm;
-            if (algo.equals("heap")) {
-                algorithm = TSortAlgorithm.HEAP_SORT;
-            } else if (algo.equals("topn")) {
-                algorithm = TSortAlgorithm.TOPN_SORT;
-            } else {
-                algorithm = TSortAlgorithm.FULL_SORT;
-            }
-        } else {
-            if (limit <= 0) {
-                algorithm = TSortAlgorithm.FULL_SORT;
-            } else if (hasRuntimePredicate || useTwoPhaseReadOpt) {
-                algorithm = TSortAlgorithm.HEAP_SORT;
-            } else {
-                if (limit + offset < 50000) {
-                    algorithm = TSortAlgorithm.HEAP_SORT;
-                } else if (limit + offset < 20000000) {
-                    algorithm = TSortAlgorithm.FULL_SORT;
-                } else {
-                    algorithm = TSortAlgorithm.TOPN_SORT;
-                }
-            }
-        }
+
         msg.sort_node.setAlgorithm(algorithm);
     }
 
@@ -401,5 +401,17 @@ public class SortNode extends PlanNode {
 
     public void setHasRuntimePredicate() {
         this.hasRuntimePredicate = true;
+        updateSortAlgorithm();
+    }
+
+    @Override
+    public void setLimit(long limit) {
+        super.setLimit(limit);
+        updateSortAlgorithm();
+    }
+
+    public void setOffset(long offset) {
+        super.setOffset(offset);
+        updateSortAlgorithm();
     }
 }

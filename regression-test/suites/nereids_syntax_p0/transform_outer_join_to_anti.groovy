@@ -85,4 +85,3 @@ suite("transform_outer_join_to_anti") {
         contains "ANTI JOIN"
     }
 }
-

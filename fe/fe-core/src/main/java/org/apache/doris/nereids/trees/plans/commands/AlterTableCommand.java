@@ -58,6 +58,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -67,11 +68,13 @@ import java.util.Map;
 public class AlterTableCommand extends Command implements ForwardWithSync {
     private TableNameInfo tbl;
     private List<AlterTableOp> ops;
+    private List<AlterTableOp> originOps;
 
     public AlterTableCommand(TableNameInfo tbl, List<AlterTableOp> ops) {
         super(PlanType.ALTER_TABLE_COMMAND);
         this.tbl = tbl;
         this.ops = ops;
+        this.originOps = ops;
     }
 
     public TableNameInfo getTbl() {
@@ -122,6 +125,9 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 .getCatalogOrException(ctlName, catalog -> new DdlException("Unknown catalog " + catalog))
                 .getDbOrDdlException(dbName);
         TableIf tableIf = dbIf.getTableOrDdlException(tableName);
+        if (tableIf.isTemporary()) {
+            throw new AnalysisException("Do not support alter temporary table[" + tableName + "]");
+        }
         if (tableIf instanceof OlapTable) {
             rewriteAlterOpForOlapTable(ctx, (OlapTable) tableIf);
         } else {
@@ -158,7 +164,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 // analyse sequence column
                 Type sequenceColType = null;
                 if (alterFeature == EnableFeatureOp.Features.SEQUENCE_LOAD) {
-                    Map<String, String> propertyMap = alterClause.getProperties();
+                    Map<String, String> propertyMap = new HashMap<>(alterClause.getProperties());
                     try {
                         sequenceColType = PropertyAnalyzer.analyzeSequenceType(propertyMap, table.getKeysType());
                         if (sequenceColType == null) {
@@ -253,7 +259,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ").append(tbl.toSql()).append(" ");
         int idx = 0;
-        for (AlterTableOp op : ops) {
+        for (AlterTableOp op : originOps) {
             if (idx != 0) {
                 sb.append(", \n");
             }

@@ -28,9 +28,7 @@ class JoinProbeLocalState : public PipelineXLocalState<SharedStateArg> {
 public:
     using Base = PipelineXLocalState<SharedStateArg>;
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    virtual void add_tuple_is_null_column(vectorized::Block* block) = 0;
 
 protected:
     template <typename LocalStateType>
@@ -39,14 +37,9 @@ protected:
             : Base(state, parent), _child_block(vectorized::Block::create_unique()) {}
     ~JoinProbeLocalState() override = default;
     void _construct_mutable_join_block();
-    Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block,
-                               bool keep_origin = true);
-    void _reset_tuple_is_null_column();
+    Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block);
     // output expr
-    vectorized::VExprContextSPtrs _output_expr_ctxs;
     vectorized::Block _join_block;
-    vectorized::MutableColumnPtr _tuple_is_null_left_flag_column = nullptr;
-    vectorized::MutableColumnPtr _tuple_is_null_right_flag_column = nullptr;
 
     size_t _mark_column_id = -1;
 
@@ -65,9 +58,6 @@ public:
     using Base = StatefulOperatorX<LocalStateType>;
     JoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                        const DescriptorTbl& descs);
-    Status init(const TPlanNode& tnode, RuntimeState* state) override;
-
-    Status open(doris::RuntimeState* state) override;
     [[nodiscard]] const RowDescriptor& row_desc() const override {
         if (Base::_output_row_descriptor) {
             return *Base::_output_row_descriptor;
@@ -91,7 +81,7 @@ public:
             set_build_side_child(child);
         } else {
             // first child which is probe side is in this pipeline
-            OperatorX<LocalStateType>::_child = std::move(child);
+            RETURN_IF_ERROR(OperatorX<LocalStateType>::set_child(child));
         }
         return Status::OK();
     }
@@ -113,15 +103,8 @@ protected:
 
     std::unique_ptr<RowDescriptor> _output_row_desc;
     std::unique_ptr<RowDescriptor> _intermediate_row_desc;
-    // output expr
-    vectorized::VExprContextSPtrs _output_expr_ctxs;
     OperatorPtr _build_side_child = nullptr;
     const bool _short_circuit_for_null_in_build_side;
-    // In the Old planner, there is a plan for two columns of tuple is null,
-    // but in the Nereids planner, this logic does not exist.
-    // Therefore, we should not insert these two columns under the Nereids optimizer.
-    // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
-    const bool _use_specific_projections;
 };
 
 #include "common/compile_check_end.h"

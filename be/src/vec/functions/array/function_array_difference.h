@@ -66,8 +66,6 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(arguments[0]))
                 << "argument for function: " << name << " should be DataTypeArray but it has type "
@@ -95,12 +93,10 @@ public:
         if (return_type) {
             return std::make_shared<DataTypeArray>(is_nullable ? make_nullable(return_type)
                                                                : return_type);
-        } else {
-            throw doris::Exception(
-                    ErrorCode::INVALID_ARGUMENT,
-                    "Function of {}, return type get wrong: and input argument is: {}", name,
-                    arguments[0]->get_name());
         }
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "Function of {}, return type get wrong: and input argument is: {}",
+                               name, arguments[0]->get_name());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

@@ -58,6 +58,7 @@ namespace doris::vectorized {
 #define TO_TIME_FUNCTION(CLASS, UNIT) TIME_FUNCTION_IMPL(CLASS, UNIT, UNIT())
 
 TO_TIME_FUNCTION(ToYearImpl, year);
+TO_TIME_FUNCTION(ToYearOfWeekImpl, year_of_week);
 TO_TIME_FUNCTION(ToQuarterImpl, quarter);
 TO_TIME_FUNCTION(ToMonthImpl, month);
 TO_TIME_FUNCTION(ToDayImpl, day);
@@ -317,6 +318,7 @@ struct TransformerToStringOneArgument {
                     cast_set<UInt32>(Transform::execute(date_time_value, res_data, offset));
             null_map[i] = !date_time_value.is_valid_date();
         }
+        res_data.resize(res_offsets[res_offsets.size() - 1]);
     }
 
     static void vector(FunctionContext* context,
@@ -336,6 +338,7 @@ struct TransformerToStringOneArgument {
                     cast_set<UInt32>(Transform::execute(date_time_value, res_data, offset));
             DCHECK(date_time_value.is_valid_date());
         }
+        res_data.resize(res_offsets[res_offsets.size() - 1]);
     }
 };
 
@@ -353,6 +356,9 @@ struct Transformer {
             auto res = Transform::execute(vec_from[i]);
             using RESULT_TYPE = std::decay_t<decltype(res)>;
             vec_to[i] = cast_set<ToType, RESULT_TYPE, false>(res);
+        }
+
+        for (size_t i = 0; i < size; ++i) {
             null_map[i] = !((typename DateTraits<typename Transform::OpArgType>::T&)(vec_from[i]))
                                    .is_valid_date();
         }
@@ -372,8 +378,8 @@ struct Transformer {
     }
 };
 
-template <typename FromType, typename ToType>
-struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
+template <typename FromType, typename ToType, template <typename> typename Impl>
+struct TransformerYear {
     static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to,
                        NullMap& null_map) {
         size_t size = vec_from.size();
@@ -385,7 +391,7 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
         auto* __restrict null_map_ptr = null_map.data();
 
         for (size_t i = 0; i < size; ++i) {
-            to_ptr[i] = ToYearImpl<FromType>::execute(from_ptr[i]);
+            to_ptr[i] = Impl<FromType>::execute(from_ptr[i]);
         }
 
         for (size_t i = 0; i < size; ++i) {
@@ -401,10 +407,18 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
         auto* __restrict from_ptr = vec_from.data();
 
         for (size_t i = 0; i < size; ++i) {
-            to_ptr[i] = ToYearImpl<FromType>::execute(from_ptr[i]);
+            to_ptr[i] = Impl<FromType>::execute(from_ptr[i]);
         }
     }
 };
+
+template <typename FromType, typename ToType>
+struct Transformer<FromType, ToType, ToYearImpl<FromType>>
+        : public TransformerYear<FromType, ToType, ToYearImpl> {};
+
+template <typename FromType, typename ToType>
+struct Transformer<FromType, ToType, ToYearOfWeekImpl<FromType>>
+        : public TransformerYear<FromType, ToType, ToYearOfWeekImpl> {};
 
 template <typename FromType, typename ToType, typename Transform>
 struct DateTimeTransformImpl {

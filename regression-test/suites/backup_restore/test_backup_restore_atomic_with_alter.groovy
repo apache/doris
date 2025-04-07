@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_backup_restore_atomic_with_alter", "backup_restore") {
+suite("test_backup_restore_atomic_with_alter", "backup_restore,nonConcurrent") {
     if (!getFeConfig("enable_debug_points").equals("true")) {
         logger.info("Config.enable_debug_points=true is required")
         return
@@ -23,7 +23,7 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore") {
 
     String suiteName = "test_backup_restore_atomic_with_alter"
     String dbName = "${suiteName}_db"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "snapshot_" + UUID.randomUUID().toString().replace("-", "")
     String tableNamePrefix = "${suiteName}_tables"
 
@@ -96,6 +96,7 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore") {
     sql "DROP TABLE ${dbName}.${tableNamePrefix}_0 FORCE"
 
     // disable restore
+ try {
     GetDebugPoint().enableDebugPointForAllFEs("FE.PAUSE_NON_PENDING_RESTORE_JOB", [value:snapshotName])
 
     sql """
@@ -125,7 +126,7 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore") {
     sql "SYNC"
 
     // 0. table_1 has in_atomic_restore property
-    def show_result = sql """ SHOW CREATE TABLE ${dbName}.${tableNamePrefix}_1 """
+    def show_result = master_sql """ SHOW CREATE TABLE ${dbName}.${tableNamePrefix}_1 """
     logger.info("SHOW CREATE TABLE ${tableNamePrefix}_1: ${show_result}")
     assertTrue(show_result[0][1].contains("in_atomic_restore"))
 
@@ -230,7 +231,7 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore") {
     sql "SYNC"
 
     // 5. The restore job is cancelled, the in_atomic_restore property has been removed.
-    show_result = sql """ SHOW CREATE TABLE ${dbName}.${tableNamePrefix}_1 """
+    show_result = master_sql """ SHOW CREATE TABLE ${dbName}.${tableNamePrefix}_1 """
     logger.info("SHOW CREATE TABLE ${tableNamePrefix}_1: ${show_result}")
     assertFalse(show_result[0][1].contains("in_atomic_restore"))
 
@@ -239,6 +240,9 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore") {
     }
     sql "DROP DATABASE ${dbName} FORCE"
     sql "DROP REPOSITORY `${repoName}`"
+  } finally {
+    GetDebugPoint().disableDebugPointForAllFEs("FE.PAUSE_NON_PENDING_RESTORE_JOB")
+  }
 }
 
 

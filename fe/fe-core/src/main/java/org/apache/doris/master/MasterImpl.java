@@ -85,6 +85,21 @@ public class MasterImpl {
     }
 
     public TMasterResult finishTask(TFinishTaskRequest request) {
+        TMasterResult result = null;
+        long startTime = System.currentTimeMillis();
+        try {
+            result = finishTaskInternal(request);
+            return result;
+        } finally {
+            long endTime = System.currentTimeMillis();
+            long duration = endTime - startTime;
+            if (result != null && duration > 1000L) {
+                LOG.warn("Finish task rpc exceeded 1s, request={}, result={}", request, result);
+            }
+        }
+    }
+
+    public TMasterResult finishTaskInternal(TFinishTaskRequest request) {
         TMasterResult result = new TMasterResult();
         TStatus tStatus = new TStatus(TStatusCode.OK);
         result.setStatus(tStatus);
@@ -128,6 +143,8 @@ public class MasterImpl {
                 List<String> errorMsgs = new ArrayList<String>();
                 errorMsgs.add(errMsg);
                 tStatus.setErrorMsgs(errorMsgs);
+            } else {
+                LOG.warn("Finish task rpc got null task for request={}", request);
             }
             return result;
         } else {

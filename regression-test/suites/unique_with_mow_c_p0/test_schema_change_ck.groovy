@@ -117,7 +117,7 @@ suite("test_schema_change_ck") {
     /****** drop key column ******/
     test {
         sql """ alter table ${tableName} drop column k2; """
-        exception "Can not drop key column in Unique data model table"
+        exception "Can not drop key column k2 in unique data model table"
     }
 
     /****** TODO does not support drop cluster key ******/

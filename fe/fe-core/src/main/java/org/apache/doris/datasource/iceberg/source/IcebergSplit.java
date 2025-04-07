@@ -22,6 +22,7 @@ import org.apache.doris.datasource.FileSplit;
 
 import lombok.Data;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -35,7 +36,7 @@ public class IcebergSplit extends FileSplit {
     // but the original datafile path must be used.
     private final String originalPath;
     private Integer formatVersion;
-    private List<IcebergDeleteFileFilter> deleteFileFilters;
+    private List<IcebergDeleteFileFilter> deleteFileFilters = new ArrayList<>();
     private Map<String, String> config;
     // tableLevelRowCount will be set only table-level count push down opt is available.
     private long tableLevelRowCount = -1;

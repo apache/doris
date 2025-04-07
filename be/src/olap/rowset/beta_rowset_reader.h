@@ -80,9 +80,7 @@ public:
         return _iterator->current_block_row_locations(locations);
     }
 
-    Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) override;
-
-    bool update_profile(RuntimeProfile* profile) override;
+    void update_profile(RuntimeProfile* profile) override;
 
     RowsetReaderSharedPtr clone() override;
 
@@ -97,7 +95,7 @@ private:
                _rowset->rowset_meta()->is_segments_overlapping() && _get_segment_num() > 1;
     }
 
-    int32_t _get_segment_num() const {
+    int64_t _get_segment_num() const {
         auto [seg_start, seg_end] = _segment_offsets;
         if (seg_start == seg_end) {
             seg_start = 0;
@@ -108,7 +106,7 @@ private:
 
     DorisCallOnce<Status> _init_iter_once;
 
-    std::pair<int, int> _segment_offsets;
+    std::pair<int64_t, int64_t> _segment_offsets;
     std::vector<RowRanges> _segment_row_ranges;
 
     SchemaSPtr _input_schema;
@@ -119,8 +117,6 @@ private:
     OlapReaderStatistics* _stats = nullptr;
 
     std::unique_ptr<RowwiseIterator> _iterator;
-
-    std::vector<uint32_t> _segments_rows;
 
     StorageReadOptions _read_options;
 

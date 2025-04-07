@@ -86,7 +86,7 @@ suite("test_lower_case_meta_with_lower_table_conf_auth", "p0,external,doris,exte
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     sql """grant select_priv on regression_test to ${user}"""
@@ -134,7 +134,7 @@ suite("test_lower_case_meta_with_lower_table_conf_auth", "p0,external,doris,exte
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     sql """grant select_priv on regression_test to ${user}"""

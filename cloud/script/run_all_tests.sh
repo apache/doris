@@ -120,8 +120,8 @@ function report_coverage() {
     for object in ${binary_objects[@]}; do
         binary_objects_options[${#binary_objects_options[*]}]="-object ${object}"
     done
-    llvm-profdata merge -o ${profdata} ${profraw}
-    llvm-cov show -output-dir=report -format=html \
+    ${LLVM_PROFDATA:-llvm-profdata} merge -o ${profdata} ${profraw}
+    ${LLVM_COV:-llvm-cov} show -output-dir=report -format=html \
         -ignore-filename-regex='(.*gensrc/.*)|(.*_test\.cpp$)' \
         -instr-profile=${profdata} \
         ${binary_objects_options[*]}

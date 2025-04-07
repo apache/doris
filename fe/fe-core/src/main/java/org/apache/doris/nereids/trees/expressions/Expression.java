@@ -70,6 +70,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
             () -> collect(e -> e instanceof Slot && !(e instanceof ArrayItemSlot)));
     private final int fastChildrenHashCode;
     private final Supplier<String> toSqlCache = Suppliers.memoize(this::computeToSql);
+    private final Supplier<Integer> hashCodeCache = Suppliers.memoize(this::computeHashCode);
 
     protected Expression(Expression... children) {
         super(children);
@@ -405,6 +406,32 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 && ((SlotReference) this).getColumn().get().isKey();
     }
 
+    /** containsNullLiteralChildren */
+    public boolean containsNullLiteralChildren() {
+        return getOrInitMutableState("CONTAINS_NULL_LITERAL_CHILDREN", () -> {
+            for (Expression child : children) {
+                if (child instanceof NullLiteral) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+    /** allChildrenAreLiteral */
+    public boolean allChildrenAreLiteral() {
+        return getOrInitMutableState("ALL_CHILDREN_ARE_LITERAL", () -> {
+            boolean allLiteral = true;
+            for (Expression child : getArguments()) {
+                if (!(child instanceof Literal)) {
+                    allLiteral = false;
+                    break;
+                }
+            }
+            return allLiteral;
+        });
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -440,6 +467,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     @Override
     public int hashCode() {
+        return hashCodeCache.get();
+    }
+
+    protected int computeHashCode() {
         return getClass().hashCode() + fastChildrenHashCode();
     }
 

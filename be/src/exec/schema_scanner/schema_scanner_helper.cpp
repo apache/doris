@@ -17,6 +17,7 @@
 
 #include "exec/schema_scanner/schema_scanner_helper.h"
 
+#include "cctz/time_zone.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -43,6 +44,24 @@ void SchemaScannerHelper::insert_datetime_value(int col_index, const std::vector
     mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
     auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
     vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
+    auto data = datas[0];
+    assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+            reinterpret_cast<char*>(data), 0);
+    nullable_column->get_null_map_data().emplace_back(0);
+}
+
+void SchemaScannerHelper::insert_datetime_value(int col_index, int64_t timestamp,
+                                                const cctz::time_zone& ctz,
+                                                vectorized::Block* block) {
+    vectorized::MutableColumnPtr mutable_col_ptr;
+    mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
+    auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
+    vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
+
+    std::vector<void*> datas(1);
+    VecDateTimeValue src[1];
+    src[0].from_unixtime(timestamp, ctz);
+    datas[0] = src;
     auto data = datas[0];
     assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
             reinterpret_cast<char*>(data), 0);

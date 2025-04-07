@@ -42,6 +42,11 @@ suite("test_group_commit_replay_wal", "nonConcurrent") {
         properties("replication_num" = "1", "group_commit_interval_ms"="2000")
     """
 
+    sql """ set global enable_unique_key_partial_update = true """
+    onFinish {
+        sql """ set global enable_unique_key_partial_update = false """
+    }
+
     // 1. load success but commit rpc timeout
     // 2. should skip replay because of fe throw LabelAlreadyUsedException and txn status is VISIBLE
     GetDebugPoint().clearDebugPointsForAllBEs()

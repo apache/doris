@@ -45,6 +45,8 @@ suite ("multi_slot3") {
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table multi_slot3 with sync;"
+    sql """alter table multi_slot3 modify column k1 set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
     order_qt_select_star "select * from multi_slot3 order by k1;"
@@ -53,6 +55,5 @@ suite ("multi_slot3") {
     order_qt_select_mv "select k1+1,abs(k2+2)+k3+3 from multi_slot3 order by k1+1;"
 
     sql """set enable_stats=true;"""
-    sql """alter table multi_slot3 modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1+1,abs(k2+2)+k3+3 from multi_slot3 order by k1+1;", "k1p2ap3p")
 }

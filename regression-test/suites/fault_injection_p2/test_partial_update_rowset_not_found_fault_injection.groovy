@@ -94,8 +94,8 @@ suite("test_partial_update_rowset_not_found_fault_injection", "p2,nonConcurrent"
         def tablets = sql_return_maparray """ show tablets from ${testTable}; """
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+            def backend_id = tablet.BackendId
+            def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
         }

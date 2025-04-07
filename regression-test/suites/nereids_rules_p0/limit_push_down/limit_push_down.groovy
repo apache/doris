@@ -60,9 +60,8 @@ suite("limit_push_down") {
     //`limit 1, agg & scalar agg join:
     qt_limit_distinct """ explain shape plan SELECT distinct t1.id FROM t1 cross join t2 LIMIT 1; """
     //`limit 1, agg & scalar agg left outer join:
-    qt_limit_distinct """ explain shape plan SELECT distinct t1.id FROM t1 left outer join t2 on t1.id = t2.id LIMIT 1; """
-    //`limit 1, agg & scalar agg right outer join:
-    qt_limit_distinct """ explain shape plan SELECT distinct t1.id FROM t1 left outer join t2 on t1.id = t2.id LIMIT 1; """
+    qt_limit_distinct """ explain shape plan SELECT distinct t1.id FROM t1 left outer join[broadcast] t2 on t1.id = t2.id LIMIT 1; """
+
     
     //`limit 1 offset 1, agg & scalar agg`:
     qt_limit_offset_agg """ explain shape plan SELECT distinct t1.id c FROM t1 ORDER BY c LIMIT 1 OFFSET 1; """

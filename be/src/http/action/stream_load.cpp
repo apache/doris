@@ -77,6 +77,8 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_duration_ms, MetricUnit::MIL
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit::REQUESTS);
 
 bvar::LatencyRecorder g_stream_load_receive_data_latency_ms("stream_load_receive_data_latency_ms");
+bvar::LatencyRecorder g_stream_load_commit_and_publish_latency_ms("stream_load",
+                                                                  "commit_and_publish_ms");
 
 static constexpr size_t MIN_CHUNK_SIZE = 64 * 1024;
 static const string CHUNK = "chunked";
@@ -165,7 +167,8 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
     if (!ctx->use_streaming) {
         // we need to close file first, then execute_plan_fragment here
         ctx->body_sink.reset();
-        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx));
+        TPipelineFragmentParamsList mocked;
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked));
     }
 
     // wait stream load finish
@@ -185,6 +188,8 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
         int64_t commit_and_publish_start_time = MonotonicNanos();
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()));
         ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
+        g_stream_load_commit_and_publish_latency_ms
+                << ctx->commit_and_publish_txn_cost_nanos / 1000000;
     }
     return Status::OK();
 }
@@ -247,10 +252,6 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     }
 
     // get format of this put
-    if (!http_req->header(HTTP_COMPRESS_TYPE).empty() &&
-        iequal(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
-        return Status::NotSupported("compress data of JSON format is not supported.");
-    }
     std::string format_str = http_req->header(HTTP_FORMAT_KEY);
     if (iequal(format_str, BeConsts::CSV_WITH_NAMES) ||
         iequal(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
@@ -425,6 +426,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         if (ctx->is_chunked_transfer) {
             pipe = std::make_shared<io::StreamLoadPipe>(
                     io::kMaxPipeBufferedBytes /* max_buffered_bytes */);
+            pipe->set_is_chunked_transfer(true);
         } else {
             pipe = std::make_shared<io::StreamLoadPipe>(
                     io::kMaxPipeBufferedBytes /* max_buffered_bytes */,
@@ -778,8 +780,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!ctx->use_streaming) {
         return Status::OK();
     }
-
-    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
+    TPipelineFragmentParamsList mocked;
+    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked);
 }
 
 Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_path) {
@@ -854,7 +856,12 @@ Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
                            iequal(req->header(HTTP_PARTIAL_COLUMNS), "true");
     auto temp_partitions = !req->header(HTTP_TEMP_PARTITIONS).empty();
     auto partitions = !req->header(HTTP_PARTITIONS).empty();
-    if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit) {
+    auto update_mode =
+            !req->header(HTTP_UNIQUE_KEY_UPDATE_MODE).empty() &&
+            (iequal(req->header(HTTP_UNIQUE_KEY_UPDATE_MODE), "UPDATE_FIXED_COLUMNS") ||
+             iequal(req->header(HTTP_UNIQUE_KEY_UPDATE_MODE), "UPDATE_FLEXIBLE_COLUMNS"));
+    if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit &&
+        !update_mode) {
         if (!config::wait_internal_group_commit_finish && !ctx->label.empty()) {
             return Status::InvalidArgument("label and group_commit can't be set at the same time");
         }

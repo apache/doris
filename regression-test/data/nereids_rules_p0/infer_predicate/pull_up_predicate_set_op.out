@@ -561,5 +561,8 @@ abbbb
 -- !union_child_and_const_exprs_orpredicates_res --
 1	d2
 
+-- !intersect_with_hint_infer_set_operator_distinct_and_do_eliminate_gby_key_by_uniform --
+1	d2
+
 -- !test --
 

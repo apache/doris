@@ -89,6 +89,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         stmt_read2.close()
 
         sql "DROP TABLE IF EXISTS mytable1"
+        sql "DROP TABLE IF EXISTS mytable2"
         sql """
           CREATE TABLE mytable1
           (
@@ -247,5 +248,104 @@ suite("test_prepared_stmt", "nonConcurrent") {
         result = stmt_read.execute()
         logger.info("connection_id: ${result}")
         // qe_select16 stmt_read
+
+        // test prepared with between, test placeholder equal
+        sql """insert into mytable2 values(3,1,'user1',10);"""
+        stmt_read = prepareStatement "SELECT COUNT() from mytable2 WHERE siteid between ? and ?"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        stmt_read.setInt(1, 0)
+        stmt_read.setInt(2, 3)
+        qe_select17 stmt_read
+
+
+        // test array1
+        stmt_read = prepareStatement """SELECT 1, [1, 2, 3], null, ["1"], null, null, [1.111]"""
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select18 stmt_read
+
+        // test array2
+        stmt_read = prepareStatement "SELECT 1, [1, 2, 3], null"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select18_1 stmt_read
+
+        // test array3
+        stmt_read = prepareStatement """SELECT 1, [1, null, 3], null, [null], null, null, [null, null]"""
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select18_2 stmt_read
+
+        // test map
+        stmt_read = prepareStatement """SELECT 1, {"a" : 1}, null"""
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select19 stmt_read
+
+        // test struct
+        stmt_read = prepareStatement """SELECT 1, struct('a', 1, 'doris', 'aaaaa', 1.32), null"""
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select20 stmt_read
+
+        // test nested array
+        stmt_read = prepareStatement("""SELECT 1, [[1, 2], [3, 4]], null""")
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select21 stmt_read
+
+        // test nested map
+        stmt_read = prepareStatement("""SELECT 1, {"a": {"b": 2}}, null""")
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select22 stmt_read
+
+        // test struct with array
+        stmt_read = prepareStatement("""SELECT 1, struct('name', 'doris', 'values', [1, 2, 3]), null""")
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select23 stmt_read
+
+        stmt_read = prepareStatement("""SELECT 1, null, [{'id': 1, 'name' : 'doris'}, {'id': 2, 'name': 'apache'}, null], null""")
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
+        qe_select24 stmt_read
+    }
+
+    // test stmtId overflow
+    def result2 = connect(user, password, url) {
+        // def stmt_read1 = prepareStatement "select 1"
+        // assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read1.class)
+        // qe_overflow_1 stmt_read1
+        // stmt_read1.close()
+        // int max
+        sql """admin set frontend config("prepared_stmt_start_id" = "2147483647");"""
+        def stmt_read2 = prepareStatement "select 2"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read2.class)
+        qe_overflow_2 stmt_read2
+        qe_overflow_2 stmt_read2
+        stmt_read2.close()
+        // int max + 1
+        sql """admin set frontend config("prepared_stmt_start_id" = "2147483648");"""
+        def stmt_read3 = prepareStatement "select 3"
+        // overflow throw NumberFormatExceptio and fallback to ClientPreparedStatement
+        assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read3.class)
+        qe_overflow_3 stmt_read3
+        qe_overflow_3 stmt_read3
+        stmt_read3.close()
+        // int min 
+        sql """admin set frontend config("prepared_stmt_start_id" = "2147483646");"""
+        def stmt_read4 = prepareStatement "select 4"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read4.class)
+        qe_overflow_4 stmt_read4
+        qe_overflow_4 stmt_read4
+        stmt_read4.close()
+
+        sql """admin set frontend config("prepared_stmt_start_id" = "123");"""
+        def stmt_read5 = prepareStatement "select 5"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read5.class)
+        qe_overflow_5 stmt_read5
+        qe_overflow_5 stmt_read5
+        stmt_read5.close()
+
+        // set back
+        sql """admin set frontend config("prepared_stmt_start_id" = "-1");"""
+        def stmt_read6 = prepareStatement "select 6"
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read6.class)
+        qe_overflow_6 stmt_read6
+        qe_overflow_6 stmt_read6
+        qe_overflow_6 stmt_read6
+        stmt_read6.close()
     }
 }

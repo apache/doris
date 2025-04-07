@@ -19,7 +19,6 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
@@ -35,6 +34,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.io.Text;
@@ -59,12 +59,18 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.persist.CreateDbInfo;
+import org.apache.doris.persist.CreateTableInfo;
+import org.apache.doris.persist.DropDbInfo;
+import org.apache.doris.persist.DropInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.transaction.TransactionManager;
 
+import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -92,6 +98,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.stream.Collectors;
 
 /**
@@ -139,6 +146,9 @@ public abstract class ExternalCatalog
     // <db name, table name> to tableAutoAnalyzePolicy
     @SerializedName(value = "taap")
     protected Map<Pair<String, String>, String> tableAutoAnalyzePolicy = Maps.newHashMap();
+    @SerializedName(value = "comment")
+    private String comment;
+
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -147,7 +157,6 @@ public abstract class ExternalCatalog
     protected TransactionManager transactionManager;
 
     private ExternalSchemaCache schemaCache;
-    private String comment;
     // A cached and being converted properties for external catalog.
     // generated from catalog properties.
     private byte[] propLock = new byte[0];
@@ -156,6 +165,7 @@ public abstract class ExternalCatalog
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected PreExecutionAuthenticator preExecutionAuthenticator;
+    protected ThreadPoolExecutor threadPoolWithPreAuth;
 
     private volatile Configuration cachedConf = null;
     private byte[] confLock = new byte[0];
@@ -390,7 +400,7 @@ public abstract class ExternalCatalog
                     db.setRemoteName(remoteDbName);
                 }
                 tmpIdToDb.put(dbId, db);
-                initCatalogLog.addRefreshDb(dbId);
+                initCatalogLog.addRefreshDb(dbId, remoteDbName);
             } else {
                 dbId = Env.getCurrentEnv().getNextId();
                 tmpDbNameToId.put(localDbName, dbId);
@@ -491,7 +501,23 @@ public abstract class ExternalCatalog
         return remoteToLocalPairs;
     }
 
-    public void onRefresh(boolean invalidCache) {
+    /**
+     * Resets the Catalog state to uninitialized, releases resources held by {@code initLocalObjectsImpl()}
+     * <p>
+     * This method is typically invoked during operations such as {@code CREATE CATALOG}
+     * and {@code MODIFY CATALOG}. It marks the object as uninitialized, clears cached
+     * configurations, and ensures that resources allocated during {@link #initLocalObjectsImpl()}
+     * are properly released via {@link #onClose()}
+     * </p>
+     * <p>
+     * The {@code onClose()} method is responsible for cleaning up resources that were initialized
+     * in {@code initLocalObjectsImpl()}, preventing potential resource leaks.
+     * </p>
+     *
+     * @param invalidCache if {@code true}, the catalog cache will be invalidated
+     *                     and reloaded during the refresh process.
+     */
+    public void resetToUninitialized(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
         synchronized (this.propLock) {
@@ -501,6 +527,7 @@ public abstract class ExternalCatalog
         synchronized (this.confLock) {
             this.cachedConf = null;
         }
+        onClose();
 
         refreshOnlyCatalogCache(invalidCache);
     }
@@ -714,7 +741,15 @@ public abstract class ExternalCatalog
     @Override
     public void onClose() {
         removeAccessController();
-        CatalogIf.super.onClose();
+        if (threadPoolWithPreAuth != null) {
+            ThreadPoolManager.shutdownExecutorService(threadPoolWithPreAuth);
+        }
+        if (null != preExecutionAuthenticator) {
+            preExecutionAuthenticator = null;
+        }
+        if (null != transactionManager) {
+            transactionManager = null;
+        }
     }
 
     private void removeAccessController() {
@@ -722,8 +757,12 @@ public abstract class ExternalCatalog
     }
 
     public void replayInitCatalog(InitCatalogLog log) {
-        // If the remote name is missing during upgrade, all databases in the Map will be reinitialized.
-        if (log.getCreateCount() > 0 && (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty())) {
+        // If the remote name is missing during upgrade, or
+        // the refresh db's remote name is empty,
+        // all databases in the Map will be reinitialized.
+        if ((log.getCreateCount() > 0 && (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty()))
+                || (log.getRefreshCount() > 0
+                && (log.getRefreshRemoteDbNames() == null || log.getRefreshRemoteDbNames().isEmpty()))) {
             dbNameToId = Maps.newConcurrentMap();
             idToDb = Maps.newConcurrentMap();
             lastUpdateTime = log.getLastUpdateTime();
@@ -743,6 +782,7 @@ public abstract class ExternalCatalog
                         log.getRefreshDbIds().get(i), name);
                 continue;
             }
+            db.get().setRemoteName(log.getRefreshRemoteDbNames().get(i));
             Preconditions.checkNotNull(db.get());
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
@@ -757,6 +797,18 @@ public abstract class ExternalCatalog
                 tmpIdToDb.put(db.getId(), db);
                 LOG.info("Synchronized database (create): [Name: {}, ID: {}, Remote Name: {}]",
                         db.getFullName(), db.getId(), log.getRemoteDbNames().get(i));
+            }
+        }
+        // Check whether the remoteName of db in tmpIdToDb is empty
+        for (ExternalDatabase<? extends ExternalTable> db : tmpIdToDb.values()) {
+            if (Strings.isNullOrEmpty(db.getRemoteName())) {
+                LOG.info("Database [{}] remoteName is empty in catalog [{}], mark as uninitialized",
+                        db.getFullName(), name);
+                dbNameToId = Maps.newConcurrentMap();
+                idToDb = Maps.newConcurrentMap();
+                lastUpdateTime = log.getLastUpdateTime();
+                initialized = false;
+                return;
             }
         }
         dbNameToId = tmpDbNameToId;
@@ -926,24 +978,40 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.createDb(stmt);
+            CreateDbInfo info = new CreateDbInfo(getName(), stmt.getFullDbName(), null);
+            Env.getCurrentEnv().getEditLog().logCreateDb(info);
         } catch (Exception e) {
-            LOG.warn("Failed to create a database.", e);
+            LOG.warn("Failed to create database {} in catalog {}.", stmt.getFullDbName(), getName(), e);
             throw e;
         }
     }
 
+    public void replayCreateDb(String dbName) {
+        if (metadataOps != null) {
+            metadataOps.afterCreateDb(dbName);
+        }
+    }
+
     @Override
-    public void dropDb(DropDbStmt stmt) throws DdlException {
+    public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropDb not implemented");
             return;
         }
         try {
-            metadataOps.dropDb(stmt);
+            metadataOps.dropDb(getName(), dbName, ifExists, force);
+            DropDbInfo info = new DropDbInfo(getName(), dbName);
+            Env.getCurrentEnv().getEditLog().logDropDb(info);
         } catch (Exception e) {
-            LOG.warn("Failed to drop a database.", e);
+            LOG.warn("Failed to drop database {} in catalog {}", dbName, getName(), e);
             throw e;
+        }
+    }
+
+    public void replayDropDb(String dbName) {
+        if (metadataOps != null) {
+            metadataOps.afterDropDb(dbName);
         }
     }
 
@@ -955,25 +1023,55 @@ public abstract class ExternalCatalog
             return false;
         }
         try {
-            return metadataOps.createTable(stmt);
+            boolean res = metadataOps.createTable(stmt);
+            if (!res) {
+                // res == false means the table does not exist before, and we create it.
+                CreateTableInfo info = new CreateTableInfo(getName(), stmt.getDbName(), stmt.getTableName());
+                Env.getCurrentEnv().getEditLog().logCreateTable(info);
+            }
+            return res;
         } catch (Exception e) {
             LOG.warn("Failed to create a table.", e);
             throw e;
         }
     }
 
+    public void replayCreateTable(String dbName, String tblName) {
+        if (metadataOps != null) {
+            metadataOps.afterCreateTable(dbName, tblName);
+        }
+    }
+
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
+        if (stmt == null) {
+            throw new DdlException("DropTableStmt is null");
+        }
+        dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isView(), stmt.isMaterializedView(), stmt.isSetIfExists(),
+                stmt.isForceDrop());
+    }
+
+    @Override
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
+                          boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             LOG.warn("dropTable not implemented");
             return;
         }
         try {
-            metadataOps.dropTable(stmt);
+            metadataOps.dropTable(dbName, tableName, ifExists);
+            DropInfo info = new DropInfo(getName(), dbName, tableName);
+            Env.getCurrentEnv().getEditLog().logDropTable(info);
         } catch (Exception e) {
             LOG.warn("Failed to drop a table", e);
             throw e;
+        }
+    }
+
+    public void replayDropTable(String dbName, String tblName) {
+        if (metadataOps != null) {
+            metadataOps.afterDropTable(dbName, tblName);
         }
     }
 
@@ -1075,9 +1173,19 @@ public abstract class ExternalCatalog
                 partitions = tableRef.getPartitionNames().getPartitionNames();
             }
             metadataOps.truncateTable(tableName.getDb(), tableName.getTbl(), partitions);
+            TruncateTableInfo info = new TruncateTableInfo(getName(), tableName.getDb(), tableName.getTbl(),
+                    partitions);
+            Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (Exception e) {
-            LOG.warn("Failed to drop a table", e);
+            LOG.warn("Failed to truncate table {}.{} in catalog {}", stmt.getTblRef().getName().getDb(),
+                    stmt.getTblRef().getName().getTbl(), getName(), e);
             throw e;
+        }
+    }
+
+    public void replayTruncateTable(TruncateTableInfo info) {
+        if (metadataOps != null) {
+            metadataOps.afterTruncateTable(info.getDb(), info.getTable());
         }
     }
 
@@ -1092,5 +1200,22 @@ public abstract class ExternalCatalog
 
     public PreExecutionAuthenticator getPreExecutionAuthenticator() {
         return preExecutionAuthenticator;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof ExternalCatalog)) {
+            return false;
+        }
+        ExternalCatalog that = (ExternalCatalog) o;
+        return Objects.equal(name, that.name);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(name);
     }
 }
