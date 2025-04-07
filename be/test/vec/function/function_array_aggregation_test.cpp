@@ -16,22 +16,17 @@
 // under the License.
 
 #include <cstddef>
-#include <iomanip>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "common/status.h"
 #include "function_test_util.h"
-#include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 
 template <typename T>
 struct AnyValue {
@@ -45,14 +40,19 @@ struct AnyValue {
 
 using IntDataSet = std::vector<std::pair<std::vector<AnyValue<int>>, AnyValue<int>>>;
 
+template <typename To, typename From>
+constexpr decltype(auto) convert_to(From value) {
+    return static_cast<To::FieldType>(value);
+}
+
 template <typename T, typename ReturnType = T>
 void check_function(const std::string& func_name, const IntDataSet data_set,
                     bool nullable = false) {
     InputTypeSet input_types;
     if (!nullable) {
-        input_types = {TypeIndex::Array, ut_type::get_type_index<T>()};
+        input_types = {TypeIndex::Array, T{}.get_type_id()};
     } else {
-        input_types = {TypeIndex::Array, TypeIndex::Nullable, ut_type::get_type_index<T>()};
+        input_types = {TypeIndex::Array, TypeIndex::Nullable, T{}.get_type_id()};
     }
     DataSet converted_data_set;
     for (const auto& row : data_set) {
@@ -61,12 +61,12 @@ void check_function(const std::string& func_name, const IntDataSet data_set,
             if (any_value.is_null) {
                 array.push_back(Field());
             } else {
-                array.push_back(ut_type::convert_to<T>(any_value.value));
+                array.push_back(convert_to<T>(any_value.value));
             }
         }
         if (!row.second.is_null) {
             converted_data_set.emplace_back(std::make_pair<CellSet, Expect>(
-                    {array}, ut_type::convert_to<ReturnType>(row.second.value)));
+                    {array}, convert_to<ReturnType>(row.second.value)));
         } else {
             converted_data_set.emplace_back(std::make_pair<CellSet, Expect>({array}, Null()));
         }
@@ -229,5 +229,5 @@ TEST(VFunctionArrayAggregationTest, TestArrayProductNullable) {
     static_cast<void>(check_function<DataTypeFloat64, DataTypeFloat64>(func_name, data_set, true));
 }
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
+

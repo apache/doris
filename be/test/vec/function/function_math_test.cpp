@@ -578,8 +578,8 @@ TEST(MathFunctionTest, money_format_test) {
     {
         BaseInputTypeSet input_types = {TypeIndex::Decimal64};
         DataSet data_set = {{{Null()}, Null()},
-                            {{DECIMAL64(17014116, 670000000)}, VARCHAR("17,014,116.67")},
-                            {{DECIMAL64(-17014116, -670000000)}, VARCHAR("-17,014,116.67")}};
+                            {{DECIMAL64(17014116, 670000000, 9)}, VARCHAR("17,014,116.67")},
+                            {{DECIMAL64(-17014116, -670000000, 9)}, VARCHAR("-17,014,116.67")}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }

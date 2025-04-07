@@ -21,15 +21,12 @@
 
 #include <cstdint>
 #include <ctime>
-#include <memory>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
-#include "common/status.h"
 #include "olap/olap_common.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
@@ -38,14 +35,8 @@
 #include "util/bitmap_value.h"
 #include "util/jsonb_utils.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_struct.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
-#include "vec/core/column_numbers.h"
-#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
@@ -54,7 +45,6 @@
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -71,7 +61,6 @@ using Row = std::pair<CellSet, Expect>;
 using DataSet = std::vector<Row>;
 using InputTypeSet = std::vector<AnyType>;
 
-// FIXME: should use exception or expected to deal null value.
 int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
 uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format);
 uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_format);
@@ -107,84 +96,25 @@ using IPV4 = uint32_t;
 using IPV6 = uint128_t;
 
 // cell constructors. could also use from_int_frac if you'd like
-inline auto DECIMALV2 = Decimal128V2::double_to_decimal;
-inline auto DECIMAL32 = [](int32_t x, int32_t y) { return Decimal32::from_int_frac(x, y, 5); };
-inline auto DECIMAL64 = [](int64_t x, int64_t y) { return Decimal64::from_int_frac(x, y, 9); };
-inline auto DECIMAL128V3 = [](int128_t x, int128_t y) {
-    return Decimal128V3::from_int_frac(x, y, 20);
+inline auto DECIMALV2 = Decimal128V2::double_to_decimalv2;
+inline auto DECIMAL32 = [](int32_t x, int32_t y, int scale) {
+    return Decimal32::from_int_frac(x, y, scale);
 };
-inline auto DECIMAL256 = [](wide::Int256 x, wide::Int256 y) {
-    return Decimal256::from_int_frac(x, y, 40);
+inline auto DECIMAL64 = [](int64_t x, int64_t y, int scale) {
+    return Decimal64::from_int_frac(x, y, scale);
+};
+inline auto DECIMAL128V3 = [](int128_t x, int128_t y, int scale) {
+    return Decimal128V3::from_int_frac(x, y, scale);
+};
+inline auto DECIMAL256 = [](wide::Int256 x, wide::Int256 y, int scale) {
+    return Decimal256::from_int_frac(x, y, scale);
 };
 
 inline auto DECIMALFIELD = [](double v) {
-    return DecimalField<Decimal128V2>(Decimal128V2::double_to_decimal(v), 9);
+    return DecimalField<Decimal128V2>(Decimal128V2::double_to_decimalv2(v), 9);
 };
 
 using DATETIME = std::string;
-
-template <typename T>
-struct DataTypeTraits;
-
-template <>
-struct DataTypeTraits<DataTypeInt8> {
-    using type = Int8;
-};
-
-template <>
-struct DataTypeTraits<DataTypeInt16> {
-    using type = Int16;
-};
-
-template <>
-struct DataTypeTraits<DataTypeInt32> {
-    using type = Int32;
-};
-
-template <>
-struct DataTypeTraits<DataTypeInt64> {
-    using type = Int64;
-};
-
-template <>
-struct DataTypeTraits<DataTypeInt128> {
-    using type = Int128;
-};
-
-template <>
-struct DataTypeTraits<DataTypeFloat32> {
-    using type = Float32;
-};
-
-template <>
-struct DataTypeTraits<DataTypeFloat64> {
-    using type = Float64;
-};
-
-template <typename To, typename From>
-constexpr decltype(auto) convert_to(From value) {
-    using ToType = typename DataTypeTraits<To>::type;
-    return ToType(value);
-}
-
-template <typename T>
-constexpr TypeIndex get_type_index() {
-    if constexpr (std::is_same_v<T, DataTypeInt8>) {
-        return TypeIndex::Int8;
-    } else if constexpr (std::is_same_v<T, DataTypeInt16>) {
-        return TypeIndex::Int16;
-    } else if constexpr (std::is_same_v<T, DataTypeInt32>) {
-        return TypeIndex::Int32;
-    } else if constexpr (std::is_same_v<T, DataTypeInt64>) {
-        return TypeIndex::Int64;
-    } else if constexpr (std::is_same_v<T, DataTypeInt128>) {
-        return TypeIndex::Int128;
-    } else if constexpr (std::is_same_v<T, DataTypeFloat32>) {
-        return TypeIndex::Float32;
-    } else if constexpr (std::is_same_v<T, DataTypeFloat64>) {
-        return TypeIndex::Float64;
-    }
-}
 
 struct UTDataTypeDesc {
     DataTypePtr data_type;
@@ -194,31 +124,75 @@ struct UTDataTypeDesc {
     bool is_nullable = true;
 };
 using UTDataTypeDescs = std::vector<UTDataTypeDesc>;
-
 } // namespace ut_type
 
-size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t index,
-                               ut_type::UTDataTypeDesc& ut_desc, DataTypePtr& type);
 bool parse_ut_data_type(const std::vector<AnyType>& input_types, ut_type::UTDataTypeDescs& descs);
 
 bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell);
 
-Block* create_block_from_inputset(const InputTypeSet& input_types, const InputDataSet& input_set);
-
-Block* process_table_function(TableFunction* fn, Block* input_block,
-                              const InputTypeSet& output_types);
 void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types,
                               const InputDataSet& input_set, const InputTypeSet& output_types,
                               const InputDataSet& output_set, bool test_get_value_func = false);
 
-// Null values are represented by Null()
-// The type of the constant column is represented as follows: Consted {TypeIndex::String}
-// A DataSet with a constant column can only have one row of data
-template <typename ReturnType, bool nullable = false>
+template <typename ReturnType>
+TypeDescriptor get_return_type_descriptor() {
+    TypeDescriptor fn_ctx_return;
+    if constexpr (std::is_same_v<ReturnType, DataTypeUInt8>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_BOOLEAN;
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_INT;
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
+                         std::is_same_v<ReturnType, DataTypeTimeV2>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DOUBLE;
+    } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIME;
+    } else if (std::is_same_v<ReturnType, DateV2>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATEV2;
+    } else if (std::is_same_v<ReturnType, DateTimeV2>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIMEV2;
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V2>>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMALV2;
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal32>>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL32;
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal64>>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL64;
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V3>>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL128I;
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal256>>) {
+        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL256;
+    } else {
+        fn_ctx_return.type = doris::PrimitiveType::INVALID_TYPE;
+    }
+    return fn_ctx_return;
+}
+
+/**
+ * Null values are represented by Null()
+ * The type of the constant column is represented as follows: Consted {TypeIndex::String}
+ * A DataSet with a constant column can only have one row of data
+ * About scales and precisions:
+    When you need scale in and scale out(like, DatetimeV2 to DatetimeV2), you need:
+        InputTypeSet input_types = {{TypeIndex::DateTimeV2, 3}}; // input scale
+        ...
+        check_function<DataTypeDateTimeV2, true, 3>(func_name, input_types, data_set); // output scale
+     IF YOU FORGET TO SET THE SCALE, THE MICROSECOND WILL NOT BE TESTED. we can't force to check it because Field doesn't
+     keep the scale. So if the scale doesn't match, 
+    And for Decimal input or output, you need:
+        {{...}, DECIMAL64(1653395696, 789, 3)} // an output example
+     because every Decimal type already set its precision. so scale in enough.
+    For Decimal output, you need sepecific output's scale and precision:
+        check_function<DataTypeDecimal<Decimal64>, true, 6, 9>(func_name, input_types, data_set);
+*/
+// NOLINTBEGIN(readability-function-size)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+template <typename ResultType, bool ResultNullable = false, int ResultScale = -1,
+          int ResultPrecision = -1>
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
-                      const DataSet& data_set, bool expect_fail = false) {
+                      const DataSet& data_set, bool expect_execute_fail = false,
+                      bool expect_result_ne = false) {
     // 1.0 create data type
     ut_type::UTDataTypeDescs descs;
+    // desc get type's precision and scale here. TODO: replace by DataTypePtr inputs directly.
     EXPECT_TRUE(parse_ut_data_type(input_types, descs));
 
     // 1.1 insert data and create block
@@ -229,11 +203,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         auto column = desc.data_type->create_column();
         column->reserve(row_size);
 
-        auto type_ptr = desc.data_type->is_nullable()
-                                ? ((DataTypeNullable*)(desc.data_type.get()))->get_nested_type()
-                                : desc.data_type;
         for (int j = 0; j < row_size; j++) {
-            EXPECT_TRUE(insert_cell(column, type_ptr, data_set[j].first[i]));
+            // null dealed in insert_cell
+            EXPECT_TRUE(insert_cell(column, desc.data_type, data_set[j].first[i]));
         }
 
         if (desc.is_const) {
@@ -261,39 +233,24 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     }
 
     // 2. execute function
-    auto return_type = nullable ? make_nullable(std::make_shared<ReturnType>())
-                                : std::make_shared<ReturnType>();
+    auto return_type = []() {
+        if constexpr (ResultPrecision != -1) { // decimal
+            return ResultNullable ? make_nullable(std::make_shared<ResultType>(ResultPrecision,
+                                                                               ResultScale))
+                                  : std::make_shared<ResultType>(ResultPrecision, ResultScale);
+        } else if constexpr (ResultScale != -1) { // datetimev2
+            return ResultNullable ? make_nullable(std::make_shared<ResultType>(ResultScale))
+                                  : std::make_shared<ResultType>(ResultScale);
+        } else {
+            return ResultNullable ? make_nullable(std::make_shared<ResultType>())
+                                  : std::make_shared<ResultType>();
+        }
+    }();
     auto func = SimpleFunctionFactory::instance().get_function(
             func_name, block.get_columns_with_type_and_name(), return_type);
     EXPECT_TRUE(func != nullptr);
 
-    doris::TypeDescriptor fn_ctx_return;
-    if constexpr (std::is_same_v<ReturnType, DataTypeUInt8>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_BOOLEAN;
-    } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_INT;
-    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
-                         std::is_same_v<ReturnType, DataTypeTimeV2>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DOUBLE;
-    } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIME;
-    } else if (std::is_same_v<ReturnType, DateV2>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATEV2;
-    } else if (std::is_same_v<ReturnType, DateTimeV2>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIMEV2;
-    } else if (std::is_same_v<ReturnType, Decimal128V2>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMALV2;
-    } else if (std::is_same_v<ReturnType, Decimal32>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL32;
-    } else if (std::is_same_v<ReturnType, Decimal64>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL64;
-    } else if (std::is_same_v<ReturnType, Decimal128V3>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL128I;
-    } else if (std::is_same_v<ReturnType, Decimal256>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL256;
-    } else {
-        fn_ctx_return.type = doris::PrimitiveType::INVALID_TYPE;
-    }
+    TypeDescriptor fn_ctx_return = get_return_type_descriptor<ResultType>();
 
     FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();
@@ -305,7 +262,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     auto result = block.columns() - 1;
     auto st = func->execute(fn_ctx, block, arguments, result, row_size);
-    if (expect_fail) {
+    if (expect_execute_fail) {
         EXPECT_NE(Status::OK(), st);
         return st;
     } else {
@@ -315,89 +272,51 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
     static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
 
-    // 3. check the result of function
+    // 3.0. create expected result column in block
+    DataTypePtr result_type_ptr;
+    if constexpr (ResultPrecision != -1) { // decimal
+        result_type_ptr =
+                ResultNullable
+                        ? make_nullable(std::make_shared<ResultType>(ResultPrecision, ResultScale))
+                        : std::make_shared<ResultType>(ResultPrecision, ResultScale);
+    } else if constexpr (ResultScale != -1) { // datetimev2
+        result_type_ptr = ResultNullable ? make_nullable(std::make_shared<ResultType>(ResultScale))
+                                         : std::make_shared<ResultType>(ResultScale);
+    } else {
+        result_type_ptr = ResultNullable ? make_nullable(std::make_shared<ResultType>())
+                                         : std::make_shared<ResultType>();
+    }
+    MutableColumnPtr expected_col_ptr = result_type_ptr->create_column();
+    for (int i = 0; i < row_size; i++) {
+        EXPECT_TRUE(insert_cell(expected_col_ptr, result_type_ptr, data_set[i].second));
+    }
+
+    // 3.1. check the result of function
     ColumnPtr column = block.get_columns()[result];
     EXPECT_TRUE(column);
-    if (const auto* column_str = check_and_get_column<ColumnString>(column.get())) {
+    if (const auto* column_str = check_and_get_column<ColumnString>(column.get());
+        column_str && !expect_result_ne) {
         column_str->sanity_check();
     }
 
     for (int i = 0; i < row_size; ++i) {
-        // update current line
-        if (row_size > 1) {
-            TestCaseInfo::cur_cast_line = i;
-        }
-        auto check_column_data = [&]() {
-            if constexpr (std::is_same_v<ReturnType, DataTypeJsonb>) {
-                const auto& expect_data = any_cast<String>(data_set[i].second);
-                auto s = column->get_data_at(i);
-                if (expect_data.empty()) {
-                    // zero size result means invalid
-                    EXPECT_EQ(0, s.size) << " invalid result size should be 0 at row " << i;
-                } else {
-                    // convert jsonb binary value to json string to compare with expected json text
-                    EXPECT_EQ(expect_data, JsonbToJson::jsonb_to_json_string(s.data, s.size))
-                            << " at row " << i;
-                }
-            } else {
-                Field field;
-                column->get(i, field);
+        TestCaseInfo::cur_cast_line = i; // for failure report
 
-                const auto& expect_data =
-                        any_cast<typename ReturnType::FieldType>(data_set[i].second);
-
-                if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V2>>) {
-                    const auto& column_data = field.get<DecimalField<Decimal128V2>>().get_value();
-                    EXPECT_EQ(expect_data.value, column_data.value) << " at row " << i;
-                } else if constexpr (std::is_same_v<ReturnType, DataTypeBitMap>) {
-                    const ColumnBitmap* bitmap_col = nullptr;
-                    if constexpr (nullable) {
-                        const auto* nullable_column =
-                                assert_cast<const ColumnNullable*>(column.get());
-                        bitmap_col = assert_cast<const ColumnBitmap*>(
-                                nullable_column->get_nested_column_ptr().get());
-                    } else {
-                        bitmap_col = assert_cast<const ColumnBitmap*>(column.get());
-                    }
-                    EXPECT_EQ(expect_data.to_string(), bitmap_col->get_element(i).to_string())
-                            << " at row " << i;
-                } else if constexpr (std::is_same_v<ReturnType, DataTypeHLL>) {
-                    const ColumnHLL* hll_col = nullptr;
-                    if constexpr (nullable) {
-                        const auto* nullable_column =
-                                assert_cast<const ColumnNullable*>(column.get());
-                        hll_col = assert_cast<const ColumnHLL*>(
-                                nullable_column->get_nested_column_ptr().get());
-                    } else {
-                        hll_col = assert_cast<const ColumnHLL*>(column.get());
-                    }
-                    EXPECT_EQ(expect_data.to_string(), hll_col->get_element(i).to_string())
-                            << " at row " << i;
-                } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32> ||
-                                     std::is_same_v<ReturnType, DataTypeFloat64> ||
-                                     std::is_same_v<ReturnType, DataTypeTimeV2>) {
-                    const auto& column_data = field.get<DataTypeFloat64::FieldType>();
-                    EXPECT_DOUBLE_EQ(expect_data, column_data) << " at row " << i;
-                } else {
-                    const auto& column_data = field.get<typename ReturnType::FieldType>();
-                    EXPECT_EQ(expect_data, column_data) << " at row " << i;
-                }
-            }
-        };
-
-        if constexpr (nullable) {
-            bool is_null = data_set[i].second.type() == &typeid(Null);
-            EXPECT_EQ(is_null, column->is_null_at(i)) << " at row " << i;
-            if (!is_null) {
-                check_column_data();
-            }
+        if (expect_result_ne) {
+            EXPECT_NE(0, column->compare_at(i, i, *expected_col_ptr, 1))
+                    << ", function result: " << block.get_data_types()[result]->to_string(*column, i)
+                    << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
         } else {
-            check_column_data();
+            EXPECT_EQ(0, column->compare_at(i, i, *expected_col_ptr, 1))
+                    << ", function result: " << block.get_data_types()[result]->to_string(*column, i)
+                    << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
         }
     }
 
     return Status::OK();
 }
+// NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(readability-function-size)
 
 using BaseInputTypeSet = std::vector<TypeIndex>;
 

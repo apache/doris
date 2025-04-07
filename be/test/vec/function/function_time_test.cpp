@@ -16,16 +16,10 @@
 // under the License.
 
 #include <gtest/gtest.h>
-#include <stdint.h>
 
-#include <iomanip>
 #include <string>
-#include <vector>
 
-#include "common/status.h"
 #include "function_test_util.h"
-#include "runtime/runtime_state.h"
-#include "testutil/any_type.h"
 #include "util/timezone_utils.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date.h"
@@ -104,7 +98,7 @@ TEST(VTimestampFunctionsTest, quarter_test) {
     InputTypeSet input_types = {TypeIndex::DateTime};
 
     DataSet data_set = {{{std::string("2021-01-01 00:00:00")}, int8_t {1}},
-                        {{std::string("")}, Null()},
+                        {{Null()}, Null()},
                         {{std::string("2021-01-32 00:00:00")}, Null()},
                         {{std::string("2025-10-23 00:00:00")}, int8_t {4}}};
 
@@ -117,7 +111,7 @@ TEST(VTimestampFunctionsTest, month_test) {
     InputTypeSet input_types = {TypeIndex::DateTime};
 
     DataSet data_set = {{{std::string("2021-01-01 00:00:00")}, int8_t {1}},
-                        {{std::string("")}, Null()},
+                        {{Null()}, Null()},
                         {{std::string("2021-01-32 00:00:00")}, Null()},
                         {{std::string("2025-05-23 00:00:00")}, int8_t {5}}};
 
@@ -130,7 +124,7 @@ TEST(VTimestampFunctionsTest, day_test) {
     InputTypeSet input_types = {TypeIndex::DateTime};
 
     DataSet data_set = {{{std::string("2021-01-01 00:00:00")}, int8_t {1}},
-                        {{std::string("")}, Null()},
+                        {{Null()}, Null()},
                         {{std::string("2021-01-32 00:00:00")}, Null()},
                         {{std::string("2025-05-23 00:00:00")}, int8_t {23}}};
 
@@ -144,7 +138,7 @@ TEST(VTimestampFunctionsTest, hour_test) {
 
     DataSet data_set = {{{std::string("2021-01-01 23:59:59")}, int8_t {23}},
                         {{std::string("2021-01-13 16:56:00")}, int8_t {16}},
-                        {{std::string("")}, Null()},
+                        {{Null()}, Null()},
                         {{std::string("2025-05-23 24:00:00")}, Null()}};
 
     static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
@@ -157,7 +151,7 @@ TEST(VTimestampFunctionsTest, minute_test) {
 
     DataSet data_set = {{{std::string("2021-01-01 23:59:50")}, int8_t {59}},
                         {{std::string("2021-01-13 16:20:00")}, int8_t {20}},
-                        {{std::string("")}, Null()},
+                        {{Null()}, Null()},
                         {{std::string("2025-05-23 24:00:00")}, Null()}};
 
     static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
@@ -170,7 +164,7 @@ TEST(VTimestampFunctionsTest, second_test) {
 
     DataSet data_set = {{{std::string("2021-01-01 23:50:59")}, int8_t {59}},
                         {{std::string("2021-01-13 16:20:00")}, int8_t {0}},
-                        {{std::string("")}, Null()},
+                        {{Null()}, Null()},
                         {{std::string("2025-05-23 24:00:00")}, Null()}};
 
     static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
@@ -304,7 +298,7 @@ TEST(VTimestampFunctionsTest, years_add_test) {
         DataSet data_set = {
                 {{std::string("2020-05-23 00:00:00"), 5}, str_to_date_time("2025-05-23 00:00:00")},
                 {{std::string("2020-05-23 00:00:00"), -5}, str_to_date_time("2015-05-23 00:00:00")},
-                {{std::string(""), 5}, Null()},
+                {{Null(), 5}, Null()},
                 {{Null(), 5}, Null()}};
 
         static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
@@ -327,7 +321,7 @@ TEST(VTimestampFunctionsTest, years_sub_test) {
         DataSet data_set = {
                 {{std::string("2020-05-23 00:00:00"), 5}, str_to_date_time("2015-05-23 00:00:00")},
                 {{std::string("2020-05-23 00:00:00"), -5}, str_to_date_time("2025-05-23 00:00:00")},
-                {{std::string(""), 5}, Null()},
+                {{Null(), 5}, Null()},
                 {{Null(), 5}, Null()}};
 
         static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
@@ -349,7 +343,6 @@ TEST(VTimestampFunctionsTest, months_add_test) {
     DataSet data_set = {
             {{std::string("2020-10-23 00:00:00"), -4}, str_to_date_time("2020-06-23 00:00:00")},
             {{std::string("2020-05-23 00:00:00"), 4}, str_to_date_time("2020-09-23 00:00:00")},
-            {{std::string(""), 4}, Null()},
             {{std::string("2020-05-23 00:00:00"), 10}, str_to_date_time("2021-03-23 00:00:00")},
             {{Null(), 4}, Null()}};
 
@@ -364,7 +357,6 @@ TEST(VTimestampFunctionsTest, months_sub_test) {
     DataSet data_set = {
             {{std::string("2020-05-23 00:00:00"), 4}, str_to_date_time("2020-01-23 00:00:00")},
             {{std::string("2020-05-23 00:00:00"), -4}, str_to_date_time("2020-09-23 00:00:00")},
-            {{std::string(""), 4}, Null()},
             {{std::string("2020-05-23 00:00:00"), 10}, str_to_date_time("2019-07-23 00:00:00")},
             {{Null(), 4}, Null()}};
 
@@ -379,7 +371,6 @@ TEST(VTimestampFunctionsTest, days_add_test) {
     DataSet data_set = {
             {{std::string("2020-10-23 00:00:00"), -4}, str_to_date_time("2020-10-19 00:00:00")},
             {{std::string("2020-05-23 00:00:00"), 4}, str_to_date_time("2020-05-27 00:00:00")},
-            {{std::string(""), 4}, Null()},
             {{std::string("2020-05-23 00:00:00"), 10}, str_to_date_time("2020-06-2 00:00:00")},
             {{Null(), 4}, Null()}};
 
@@ -394,7 +385,6 @@ TEST(VTimestampFunctionsTest, days_sub_test) {
     DataSet data_set = {
             {{std::string("2020-05-23 00:00:00"), 4}, str_to_date_time("2020-05-19 00:00:00")},
             {{std::string("2020-05-23 00:00:00"), -4}, str_to_date_time("2020-05-27 00:00:00")},
-            {{std::string(""), 4}, Null()},
             {{std::string("2020-05-23 00:00:00"), 31}, str_to_date_time("2020-04-22 00:00:00")},
             {{Null(), 4}, Null()}};
 
@@ -409,7 +399,6 @@ TEST(VTimestampFunctionsTest, hours_add_test) {
     DataSet data_set = {
             {{std::string("2020-10-23 10:00:00"), -4}, str_to_date_time("2020-10-23 06:00:00")},
             {{std::string("2020-05-23 10:00:00"), 4}, str_to_date_time("2020-05-23 14:00:00")},
-            {{std::string(""), 4}, Null()},
             {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2020-05-27 14:00:00")},
             {{Null(), 4}, Null()}};
 
@@ -424,7 +413,6 @@ TEST(VTimestampFunctionsTest, hours_sub_test) {
     DataSet data_set = {
             {{std::string("2020-05-23 10:00:00"), 4}, str_to_date_time("2020-05-23 06:00:00")},
             {{std::string("2020-05-23 10:00:00"), -4}, str_to_date_time("2020-05-23 14:00:00")},
-            {{std::string(""), 4}, Null()},
             {{std::string("2020-05-23 10:00:00"), 31}, str_to_date_time("2020-05-22 03:00:00")},
             {{Null(), 4}, Null()}};
 
@@ -439,7 +427,6 @@ TEST(VTimestampFunctionsTest, minutes_add_test) {
     DataSet data_set = {
             {{std::string("2020-10-23 10:00:00"), 40}, str_to_date_time("2020-10-23 10:40:00")},
             {{std::string("2020-05-23 10:00:00"), -40}, str_to_date_time("2020-05-23 09:20:00")},
-            {{std::string(""), 4}, Null()},
             {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2020-05-23 11:40:00")},
             {{Null(), 4}, Null()}};
 
@@ -454,7 +441,6 @@ TEST(VTimestampFunctionsTest, minutes_sub_test) {
     DataSet data_set = {
             {{std::string("2020-05-23 10:00:00"), 40}, str_to_date_time("2020-05-23 09:20:00")},
             {{std::string("2020-05-23 10:00:00"), -40}, str_to_date_time("2020-05-23 10:40:00")},
-            {{std::string(""), 4}, Null()},
             {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2020-05-23 08:20:00")},
             {{Null(), 4}, Null()}};
 
@@ -469,7 +455,6 @@ TEST(VTimestampFunctionsTest, seconds_add_test) {
     DataSet data_set = {
             {{std::string("2020-10-23 10:00:00"), 40}, str_to_date_time("2020-10-23 10:00:40")},
             {{std::string("2020-05-23 10:00:00"), -40}, str_to_date_time("2020-05-23 09:59:20")},
-            {{std::string(""), 4}, Null()},
             {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2020-05-23 10:01:40")},
             {{Null(), 4}, Null()}};
 
@@ -484,7 +469,6 @@ TEST(VTimestampFunctionsTest, seconds_sub_test) {
     DataSet data_set = {
             {{std::string("2020-05-23 10:00:00"), 40}, str_to_date_time("2020-05-23 09:59:20")},
             {{std::string("2020-05-23 10:00:00"), -40}, str_to_date_time("2020-05-23 10:00:40")},
-            {{std::string(""), 4}, Null()},
             {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2020-05-23 09:58:20")},
             {{Null(), 4}, Null()}};
 
@@ -499,7 +483,6 @@ TEST(VTimestampFunctionsTest, weeks_add_test) {
     DataSet data_set = {
             {{std::string("2020-10-23 10:00:00"), 5}, str_to_date_time("2020-11-27 10:00:00")},
             {{std::string("2020-05-23 10:00:00"), -5}, str_to_date_time("2020-04-18 10:00:00")},
-            {{std::string(""), 4}, Null()},
             {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2022-04-23 10:00:00")},
             {{Null(), 4}, Null()}};
 
@@ -514,7 +497,6 @@ TEST(VTimestampFunctionsTest, weeks_sub_test) {
     DataSet data_set = {
             {{std::string("2020-05-23 10:00:00"), 5}, str_to_date_time("2020-04-18 10:00:00")},
             {{std::string("2020-05-23 10:00:00"), -5}, str_to_date_time("2020-6-27 10:00:00")},
-            {{std::string(""), 4}, Null()},
             {{std::string("2020-05-23 10:00:00"), 100}, str_to_date_time("2018-06-23 10:00:00")},
             {{Null(), 4}, Null()}};
 
@@ -527,7 +509,7 @@ TEST(VTimestampFunctionsTest, to_days_test) {
     InputTypeSet input_types = {TypeIndex::DateTime};
 
     DataSet data_set = {{{std::string("2021-01-01 00:00:00")}, 738156},
-                        {{std::string("")}, Null()},
+                        {{Null()}, Null()},
                         {{std::string("2021-01-32 00:00:00")}, Null()}};
 
     static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
@@ -540,7 +522,7 @@ TEST(VTimestampFunctionsTest, date_test) {
 
     DataSet data_set = {
             {{std::string("2021-01-01 06:00:00")}, str_to_date_time("2021-01-01", false)},
-            {{std::string("")}, Null()},
+            {{Null()}, Null()},
             {{Null()}, Null()}};
 
     static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
@@ -552,14 +534,14 @@ TEST(VTimestampFunctionsTest, week_test) {
     InputTypeSet input_types = {TypeIndex::DateTime};
 
     DataSet data_set = {{{std::string("1989-03-21 06:00:00")}, int8_t {12}},
-                        {{std::string("")}, Null()},
+                        {{Null()}, Null()},
                         {{std::string("9999-12-12 00:00:00")}, int8_t {50}}};
 
     static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
 
     InputTypeSet new_input_types = {TypeIndex::Date};
     DataSet new_data_set = {{{std::string("1989-03-21")}, int8_t {12}},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("9999-12-12")}, int8_t {50}}};
 
     static_cast<void>(check_function<DataTypeInt8, true>(func_name, new_input_types, new_data_set));
@@ -571,14 +553,14 @@ TEST(VTimestampFunctionsTest, yearweek_test) {
     InputTypeSet input_types = {TypeIndex::DateTime};
 
     DataSet data_set = {{{std::string("1989-03-21 06:00:00")}, 198912},
-                        {{std::string("")}, Null()},
+                        {{Null()}, Null()},
                         {{std::string("9999-12-12 00:00:00")}, 999950}};
 
     static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 
     InputTypeSet new_input_types = {TypeIndex::Date};
     DataSet new_data_set = {{{std::string("1989-03-21")}, 198912},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("9999-12-12")}, 999950}};
 
     static_cast<void>(
@@ -753,7 +735,7 @@ TEST(VTimestampFunctionsTest, quarter_v2_test) {
         InputTypeSet input_types = {TypeIndex::DateV2};
 
         DataSet data_set = {{{std::string("2021-01-01")}, int8_t {1}},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2021-01-32")}, Null()},
                             {{std::string("2025-10-23")}, int8_t {4}}};
 
@@ -763,7 +745,7 @@ TEST(VTimestampFunctionsTest, quarter_v2_test) {
         InputTypeSet input_types = {TypeIndex::DateTimeV2};
 
         DataSet data_set = {{{std::string("2021-01-01 00:00:00")}, int8_t {1}},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2021-01-32 00:00:00")}, Null()},
                             {{std::string("2025-10-23 00:00:00")}, int8_t {4}}};
 
@@ -778,7 +760,7 @@ TEST(VTimestampFunctionsTest, month_v2_test) {
         InputTypeSet input_types = {TypeIndex::DateV2};
 
         DataSet data_set = {{{std::string("2021-01-01")}, int8_t {1}},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2021-01-32")}, Null()},
                             {{std::string("2025-05-23")}, int8_t {5}}};
 
@@ -788,7 +770,7 @@ TEST(VTimestampFunctionsTest, month_v2_test) {
         InputTypeSet input_types = {TypeIndex::DateTimeV2};
 
         DataSet data_set = {{{std::string("2021-01-01 00:00:00")}, int8_t {1}},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2021-01-32 00:00:00")}, Null()},
                             {{std::string("2025-05-23 00:00:00")}, int8_t {5}}};
 
@@ -803,7 +785,7 @@ TEST(VTimestampFunctionsTest, day_v2_test) {
         InputTypeSet input_types = {TypeIndex::DateV2};
 
         DataSet data_set = {{{std::string("2021-01-01")}, int8_t {1}},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2021-01-32")}, Null()},
                             {{std::string("2025-05-23")}, int8_t {23}}};
 
@@ -813,7 +795,7 @@ TEST(VTimestampFunctionsTest, day_v2_test) {
         InputTypeSet input_types = {TypeIndex::DateTimeV2};
 
         DataSet data_set = {{{std::string("2021-01-01 00:00:00")}, int8_t {1}},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2021-01-32 00:00:00")}, Null()},
                             {{std::string("2025-05-23 00:00:00")}, int8_t {23}}};
 
@@ -829,7 +811,7 @@ TEST(VTimestampFunctionsTest, hour_v2_test) {
 
         DataSet data_set = {{{std::string("2021-01-01")}, int8_t {0}},
                             {{std::string("2021-01-13")}, int8_t {0}},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2025-05-23")}, int8_t {0}}};
         static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
     }
@@ -838,7 +820,7 @@ TEST(VTimestampFunctionsTest, hour_v2_test) {
 
         DataSet data_set = {{{std::string("2021-01-01 00:00:00.123")}, int8_t {0}},
                             {{std::string("2021-01-13 01:00:00.123")}, int8_t {1}},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2025-05-23 23:00:00.123")}, int8_t {23}},
                             {{std::string("2025-05-23 25:00:00.123")}, Null()}};
         static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
@@ -853,7 +835,7 @@ TEST(VTimestampFunctionsTest, minute_v2_test) {
 
         DataSet data_set = {{{std::string("2021-01-01")}, int8_t {0}},
                             {{std::string("2021-01-13")}, int8_t {0}},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2025-05-23")}, int8_t {0}}};
 
         static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
@@ -863,7 +845,7 @@ TEST(VTimestampFunctionsTest, minute_v2_test) {
 
         DataSet data_set = {{{std::string("2021-01-01 00:00:00.123")}, int8_t {0}},
                             {{std::string("2021-01-13 00:11:00.123")}, int8_t {11}},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2025-05-23 00:22:22.123")}, int8_t {22}},
                             {{std::string("2025-05-23 00:60:22.123")}, Null()}};
 
@@ -879,7 +861,7 @@ TEST(VTimestampFunctionsTest, second_v2_test) {
 
         DataSet data_set = {{{std::string("2021-01-01")}, int8_t {0}},
                             {{std::string("2021-01-13")}, int8_t {0}},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2025-05-23")}, int8_t {0}}};
 
         static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
@@ -889,7 +871,7 @@ TEST(VTimestampFunctionsTest, second_v2_test) {
 
         DataSet data_set = {{{std::string("2021-01-01 00:00:01.123")}, int8_t {1}},
                             {{std::string("2021-01-13 00:00:02.123")}, int8_t {2}},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2025-05-23 00:00:63.123")}, Null()},
                             {{std::string("2025-05-23 00:00:00.123")}, int8_t {0}}};
 
@@ -1059,7 +1041,7 @@ TEST(VTimestampFunctionsTest, years_add_v2_test) {
         DataSet data_set = {
                 {{std::string("2020-05-23"), 5}, str_to_date_v2("2025-05-23", "%Y-%m-%d")},
                 {{std::string("2020-05-23"), -5}, str_to_date_v2("2015-05-23", "%Y-%m-%d")},
-                {{std::string(""), 5}, Null()},
+                {{Null(), 5}, Null()},
                 {{Null(), 5}, Null()}};
 
         static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
@@ -1080,7 +1062,7 @@ TEST(VTimestampFunctionsTest, years_add_v2_test) {
                              str_to_datetime_v2("2025-05-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23 00:00:11.123"), -5},
                              str_to_datetime_v2("2015-05-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 5}, Null()},
+                            {{Null(), 5}, Null()},
                             {{Null(), 5}, Null()}};
 
         static_cast<void>(
@@ -1105,7 +1087,7 @@ TEST(VTimestampFunctionsTest, years_sub_v2_test) {
         DataSet data_set = {
                 {{std::string("2020-05-23"), 5}, str_to_date_v2("2015-05-23", "%Y-%m-%d")},
                 {{std::string("2020-05-23"), -5}, str_to_date_v2("2025-05-23", "%Y-%m-%d")},
-                {{std::string(""), 5}, Null()},
+                {{Null(), 5}, Null()},
                 {{Null(), 5}, Null()}};
 
         static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
@@ -1126,7 +1108,7 @@ TEST(VTimestampFunctionsTest, years_sub_v2_test) {
                              str_to_datetime_v2("2015-05-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23 00:00:11.123"), -5},
                              str_to_datetime_v2("2025-05-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 5}, Null()},
+                            {{Null(), 5}, Null()},
                             {{Null(), 5}, Null()}};
 
         static_cast<void>(
@@ -1148,29 +1130,51 @@ TEST(VTimestampFunctionsTest, months_add_v2_test) {
     {
         InputTypeSet input_types = {TypeIndex::DateV2, TypeIndex::Int32};
 
-        DataSet data_set = {
-                {{std::string("2020-10-23"), -4}, str_to_date_v2("2020-06-23", "%Y-%m-%d")},
-                {{std::string("2020-05-23"), 4}, str_to_date_v2("2020-09-23", "%Y-%m-%d")},
-                {{std::string(""), 4}, Null()},
-                {{std::string("2020-05-23"), 10}, str_to_date_v2("2021-03-23", "%Y-%m-%d")},
-                {{Null(), 4}, Null()}};
+        DataSet data_set = {{{std::string("2020-10-23"), -4}, std::string("2020-06-23")},
+                            {{std::string("2020-05-23"), 4}, std::string("2020-09-23")},
+                            {{std::string("2020-05-23"), 10}, std::string("2021-03-23")},
+                            {{Null(), 4}, Null()}};
 
         static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::Int32};
+        InputTypeSet input_types = {{TypeIndex::DateTimeV2, 3}, TypeIndex::Int32};
 
-        DataSet data_set = {{{std::string("2020-10-23 00:00:11.123"), -4},
-                             str_to_datetime_v2("2020-06-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
+        DataSet data_set = {{{std::string("2020-10-23 00:00:11.1234"), -4},
+                             std::string("2020-06-23 00:00:11.123")},
                             {{std::string("2020-05-23 00:00:11.123"), 4},
-                             str_to_datetime_v2("2020-09-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
+                             std::string("2020-09-23 00:00:11.1234")},
                             {{std::string("2020-05-23 00:00:11.123"), 10},
-                             str_to_datetime_v2("2021-03-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
+                             std::string("2021-03-23 00:00:11.123")},
                             {{Null(), 4}, Null()}};
 
         static_cast<void>(
-                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
+                check_function<DataTypeDateTimeV2, true, 3>(func_name, input_types, data_set));
+    }
+
+    // eq
+    {
+        InputTypeSet input_types = {{TypeIndex::DateTimeV2, 2}, TypeIndex::Int32};
+
+        DataSet data_set = {{{std::string("2020-10-23 00:00:11.1234"), -4},
+                             std::string("2020-06-23 00:00:11.1200")},
+                            {{std::string("2020-05-23 00:00:11.1234"), 4},
+                             std::string("2020-09-23 00:00:11.12")}};
+
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true, 4>(func_name, input_types, data_set));
+    }
+    // ne
+    {
+        InputTypeSet input_types = {{TypeIndex::DateTimeV2, 2}, TypeIndex::Int32};
+
+        DataSet data_set = {{{std::string("2020-10-23 00:00:11.1234"), -4},
+                             std::string("2020-06-23 00:00:11.1234")},
+                            {{std::string("2020-05-23 00:00:11.12"), 4},
+                             std::string("2020-09-23 00:00:11.1234")}};
+
+        static_cast<void>(check_function<DataTypeDateTimeV2, true, 4>(func_name, input_types,
+                                                                      data_set, false, true));
     }
 }
 
@@ -1183,7 +1187,6 @@ TEST(VTimestampFunctionsTest, months_sub_v2_test) {
         DataSet data_set = {
                 {{std::string("2020-05-23"), 4}, str_to_date_v2("2020-01-23", "%Y-%m-%d")},
                 {{std::string("2020-05-23"), -4}, str_to_date_v2("2020-09-23", "%Y-%m-%d")},
-                {{std::string(""), 4}, Null()},
                 {{std::string("2020-05-23"), 10}, str_to_date_v2("2019-07-23", "%Y-%m-%d")},
                 {{Null(), 4}, Null()}};
 
@@ -1196,7 +1199,6 @@ TEST(VTimestampFunctionsTest, months_sub_v2_test) {
                              str_to_datetime_v2("2020-01-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23 00:00:11.123"), -4},
                              str_to_datetime_v2("2020-09-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23 00:00:11.123"), 10},
                              str_to_datetime_v2("2019-07-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1215,7 +1217,6 @@ TEST(VTimestampFunctionsTest, days_add_v2_test) {
         DataSet data_set = {
                 {{std::string("2020-10-23"), -4}, str_to_date_v2("2020-10-19", "%Y-%m-%d")},
                 {{std::string("2020-05-23"), 4}, str_to_date_v2("2020-05-27", "%Y-%m-%d")},
-                {{std::string(""), 4}, Null()},
                 {{std::string("2020-05-23"), 10}, str_to_date_v2("2020-06-02", "%Y-%m-%d")},
                 {{Null(), 4}, Null()}};
 
@@ -1228,7 +1229,6 @@ TEST(VTimestampFunctionsTest, days_add_v2_test) {
                              str_to_datetime_v2("2020-10-19 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23 00:00:11.123"), 4},
                              str_to_datetime_v2("2020-05-27 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23 00:00:11.123"), 10},
                              str_to_datetime_v2("2020-06-02 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1247,7 +1247,6 @@ TEST(VTimestampFunctionsTest, days_sub_v2_test) {
         DataSet data_set = {
                 {{std::string("2020-05-23"), 4}, str_to_date_v2("2020-05-19", "%Y-%m-%d")},
                 {{std::string("2020-05-23"), -4}, str_to_date_v2("2020-05-27", "%Y-%m-%d")},
-                {{std::string(""), 4}, Null()},
                 {{std::string("2020-05-23"), 31}, str_to_date_v2("2020-04-22", "%Y-%m-%d")},
                 {{Null(), 4}, Null()}};
 
@@ -1260,7 +1259,6 @@ TEST(VTimestampFunctionsTest, days_sub_v2_test) {
                              str_to_datetime_v2("2020-05-19 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23 00:00:11.123"), -4},
                              str_to_datetime_v2("2020-05-27 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23 00:00:11.123"), 31},
                              str_to_datetime_v2("2020-04-22 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1279,7 +1277,6 @@ TEST(VTimestampFunctionsTest, weeks_add_v2_test) {
         DataSet data_set = {
                 {{std::string("2020-10-23"), 5}, str_to_date_v2("2020-11-27", "%Y-%m-%d")},
                 {{std::string("2020-05-23"), -5}, str_to_date_v2("2020-04-18", "%Y-%m-%d")},
-                {{std::string(""), 4}, Null()},
                 {{std::string("2020-05-23"), 100}, str_to_date_v2("2022-04-23", "%Y-%m-%d")},
                 {{Null(), 4}, Null()}};
 
@@ -1292,7 +1289,6 @@ TEST(VTimestampFunctionsTest, weeks_add_v2_test) {
                              str_to_datetime_v2("2020-11-27 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23 00:00:11.123"), -5},
                              str_to_datetime_v2("2020-04-18 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23 00:00:11.123"), 100},
                              str_to_datetime_v2("2022-04-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1311,7 +1307,6 @@ TEST(VTimestampFunctionsTest, weeks_sub_v2_test) {
         DataSet data_set = {
                 {{std::string("2020-05-23"), 5}, str_to_date_v2("2020-04-18", "%Y-%m-%d")},
                 {{std::string("2020-05-23"), -5}, str_to_date_v2("2020-06-27", "%Y-%m-%d")},
-                {{std::string(""), 4}, Null()},
                 {{std::string("2020-05-23"), 100}, str_to_date_v2("2018-06-23", "%Y-%m-%d")},
                 {{Null(), 4}, Null()}};
 
@@ -1324,7 +1319,6 @@ TEST(VTimestampFunctionsTest, weeks_sub_v2_test) {
                              str_to_datetime_v2("2020-04-18 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23 00:00:11.123"), -5},
                              str_to_datetime_v2("2020-06-27 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23 00:00:11.123"), 100},
                              str_to_datetime_v2("2018-06-23 00:00:11.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1341,7 +1335,7 @@ TEST(VTimestampFunctionsTest, to_days_v2_test) {
         InputTypeSet input_types = {TypeIndex::DateV2};
 
         DataSet data_set = {{{std::string("2021-01-01")}, 738156},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2021-01-32")}, Null()},
                             {{std::string("0000-01-01")}, 1}};
 
@@ -1351,7 +1345,7 @@ TEST(VTimestampFunctionsTest, to_days_v2_test) {
         InputTypeSet input_types = {TypeIndex::DateTimeV2};
 
         DataSet data_set = {{{std::string("2021-01-01 00:00:11.123")}, 738156},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{std::string("2021-01-32 00:00:11.123")}, Null()},
                             {{std::string("0000-01-01 00:00:11.123")}, 1}};
 
@@ -1367,7 +1361,7 @@ TEST(VTimestampFunctionsTest, date_v2_test) {
 
         DataSet data_set = {
                 {{std::string("2021-01-01")}, str_to_date_v2("2021-01-01", "%Y-%m-%d")},
-                {{std::string("")}, Null()},
+                {{Null()}, Null()},
                 {{Null()}, Null()},
                 {{std::string("0000-01-01")}, str_to_date_v2("0000-01-01", "%Y-%m-%d")}};
 
@@ -1378,7 +1372,7 @@ TEST(VTimestampFunctionsTest, date_v2_test) {
 
         DataSet data_set = {{{std::string("2021-01-01 00:00:11.123")},
                              str_to_date_v2("2021-01-01", "%Y-%m-%d")},
-                            {{std::string("")}, Null()},
+                            {{Null()}, Null()},
                             {{Null()}, Null()},
                             {{std::string("0000-01-01 00:00:11.123")},
                              str_to_date_v2("0000-01-01", "%Y-%m-%d")}};
@@ -1393,7 +1387,7 @@ TEST(VTimestampFunctionsTest, week_v2_test) {
     {
         InputTypeSet new_input_types = {TypeIndex::DateV2};
         DataSet new_data_set = {{{std::string("1989-03-21")}, int8_t {12}},
-                                {{std::string("")}, Null()},
+                                {{Null()}, Null()},
                                 {{std::string("9999-12-12")}, int8_t {50}}};
 
         static_cast<void>(
@@ -1402,7 +1396,7 @@ TEST(VTimestampFunctionsTest, week_v2_test) {
     {
         InputTypeSet new_input_types = {TypeIndex::DateTimeV2};
         DataSet new_data_set = {{{std::string("1989-03-21 00:00:11.123")}, int8_t {12}},
-                                {{std::string("")}, Null()},
+                                {{Null()}, Null()},
                                 {{std::string("9999-12-12 00:00:11.123")}, int8_t {50}}};
 
         static_cast<void>(
@@ -1416,7 +1410,7 @@ TEST(VTimestampFunctionsTest, yearweek_v2_test) {
     {
         InputTypeSet new_input_types = {TypeIndex::DateV2};
         DataSet new_data_set = {{{std::string("1989-03-21")}, 198912},
-                                {{std::string("")}, Null()},
+                                {{Null()}, Null()},
                                 {{std::string("9999-12-12")}, 999950}};
 
         static_cast<void>(
@@ -1425,7 +1419,7 @@ TEST(VTimestampFunctionsTest, yearweek_v2_test) {
     {
         InputTypeSet new_input_types = {TypeIndex::DateTimeV2};
         DataSet new_data_set = {{{std::string("1989-03-21 00:00:11.123")}, 198912},
-                                {{std::string("")}, Null()},
+                                {{Null()}, Null()},
                                 {{std::string("9999-12-12 00:00:11.123")}, 999950}};
 
         static_cast<void>(
@@ -1618,7 +1612,6 @@ TEST(VTimestampFunctionsTest, hours_add_v2_test) {
                              str_to_datetime_v2("2020-10-23 06:00:00.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23 10:00:00.123"), 4},
                              str_to_datetime_v2("2020-05-23 14:00:00.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23 10:00:00.123"), 100},
                              str_to_datetime_v2("2020-05-27 14:00:00.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1633,7 +1626,6 @@ TEST(VTimestampFunctionsTest, hours_add_v2_test) {
                              str_to_datetime_v2("2020-10-22 20:00:00", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23"), 4},
                              str_to_datetime_v2("2020-05-23 04:00:00", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23"), 100},
                              str_to_datetime_v2("2020-05-27 04:00:00", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1653,7 +1645,6 @@ TEST(VTimestampFunctionsTest, hours_sub_v2_test) {
                              str_to_datetime_v2("2020-05-23 06:00:00.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23 10:00:00.123"), -4},
                              str_to_datetime_v2("2020-05-23 14:00:00.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23 10:00:00.123"), 31},
                              str_to_datetime_v2("2020-05-22 03:00:00.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1669,7 +1660,6 @@ TEST(VTimestampFunctionsTest, hours_sub_v2_test) {
                              str_to_datetime_v2("2020-05-22 20:00:00", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23"), -4},
                              str_to_datetime_v2("2020-05-23 04:00:00", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23"), 31},
                              str_to_datetime_v2("2020-05-21 17:00:00", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1689,7 +1679,6 @@ TEST(VTimestampFunctionsTest, minutes_add_v2_test) {
                              str_to_datetime_v2("2020-10-23 10:40:00.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23 10:00:00.123"), -40},
                              str_to_datetime_v2("2020-05-23 09:20:00.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23 10:00:00.123"), 100},
                              str_to_datetime_v2("2020-05-23 11:40:00.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1704,7 +1693,6 @@ TEST(VTimestampFunctionsTest, minutes_add_v2_test) {
                              str_to_datetime_v2("2020-10-23 00:40:00", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23"), -40},
                              str_to_datetime_v2("2020-05-22 23:20:00", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23"), 100},
                              str_to_datetime_v2("2020-05-23 01:40:00", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1724,7 +1712,6 @@ TEST(VTimestampFunctionsTest, minutes_sub_v2_test) {
                              str_to_datetime_v2("2020-05-23 09:20:00.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23 10:00:00.123"), -40},
                              str_to_datetime_v2("2020-05-23 10:40:00.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23 10:00:00.123"), 100},
                              str_to_datetime_v2("2020-05-23 08:20:00.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1739,7 +1726,6 @@ TEST(VTimestampFunctionsTest, minutes_sub_v2_test) {
                              str_to_datetime_v2("2020-05-22 23:20:00", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23"), -40},
                              str_to_datetime_v2("2020-05-23 00:40:00", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23"), 100},
                              str_to_datetime_v2("2020-05-22 22:20:00", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1759,7 +1745,6 @@ TEST(VTimestampFunctionsTest, seconds_add_v2_test) {
                              str_to_datetime_v2("2020-10-23 10:00:40.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23 10:00:00.123"), -40},
                              str_to_datetime_v2("2020-05-23 09:59:20.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23 10:00:00.123"), 100},
                              str_to_datetime_v2("2020-05-23 10:01:40.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1774,7 +1759,6 @@ TEST(VTimestampFunctionsTest, seconds_add_v2_test) {
                              str_to_datetime_v2("2020-10-23 00:00:40", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23"), -40},
                              str_to_datetime_v2("2020-05-22 23:59:20", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23"), 100},
                              str_to_datetime_v2("2020-05-23 00:01:40", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1794,7 +1778,6 @@ TEST(VTimestampFunctionsTest, seconds_sub_v2_test) {
                              str_to_datetime_v2("2020-05-23 09:59:20.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23 10:00:00.123"), -40},
                              str_to_datetime_v2("2020-05-23 10:00:40.123", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23 10:00:00.123"), 100},
                              str_to_datetime_v2("2020-05-23 09:58:20.123", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1809,7 +1792,6 @@ TEST(VTimestampFunctionsTest, seconds_sub_v2_test) {
                              str_to_datetime_v2("2020-05-22 23:59:20", "%Y-%m-%d %H:%i:%s.%f")},
                             {{std::string("2020-05-23"), -40},
                              str_to_datetime_v2("2020-05-23 00:00:40", "%Y-%m-%d %H:%i:%s.%f")},
-                            {{std::string(""), 4}, Null()},
                             {{std::string("2020-05-23"), 100},
                              str_to_datetime_v2("2020-05-22 23:58:20", "%Y-%m-%d %H:%i:%s.%f")},
                             {{Null(), 4}, Null()}};
@@ -1845,8 +1827,6 @@ TEST(VTimestampFunctionsTest, months_between_test) {
             {{std::string("2020-12-01"), std::string("2020-01-01"), uint8_t(1)}, double(11.0)},
             {{std::string("2021-01-01"), std::string("2020-01-01"), uint8_t(0)}, double(12.0)},
             {{std::string("2022-01-01"), std::string("2020-01-01"), uint8_t(1)}, double(24.0)},
-            {{std::string(""), std::string("2020-01-01"), uint8_t(1)}, Null()},
-            {{std::string("2020-01-01"), std::string(""), uint8_t(1)}, Null()},
             {{Null(), std::string("2020-01-01"), uint8_t(1)}, Null()},
             {{std::string("2020-01-01"), Null(), uint8_t(1)}, Null()}};
     static_cast<void>(
@@ -1899,7 +1879,6 @@ TEST(VTimestampFunctionsTest, next_day_test) {
                              str_to_date_v2("2020-01-05", "%Y-%m-%d")},
                             {{std::string("2020-01-01"), std::string("SUNDAY")},
                              str_to_date_v2("2020-01-05", "%Y-%m-%d")},
-                            {{std::string(""), std::string("MON")}, Null()},
                             {{Null(), std::string("MON")}, Null()}};
         static_cast<void>(check_function_all_arg_comb<DataTypeDateV2, true>(func_name, input_types,
                                                                             data_set));

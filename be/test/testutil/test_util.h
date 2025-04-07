@@ -27,9 +27,9 @@
 DECLARE_bool(gen_out);
 
 struct TestCaseInfo {
-    inline static int arg_const_info {};
-    inline static int cur_cast_line {};
-    inline static int arg_size {};
+    inline static thread_local int arg_const_info {};
+    inline static thread_local int cur_cast_line {};
+    inline static thread_local int arg_size {};
 };
 
 //"Rewrite the virtual functions of the gtest framework to enable listening to test events.
@@ -49,7 +49,7 @@ struct TestListener : public ::testing::EmptyTestEventListener {
                     std::cout << "arg" << i + 1 << " ";
                 }
             }
-            std::cout << "\nError occurred in case" << TestCaseInfo::cur_cast_line << std::endl;
+            std::cout << "\nError occurred in row " << TestCaseInfo::cur_cast_line << std::endl;
             std::cout << "\033[0m";
         }
     }
