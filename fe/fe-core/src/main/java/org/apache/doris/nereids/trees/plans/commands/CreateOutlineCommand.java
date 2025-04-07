@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.hint.OutlineInfo;
 import org.apache.doris.nereids.hint.OutlineMgr;
@@ -27,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.apache.commons.codec.digest.DigestUtils;
@@ -69,17 +72,22 @@ public class CreateOutlineCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (!ctx.getSessionVariable().isEnableSqlPlanOutlines()) {
+            LOG.info("outline is not enabled, please enable it by: set enable_sql_plan_outlines = true");
+            throw new DdlException("outline is not enabled, please enable it by: set enable_sql_plan_outlines = true");
+        }
         String visibleSignature = OutlineMgr.replaceConstant(originalQuery,
                 executor.getContext().getStatementContext().getConstantExpressionMap(), startIndex);
-        //        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(query, ctx.getStatementContext());
         executor.setParsedStmt(logicalPlanAdapter);
         if (ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
             ctx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
         }
         logicalPlanAdapter.setOrigStmt(new OriginStatement(originalQuery, 0));
-        //        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-        //        executor.setPlanner(planner);
+        ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_SQL_PLAN_OUTLINES, "false");
+        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        executor.setPlanner(planner);
         executor.checkBlockRules();
         String sqlId = DigestUtils.md5Hex(visibleSignature);
         String outlineData = OutlineMgr.createOutlineData(ctx.getSessionVariable());

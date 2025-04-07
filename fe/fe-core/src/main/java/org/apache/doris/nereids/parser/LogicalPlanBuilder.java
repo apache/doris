@@ -3502,8 +3502,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private Expression getExpression(ParserRuleContext ctx) {
         Expression result = typedVisit(ctx);
         if (result instanceof Literal) {
+            Placeholder parameter = new Placeholder(ConnectContext.get().getStatementContext().getNextPlaceholderId());
+            tokenPosToParameters.put(ctx.start, parameter);
+            ConnectContext.get().getStatementContext().getIdToPlaceholderRealExpr().put(parameter.getPlaceholderId(),
+                    result);
             ConnectContext.get().getStatementContext().getConstantExpressionMap()
-                    .put(Pair.of(ctx.start.getStartIndex(), ctx.start.getStopIndex()), result);
+                .put(parameter.getPlaceholderId(), Pair.of(ctx.start.getStartIndex(), ctx.start.getStopIndex()));
+            return parameter;
         }
         return result;
     }

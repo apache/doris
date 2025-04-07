@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -513,7 +514,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 sort, cascadesContext, sort.children(), true, true);
         Builder<OrderKey> boundKeys = ImmutableList.builderWithExpectedSize(sort.getOrderKeys().size());
         for (OrderKey orderKey : sort.getOrderKeys()) {
-            Expression boundKey = bindWithOrdinal(orderKey.getExpr(), analyzer, childOutput);
+            Expression boundKey = bindWithOrdinal(orderKey.getExpr(), cascadesContext, analyzer, childOutput);
             boundKeys.add(orderKey.withExpression(boundKey));
         }
         return new LogicalSort<>(boundKeys.build(), sort.child());
@@ -1026,7 +1027,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         ImmutableList.Builder<Expression> boundGroupByBuilder = ImmutableList.builderWithExpectedSize(groupBy.size());
         for (Expression key : groupBy) {
-            boundGroupByBuilder.add(bindWithOrdinal(key, analyzer, boundAggOutput));
+            boundGroupByBuilder.add(bindWithOrdinal(key, cascadesContext, analyzer, boundAggOutput));
         }
         List<Expression> boundGroupBy = boundGroupByBuilder.build();
         checkIfOutputAliasNameDuplicatedForGroupBy(boundGroupBy, boundAggOutput);
@@ -1115,7 +1116,8 @@ public class BindExpression implements AnalysisRuleFactory {
             if (hasAggregateFunction(orderKey.getExpr(), functionRegistry)) {
                 boundKey = bindInInputChildScope.analyze(orderKey.getExpr());
             } else {
-                boundKey = bindWithOrdinal(orderKey.getExpr(), bindInInputScopeThenInputChildScope, childOutput);
+                boundKey = bindWithOrdinal(orderKey.getExpr(), cascadesContext,
+                    bindInInputScopeThenInputChildScope, childOutput);
             }
             boundOrderKeys.add(orderKey.withExpression(boundKey));
         }
@@ -1194,7 +1196,24 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private Expression bindWithOrdinal(
-            Expression unbound, SimpleExprAnalyzer analyzer, List<? extends Expression> boundSelectOutput) {
+            Expression unbound, CascadesContext cascadesContext, SimpleExprAnalyzer analyzer,
+            List<? extends Expression> boundSelectOutput) {
+        if (unbound instanceof Placeholder) {
+            Expression realExpr = cascadesContext.getStatementContext()
+                    .getIdToPlaceholderRealExpr().get(((Placeholder) unbound).getPlaceholderId());
+            if (realExpr instanceof IntegerLikeLiteral) {
+                cascadesContext.getStatementContext().getConstantExpressionMap()
+                        .put(((Placeholder) unbound).getPlaceholderId(), Pair.of(0, 0));
+                int ordinal = ((IntegerLikeLiteral) realExpr).getIntValue();
+                if (ordinal >= 1 && ordinal <= boundSelectOutput.size()) {
+                    Expression boundSelectItem = boundSelectOutput.get(ordinal - 1);
+                    return boundSelectItem instanceof Alias ? boundSelectItem.child(0) : boundSelectItem;
+                } else {
+                    return realExpr; // bound literal
+                }
+            }
+        }
+
         if (unbound instanceof IntegerLikeLiteral) {
             int ordinal = ((IntegerLikeLiteral) unbound).getIntValue();
             if (ordinal >= 1 && ordinal <= boundSelectOutput.size()) {

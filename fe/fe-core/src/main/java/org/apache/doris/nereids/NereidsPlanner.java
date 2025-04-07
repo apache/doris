@@ -142,13 +142,15 @@ public class NereidsPlanner extends Planner {
         ExplainLevel explainLevel = getExplainLevel(queryStmt.getExplainOptions());
 
         LogicalPlan parsedPlan = logicalPlanAdapter.getLogicalPlan();
-        String visibleSignature = OutlineMgr.replaceConstant(queryStmt.getOrigStmt().originStmt,
-                statementContext.getConstantExpressionMap(), 0);
-        Optional<OutlineInfo> outlineInfo = OutlineMgr.getOutlineByVisibleSignature(visibleSignature);
-        if (outlineInfo.isPresent()) {
-            NereidsParser parser = new NereidsParser();
-            parsedPlan = parser.parseForOutline(outlineInfo.get().getOutlineData(), parsedPlan);
-            queryStmt.getOrigStmt().setOutlineName(outlineInfo.get().getOutlineName());
+        if (statementContext.getConnectContext().getSessionVariable().isEnableSqlPlanOutlines()) {
+            String visibleSignature = OutlineMgr.replaceConstant(queryStmt.getOrigStmt().originStmt,
+                    statementContext.getConstantExpressionMap(), 0);
+            Optional<OutlineInfo> outlineInfo = OutlineMgr.getOutlineByVisibleSignature(visibleSignature);
+            if (outlineInfo.isPresent()) {
+                NereidsParser parser = new NereidsParser();
+                parsedPlan = parser.parseForOutline(outlineInfo.get().getOutlineData(), parsedPlan);
+                queryStmt.getOrigStmt().setOutlineName(outlineInfo.get().getOutlineName());
+            }
         }
         NereidsTracer.logImportantTime("EndParsePlan");
         setParsedPlan(parsedPlan);

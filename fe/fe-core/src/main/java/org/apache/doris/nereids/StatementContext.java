@@ -215,8 +215,8 @@ public class StatementContext implements Closeable {
     private boolean privChecked;
 
     private boolean prepareStage = false;
-    
-    private Map<Pair<Integer, Integer>, Expression> constantExpressionMap = new HashMap<>();
+
+    private Map<PlaceholderId, Pair<Integer, Integer>> constantExpressionMap = new HashMap<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -250,7 +250,7 @@ public class StatementContext implements Closeable {
         }
     }
 
-    public Map<Pair<Integer, Integer>, Expression> getConstantExpressionMap() {
+    public Map<PlaceholderId, Pair<Integer, Integer>> getConstantExpressionMap() {
         return constantExpressionMap;
     }
 
