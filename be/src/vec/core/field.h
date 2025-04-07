@@ -183,11 +183,6 @@ public:
         memcpy(data, x.data, size);
     }
 
-    JsonbField(JsonbField&& x) : data(x.data), size(x.size) {
-        x.data = nullptr;
-        x.size = 0;
-    }
-
     JsonbField& operator=(const JsonbField& x) {
         data = new char[size];
         if (!data) {
@@ -766,7 +761,7 @@ private:
             destroy<JsonbField>();
             break;
         case Types::Variant:
-            destroy<JsonbField>();
+            destroy<VariantField>();
             break;
         case Types::Array:
             destroy<Array>();

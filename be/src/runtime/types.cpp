@@ -123,21 +123,6 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
         contains_nulls.push_back(node.contains_nulls[1]);
         break;
     }
-    case TTypeNodeType::VARIANT: {
-        // complex variant type
-        DCHECK(!node.__isset.scalar_type);
-        DCHECK_LT(*idx, types.size() - 1);
-        DCHECK(!node.__isset.contains_nulls);
-        type = TYPE_VARIANT;
-        contains_nulls.reserve(node.struct_fields.size());
-        for (size_t i = 0; i < node.struct_fields.size(); i++) {
-            ++(*idx);
-            children.push_back(TypeDescriptor(types, idx));
-            field_names.push_back(node.struct_fields[i].name);
-            contains_nulls.push_back(node.struct_fields[i].contains_null);
-        }
-        break;
-    }
     default:
         DCHECK(false) << node.type;
     }

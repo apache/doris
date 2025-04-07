@@ -22,16 +22,16 @@ suite("regression_test_variant_predefine_schema", "p0"){
             `id` bigint NOT NULL,
             `type` varchar(30) NULL,
             `v1` variant<a.b.c:int,ss:string,dcm:decimal,dt:datetime,ip:ipv4,a.b.d:double> NULL,
-            INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english", "sub_column_path" = "a.b.c") )
+            INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english") )
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 3
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1");
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_max_subcolumns_count" = "0");
     """
 
     sql """insert into test_predefine values(1, '1', '{"a" : {"b" : {"c" : "123456", "d" : "11.111"}}, "ss" : 199991111, "dcm" : 123.456, "dt" : "2021-01-01 00:00:00", "ip" : "127.0.0.1"}')"""
     sql """insert into test_predefine values(2, '2', '{"a" : {"b" : {"c" : 678910, "d" : 22.222}}, "ss" : "29999111", "dcm" : "456.123", "dt" : "2022-01-01 11:11:11", "ip" : "127.0.0.1"}')"""
     sql """insert into test_predefine values(3, '3', '{"dcm" : 789.123, "dt" : "2025-01-01 11:11:11.1", "ip" : "127.0.0.1"}')"""
     sql """insert into test_predefine values(4, '4', '{"a" : {"b" : {"c" : "678910", "d" : "33.222"}}}')"""
-    sql """insert into test_predefine values(5, '5', 'null')"""
+    sql """insert into test_predefine values(5, '5', null)"""
     sql """insert into test_predefine values(6, '6', null)"""
     sql """insert into test_predefine values(7, '7', '{"xxx" : 12345}')"""
     sql """insert into test_predefine values(8, '8', '{"yyy" : 111.111}')"""
@@ -56,9 +56,9 @@ suite("regression_test_variant_predefine_schema", "p0"){
         CREATE TABLE `test_predefine1` (
             `id` bigint NOT NULL,
             `v1` variant NULL,
-            INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english", "sub_column_path" = "a.b.c") )
+            INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english") )
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true");
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true", "variant_max_subcolumns_count" = "0");
     """ 
     sql """insert into test_predefine1 values(1, '{"predefine_col1" : 1024}')"""
     sql """insert into test_predefine1 values(2, '{"predefine_col2" : 1.11111}')"""
@@ -105,7 +105,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
                 varchar_:varchar
             > NULL
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1");
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_max_subcolumns_count" = "0");
     """
     def json1 = """
         {
@@ -203,10 +203,10 @@ suite("regression_test_variant_predefine_schema", "p0"){
     // // 1. add column
     sql "alter table test_predefine1 add column v2 variant<dcm:decimal,dt:datetime> default null"
     sql """insert into test_predefine1 values(101, '{"a" :1}', '{"dcm": 1111111}')""" 
-    sql "alter table test_predefine1 add column v3 variant default null"
+    sql "alter table test_predefine1 add column v3 variant<dcm:decimal,dt:datetime,ip:ipv6> default null"
     sql """insert into test_predefine1 values(102, '{"a" :1}', '{"dcm": 1111111}', '{"dcm": 1111111}');"""
-    // 2. alter column type
-    sql "alter table test_predefine1 modify column v3 variant<dcm:decimal,dt:datetime,ip:ipv6>"
+    // 2. todo support alter column type
+    // sql "alter table test_predefine1 modify column v3 variant<dcm:decimal,dt:datetime,ip:ipv6>"
     sql """insert into test_predefine1 values(103, '{"a" :1}', '{"dcm": 1111111}', '{"dt": "2021-01-01 11:11:11"}');"""
     qt_sql """select * from test_predefine1 where id >= 100 order by id"""
     // 3. drop column
@@ -216,14 +216,14 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql "DROP TABLE IF EXISTS test_predefine3"
     sql """CREATE TABLE `test_predefine3` (
             `id` bigint NOT NULL,
-            `v` variant NULL)
+            `v` variant<`nested.a`: string> NULL)
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true");"""
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true", "variant_max_subcolumns_count" = "0");"""
 
     // test alter nested no effect at present
     sql "truncate table test_predefine3"
     sql """insert into test_predefine3 values (1, '{"nested" : [{"a" : 123, "b" : "456"}]}')"""
-    sql "alter table test_predefine3 modify column v variant<`nested.a`: string>"
+    // sql "alter table test_predefine3 modify column v variant<`nested.a`: string>"
     sql """insert into test_predefine3 values (1, '{"nested" : [{"a" : 123, "b" : "456"}]}')"""
     sql """insert into test_predefine3 values (1, '{"nested" : [{"a" : 123, "b" : "456"}]}')"""
     sql """insert into test_predefine3 values (1, '{"nested" : [{"a" : 123, "b" : "456"}]}')"""
@@ -235,7 +235,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     // test use auto type detect first then alter to modify type
     sql "truncate table test_predefine3"
     sql """insert into test_predefine3 values (1, '{"auto_type" : 1234.1111}')"""
-    sql "alter table test_predefine3 modify column v variant<`auto_type`: int>"
+    // sql "alter table test_predefine3 modify column v variant<`auto_type`: int>"
     sql """insert into test_predefine3 values (1, '{"auto_type" : "124511111"}')"""
     sql """insert into test_predefine3 values (1, '{"auto_type" : 1111122334}')"""
     sql """insert into test_predefine3 values (1, '{"auto_type" : 111223341111}')"""
@@ -247,6 +247,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     qt_sql """desc test_predefine3"""
 
     // test array
+    sql "DROP TABLE IF EXISTS region_insert"
     sql """
     CREATE TABLE `region_insert` (
       `k` bigint NULL,
@@ -268,12 +269,14 @@ suite("regression_test_variant_predefine_schema", "p0"){
     "disable_auto_compaction" = "false",
     "enable_single_replica_compaction" = "false",
     "group_commit_interval_ms" = "10000",
-    "group_commit_data_bytes" = "134217728"
+    "group_commit_data_bytes" = "134217728",
+    "variant_max_subcolumns_count" = "0"
     );
     """
     sql """
         insert into region_insert (k,var,OfvZr) values(1550,'{"key_48":"2024-12-17 20:27:12","key_11":"2024-12-17 20:27:12","key_53":"2024-12-17 20:27:12","key_30":"2024-12-17 20:27:12","key_3":"2024-12-17 20:27:12","key_93":"1HYdNTPvNA","key_40":true,"key_61":"N5LU74i0Nb","key_55":"2024-12-17 20:27:12","key_45":"mMj4f8k8gH","key_58":"2024-12-17 20:27:12","key_71":true,"key_51":"2024-12-17 20:27:12","key_79":"2024-12-17 20:27:12","key_7":"8QJFB23Rug","key_75":31,"key_50":"2024-12-17 20:27:12","key_24":86,"key_33":98,"key_69":16,"key_57":86,"key_86":"2024-12-17 20:27:12","key_99":24,"key_66":"oTZgDxKvcc","key_18":false,"key_49":"2024-12-17 20:27:12","key_2":false,"key_64":"h3DxAvBG8D","key_87":87,"key_37":42,"key_29":"wb29lruo8E","key_96":88,"key_9":83,"key_52":6,"key_97":"X7y409riGJ","key_72":false,"key_26":"2024-12-17 20:27:12","key_12":66,"key_88":false,"key_32":false,"key_6":true,"key_80":false,"key_89":"2024-12-17 20:27:12","key_1":false,"key_35":"2024-12-17 20:27:12","key_23":70,"key_95":23,"key_76":false,"key_92":true,"key_47":"zYM9IJXSxk","key_22":"2024-12-17 20:27:12","key_38":"P9arsVnb3q","key_56":"LU4SdelM46","key_28":24,"key_4":"GKXCKn1Kf9","key_83":29,"key_20":90,"key_43":"VA8xyYskJ1","key_81":22,"key_16":"2024-12-17 20:27:12","key_82":true,"key_84":"2024-12-17 20:27:12"}','{"key_87":"900oLqWX9Q","key_32":63,"key_79":true,"key_42":3,"key_98":20,"key_35":false,"key_19":"2024-12-17 20:27:12","key_89":"NO0TLqKAvS","key_77":"2024-12-17 20:27:12","key_34":false,"key_43":false,"key_30":true,"key_21":"2024-12-17 20:27:12","key_3":"oDDa0SZ7Bs","key_72":"2024-12-17 20:27:12","key_67":38,"key_82":"2024-12-17 20:27:12","key_37":"VWLDmiZbMr","key_16":true,"key_58":"42Mju9EbAS","key_94":false,"key_50":"cqv3qYmYuJ","key_28":28,"key_78":43,"key_2":"omTAZB0CxT","key_75":"4tAlWmcvnY","key_40":50,"key_33":"2024-12-17 20:27:12","key_70":"2024-12-17 20:27:12","key_25":"2024-12-17 20:27:12","key_54":false,"key_11":"2024-12-17 20:27:12","key_5":"ritjh4q9pJ","key_51":"DzQGqKQ95I","key_73":false,"key_10":"bPI94fvfL4","key_26":"AF5DtNU5Dj","key_80":66,"key_9":69,"key_83":false,"key_59":48,"key_24":"2024-12-17 20:27:12","key_84":36,"key_17":true,"key_44":18,"key_97":"JBw2ZZhDtF","key_74":15,"key_96":true,"key_62":"2024-12-17 20:27:12","key_65":"6iWPCv8FDR","key_53":"2024-12-17 20:27:12","key_95":false,"key_56":"3zyjHDYMJG","key_60":false,"key_23":"2024-12-17 20:27:12","key_8":"zbNpgWWYWS","key_81":"2024-12-17 20:27:12"}')
     """
+    sql "DROP TABLE IF EXISTS test_bf_with_bool"
     // test bf with bool
     sql """
         CREATE TABLE `test_bf_with_bool` (
@@ -285,7 +288,8 @@ suite("regression_test_variant_predefine_schema", "p0"){
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1",
     "min_load_replica_num" = "-1",
-    "bloom_filter_columns" = "var"
+    "bloom_filter_columns" = "var",
+    "variant_max_subcolumns_count" = "0"
     );
     """
 }

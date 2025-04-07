@@ -366,14 +366,6 @@ void get_base_field_info(const Field& field, FieldInfo* info) {
     info->need_convert = false;
     info->scale = variant_field.get_scale();
     info->precision = variant_field.get_precision();
-
-    // Currently the jsonb type should be the top level type, so we should not wrap it in array,
-    // see create_array_of_type.
-    // TODO we need to support array<jsonb> correctly
-    if (UNLIKELY(variant_field.get_type_id() == TypeIndex::JSONB && info->num_dimensions > 0)) {
-        info->num_dimensions = 0;
-        info->need_convert = true;
-    }
 }
 
 void get_field_info(const Field& field, FieldInfo* info) {
@@ -449,9 +441,26 @@ size_t ColumnObject::Subcolumn::Subcolumn::allocatedBytes() const {
     return res;
 }
 
+Field get_field_from_variant_field(const Field& field) {
+    if (field.is_variant_field()) {
+        const auto& variant_field = field.get<const VariantField&>();
+        const auto& wrapped_field = variant_field.get_field();
+        if (wrapped_field.get_type() == Field::Types::Array) {
+            Array res;
+            for (const auto& item : wrapped_field.get<Array>()) {
+                res.push_back(get_field_from_variant_field(item));
+            }
+            return res;
+        }
+        return wrapped_field;
+    }
+    return field;
+}
+
 void ColumnObject::Subcolumn::insert(Field field) {
     FieldInfo info;
     get_field_info(field, &info);
+    field = get_field_from_variant_field(field);
     insert(std::move(field), std::move(info));
 }
 
@@ -465,6 +474,7 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
 }
 
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
+    DCHECK(!field.is_variant_field());
     auto base_type = WhichDataType(info.scalar_type_id);
     ++num_rows;
     if (base_type.is_nothing() && info.num_dimensions == 0) {
@@ -1832,9 +1842,7 @@ bool ColumnObject::is_visible_root_value(size_t nrow) const {
         }
 
         // If any non-root subcolumn is NOT null, set serialize_root to false and exit early
-        if (!assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                     *subcolumn->data.get_finalized_column_ptr())
-                     .is_null_at(nrow)) {
+        if (!subcolumn->data.is_null_at(nrow)) {
             return false;
         }
     }
