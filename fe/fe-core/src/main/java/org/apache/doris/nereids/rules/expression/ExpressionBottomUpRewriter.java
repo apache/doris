@@ -32,11 +32,12 @@ import javax.annotation.Nullable;
 
 /** ExpressionBottomUpRewriter */
 public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<ExpressionRewriteContext> {
+    private static final AtomicInteger rewriterId = new AtomicInteger(0);
     public static final String BATCH_ID_KEY = "batch_id";
     private static final Logger LOG = LogManager.getLogger(ExpressionBottomUpRewriter.class);
     private static final AtomicInteger rewriteBatchId = new AtomicInteger();
 
-    public final String name = "Rewrite_" + this;
+    public final String name = "expr_rewrite_" + rewriterId.getAndIncrement();
 
     private final ExpressionPatternRules rules;
     private final ExpressionPatternTraverseListeners listeners;

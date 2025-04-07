@@ -35,12 +35,12 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
     private static AtomicInteger batchId = new AtomicInteger(0);
     private final Rules rules;
 
-    public Rules getRules() {
-        return rules;
-    }
-
     public BottomUpVisitorRewriteJob(Rules rules) {
         this.rules = rules;
+    }
+
+    public Rules getRules() {
+        return rules;
     }
 
     @Override

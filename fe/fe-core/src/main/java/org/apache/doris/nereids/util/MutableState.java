@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -46,37 +48,9 @@ public interface MutableState {
 
         @Override
         public MutableState set(String key, Object value) {
-            return new SingleMutableState(key, value);
-        }
-    }
-
-    /** SingleMutableState */
-    class SingleMutableState implements MutableState {
-        public final String key;
-        public final Object value;
-
-        public SingleMutableState(String key, Object value) {
-            this.key = key;
-            this.value = value;
-        }
-
-        @Override
-        public <T> Optional<T> get(String key) {
-            if (this.key.equals(key)) {
-                return (Optional<T>) Optional.ofNullable(value);
-            }
-            return Optional.empty();
-        }
-
-        @Override
-        public MutableState set(String key, Object value) {
-            if (this.key.equals(key)) {
-                return new SingleMutableState(key, value);
-            }
-            MultiMutableState multiMutableState = new MultiMutableState();
-            multiMutableState.set(this.key, this.value);
-            multiMutableState.set(key, value);
-            return multiMutableState;
+            MultiMutableState state = new MultiMutableState();
+            state.set(key, value);
+            return state;
         }
     }
 
