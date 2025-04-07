@@ -65,16 +65,6 @@ public class AlterColumnStatsCommandTest extends TestWithFeService {
                         PrivPredicate.ALTER);
                 minTimes = 0;
                 result = true;
-
-                accessControllerManager.checkTblPriv(connectContext, internalCtl, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL2_NAME,
-                        PrivPredicate.ALTER);
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkTblPriv(connectContext, internalCtl, CatalogMocker.MYSQL_DB, CatalogMocker.MYSQL_TBL,
-                        PrivPredicate.ALTER);
-                minTimes = 0;
-                result = true;
             }
         };
         //test normal
@@ -95,7 +85,7 @@ public class AlterColumnStatsCommandTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
 
         //test OlapTable
-      /*  String indexName2 = "test_index_name";
+        /*  String indexName2 = "test_index_name";
         TableNameInfo tableNameInfo2 = new TableNameInfo(CatalogMocker.MYSQL_DB, CatalogMocker.MYSQL_TBL);
         AlterColumnStatsCommand command2 = new AlterColumnStatsCommand(tableNameInfo2, partitionNamesInfo, indexName2, columnName, properties);
         Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext),
