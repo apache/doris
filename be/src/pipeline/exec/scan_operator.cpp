@@ -285,10 +285,12 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                                 // If it is not a whole range, it means that the column has other non-rf predicates, so it cannot be marked as rf predicate.
                                 // If the range where non-rf predicates are located is incorrectly marked as rf, can_ignore will return true, resulting in the predicate not taking effect and getting an incorrect result.
                                 if (need_set_runtime_filter_id) {
-                                    value_range.set_runtime_filter_id(
-                                            assert_cast<vectorized::VRuntimeFilterWrapper*>(
-                                                    conjunct_expr_root.get())
-                                                    ->filter_id());
+                                    auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(
+                                            conjunct_expr_root.get());
+                                    value_range.set_runtime_filter_info(
+                                            rf_expr->filter_id(),
+                                            rf_expr->predicate_filtered_rows_counter(),
+                                            rf_expr->predicate_input_rows_counter());
                                 }
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
@@ -377,10 +379,11 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(vectorized::VExpr* expr,
         DCHECK(expr_ctx->root()->is_rf_wrapper());
         PushDownType temp_pdt = _should_push_down_bloom_filter();
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
+            auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
             _filter_predicates.bloom_filters.emplace_back(
-                    slot->col_name(), expr->get_bloom_filter_func(),
-                    assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get())
-                            ->filter_id());
+                    slot->col_name(), expr->get_bloom_filter_func(), rf_expr->filter_id(),
+                    rf_expr->predicate_filtered_rows_counter(),
+                    rf_expr->predicate_input_rows_counter());
             *pdt = temp_pdt;
         }
     }
@@ -396,10 +399,11 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(vectorized::VExpr* expr
         DCHECK(expr_ctx->root()->is_rf_wrapper());
         PushDownType temp_pdt = _should_push_down_bitmap_filter();
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
+            auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
             _filter_predicates.bitmap_filters.emplace_back(
-                    slot->col_name(), expr->get_bitmap_filter_func(),
-                    assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get())
-                            ->filter_id());
+                    slot->col_name(), expr->get_bitmap_filter_func(), rf_expr->filter_id(),
+                    rf_expr->predicate_filtered_rows_counter(),
+                    rf_expr->predicate_input_rows_counter());
             *pdt = temp_pdt;
         }
     }
@@ -587,13 +591,18 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                 iter = hybrid_set->begin();
             } else {
                 int runtime_filter_id = -1;
+                RuntimeProfile::Counter* predicate_filtered_rows_counter = nullptr;
+                RuntimeProfile::Counter* predicate_input_rows_counter = nullptr;
                 if (expr_ctx->root()->is_rf_wrapper()) {
-                    runtime_filter_id =
-                            assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get())
-                                    ->filter_id();
+                    auto* rf_expr =
+                            assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
+                    runtime_filter_id = rf_expr->filter_id();
+                    predicate_filtered_rows_counter = rf_expr->predicate_filtered_rows_counter();
+                    predicate_input_rows_counter = rf_expr->predicate_input_rows_counter();
                 }
-                _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func(),
-                                                           runtime_filter_id);
+                _filter_predicates.in_filters.emplace_back(
+                        slot->col_name(), expr->get_set_func(), runtime_filter_id,
+                        predicate_filtered_rows_counter, predicate_input_rows_counter);
                 *pdt = PushDownType::ACCEPTABLE;
                 return Status::OK();
             }

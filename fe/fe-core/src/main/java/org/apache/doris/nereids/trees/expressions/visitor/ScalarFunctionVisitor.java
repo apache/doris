@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Acosh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
@@ -82,9 +83,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayZip;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Asinh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Atanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
@@ -319,6 +322,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
@@ -327,6 +331,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAl
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NormalCdf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpty;
@@ -379,6 +384,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha1;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sha2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Sinh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3sum;
@@ -400,21 +406,25 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StDisjoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StIntersects;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinestringfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolyfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StTouches;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
@@ -468,6 +478,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XpathString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -492,6 +503,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitAcos(Acos acos, C context) {
         return visitScalarFunction(acos, context);
+    }
+
+    default R visitAcosh(Acosh acosh, C context) {
+        return visitScalarFunction(acosh, context);
     }
 
     default R visitAesDecrypt(AesDecrypt aesDecrypt, C context) {
@@ -730,12 +745,20 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(asin, context);
     }
 
+    default R visitAsinh(Asinh asinh, C context) {
+        return visitScalarFunction(asinh, context);
+    }
+
     default R visitAssertTrue(AssertTrue assertTrue, C context) {
         return visitScalarFunction(assertTrue, context);
     }
 
     default R visitAtan(Atan atan, C context) {
         return visitScalarFunction(atan, context);
+    }
+
+    default R visitAtanh(Atanh atanh, C context) {
+        return visitScalarFunction(atanh, context);
     }
 
     default R visitAtan2(Atan2 atan2, C context) {
@@ -1101,6 +1124,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMonthsAdd(MonthsAdd monthsAdd, C context) {
         return visitScalarFunction(monthsAdd, context);
+    }
+
+    default R visitMonthsBetween(MonthsBetween monthsBetween, C context) {
+        return visitScalarFunction(monthsBetween, context);
     }
 
     default R visitYearsAdd(YearsAdd yearsAdd, C context) {
@@ -1683,6 +1710,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(negative, context);
     }
 
+    default R visitNextDay(NextDay nextDay, C context) {
+        return visitScalarFunction(nextDay, context);
+    }
+
     default R visitNgramSearch(NgramSearch ngramSearch, C context) {
         return visitScalarFunction(ngramSearch, context);
     }
@@ -1891,6 +1922,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(sin, context);
     }
 
+    default R visitSinh(Sinh sinh, C context) {
+        return visitScalarFunction(sinh, context);
+    }
+
     default R visitSleep(Sleep sleep, C context) {
         return visitScalarFunction(sleep, context);
     }
@@ -1949,6 +1984,18 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStContains(StContains stContains, C context) {
         return visitScalarFunction(stContains, context);
+    }
+
+    default R visitStIntersects(StIntersects stIntersects, C context) {
+        return visitScalarFunction(stIntersects, context);
+    }
+
+    default R visitStDisjoint(StDisjoint stDisjoint, C context) {
+        return visitScalarFunction(stDisjoint, context);
+    }
+
+    default R visitStTouches(StTouches stTouches, C context) {
+        return visitScalarFunction(stTouches, context);
     }
 
     default R visitStDistanceSphere(StDistanceSphere stDistanceSphere, C context) {
@@ -2033,6 +2080,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStrToDate(StrToDate strToDate, C context) {
         return visitScalarFunction(strToDate, context);
+    }
+
+    default R visitStrToMap(StrToMap strToMap, C context) {
+        return visitScalarFunction(strToMap, context);
     }
 
     default R visitStringRegexPredicate(StringRegexPredicate stringRegexPredicate, C context) {
@@ -2307,6 +2358,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitXor(Xor xor, C context) {
         return visitScalarFunction(xor, context);
+    }
+
+    default R visitXpathString(XpathString xpathString, C context) {
+        return visitScalarFunction(xpathString, context);
     }
 
     // struct function
