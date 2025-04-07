@@ -626,11 +626,13 @@ struct StCircle {
     }
 };
 
-struct StContains {
+template <typename Func>
+struct StRelationFunction {
     static constexpr auto NEED_CONTEXT = true;
-    static constexpr auto NAME = "st_contains";
+    static constexpr auto NAME = Func::NAME;
     static const size_t NUM_ARGS = 2;
     using Type = DataTypeUInt8;
+
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result) {
         DCHECK_EQ(arguments.size(), 2);
@@ -642,8 +644,7 @@ struct StContains {
 
         const auto size = std::max(left_column->size(), right_column->size());
 
-        auto res = ColumnUInt8::create();
-        res->reserve(size);
+        auto res = ColumnUInt8::create(size, 0);
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
@@ -660,55 +661,50 @@ struct StContains {
     }
 
     static void loop_do(StringRef& lhs_value, StringRef& rhs_value,
-                        std::vector<std::shared_ptr<GeoShape>>& shapes, int& i,
+                        std::vector<std::unique_ptr<GeoShape>>& shapes,
                         ColumnUInt8::MutablePtr& res, NullMap& null_map, int row) {
         StringRef* strs[2] = {&lhs_value, &rhs_value};
-        for (i = 0; i < 2; ++i) {
-            shapes[i] =
-                    std::shared_ptr<GeoShape>(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
-            if (shapes[i] == nullptr) {
+        for (int i = 0; i < 2; ++i) {
+            std::unique_ptr<GeoShape> shape(GeoShape::from_encoded(strs[i]->data, strs[i]->size));
+            shapes[i] = std::move(shape);
+            if (!shapes[i]) {
                 null_map[row] = 1;
-                res->insert_default();
                 break;
             }
         }
-
-        if (i == 2) {
-            auto contains_value = shapes[0]->contains(shapes[1].get());
-            res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
+        if (shapes[0] && shapes[1]) {
+            auto relation_value = Func::evaluate(shapes[0].get(), shapes[1].get());
+            res->get_data()[row] = relation_value;
         }
     }
 
     static void const_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
                              ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
         auto lhs_value = left_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        std::vector<std::unique_ptr<GeoShape>> shapes(2);
         for (int row = 0; row < size; ++row) {
             auto rhs_value = right_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
+            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
         }
     }
 
     static void vector_const(const ColumnPtr& left_column, const ColumnPtr& right_column,
                              ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
         auto rhs_value = right_column->get_data_at(0);
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        std::vector<std::unique_ptr<GeoShape>> shapes(2);
         for (int row = 0; row < size; ++row) {
             auto lhs_value = left_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
+            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
         }
     }
 
     static void vector_vector(const ColumnPtr& left_column, const ColumnPtr& right_column,
                               ColumnUInt8::MutablePtr& res, NullMap& null_map, const size_t size) {
-        int i;
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        std::vector<std::unique_ptr<GeoShape>> shapes(2);
         for (int row = 0; row < size; ++row) {
             auto lhs_value = left_column->get_data_at(row);
             auto rhs_value = right_column->get_data_at(row);
-            loop_do(lhs_value, rhs_value, shapes, i, res, null_map, row);
+            loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
         }
     }
 
@@ -719,7 +715,27 @@ struct StContains {
     static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
-}; // namespace doris::vectorized
+};
+
+struct StContainsFunc {
+    static constexpr auto NAME = "st_contains";
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->contains(shape2); }
+};
+
+struct StIntersectsFunc {
+    static constexpr auto NAME = "st_intersects";
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->intersects(shape2); }
+};
+
+struct StDisjointFunc {
+    static constexpr auto NAME = "st_disjoint";
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->disjoint(shape2); }
+};
+
+struct StTouchesFunc {
+    static constexpr auto NAME = "st_touches";
+    static bool evaluate(GeoShape* shape1, GeoShape* shape2) { return shape1->touches(shape2); }
+};
 
 struct StGeometryFromText {
     static constexpr auto NAME = "st_geometryfromtext";
@@ -914,7 +930,10 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAngleSphere>>();
     factory.register_function<GeoFunction<StAngle>>();
     factory.register_function<GeoFunction<StAzimuth>>();
-    factory.register_function<GeoFunction<StContains>>();
+    factory.register_function<GeoFunction<StRelationFunction<StContainsFunc>>>();
+    factory.register_function<GeoFunction<StRelationFunction<StIntersectsFunc>>>();
+    factory.register_function<GeoFunction<StRelationFunction<StDisjointFunc>>>();
+    factory.register_function<GeoFunction<StRelationFunction<StTouchesFunc>>>();
     factory.register_function<GeoFunction<StCircle>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeometryFromText>>>();
     factory.register_function<GeoFunction<StGeoFromText<StGeomFromText>>>();
