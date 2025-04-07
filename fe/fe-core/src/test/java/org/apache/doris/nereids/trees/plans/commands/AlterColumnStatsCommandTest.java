@@ -78,7 +78,7 @@ public class AlterColumnStatsCommandTest extends TestWithFeService {
         TableNameInfo tableNameInfo =
                 new TableNameInfo("test_db", "test_tbl");
         PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false,
-                ImmutableList.of("k2"));
+                ImmutableList.of("p1"));
         String indexName = null;
         String columnName = "k1";
         Map<String, String> properties = new HashMap<>();
