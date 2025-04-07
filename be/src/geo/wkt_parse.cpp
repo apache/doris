@@ -16,6 +16,7 @@
 // under the License.
 
 #include "geo/wkt_parse.h"
+#include <glog/logging.h>
 
 #include "geo/wkt_parse_ctx.h"
 #include "geo/wkt_parse_type.h" // IWYU pragma: keep
@@ -27,17 +28,20 @@
 
 namespace doris {
 
-GeoParseStatus WktParse::parse_wkt(const char* str, size_t len, GeoShape** shape) {
+GeoParseStatus WktParse::parse_wkt(const StringRef& str, std::unique_ptr<GeoShape>& shape) {
     WktParseContext ctx;
     // initialize lexer
     wkt_lex_init_extra(&ctx, &ctx.scaninfo);
-    wkt__scan_bytes(str, len, ctx.scaninfo);
+    wkt__scan_bytes(str.data, str.size, ctx.scaninfo);
 
-    // parse
+    // parse. will call from_coords to construct the shape
     auto res = wkt_parse(&ctx);
     wkt_lex_destroy(ctx.scaninfo);
     if (res == 0) {
-        *shape = ctx.shape;
+        DCHECK(ctx.shape != nullptr);
+        DCHECK(ctx.parse_status == GEO_PARSE_OK);
+        // bridge the ownership of shape from Yacc to Doris
+        shape = std::move(ctx.shape);
     } else {
         if (ctx.parse_status == GEO_PARSE_OK) {
             ctx.parse_status = GEO_PARSE_WKT_SYNTAX_ERROR;

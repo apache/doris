@@ -20,23 +20,17 @@
 //#include "geo_types.h"
 
 #include <string>
+#include "geo/geo_types.h"
 
 struct ToBinaryContext;
 
 namespace doris {
 
-class GeoShape;
-class GeoPoint;
-class GeoLine;
-class GeoPolygon;
-struct GeoCoordinate;
-struct GeoCoordinateList;
-
 class toBinary {
 public:
-    static bool geo_tobinary(GeoShape* shape, std::string* result);
+    static bool geo_tobinary(const std::unique_ptr<GeoShape>& shape, std::string* result);
 
-    static bool write(GeoShape* shape, ToBinaryContext* ctx);
+    static bool write(const std::unique_ptr<GeoShape>& shape, ToBinaryContext* ctx);
 
 private:
     static bool writeGeoPoint(GeoPoint* point, ToBinaryContext* ctx);
@@ -54,7 +48,7 @@ private:
     static void writeCoordinateList(const GeoCoordinateList& coords, bool sized,
                                     ToBinaryContext* ctx);
 
-    static void writeCoordinate(GeoCoordinate& coords, ToBinaryContext* ctx);
+    static void writeCoordinate(const GeoCoordinate& coords, ToBinaryContext* ctx);
 };
 
 } // namespace doris
