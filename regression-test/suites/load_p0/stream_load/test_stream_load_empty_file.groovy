@@ -67,7 +67,7 @@ suite("test_stream_load_empty_file", "p0") {
         }
 
         sql "sync"
-        qt_sql "select * from ${tableName}"
+        qt_sql1 "select * from ${tableName}"
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName} """
     }
@@ -125,7 +125,7 @@ suite("test_stream_load_empty_file", "p0") {
         }
 
         sql "sync"
-        qt_sql "select * from ${mowTableName}"
+        qt_sql2 "select * from ${mowTableName}"
     } finally {
         sql """ DROP TABLE IF EXISTS ${mowTableName} """
     }
