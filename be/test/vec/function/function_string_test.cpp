@@ -118,6 +118,13 @@ TEST(function_string_test, function_string_lower_test) {
                         {{std::string("HELLO123")}, std::string("hello123")},
                         {{std::string("MYtestSTR")}, std::string("myteststr")},
                         {{std::string("HELLO,!^%")}, std::string("hello,!^%")},
+                        {{std::string("ÀÇ")}, std::string("àç")},
+                        {{std::string("ÀÇAC123")}, std::string("àçac123")},
+                        {{std::string("İstanbul")}, std::string("i̇stanbul")},
+                        {{std::string("KIZILAY")}, std::string("kizilay")},
+                        {{std::string("GROSSE")}, std::string("grosse")},
+                        {{std::string("Å")}, std::string("å")},
+                        {{std::string("ΣΟΦΟΣ")}, std::string("σοφος")},
                         {{std::string("")}, std::string("")}};
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
@@ -130,6 +137,12 @@ TEST(function_string_test, function_string_upper_test) {
                         {{std::string("hello123")}, std::string("HELLO123")},
                         {{std::string("HELLO,!^%")}, std::string("HELLO,!^%")},
                         {{std::string("MYtestStr")}, std::string("MYTESTSTR")},
+                        {{std::string("àç")}, std::string("ÀÇ")},
+                        {{std::string("straße")}, std::string("STRASSE")},
+                        {{std::string("àçac123")}, std::string("ÀÇAC123")},
+                        {{std::string("ﬃ")}, std::string("FFI")},
+                        {{std::string("ǅ")}, std::string("Ǆ")},
+                        {{std::string("Ångström")}, std::string("ÅNGSTRÖM")},
                         {{std::string("")}, std::string("")}};
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
