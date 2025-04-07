@@ -533,10 +533,11 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     private Plan doPruneChild(Plan plan, Plan child, BitSet childRequiredSlotIds,
             List<? extends Slot> childRequiredSlots, boolean needPrune) {
+        boolean currentIsProject = plan instanceof Project;
         Plan prunedChild = child.accept(this,
                 new PruneContext(plan, childRequiredSlotIds, childRequiredSlots, needPrune));
         // the case 2 in the class comment, prune child's output failed
-        if (!(plan instanceof Project) && !(prunedChild instanceof OutputPrunable)) {
+        if (!currentIsProject && !(prunedChild instanceof OutputPrunable)) {
             prunedChild = newProjectIfNotPruned(prunedChild, childRequiredSlotIds, childRequiredSlots);
         }
         return prunedChild;
