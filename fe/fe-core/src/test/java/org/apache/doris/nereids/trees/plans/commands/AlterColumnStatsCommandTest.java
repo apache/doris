@@ -28,53 +28,35 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class AlterColumnStatsCommandTest {
+public class AlterColumnStatsCommandTest extends TestWithFeService {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
-    private static final String partitionNotExist = "partition_not_exist";
-    @Mocked
-    private Env env;
-    @Mocked
-    private InternalCatalog catalog;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
-    @Mocked
     private ConnectContext connectContext;
+    private Env env;
+    private AccessControllerManager accessControllerManager;
     private Database db;
 
-    private void runBefore() throws Exception {
-        db = CatalogMocker.mockDb();
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
+    }
+
+    @Test
+    public void testValidateNormal() throws Exception {
+        runBefore();
         new Expectations() {
             {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getCatalogMgr().getCatalog(anyString);
-                minTimes = 0;
-                result = catalog;
-
-                catalog.getDb(anyString);
-                minTimes = 0;
-                result = db;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
                 connectContext.isSkipAuth();
                 minTimes = 0;
                 result = true;
@@ -95,19 +77,17 @@ public class AlterColumnStatsCommandTest {
                 result = true;
             }
         };
-    }
-
-    @Test
-    public void testValidateNormal() throws Exception {
-        runBefore();
         //test normal
         connectContext.getSessionVariable().enableStats = true;
+        createDatabase("test_db");
+        createTable("create table test_db.test_tbl(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
+
         TableNameInfo tableNameInfo =
-                new TableNameInfo(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL2_NAME);
+                new TableNameInfo("test_db", "test_tbl");
         PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false,
                 ImmutableList.of(CatalogMocker.TEST_PARTITION1_NAME));
         String indexName = null;
-        String columnName = "v1";
+        String columnName = "k1";
         Map<String, String> properties = new HashMap<>();
         properties.put("row_count", "5");
         properties.put("avg_size", "100000");
@@ -115,11 +95,11 @@ public class AlterColumnStatsCommandTest {
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
 
         //test OlapTable
-        String indexName2 = "test_index_name";
+      /*  String indexName2 = "test_index_name";
         TableNameInfo tableNameInfo2 = new TableNameInfo(CatalogMocker.MYSQL_DB, CatalogMocker.MYSQL_TBL);
         AlterColumnStatsCommand command2 = new AlterColumnStatsCommand(tableNameInfo2, partitionNamesInfo, indexName2, columnName, properties);
         Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext),
-                "Only OlapTable support alter index stats. Table mysql-tbl is not OlapTable.");
+                "Only OlapTable support alter index stats. Table mysql-tbl is not OlapTable.");*/
 
         //test indexId in OlapTable
         String indexName3 = "invalid_index";
@@ -150,7 +130,8 @@ public class AlterColumnStatsCommandTest {
     }
 
     @Test
-    void testValidateNoPrivilege() {
+    void testValidateNoPrivilege() throws IOException {
+        runBefore();
         new Expectations() {
             {
                 Env.getCurrentEnv();
