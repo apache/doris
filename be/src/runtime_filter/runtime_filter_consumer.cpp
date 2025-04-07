@@ -31,8 +31,7 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
     _set_state(State::APPLIED);
 
     if (_wrapper->get_state() != RuntimeFilterWrapper::State::READY) {
-        _wrapper->check_state(
-                {RuntimeFilterWrapper::State::DISABLED, RuntimeFilterWrapper::State::IGNORED});
+        _wrapper->check_state({RuntimeFilterWrapper::State::DISABLED});
         return Status::OK();
     }
 

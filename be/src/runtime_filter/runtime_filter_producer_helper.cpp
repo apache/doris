@@ -45,12 +45,15 @@ Status RuntimeFilterProducerHelper::init(
 
 Status RuntimeFilterProducerHelper::send_filter_size(
         RuntimeState* state, uint64_t hash_table_size,
-        std::shared_ptr<pipeline::CountedFinishDependency> dependency) {
+        const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
     if (_skip_runtime_filters_process) {
         return Status::OK();
     }
     for (const auto& filter : _producers) {
-        RETURN_IF_ERROR(filter->send_size(state, hash_table_size, dependency));
+        filter->latch_dependency(dependency);
+    }
+    for (const auto& filter : _producers) {
+        RETURN_IF_ERROR(filter->send_size(state, hash_table_size));
     }
     return Status::OK();
 }
@@ -123,7 +126,7 @@ Status RuntimeFilterProducerHelper::terminate(RuntimeState* state) {
     }
 
     for (const auto& filter : _producers) {
-        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::IGNORED);
+        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
     }
 
     RETURN_IF_ERROR(_publish(state));
@@ -139,7 +142,9 @@ Status RuntimeFilterProducerHelper::publish(RuntimeState* state) {
 }
 
 Status RuntimeFilterProducerHelper::skip_process(RuntimeState* state) {
-    RETURN_IF_ERROR(send_filter_size(state, 0, nullptr));
+    auto mocked_dependency =
+            std::make_shared<pipeline::CountedFinishDependency>(0, 0, "MOCKED_FINISH_DEPENDENCY");
+    RETURN_IF_ERROR(send_filter_size(state, 0, mocked_dependency));
 
     for (const auto& filter : _producers) {
         filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED,
