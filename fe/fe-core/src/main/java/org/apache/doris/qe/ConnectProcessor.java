@@ -60,7 +60,6 @@ import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -335,17 +334,6 @@ public abstract class ConnectProcessor {
                 StatementBase parsedStmt = stmts.get(i);
                 parsedStmt.setOrigStmt(new OriginStatement(auditStmt, usingOrigSingleStmt ? 0 : i));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
-                if (parsedStmt instanceof LogicalPlanAdapter) {
-                    StatementContext statementContext = ((LogicalPlanAdapter) parsedStmt).getStatementContext();
-                    if (!statementContext.getConstantExpressionMap().isEmpty()) {
-                        StringBuilder sb = new StringBuilder(auditStmt);
-                        for (Map.Entry<Pair<Integer, Integer>, Expression> entry :
-                                statementContext.getConstantExpressionMap().entrySet()) {
-                            sb.replace(entry.getKey().first, entry.getKey().second + 1, "?");
-                        }
-                        auditStmt = sb.toString();
-                    }
-                }
                 executor = new StmtExecutor(ctx, parsedStmt);
                 executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
                 executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);

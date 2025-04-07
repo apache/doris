@@ -215,10 +215,6 @@ public class OutlineMgr implements Writable {
         visibleSignatureMap.remove(outlineInfo.getVisibleSignature());
     }
 
-    public static String fastParamization(String sql) {
-        return sql;
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeInt(outlineMap.size());
