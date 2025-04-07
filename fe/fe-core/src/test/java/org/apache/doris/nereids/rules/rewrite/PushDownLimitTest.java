@@ -337,15 +337,19 @@ class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                 .rewrite()
                 .matches(
                     logicalTopN(
-                        logicalWindow(
-                            logicalPartitionTopN(
-                                logicalOlapScan()
-                            ).when(logicalPartitionTopN -> {
-                                WindowFuncType funName = logicalPartitionTopN.getFunction();
-                                boolean hasGlobalLimit = logicalPartitionTopN.hasGlobalLimit();
-                                long partitionLimit = logicalPartitionTopN.getPartitionLimit();
-                                return funName == WindowFuncType.RANK && hasGlobalLimit && partitionLimit == 100;
-                            })
+                        logicalProject(
+                            logicalWindow(
+                                logicalPartitionTopN(
+                                        logicalProject(
+                                                logicalOlapScan()
+                                        )
+                                ).when(logicalPartitionTopN -> {
+                                    WindowFuncType funName = logicalPartitionTopN.getFunction();
+                                    boolean hasGlobalLimit = logicalPartitionTopN.hasGlobalLimit();
+                                    long partitionLimit = logicalPartitionTopN.getPartitionLimit();
+                                    return funName == WindowFuncType.RANK && hasGlobalLimit && partitionLimit == 100;
+                                })
+                            )
                         )
                     )
                 );

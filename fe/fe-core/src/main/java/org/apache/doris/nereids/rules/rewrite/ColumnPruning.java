@@ -155,7 +155,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 }
             }
 
-            return plan.accept(this, new PruneContext(null, new BitSet(), ImmutableList.of(), true));
+            return plan.accept(this, new PruneContext(null, plan.getOutputExprIdBitSet(), ImmutableList.of(), true));
         } finally {
             if (!alreadyCheckedPrivileges) {
                 statementContext.setPrivChecked(true);
