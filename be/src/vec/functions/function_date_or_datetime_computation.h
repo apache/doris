@@ -1109,4 +1109,101 @@ private:
     }
 };
 
+class FunctionNextDay : public IFunction {
+public:
+    static constexpr auto name = "next_day";
+    static FunctionPtr create() { return std::make_shared<FunctionNextDay>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return std::make_shared<DataTypeDateV2>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        CHECK_EQ(arguments.size(), 2);
+        auto res = ColumnDateV2::create();
+        res->reserve(input_rows_count);
+        const auto& [left_col, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_col, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        const auto& date_col = *assert_cast<const ColumnDateV2*>(left_col.get());
+        const auto& week_col = *assert_cast<const ColumnString*>(right_col.get());
+        Status status;
+        if (left_const && right_const) {
+            status = execute_vector<true, true>(input_rows_count, date_col, week_col, *res);
+        } else if (left_const) {
+            status = execute_vector<true, false>(input_rows_count, date_col, week_col, *res);
+        } else if (right_const) {
+            status = execute_vector<false, true>(input_rows_count, date_col, week_col, *res);
+        } else {
+            status = execute_vector<false, false>(input_rows_count, date_col, week_col, *res);
+        }
+        if (!status.ok()) {
+            return status;
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+
+private:
+    static int day_of_week(const StringRef& weekday) {
+        static const std::unordered_map<std::string, int> weekday_map = {
+                {"MO", 1}, {"MON", 1}, {"MONDAY", 1},    {"TU", 2}, {"TUE", 2}, {"TUESDAY", 2},
+                {"WE", 3}, {"WED", 3}, {"WEDNESDAY", 3}, {"TH", 4}, {"THU", 4}, {"THURSDAY", 4},
+                {"FR", 5}, {"FRI", 5}, {"FRIDAY", 5},    {"SA", 6}, {"SAT", 6}, {"SATURDAY", 6},
+                {"SU", 7}, {"SUN", 7}, {"SUNDAY", 7}};
+        auto weekday_upper = weekday.to_string();
+        std::transform(weekday_upper.begin(), weekday_upper.end(), weekday_upper.begin(),
+                       ::toupper);
+        auto it = weekday_map.find(weekday_upper);
+        if (it == weekday_map.end()) {
+            return 0;
+        }
+        return it->second;
+    }
+    static Status compute_next_day(DateV2Value<DateV2ValueType>& dtv, const int week_day) {
+        auto days_to_add = (week_day - (dtv.weekday() + 1) + 7) % 7;
+        days_to_add = days_to_add == 0 ? 7 : days_to_add;
+        dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, days_to_add, false));
+        return Status::OK();
+    }
+
+    template <bool left_const, bool right_const>
+    static Status execute_vector(size_t input_rows_count, const ColumnDateV2& left_col,
+                                 const ColumnString& right_col, ColumnDateV2& res_col) {
+        DateV2Value<DateV2ValueType> dtv;
+        int week_day;
+        if constexpr (left_const) {
+            dtv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(left_col.get_element(0));
+        }
+        if constexpr (right_const) {
+            auto week = right_col.get_data_at(0);
+            week_day = day_of_week(week);
+            if (week_day == 0) {
+                return Status::InvalidArgument("Function {} failed to parse weekday: {}", name,
+                                               week);
+            }
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if constexpr (!left_const) {
+                dtv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(left_col.get_element(i));
+            }
+            if constexpr (!right_const) {
+                auto week = right_col.get_data_at(i);
+                week_day = day_of_week(week);
+                if (week_day == 0) {
+                    return Status::InvalidArgument("Function {} failed to parse weekday: {}", name,
+                                                   week);
+                }
+            }
+            RETURN_IF_ERROR(compute_next_day(dtv, week_day));
+            res_col.insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dtv));
+        }
+        return Status::OK();
+    }
+};
+
 } // namespace doris::vectorized
