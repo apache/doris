@@ -1021,5 +1021,15 @@ Status CloudTablet::check_delete_bitmap_cache(int64_t txn_id,
     return Status::OK();
 }
 
+std::string CloudTablet::rowsets_digest() const {
+    std::string msg {};
+    for (const auto& [k, v] : rowset_map()) {
+        msg += fmt::format("version={},rowset={},txn_id={},state={}\n", k.to_string(),
+                           v->rowset_id().to_string(), v->txn_id(),
+                           RowsetStatePB_Name(v->rowset_meta_state()));
+    }
+    return msg;
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris

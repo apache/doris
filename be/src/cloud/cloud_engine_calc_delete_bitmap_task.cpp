@@ -194,13 +194,8 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
             {
                 std::string msg {
                         fmt::format("[xxx CloudTabletCalcDeleteBitmapTask::handle] "
-                                    "tablet_id={}\n_rs_version_map:\n",
-                                    tablet->tablet_id())};
-                for (const auto& [version, rowset] : tablet->rowset_map()) {
-                    msg += fmt::format("    version={}, rowset_version={}, rowset={}, txn_id={}\n",
-                                       version.to_string(), rowset->version().to_string(),
-                                       rowset->rowset_id().to_string(), rowset->txn_id());
-                }
+                                    "tablet_id={}\n_rs_version_map:\n{}",
+                                    tablet->tablet_id(), tablet->rowsets_digest())};
                 LOG_INFO(msg);
             }
 

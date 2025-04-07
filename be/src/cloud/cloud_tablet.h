@@ -215,6 +215,8 @@ public:
 
     const auto& rowset_map() const { return _rs_version_map; }
 
+    std::string rowsets_digest() const;
+
     // Merge all rowset schemas within a CloudTablet
     Status merge_rowsets_schema();
 
