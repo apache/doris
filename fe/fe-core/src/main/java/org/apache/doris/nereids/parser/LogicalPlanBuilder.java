@@ -3811,6 +3811,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("SELECT * must have a FROM clause");
                     }
                 }
+                if (input instanceof LogicalOneRowRelation) {
+                    return new LogicalOneRowRelation(((LogicalOneRowRelation) input).getRelationId(), projects);
+                }
                 return new LogicalProject<>(projects, isDistinct, input);
             }
         });

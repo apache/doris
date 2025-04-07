@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -43,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -207,6 +209,16 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             // the filter is not OutputPrunable, we should pass through the parent required slots
             // (slot a, which in the context.requiredSlots) and the used slots currently(slot b) to child plan.
             return pruneChildren(plan, context.requiredSlotsIds);
+        }
+    }
+
+    @Override
+    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, PruneContext context) {
+        Plan child = filter.child();
+        if (child instanceof LeafPlan && !(child instanceof OutputPrunable)) {
+            return filter;
+        } else {
+            return super.visitLogicalFilter(filter, context);
         }
     }
 
@@ -524,7 +536,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         Plan prunedChild = child.accept(this,
                 new PruneContext(plan, childRequiredSlotIds, childRequiredSlots, needPrune));
         // the case 2 in the class comment, prune child's output failed
-        if (!(plan instanceof Project)) {
+        if (!(plan instanceof Project) && !(prunedChild instanceof Project)) {
             prunedChild = newProjectIfNotPruned(prunedChild, childRequiredSlotIds, childRequiredSlots);
         }
         return prunedChild;

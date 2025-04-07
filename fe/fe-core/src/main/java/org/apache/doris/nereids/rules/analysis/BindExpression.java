@@ -65,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
+import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -197,7 +198,7 @@ public class BindExpression implements AnalysisRuleFactory {
             ),
             RuleType.BINDING_ONE_ROW_RELATION_SLOT.build(
                 // we should bind UnboundAlias in the UnboundOneRowRelation
-                unboundOneRowRelation().thenApply(this::bindOneRowRelation)
+                oneRowRelation().thenApply(this::bindOneRowRelation)
             ),
             RuleType.BINDING_SET_OPERATION_SLOT.build(
                 // LogicalSetOperation don't bind again if LogicalSetOperation.outputs is not empty, this is special
@@ -346,8 +347,8 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     @NotNull
-    private LogicalOneRowRelation bindOneRowRelation(MatchingContext<UnboundOneRowRelation> ctx) {
-        UnboundOneRowRelation oneRowRelation = ctx.root;
+    private LogicalOneRowRelation bindOneRowRelation(MatchingContext<OneRowRelation> ctx) {
+        OneRowRelation oneRowRelation = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 oneRowRelation, cascadesContext, ImmutableList.of(), true, true);

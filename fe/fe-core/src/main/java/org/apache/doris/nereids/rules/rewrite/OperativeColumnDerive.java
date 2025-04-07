@@ -130,7 +130,7 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
                 operandSlots.add(slot);
             }
         }
-        return (Plan) relation.withOperativeSlots(operandSlots.build());
+        return relation.withOperativeSlots(operandSlots.build());
     }
 
     /**
