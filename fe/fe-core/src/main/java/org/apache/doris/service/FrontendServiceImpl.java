@@ -307,6 +307,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 // Frontend service used to serve all request for this frontend through
@@ -2172,20 +2174,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ctx.getSessionVariable().setEnableUniqueKeyPartialUpdate(false);
         }
         if (ctx.getSessionVariable().isEnableInsertGroupCommit()) {
-            Env env = Env.getCurrentEnv();
-            String fullDbName = request.getDb();
-            Database db = env.getInternalCatalog().getDbNullable(fullDbName);
-            if (db == null) {
-                String dbName = fullDbName;
-                if (Strings.isNullOrEmpty(request.getCluster())) {
-                    dbName = request.getDb();
-                }
-                throw new MetaNotFoundException("unknown database, database=" + dbName);
+            String originStmt = request.getLoadSql();
+            Pattern pattern = Pattern.compile(
+                    "group_commit\\(\\s*\"table_id\"\\s*=\\s*\"(\\d+)\"\\s*\\)",
+                    Pattern.CASE_INSENSITIVE
+            );
+            Matcher matcher = pattern.matcher(originStmt);
+            long tableId = -1;
+            if (matcher.find()) {
+                tableId = Long.parseLong(matcher.group(1));
             }
-            OlapTable table = (OlapTable) db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-            LOG.info("check block for " + table.getId());
-            if (Env.getCurrentEnv().getGroupCommitManager().isBlock(table.getId())) {
-                String msg = "insert table " + table.getId() + GroupCommitPlanner.SCHEMA_CHANGE;
+            LOG.info("check block for " + tableId);
+            if (Env.getCurrentEnv().getGroupCommitManager().isBlock(tableId)) {
+                String msg = "insert table " + tableId + GroupCommitPlanner.SCHEMA_CHANGE;
                 LOG.info(msg);
                 throw new AnalysisException(msg);
             }
