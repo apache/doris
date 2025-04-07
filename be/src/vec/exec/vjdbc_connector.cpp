@@ -216,9 +216,11 @@ Status JdbcConnector::query() {
             return Status::InternalError("GetJniExceptionMsg meet error, query={}, msg={}",
                                          _conn_param.query_string, status.to_string());
         }
-        if (colunm_count != materialize_num) {
-            return Status::InternalError("input and output column num not equal of jdbc query.");
-        }
+        if (colunm_count < materialize_num) {
+        	return Status::InternalError(
+                    "JDBC query returned fewer columns ({}) than required ({}).",
+                    colunm_count, materialize_num);
+	    }
     }
 
     LOG(INFO) << "JdbcConnector::query has exec success: " << _sql_str;
