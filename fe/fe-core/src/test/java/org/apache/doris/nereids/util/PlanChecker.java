@@ -170,6 +170,14 @@ public class PlanChecker {
         return this;
     }
 
+    public List<PlanProcess> explainPlanProcess() {
+        NereidsPlanner planner = new NereidsPlanner(
+                new StatementContext(connectContext, new OriginStatement("", 0)));
+        planner.planWithLock((LogicalPlan) cascadesContext.getRewritePlan(), PhysicalProperties.ANY, ExplainLevel.ALL_PLAN, true);
+        this.cascadesContext = planner.getCascadesContext();
+        return cascadesContext.getPlanProcesses();
+    }
+
     public List<PlanProcess> explainPlanProcess(String sql) {
         NereidsParser parser = new NereidsParser();
         LogicalPlan command = parser.parseSingle(sql);
