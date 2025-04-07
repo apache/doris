@@ -294,7 +294,7 @@ public class NereidsPlanner extends Planner {
             physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
         }
 
-        // physicalPlan = postProcess(physicalPlan);
+        physicalPlan = postProcess(physicalPlan);
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
             String tree = physicalPlan.treeString();
             LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), tree);
