@@ -24,11 +24,13 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     String tableName2 = """${suiteName}_tb2"""
     String tableName3 = """${suiteName}_tb3"""
     String tableName4 = """${suiteName}_tb4"""
+    String tableName5 = """${suiteName}_tb5"""
     String mtmvName1 = """${suiteName}_mtmv1"""
     String mtmvName2 = """${suiteName}_mtmv2"""
     String mtmvName3 = """${suiteName}_mtmv3"""
     String mtmvName4 = """${suiteName}_mtmv4"""
     String mtmvName4_rn = """${suiteName}_mtmv4_rn"""
+    String mtmvName5 = """${suiteName}_mtmv5"""
 
     def get_follower_ip = {
         def result = sql """show frontends;"""
@@ -77,6 +79,22 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     logger.info("master_jdbc_url: " + master_jdbc_url)
 
 
+    // mtmv5: normal situation, the base table and mtmv remain unchanged
+    def state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+    assertTrue(state_mtmv5[0][0] == "NORMAL")
+    assertTrue(state_mtmv5[0][1] == "SUCCESS")
+    assertTrue(state_mtmv5[0][2] == true)
+    def test_sql5 = """SELECT a.* FROM ${tableName5} a inner join ${tableName4} b on a.user_id=b.user_id"""
+    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+        sql """use ${dbName}"""
+        mv_rewrite_success(test_sql5, mtmvName5)
+        compare_res(test_sql5 + " order by 1,2,3")
+    }
+    connect('root', context.config.jdbcPassword, master_jdbc_url) {
+        sql """use ${dbName}"""
+        mv_rewrite_success(test_sql5, mtmvName5)
+        compare_res(test_sql5 + " order by 1,2,3")
+    }
 
     // mtmv3: insert data
     sql """insert into ${tableName3} values(1,"2017-01-15",1);"""
