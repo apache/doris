@@ -218,8 +218,8 @@ Status JdbcConnector::query() {
         }
         if (colunm_count < materialize_num) {
         	return Status::InternalError(
-                    "JDBC query returned fewer columns ({}) than required ({}).",
-                    colunm_count, materialize_num);
+                    "JDBC query returned fewer columns ({}) than required ({}).", colunm_count,
+                    materialize_num);
 	    }
     }
 
