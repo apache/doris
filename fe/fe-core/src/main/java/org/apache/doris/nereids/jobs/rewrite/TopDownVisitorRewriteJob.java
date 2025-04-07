@@ -37,6 +37,10 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
         this.rules = rules;
     }
 
+    public Rules getRules() {
+        return rules;
+    }
+
     @Override
     public void execute(JobContext jobContext) {
         Plan originPlan = jobContext.getCascadesContext().getRewritePlan();
