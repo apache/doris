@@ -442,6 +442,11 @@ public:
 
     void finalize() override { get_nested_column().finalize(); }
 
+    void remove_first_n_values(size_t count) override {
+        get_nested_column().remove_first_n_values(count);
+        get_null_map_column().remove_first_n_values(count);
+        // _has_null = SIMD::contain_nonzero(get_null_map_column().get_data(), 0, get_null_map_column().size());
+    }
 private:
     void _update_has_null();
 

@@ -202,6 +202,8 @@ public:
         return IColumn::convert_column_if_overflow();
     }
 
+    void remove_first_n_values(size_t count) override;
+
 private:
     friend class COWHelper<IColumn, ColumnMap>;
 
