@@ -230,8 +230,11 @@ void RuntimeFilterConsumer::collect_realtime_profile(RuntimeProfile* parent_oper
                                              TUnit::UNIT, "RuntimeFilterInfo", 2);
     c->update(_always_true_counter->value());
 
-    parent_operator_profile->add_description(fmt::format("RF{} Info", _filter_id), debug_string(),
-                                             "RuntimeFilterInfo");
+    {
+        std::unique_lock<std::mutex> l(_mtx);
+        parent_operator_profile->add_description(fmt::format("RF{} Info", _filter_id),
+                                                 _wrapper_debug_string, "RuntimeFilterInfo");
+    }
 }
 
 } // namespace doris
