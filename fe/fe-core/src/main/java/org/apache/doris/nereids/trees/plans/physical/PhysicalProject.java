@@ -41,6 +41,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
@@ -201,13 +202,16 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     @Override
     public List<Slot> computeOutput() {
         List<NamedExpression> output = projects;
-        if (! multiLayerProjects.isEmpty()) {
+        if (!multiLayerProjects.isEmpty()) {
             int layers = multiLayerProjects.size();
             output = multiLayerProjects.get(layers - 1);
         }
-        return output.stream()
-                .map(NamedExpression::toSlot)
-                .collect(ImmutableList.toImmutableList());
+
+        Builder<Slot> slots = ImmutableList.builderWithExpectedSize(output.size());
+        for (NamedExpression project : output) {
+            slots.add(project.toSlot());
+        }
+        return slots.build();
     }
 
     @Override
