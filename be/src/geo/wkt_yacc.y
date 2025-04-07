@@ -33,6 +33,7 @@ void wkt_error(WktParseContext* ctx, const char* msg) {
     doris::GeoCoordinate coordinate_value;
     doris::GeoCoordinateList* coordinate_list_value;
     doris::GeoCoordinateListList* coordinate_list_list_value;
+    std::vector<doris::GeoCoordinateListList>* multi_polygon_value;
     doris::GeoShape* shape_value;
 }
 
@@ -67,16 +68,19 @@ void wkt_error(WktParseContext* ctx, const char* msg) {
 %token <double_value> NUMERIC
 
 %type <None> shape
-%type <shape_value> point linestring polygon
+%type <shape_value> point linestring polygon multi_polygon
 %type <coordinate_value> coordinate
 %type <coordinate_list_value> coordinate_list
 %type <coordinate_list_list_value> coordinate_list_list
+%type <multi_polygon_value> multi_polygon_list
 
 %destructor { delete $$; } coordinate_list
 %destructor { delete $$; } coordinate_list_list
 %destructor { delete $$; } point
 %destructor { delete $$; } linestring
 %destructor { delete $$; } polygon
+%destructor { delete $$; } multi_polygon
+%destructor { delete $$; } multi_polygon_list
 
 %%
 
@@ -86,6 +90,8 @@ shape:
     | linestring
     { ctx->shape = $1; }
     | polygon
+    { ctx->shape = $1; }
+    | multi_polygon
     { ctx->shape = $1; }
     ;
 
@@ -126,6 +132,35 @@ polygon:
             YYABORT;
         }
         $$ = polygon.release();
+    }
+    ;
+
+multi_polygon:
+    KW_MULTI_POLYGON '(' multi_polygon_list ')'
+    {
+        // to avoid memory leak
+        std::unique_ptr<std::vector<doris::GeoCoordinateListList>> list($3);
+        std::unique_ptr<doris::GeoMultiPolygon> multi_polygon = doris::GeoMultiPolygon::create_unique();
+        ctx->parse_status = multi_polygon->from_coords(*$3);
+        if (ctx->parse_status != doris::GEO_PARSE_OK) {
+            YYABORT;
+        }
+        $$ = multi_polygon.release();
+    }
+    ;
+
+multi_polygon_list:
+    multi_polygon_list ',' '(' coordinate_list_list ')'
+    {
+        $1->push_back(std::move(*$4));
+        delete $4;
+        $$ = $1; 
+    }
+    | '(' coordinate_list_list ')'
+    {
+        $$ = new std::vector<doris::GeoCoordinateListList>();
+        $$->push_back(std::move(*$2));
+        delete $2;
     }
     ;
 
