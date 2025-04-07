@@ -243,20 +243,25 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
         """
         // 1.test normal load, lock is released normally, retry times is 0
         // 1.1 first load success
-        streamLoad {
-            table "${tableName}"
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+            streamLoad {
+                table "${tableName}"
 
-            set 'column_separator', ','
-            set 'columns', 'id, name, score'
-            file "test_stream_load0.csv"
+                set 'column_separator', ','
+                set 'columns', 'id, name, score'
+                file "test_stream_load0.csv"
 
-            time 10000 // limit inflight 10s
+                time 10000 // limit inflight 10s
 
-            check { result, exception, startTime, endTime ->
-                log.info("Stream load result: ${result}")
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
+                check { result, exception, startTime, endTime ->
+                    log.info("Stream load result: ${result}")
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                }
             }
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
         }
         qt_sql1 """ select * from ${tableName} order by id"""
 
@@ -585,7 +590,30 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
                 logger.info("failed: " + e.getMessage())
                 assertTrue(e.getMessage().contains("Failed to calculate delete bitmap. Timeout"))
             } finally {
-                GetDebugPoint().disableDebugPointForAllFEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+                GetDebugPoint().disableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+            }
+        }
+        setFeConfigTemporary(customFeConfig5) {
+            try {
+                GetDebugPoint().enableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+                sql """ INSERT INTO ${tableName} (id, name, score) VALUES (1, "Emily", 25),(2, "Benjamin", 35);"""
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs("CloudEngineCalcDeleteBitmapTask.execute.enable_wait")
+            }
+        }
+        streamLoad {
+            table "${tableName}"
+
+            set 'column_separator', ','
+            set 'columns', 'id, name, score'
+            file "test_stream_load.csv"
+
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                log.info("Stream load result: ${result}")
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
             }
         }
 
