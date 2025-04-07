@@ -157,14 +157,17 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
                                     """
         logger.info("hive sql: " + rename_column_str)
         hive_docker """ ${rename_column_str} """
-        sql """
+        try {
+            sql """
                 REFRESH catalog ${catalog_name}
             """
             sql """
                 REFRESH MATERIALIZED VIEW ${mvName} complete
             """
-            waitingMTMVTaskFinishedNotNeedSuccess(jobName)
-            order_qt_task_error "select Status from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"
+            Assert.fail();
+        } catch (Exception e) {
+            log.info(e.getMessage())
+        }
 
         // hive recover column name
         def recover_column_str = """
