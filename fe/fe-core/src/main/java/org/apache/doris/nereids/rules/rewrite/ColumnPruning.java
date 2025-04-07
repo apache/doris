@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -536,7 +537,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         Plan prunedChild = child.accept(this,
                 new PruneContext(plan, childRequiredSlotIds, childRequiredSlots, needPrune));
         // the case 2 in the class comment, prune child's output failed
-        if (!(plan instanceof Project) && !(prunedChild instanceof Project)) {
+        if (!(plan instanceof Project)) {
             prunedChild = newProjectIfNotPruned(prunedChild, childRequiredSlotIds, childRequiredSlots);
         }
         return prunedChild;
@@ -546,7 +547,13 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             Plan prunedChild, BitSet childRequiredSlotIds, List<? extends Slot> childRequiredSlots) {
         for (Slot prunedChildOutput : prunedChild.getOutput()) {
             if (!childRequiredSlotIds.get(prunedChildOutput.getExprId().asInt())) {
-                prunedChild = new LogicalProject<>((List) childRequiredSlots, prunedChild);
+                if (prunedChild instanceof LogicalProject) {
+                    List<NamedExpression> mergeProjections = PlanUtils.mergeProjections(
+                            ((LogicalProject<?>) prunedChild).getProjects(), childRequiredSlots);
+                    return new LogicalProject<>(mergeProjections, prunedChild.child(0));
+                } else {
+                    prunedChild = new LogicalProject<>((List) childRequiredSlots, prunedChild);
+                }
                 break;
             }
         }
