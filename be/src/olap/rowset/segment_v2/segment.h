@@ -67,7 +67,8 @@ namespace segment_v2 {
 class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;
-class InvertedIndexFileReader;
+class XIndexFileReader;
+class IndexIterator;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 // A Segment is used to represent a segment in memory format. When segment is
@@ -122,10 +123,9 @@ public:
                                      const StorageReadOptions& read_options,
                                      std::unique_ptr<BitmapIndexIterator>* iter);
 
-    Status new_inverted_index_iterator(const TabletColumn& tablet_column,
-                                       const TabletIndex* index_meta,
-                                       const StorageReadOptions& read_options,
-                                       std::unique_ptr<InvertedIndexIterator>* iter);
+    Status new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
+                              const StorageReadOptions& read_options,
+                              std::unique_ptr<IndexIterator>* iter);
 
     const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
@@ -305,8 +305,8 @@ private:
     std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
     std::mutex _open_lock;
     // inverted index file reader
-    std::shared_ptr<InvertedIndexFileReader> _inverted_index_file_reader;
-    DorisCallOnce<Status> _inverted_index_file_reader_open;
+    std::shared_ptr<XIndexFileReader> _index_file_reader;
+    DorisCallOnce<Status> _index_file_reader_open;
 
     InvertedIndexFileInfo _idx_file_info;
 

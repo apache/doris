@@ -181,7 +181,7 @@ public:
     }
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                    InvertedIndexIterator* iterator, uint32_t num_rows,
+                    IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
             return Status::OK();
@@ -197,10 +197,14 @@ public:
             RETURN_IF_ERROR(
                     InvertedIndexQueryParamFactory::create_query_value<Type>(ptr, query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
-            std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
-            RETURN_IF_ERROR(iterator->read_from_inverted_index(
-                    column_name, query_param->get_value(), query_type, num_rows, index));
-            indices |= *index;
+            InvertedIndexParam param;
+            param.column_name = column_name;
+            param.query_value = query_param->get_value();
+            param.query_type = query_type;
+            param.num_rows = num_rows;
+            param.roaring = std::make_shared<roaring::Roaring>();
+            RETURN_IF_ERROR(iterator->read_from_index(&param));
+            indices |= *param.roaring;
             iter->next();
         }
 

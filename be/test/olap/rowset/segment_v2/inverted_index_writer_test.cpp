@@ -35,10 +35,10 @@
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/x_index_file_reader.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
 #include "runtime/runtime_state.h"
@@ -73,7 +73,7 @@ public:
         } else if (format == InvertedIndexStorageFormatPB::V2) {
             file_str = InvertedIndexDescriptor::get_index_file_path_v2(index_prefix);
         }
-        std::unique_ptr<InvertedIndexFileReader> reader = std::make_unique<InvertedIndexFileReader>(
+        std::unique_ptr<XIndexFileReader> reader = std::make_unique<XIndexFileReader>(
                 io::global_local_filesystem(), index_prefix, format);
         auto st = reader->init();
         EXPECT_EQ(st, Status::OK());
@@ -160,7 +160,7 @@ public:
         query_options.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(query_options);
         // Create a BkdIndexReader to verify the index
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<XIndexFileReader>(
                 io::global_local_filesystem(), index_prefix, InvertedIndexStorageFormatPB::V2);
         auto st = reader->init();
         EXPECT_EQ(st, Status::OK());
@@ -581,7 +581,7 @@ public:
         runtime_state.set_query_options(query_options);
 
         // Create a reader to verify the index
-        auto reader = std::make_shared<InvertedIndexFileReader>(
+        auto reader = std::make_shared<XIndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
         status = reader->init();
         EXPECT_EQ(status, Status::OK());
@@ -765,18 +765,18 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     io::IOContext io_ctx;
 
     // Create readers for both indexes
-    auto reader_enabled = std::make_shared<InvertedIndexFileReader>(
-            io::global_local_filesystem(), index_path_prefix_enabled,
-            InvertedIndexStorageFormatPB::V2);
+    auto reader_enabled = std::make_shared<XIndexFileReader>(io::global_local_filesystem(),
+                                                             index_path_prefix_enabled,
+                                                             InvertedIndexStorageFormatPB::V2);
     status = reader_enabled->init();
     EXPECT_EQ(status, Status::OK());
     auto result_enabled = reader_enabled->open(&idx_meta);
     EXPECT_TRUE(result_enabled.has_value())
             << "Failed to open compound reader" << result_enabled.error();
 
-    auto reader_disabled = std::make_shared<InvertedIndexFileReader>(
-            io::global_local_filesystem(), index_path_prefix_disabled,
-            InvertedIndexStorageFormatPB::V2);
+    auto reader_disabled = std::make_shared<XIndexFileReader>(io::global_local_filesystem(),
+                                                              index_path_prefix_disabled,
+                                                              InvertedIndexStorageFormatPB::V2);
     status = reader_disabled->init();
     EXPECT_EQ(status, Status::OK());
     auto result_disabled = reader_disabled->open(&idx_meta);

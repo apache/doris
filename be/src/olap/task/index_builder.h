@@ -86,8 +86,8 @@ private:
             _inverted_index_builders;
     std::unordered_map<int64_t, std::unique_ptr<XIndexFileWriter>> _x_index_file_writers;
     // <rowset_id, segment_id>
-    std::unordered_map<std::pair<std::string, int64_t>, std::unique_ptr<InvertedIndexFileReader>>
-            _inverted_index_file_readers;
+    std::unordered_map<std::pair<std::string, int64_t>, std::unique_ptr<XIndexFileReader>>
+            _index_file_readers;
 };
 
 using IndexBuilderSharedPtr = std::shared_ptr<IndexBuilder>;
