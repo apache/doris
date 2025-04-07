@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 
@@ -94,9 +94,9 @@ public class OutlineMgr implements Writable {
      * @param startIndex a shift of create outline command
      * @return query replace constant by place holder
      */
-    public static String replaceConstant(String originalQuery, Map<Pair<Integer, Integer>,
-            Expression> constantMap, int startIndex) {
-        List<Pair<Integer, Integer>> sortedKeys = new ArrayList<>(constantMap.keySet());
+    public static String replaceConstant(String originalQuery, Map<PlaceholderId,
+            Pair<Integer, Integer>> constantMap, int startIndex) {
+        List<Pair<Integer, Integer>> sortedKeys = new ArrayList<>(constantMap.values());
 
         // Sort by start index in descending order to avoid shifting problems
         sortedKeys.sort((a, b) -> b.first.compareTo(a.first));
@@ -104,6 +104,9 @@ public class OutlineMgr implements Writable {
         StringBuilder sb = new StringBuilder(originalQuery);
 
         for (Pair<Integer, Integer> range : sortedKeys) {
+            if (range.first == 0 && range.second == 0) {
+                continue;
+            }
             int start = range.first - startIndex;
             int end = range.second - startIndex + 1;
             sb.replace(start, end, "?");
