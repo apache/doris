@@ -203,8 +203,10 @@ Status FullCompaction::_full_compaction_calc_delete_bitmap(const RowsetSharedPtr
                << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
 
     for (const auto& [k, v] : delete_bitmap->delete_bitmap) {
-        _tablet->tablet_meta()->delete_bitmap().merge({std::get<0>(k), std::get<1>(k), cur_version},
-                                                      v);
+        if (std::get<1>(k) != DeleteBitmap::INVALID_SEGMENT_ID) {
+            _tablet->tablet_meta()->delete_bitmap().merge(
+                    {std::get<0>(k), std::get<1>(k), cur_version}, v);
+        }
     }
 
     return Status::OK();
