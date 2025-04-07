@@ -39,9 +39,8 @@ public class IndexDefinitionTest {
         IndexDefinition def = new IndexDefinition("variant_index", false, Lists.newArrayList("col1"), "INVERTED",
                                                   null, "comment");
         try {
-            boolean isIndexFormatV1 = true;
             def.checkColumn(new ColumnDefinition("col1", VariantType.INSTANCE, false, AggregateType.NONE, true,
-                                                 null, "comment"), KeysType.UNIQUE_KEYS, true, null, isIndexFormatV1);
+                                                 null, "comment"), KeysType.UNIQUE_KEYS, true, null);
             Assertions.fail("No exception throws.");
         } catch (AnalysisException e) {
             org.junit.jupiter.api.Assertions.assertInstanceOf(
@@ -60,7 +59,7 @@ public class IndexDefinitionTest {
                                                   properties, "comment");
         def.checkColumn(
                 new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null, "comment"),
-                KeysType.DUP_KEYS, false, null, false);
+                KeysType.DUP_KEYS, false, null);
     }
 
     @Test
@@ -75,7 +74,7 @@ public class IndexDefinitionTest {
                 def.checkColumn(
                         new ColumnDefinition("col1", IntegerType.INSTANCE, false, AggregateType.NONE, true, null,
                                              "comment"),
-                        KeysType.DUP_KEYS, false, null, false));
+                        KeysType.DUP_KEYS, false, null));
     }
 
     @Test
@@ -89,7 +88,7 @@ public class IndexDefinitionTest {
         Assertions.assertThrows(AnalysisException.class, () ->
                 def.checkColumn(new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null,
                                                      "comment"),
-                                KeysType.DUP_KEYS, false, null, false));
+                                KeysType.DUP_KEYS, false, null));
     }
 
     @Test
@@ -103,6 +102,6 @@ public class IndexDefinitionTest {
         Assertions.assertThrows(AnalysisException.class, () ->
                 def.checkColumn(new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true, null,
                                                      "comment"),
-                                KeysType.DUP_KEYS, false, null, false));
+                                KeysType.DUP_KEYS, false, null));
     }
 }

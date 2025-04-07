@@ -66,9 +66,7 @@ public class IndexDefTest {
         try {
             def = new IndexDef("variant_index", false, Lists.newArrayList("col1"),
                                     IndexDef.IndexType.INVERTED, null, "comment");
-            boolean isIndexFormatV1 = true;
-            def.checkColumn(new Column("col1", PrimitiveType.VARIANT), KeysType.UNIQUE_KEYS, true, null,
-                    isIndexFormatV1);
+            def.checkColumn(new Column("col1", PrimitiveType.VARIANT), KeysType.UNIQUE_KEYS, true, null);
             Assert.fail("No exception throws.");
         } catch (AnalysisException e) {
             Assert.assertTrue(e instanceof AnalysisException);
