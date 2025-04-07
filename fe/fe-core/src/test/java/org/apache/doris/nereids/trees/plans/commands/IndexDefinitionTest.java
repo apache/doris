@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
@@ -40,7 +41,7 @@ public class IndexDefinitionTest {
                                                   null, "comment");
         try {
             def.checkColumn(new ColumnDefinition("col1", VariantType.INSTANCE, false, AggregateType.NONE, true,
-                                                 null, "comment"), KeysType.UNIQUE_KEYS, true, null);
+                                                 null, "comment"), KeysType.UNIQUE_KEYS, true, TInvertedIndexFileStorageFormat.V1);
             Assertions.fail("No exception throws.");
         } catch (AnalysisException e) {
             org.junit.jupiter.api.Assertions.assertInstanceOf(
