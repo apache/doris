@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "arrow/type_fwd.h"
+#include "common/config.h"
 #include "pipeline/dependency.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
@@ -189,10 +190,15 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
     if (_waiting_rpc.empty()) {
         auto sz = 0;
         auto num_rows = 0;
+        size_t batch_size = 0;
         if constexpr (std::is_same_v<InBlockType, vectorized::Block>) {
             num_rows = result->rows();
+            batch_size = result->bytes();
         } else if constexpr (std::is_same_v<InBlockType, TFetchDataResult>) {
             num_rows = result->result_batch.rows.size();
+            for (const auto& row : result->result_batch.rows) {
+                batch_size += row.size();
+            }
         }
         if (!_result_batch_queue.empty()) {
             if constexpr (std::is_same_v<InBlockType, vectorized::Block>) {
@@ -200,7 +206,8 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
             } else if constexpr (std::is_same_v<InBlockType, TFetchDataResult>) {
                 sz = _result_batch_queue.back()->result_batch.rows.size();
             }
-            if (sz + num_rows < _buffer_limit) {
+            if (sz + num_rows < _buffer_limit &&
+                (batch_size + _last_batch_bytes) <= config::thrift_max_message_size) {
                 if constexpr (std::is_same_v<InBlockType, vectorized::Block>) {
                     auto last_block = _result_batch_queue.back();
                     for (size_t i = 0; i < last_block->columns(); i++) {
@@ -214,15 +221,18 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
                     back_rows.insert(back_rows.end(), std::make_move_iterator(result_rows.begin()),
                                      std::make_move_iterator(result_rows.end()));
                 }
+                _last_batch_bytes += batch_size;
             } else {
                 _instance_rows_in_queue.emplace_back();
                 _result_batch_queue.push_back(std::move(result));
+                _last_batch_bytes = batch_size;
                 _arrow_data_arrival
                         .notify_one(); // Only valid for get_arrow_batch(std::shared_ptr<vectorized::Block>,)
             }
         } else {
             _instance_rows_in_queue.emplace_back();
             _result_batch_queue.push_back(std::move(result));
+            _last_batch_bytes = batch_size;
             _arrow_data_arrival
                     .notify_one(); // Only valid for get_arrow_batch(std::shared_ptr<vectorized::Block>,)
         }

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -83,6 +84,7 @@
 #include <string_view>
 
 #include "exprs/math_functions.h"
+#include "pugixml.hpp"
 #include "udf/udf.h"
 #include "util/md5.h"
 #include "util/simd/vstring_function.h"
@@ -3594,7 +3596,8 @@ struct SubReplaceImpl {
         std::visit(
                 [&](auto origin_str_const, auto new_str_const, auto start_const, auto len_const) {
                     if (simd::VStringFunctions::is_ascii(
-                                StringRef {data_column->get_chars().data(), data_column->size()})) {
+                                StringRef {data_column->get_chars().data(),
+                                           data_column->get_chars().size()})) {
                         vector_ascii<origin_str_const, new_str_const, start_const, len_const>(
                                 data_column, mask_column, start_column->get_data(),
                                 length_column->get_data(), args_null_map->get_data(), result_column,
@@ -4584,6 +4587,140 @@ private:
             }
         }
         return result;
+    }
+};
+
+/// xpath_string(xml, xpath) -> String
+/// Returns the text content of the first node that matches the XPath expression.
+/// Returns NULL if either xml or xpath is NULL.
+/// Returns empty string if the XPath expression matches no nodes.
+/// The text content includes the node and all its descendants.
+/// Example:
+///   xpath_string('<a><b>b1</b><b>b2</b></a>', '/a/b[1]') = 'b1'
+///   xpath_string('<a><b>b1</b><b>b2</b></a>', '/a/b[2]') = 'b2'
+///   xpath_string('<a><b>b1</b><b>b2</b></a>', '/a/c') = ''
+///   xpath_string('invalid xml', '/a/b[1]') = NULL
+///   xpath_string(NULL, '/a/b[1]') = NULL
+///   xpath_string('<a><b>b1</b><b>b2</b></a>', NULL) = NULL
+class FunctionXPathString : public IFunction {
+public:
+    static constexpr auto name = "xpath_string";
+    static FunctionPtr create() { return std::make_shared<FunctionXPathString>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        CHECK_EQ(arguments.size(), 2);
+        auto col_res = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+        const auto& [left_col, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_col, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        const auto& xml_col = *assert_cast<const ColumnString*>(left_col.get());
+        const auto& xpath_col = *assert_cast<const ColumnString*>(right_col.get());
+
+        Status status;
+        if (left_const && right_const) {
+            status = execute_vector<true, true>(input_rows_count, xml_col, xpath_col, *col_res);
+        } else if (left_const) {
+            status = execute_vector<true, false>(input_rows_count, xml_col, xpath_col, *col_res);
+        } else if (right_const) {
+            status = execute_vector<false, true>(input_rows_count, xml_col, xpath_col, *col_res);
+        } else {
+            status = execute_vector<false, false>(input_rows_count, xml_col, xpath_col, *col_res);
+        }
+        if (!status.ok()) {
+            return status;
+        }
+
+        block.get_by_position(result).column = std::move(col_res);
+        return Status::OK();
+    }
+
+private:
+    // Build the text of the node and all its children.
+    static std::string get_text(const pugi::xml_node& node) {
+        std::string result;
+        build_text(node, result);
+        return result;
+    }
+
+    static void build_text(const pugi::xml_node& node, std::string& builder) {
+        if (node.type() == pugi::node_pcdata || node.type() == pugi::node_cdata) {
+            builder += node.value();
+        }
+        for (pugi::xml_node child : node.children()) {
+            build_text(child, builder);
+        }
+    }
+
+    static Status parse_xml(const StringRef& xml_str, pugi::xml_document& xml_doc) {
+        pugi::xml_parse_result result = xml_doc.load_buffer(xml_str.data, xml_str.size);
+        if (!result) {
+            return Status::InvalidArgument("Function {} failed to parse XML string: {}", name,
+                                           result.description());
+        }
+        return Status::OK();
+    }
+
+    template <bool left_const, bool right_const>
+    static Status execute_vector(const size_t input_rows_count, const ColumnString& xml_col,
+                                 const ColumnString& xpath_col, ColumnNullable& res_col) {
+        pugi::xml_document xml_doc;
+        StringRef xpath_str;
+        // first check right_const, because we want to check empty input first
+        if constexpr (right_const) {
+            xpath_str = xpath_col.get_data_at(0);
+            if (xpath_str.empty()) {
+                // should return null if xpath_str is empty
+                res_col.insert_many_defaults(input_rows_count);
+                return Status::OK();
+            }
+        }
+        if constexpr (left_const) {
+            auto xml_str = xml_col.get_data_at(0);
+            if (xml_str.empty()) {
+                // should return null if xml_str is empty
+                res_col.insert_many_defaults(input_rows_count);
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(parse_xml(xml_str, xml_doc));
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if constexpr (!right_const) {
+                xpath_str = xpath_col.get_data_at(i);
+                if (xpath_str.empty()) {
+                    // should return null if xpath_str is empty
+                    res_col.insert_default();
+                    continue;
+                }
+            }
+            if constexpr (!left_const) {
+                auto xml_str = xml_col.get_data_at(i);
+                if (xml_str.empty()) {
+                    // should return null if xml_str is empty
+                    res_col.insert_default();
+                    continue;
+                }
+                RETURN_IF_ERROR(parse_xml(xml_str, xml_doc));
+            }
+            // NOTE!!!: don't use to_string_view(), because xpath_str maybe not null-terminated
+            pugi::xpath_node node = xml_doc.select_node(xpath_str.to_string().c_str());
+            if (!node) {
+                // should return empty string if not found
+                auto empty_str = std::string("");
+                res_col.insert_data(empty_str.data(), empty_str.size());
+                continue;
+            }
+            auto text = get_text(node.node());
+            res_col.insert_data(text.data(), text.size());
+        }
+        return Status::OK();
     }
 };
 

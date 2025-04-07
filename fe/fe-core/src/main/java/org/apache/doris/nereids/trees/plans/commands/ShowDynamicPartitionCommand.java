@@ -158,12 +158,17 @@ public class ShowDynamicPartitionCommand extends ShowCommand {
                 }
             }
         }
-        return new ShowResultSet(SHOW_DYNAMIC_PARTITION_META_DATA, rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowDynamicPartitionCommand(this, context);
+    }
+
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return SHOW_DYNAMIC_PARTITION_META_DATA;
     }
 
     @Override

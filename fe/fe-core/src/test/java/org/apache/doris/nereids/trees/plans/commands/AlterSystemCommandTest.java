@@ -43,6 +43,7 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -140,27 +141,22 @@ public class AlterSystemCommandTest {
                 new ModifyBackendOp(hostPorts, properties), PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
         Assertions.assertDoesNotThrow(() -> modifyBackend.validate(connectContext));
 
-        // test modifyBackendHostName
-        AlterSystemCommand modifyBackendHostName = new AlterSystemCommand(
-                new ModifyFrontendOrBackendHostNameOp(hostPorts.get(0), "localhost",
-                        ModifyFrontendOrBackendHostNameOp.ModifyOpType.Backend),
+        // test modifyFrontendOrBackendHostName
+        for (ModifyFrontendOrBackendHostNameOp.ModifyOpType type : ModifyFrontendOrBackendHostNameOp.ModifyOpType.values()) {
+            for (String newHost : Arrays.asList("localhost", "192.168.10.10")) {
+                AlterSystemCommand command = new AlterSystemCommand(
+                        new ModifyFrontendOrBackendHostNameOp(hostPorts.get(0), newHost, type),
                         PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME);
-        Assertions.assertDoesNotThrow(() -> modifyBackendHostName.validate(connectContext));
-
-        // test modifyBackendHostName with wrong hostname
-        AlterSystemCommand modifyBackendHostName2 = new AlterSystemCommand(
-                new ModifyFrontendOrBackendHostNameOp(hostPorts.get(0), "localhost2",
-                        ModifyFrontendOrBackendHostNameOp.ModifyOpType.Backend),
+                Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+            }
+            for (String newHost : Arrays.asList("localhost2", "192.168.10.300")) {
+                AlterSystemCommand command = new AlterSystemCommand(
+                        new ModifyFrontendOrBackendHostNameOp(hostPorts.get(0), newHost, type),
                         PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME);
-        Assertions.assertThrows(AnalysisException.class, () -> modifyBackendHostName2.validate(connectContext),
-                "Unknown hostname:  localhost2: Name or service not known");
-
-        // test modifyFrontendHostName
-        AlterSystemCommand modifyFrontendHostName = new AlterSystemCommand(
-                new ModifyFrontendOrBackendHostNameOp(hostPorts.get(0), "localhost",
-                        ModifyFrontendOrBackendHostNameOp.ModifyOpType.Frontend),
-                        PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME);
-        Assertions.assertDoesNotThrow(() -> modifyFrontendHostName.validate(connectContext));
+                Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
+                        "Unknown hostname:  " + newHost + ": Name or service not known");
+            }
+        }
     }
 
     @Test
