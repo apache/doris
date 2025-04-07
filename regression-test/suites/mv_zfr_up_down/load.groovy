@@ -41,22 +41,28 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     String tableName3 = """${suiteName}_tb3"""
     String tableName4 = """${suiteName}_tb4"""
     String tableName5 = """${suiteName}_tb5"""
+    String tableName6 = """${suiteName}_tb6"""
+    String tableName7 = """${suiteName}_tb7"""
     String mtmvName1 = """${suiteName}_mtmv1"""
     String mtmvName2 = """${suiteName}_mtmv2"""
     String mtmvName3 = """${suiteName}_mtmv3"""
     String mtmvName4 = """${suiteName}_mtmv4"""
     String mtmvName5 = """${suiteName}_mtmv5"""
+    String mtmvName6 = """${suiteName}_mtmv6"""
 
     sql """drop table if exists `${tableName1}`"""
     sql """drop table if exists `${tableName2}`"""
     sql """drop table if exists `${tableName3}`"""
     sql """drop table if exists `${tableName4}`"""
     sql """drop table if exists `${tableName5}`"""
+    sql """drop table if exists `${tableName6}`"""
+    sql """drop table if exists `${tableName7}`"""
     sql """drop materialized view if exists ${mtmvName1};"""
     sql """drop materialized view if exists ${mtmvName2};"""
     sql """drop materialized view if exists ${mtmvName3};"""
     sql """drop materialized view if exists ${mtmvName4};"""
     sql """drop materialized view if exists ${mtmvName5};"""
+    sql """drop materialized view if exists ${mtmvName6};"""
 
 
     sql """
@@ -185,6 +191,47 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         insert into ${tableName5} values(1,"2017-01-15",1),(2,"2017-02-15",2),(3,"2017-03-15",3),(4,"2017-04-15",4),(5,"2017-05-15",5),(6,"2017-06-15",6),(7,"2017-07-15",7),(8,"2017-08-15",8),(9,"2017-09-15",9),(10,"2017-10-15",10),(11,"2017-11-15",11),(12,"2017-12-15",12);
         """
 
+    sql """
+        CREATE TABLE `${tableName6}` (
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`, `date`, `num`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`date`)
+        (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')),
+        PARTITION p201702_2000 VALUES [('2017-02-01'), ('2017-03-01')),
+        PARTITION p201703_3000 VALUES [('2017-03-01'), ('2017-04-01')),
+        PARTITION p201704_4000 VALUES [('2017-04-01'), ('2017-05-01')),
+        PARTITION p201705_5000 VALUES [('2017-05-01'), ('2017-06-01')),
+        PARTITION p201706_6000 VALUES [('2017-06-01'), ('2017-07-01')),
+        PARTITION p201707_7000 VALUES [('2017-07-01'), ('2017-08-01')),
+        PARTITION p201708_8000 VALUES [('2017-08-01'), ('2017-09-01')),
+        PARTITION p201709_9000 VALUES [('2017-09-01'), ('2017-10-01')),
+        PARTITION p201710_1000 VALUES [('2017-10-01'), ('2017-11-01')),
+        PARTITION p201711_1100 VALUES [('2017-11-01'), ('2017-12-01')),
+        PARTITION p201712_1200 VALUES [('2017-12-01'), ('2018-01-01')))
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName6} values(1,"2017-01-15",1),(2,"2017-02-15",2),(3,"2017-03-15",3),(4,"2017-04-15",4),(5,"2017-05-15",5),(6,"2017-06-15",6),(7,"2017-07-15",7),(8,"2017-08-15",8),(9,"2017-09-15",9),(10,"2017-10-15",10),(11,"2017-11-15",11),(12,"2017-12-15",12);
+        """
+    sql """
+        CREATE TABLE `${tableName7}` (
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `age` SMALLINT NOT NULL COMMENT '\"年龄\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`, `age`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName7} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
+        """
+
 
     sql """
         CREATE MATERIALIZED VIEW ${mtmvName1}
@@ -242,6 +289,17 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         """
     waitingMTMVTaskFinishedByMvName(mtmvName5)
 
+    sql """
+        CREATE MATERIALIZED VIEW ${mtmvName6}
+            REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT a.* FROM ${tableName6} a inner join ${tableName7} b on a.user_id=b.user_id;
+        """
+    waitingMTMVTaskFinishedByMvName(mtmvName6)
+
 
     def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
     assertTrue(state_mtmv1[0][0] == "NORMAL")
@@ -263,5 +321,9 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     assertTrue(state_mtmv5[0][0] == "NORMAL")
     assertTrue(state_mtmv5[0][1] == "SUCCESS")
     assertTrue(state_mtmv5[0][2] == true)
+    def state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
+    assertTrue(state_mtmv6[0][0] == "NORMAL")
+    assertTrue(state_mtmv6[0][1] == "SUCCESS")
+    assertTrue(state_mtmv6[0][2] == true)
 
 }
