@@ -201,12 +201,12 @@ Status FullCompaction::_full_compaction_calc_delete_bitmap(const RowsetSharedPtr
                     {std::get<0>(k), std::get<1>(k), cur_version}, v);
         }
     }
-    LOG(INFO) << "[Full compaction] construct delete bitmap tablet: " << _tablet->tablet_id()
-              << ", published rowset version: [" << published_rowset->version().first << "-"
-              << published_rowset->version().second << "]"
-              << ", full compaction rowset version: [" << rowset->version().first << "-"
-              << rowset->version().second << "]"
-              << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+    VLOG_DEBUG << "[Full compaction] construct delete bitmap tablet: " << _tablet->tablet_id()
+               << ", published rowset version: [" << published_rowset->version().first << "-"
+               << published_rowset->version().second << "]"
+               << ", full compaction rowset version: [" << rowset->version().first << "-"
+               << rowset->version().second << "]"
+               << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
     return Status::OK();
 }
 
