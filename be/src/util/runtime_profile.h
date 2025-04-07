@@ -314,8 +314,6 @@ public:
             // Do nothing
         }
 
-        void update(std::string description) { this->_description = description; }
-
         TCounter to_thrift(const std::string& name) const override {
             TCounter counter;
             counter.name = name;
