@@ -179,14 +179,14 @@ Status FullCompaction::_check_all_version(const std::vector<RowsetSharedPtr>& ro
 
 Status FullCompaction::_full_compaction_calc_delete_bitmap(const RowsetSharedPtr& published_rowset,
                                                            const RowsetSharedPtr& rowset,
-                                                           const int64_t& cur_version,
+                                                           int64_t cur_version,
                                                            RowsetWriter* rowset_writer) {
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    auto beta_rowset = reinterpret_cast<BetaRowset*>(published_rowset.get());
-    RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
+    RETURN_IF_ERROR(
+            std::static_pointer_cast<BetaRowset>(published_rowset)->load_segments(&segments));
     DeleteBitmapPtr delete_bitmap =
             std::make_shared<DeleteBitmap>(_tablet->tablet_meta()->tablet_id());
-    std::vector<RowsetSharedPtr> specified_rowsets(1, rowset);
+    std::vector<RowsetSharedPtr> specified_rowsets {rowset};
 
     OlapStopWatch watch;
     RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(_tablet, published_rowset, segments,
@@ -195,20 +195,18 @@ Status FullCompaction::_full_compaction_calc_delete_bitmap(const RowsetSharedPtr
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
-    VLOG_DEBUG << "[Full compaction] construct delete bitmap tablet: " << _tablet->tablet_id()
-               << ", published rowset version: [" << published_rowset->version().first << "-"
-               << published_rowset->version().second << "]"
-               << ", full compaction rowset version: [" << rowset->version().first << "-"
-               << rowset->version().second << "]"
-               << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
-
     for (const auto& [k, v] : delete_bitmap->delete_bitmap) {
         if (std::get<1>(k) != DeleteBitmap::INVALID_SEGMENT_ID) {
             _tablet->tablet_meta()->delete_bitmap().merge(
                     {std::get<0>(k), std::get<1>(k), cur_version}, v);
         }
     }
-
+    LOG(INFO) << "[Full compaction] construct delete bitmap tablet: " << _tablet->tablet_id()
+              << ", published rowset version: [" << published_rowset->version().first << "-"
+              << published_rowset->version().second << "]"
+              << ", full compaction rowset version: [" << rowset->version().first << "-"
+              << rowset->version().second << "]"
+              << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
     return Status::OK();
 }
 
