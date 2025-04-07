@@ -72,7 +72,7 @@ suite("test_base_rename_on_commit_mtmv","mtmv") {
 
     // after rename, should not refresh auto
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_recreate "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_rename "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     order_qt_select_rename "select * from ${mvName}"
 
     // create t1
@@ -90,10 +90,6 @@ suite("test_base_rename_on_commit_mtmv","mtmv") {
       sql """
              INSERT INTO ${tableName1} VALUES(10,10);
          """
-    // refresh manual , should failed
-    sql """
-            REFRESH MATERIALIZED VIEW ${mvName} auto
-        """
     // refresh manual
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} auto
@@ -106,8 +102,14 @@ suite("test_base_rename_on_commit_mtmv","mtmv") {
             INSERT INTO ${tableName1} VALUES(20,20);
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_recreate_manual "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_recreate_auto "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     order_qt_select_recreate_auto "select * from ${mvName}"
 
-
+    // t1 should not trigger refresh
+    order_qt_before_trigger "select count(*)  from tasks('type'='mv') where Name='${mvName}'"
+    sql """
+             INSERT INTO ${tableName2} VALUES(4,4);
+         """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_after_trigger "select count(*)  from tasks('type'='mv') where Name='${mvName}'"
 }
