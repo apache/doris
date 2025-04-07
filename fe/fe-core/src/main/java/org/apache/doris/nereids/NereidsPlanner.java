@@ -677,6 +677,7 @@ public class NereidsPlanner extends Planner {
                 statementContext.setFormatOptions(FormatOptions.getForPresto());
                 break;
             case "doris":
+            case "hive":
                 statementContext.setFormatOptions(FormatOptions.getDefault());
                 break;
             default:
