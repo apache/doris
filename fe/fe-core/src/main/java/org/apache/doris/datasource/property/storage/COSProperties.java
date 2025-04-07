@@ -20,7 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
-import org.apache.hadoop.conf.Configuration;
+import lombok.Setter;
 
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -28,12 +28,13 @@ import java.util.regex.Pattern;
 
 public class COSProperties extends AbstractObjectStorageProperties {
 
-    @ConnectorProperty(names = {"cos.endpoint", "s3.endpoint"},
+    @Setter
+    @ConnectorProperty(names = {"cos.endpoint", "endpoint", "s3.endpoint"},
             required = false,
             description = "The endpoint of COS.")
     protected String cosEndpoint = "";
 
-    @ConnectorProperty(names = {"cos.region", "s3.region"},
+    @ConnectorProperty(names = {"cos.region", "region", "s3.region"},
             required = false,
             description = "The region of COS.")
     protected String cosRegion = "ap-guangzhou";
@@ -55,16 +56,6 @@ public class COSProperties extends AbstractObjectStorageProperties {
         return origProps.containsKey("cos.access_key");
     }
 
-    @Override
-    public Configuration getHadoopConfiguration() {
-        Configuration conf = new Configuration(false);
-        conf.set("fs.cosn.bucket.region", getRegion());
-        conf.set("fs.cos.endpoint", cosEndpoint);
-        conf.set("fs.cosn.userinfo.secretId", cosAccessKey);
-        conf.set("fs.cosn.userinfo.secretKey", cosSecretKey);
-        conf.set("fs.cosn.impl", "org.apache.hadoop.fs.CosFileSystem");
-        return conf;
-    }
 
     @Override
     public void toNativeS3Configuration(Map<String, String> config) {
@@ -97,5 +88,10 @@ public class COSProperties extends AbstractObjectStorageProperties {
     @Override
     public String getSecretKey() {
         return cosSecretKey;
+    }
+
+    @Override
+    public void setEndpoint(String endpoint) {
+        this.cosEndpoint = endpoint;
     }
 }

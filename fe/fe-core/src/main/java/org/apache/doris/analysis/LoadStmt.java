@@ -21,23 +21,20 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
-import org.apache.doris.cloud.security.SecurityChecker;
-import org.apache.doris.cloud.storage.RemoteBase;
-import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -49,8 +46,6 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -496,11 +491,11 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
             etlJobType = resourceDesc.getEtlJobType();
             // check resource usage privilege
             if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
-                                                                         resourceDesc.getName(),
-                                                                         PrivPredicate.USAGE)) {
+                    resourceDesc.getName(),
+                    PrivPredicate.USAGE)) {
                 throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
-                                                    + "'@'" + ConnectContext.get().getRemoteIP()
-                                                    + "' for resource '" + resourceDesc.getName() + "'");
+                        + "'@'" + ConnectContext.get().getRemoteIP()
+                        + "' for resource '" + resourceDesc.getName() + "'");
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
@@ -600,53 +595,18 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
         }
     }
 
-    private void checkEndpoint(String endpoint) throws UserException {
-        HttpURLConnection connection = null;
-        try {
-            String urlStr = "http://" + endpoint;
-            SecurityChecker.getInstance().startSSRFChecking(urlStr);
-            URL url = new URL(urlStr);
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setConnectTimeout(10000);
-            connection.connect();
-        } catch (Exception e) {
-            LOG.warn("Failed to connect endpoint={}, err={}", endpoint, e);
-            String msg;
-            if (e instanceof UserException) {
-                msg = ((UserException) e).getDetailMessage();
-            } else {
-                msg = e.getMessage();
-            }
-            throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                    "Failed to access object storage, message=" + msg, e);
-        } finally {
-            if (connection != null) {
-                try {
-                    connection.disconnect();
-                } catch (Exception e) {
-                    LOG.warn("Failed to disconnect connection, endpoint={}, err={}", endpoint, e);
-                }
-            }
-            SecurityChecker.getInstance().stopSSRFChecking();
-        }
-    }
-
     public void checkS3Param() throws UserException {
-        Map<String, String> brokerDescProperties = brokerDesc.getProperties();
-        if (brokerDescProperties.containsKey(S3Properties.Env.ENDPOINT)
-                && brokerDescProperties.containsKey(S3Properties.Env.ACCESS_KEY)
-                && brokerDescProperties.containsKey(S3Properties.Env.SECRET_KEY)
-                && brokerDescProperties.containsKey(S3Properties.Env.REGION)) {
-            String endpoint = brokerDescProperties.get(S3Properties.Env.ENDPOINT);
-            endpoint = endpoint.replaceFirst("^http://", "");
-            endpoint = endpoint.replaceFirst("^https://", "");
-            brokerDescProperties.put(S3Properties.Env.ENDPOINT, endpoint);
+        if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)) {
+
+            ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
+            String endpoint = storageProperties.getEndpoint();
             checkWhiteList(endpoint);
-            if (AzureProperties.checkAzureProviderPropertyExist(brokerDescProperties)) {
-                return;
+
+            //should add connectivity test
+            boolean connectivityTest = FileSystemFactory.get(brokerDesc.getStorageProperties()).connectivityTest();
+            if (!connectivityTest) {
+                throw new UserException("Failed to access object storage, message=connectivity test failed");
             }
-            checkEndpoint(endpoint);
-            checkAkSk();
         }
     }
 
@@ -657,47 +617,6 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
             throw new UserException("endpoint: " + endpoint
                     + " is not in s3 load endpoint white list: " + String.join(",", whiteList));
         }
-    }
-
-    private void checkAkSk() throws UserException {
-        RemoteBase remote = null;
-        ObjectInfo objectInfo = null;
-        String curFile = null;
-        try {
-            Map<String, String> brokerDescProperties = brokerDesc.getProperties();
-            String provider = getProviderFromEndpoint();
-            for (DataDescription dataDescription : dataDescriptions) {
-                for (String filePath : dataDescription.getFilePaths()) {
-                    curFile = filePath;
-                    String bucket = getBucketFromFilePath(filePath);
-                    objectInfo = new ObjectInfo(ObjectStoreInfoPB.Provider.valueOf(provider.toUpperCase()),
-                            brokerDescProperties.get(S3Properties.Env.ACCESS_KEY),
-                            brokerDescProperties.get(S3Properties.Env.SECRET_KEY),
-                            bucket, brokerDescProperties.get(S3Properties.Env.ENDPOINT),
-                            brokerDescProperties.get(S3Properties.Env.REGION), "");
-                    remote = RemoteBase.newInstance(objectInfo);
-                    // RemoteBase#headObject does not throw exception if key does not exist.
-                    remote.headObject("1");
-                    remote.listObjects(null);
-                    remote.close();
-                }
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to access object storage, file={}, proto={}, err={}", curFile, objectInfo, e.toString());
-            String msg;
-            if (e instanceof UserException) {
-                msg = ((UserException) e).getDetailMessage();
-            } else {
-                msg = e.getMessage();
-            }
-            throw new UserException(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                    "Failed to access object storage, message=" + msg, e);
-        } finally {
-            if (remote != null) {
-                remote.close();
-            }
-        }
-
     }
 
     @Override

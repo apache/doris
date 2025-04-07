@@ -17,10 +17,12 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -138,5 +140,39 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
         Map<String, String> config = new HashMap<>();
         toNativeS3Configuration(config);
         return config;
+    }
+
+
+    @Override
+    protected void normalizedAndCheckProps() {
+        super.normalizedAndCheckProps();
+        setEndpointIfNotSet();
+    }
+
+    private void setEndpointIfNotSet() {
+        if (StringUtils.isNotBlank(getEndpoint())) {
+            return;
+        }
+        String endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, usePathStyle, forceParsingByStandardUrl);
+        if (StringUtils.isBlank(endpoint)) {
+            throw new IllegalArgumentException("endpoint is required");
+        }
+        setEndpoint(endpoint);
+    }
+
+    @Override
+    public String convertUrlToFilePath(String uri) throws UserException {
+        return S3PropertyUtils.convertToS3Address(uri, getUsePathStyle(), getForceParsingByStandardUrl());
+
+    }
+
+    @Override
+    public String checkLoadPropsAndReturnUri(Map<String, String> loadProps) throws UserException {
+        return S3PropertyUtils.checkLoadPropsAndReturnUri(loadProps);
+    }
+
+    @Override
+    public String getStorageName() {
+        return "S3";
     }
 }

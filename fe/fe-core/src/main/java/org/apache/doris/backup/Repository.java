@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
@@ -223,7 +224,14 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     public String getLocation() {
-        return location;
+        if (null == fileSystem) {
+            return location;
+        }
+        try {
+            return fileSystem.getStorageProperties().convertUrlToFilePath(location);
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public String getErrorMsg() {
@@ -271,7 +279,7 @@ public class Repository implements Writable, GsonPostProcessable {
                 if (name.compareTo((String) root.get("name")) != 0) {
                     return new Status(ErrCode.COMMON_ERROR,
                             "Invalid repository __repo_info, expected repo '" + name + "', but get name '"
-                                + (String) root.get("name") + "' from " + repoInfoFilePath);
+                                    + (String) root.get("name") + "' from " + repoInfoFilePath);
                 }
                 name = (String) root.get("name");
                 createTime = TimeUtils.timeStringToLong((String) root.get("create_time"));
@@ -334,21 +342,21 @@ public class Repository implements Writable, GsonPostProcessable {
 
     // eg: location/__palo_repository_repo_name/__repo_info
     public String assembleRepoInfoFilePath() {
-        return Joiner.on(PATH_DELIMITER).join(location,
+        return Joiner.on(PATH_DELIMITER).join(getLocation(),
                 joinPrefix(PREFIX_REPO, name),
                 FILE_REPO_INFO);
     }
 
     // eg: location/__palo_repository_repo_name/__my_sp1/__meta
     public String assembleMetaInfoFilePath(String label) {
-        return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        return Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 FILE_META_INFO);
     }
 
     // eg: location/__palo_repository_repo_name/__my_sp1/__info_2018-01-01-08-00-00
     public String assembleJobInfoFilePath(String label, long createTime) {
-        return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        return Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 jobInfoFileNameWithTimestamp(createTime));
     }
@@ -356,7 +364,7 @@ public class Repository implements Writable, GsonPostProcessable {
     // eg:
     // __palo_repository_repo_name/__ss_my_ss1/__ss_content/__db_10001/__tbl_10020/__part_10031/__idx_10020/__10022/
     public String getRepoTabletPathBySnapshotInfo(String label, SnapshotInfo info) {
-        String path = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        String path = Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 DIR_SNAPSHOT_CONTENT,
                 joinPrefix(PREFIX_DB, info.getDbId()),
@@ -375,7 +383,7 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     public String getRepoPath(String label, String childPath) {
-        String path = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        String path = Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 DIR_SNAPSHOT_CONTENT,
                 childPath);
@@ -631,7 +639,7 @@ public class Repository implements Writable, GsonPostProcessable {
 
         // 2. download
         status = fileSystem.downloadWithFileSize(remoteFilePathWithChecksum, localFilePath,
-                    remoteFiles.get(0).getSize());
+                remoteFiles.get(0).getSize());
         if (!status.ok()) {
             return status;
         }

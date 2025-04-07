@@ -623,21 +623,8 @@ public class OutFileClause {
      */
     private void analyzeBrokerDesc(Set<String> processedPropKeys) throws UserException {
         String brokerName = properties.get(PROP_BROKER_NAME);
-        StorageBackend.StorageType storageType;
-        if (properties.containsKey(PROP_BROKER_NAME)) {
-            processedPropKeys.add(PROP_BROKER_NAME);
-            storageType = StorageBackend.StorageType.BROKER;
-        } else if (filePath.toUpperCase().startsWith(S3_FILE_PREFIX)) {
-            brokerName = StorageBackend.StorageType.S3.name();
-            storageType = StorageBackend.StorageType.S3;
-        } else if (filePath.toUpperCase().startsWith(HDFS_FILE_PREFIX.toUpperCase())) {
-            brokerName = StorageBackend.StorageType.HDFS.name();
-            storageType = StorageBackend.StorageType.HDFS;
-        } else {
-            return;
-        }
 
-        brokerDesc = new BrokerDesc(brokerName, storageType, properties);
+        brokerDesc = new BrokerDesc(brokerName, properties);
     }
 
     public static String getFsName(String path) {

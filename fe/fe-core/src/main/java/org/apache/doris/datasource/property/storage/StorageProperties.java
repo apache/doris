@@ -155,4 +155,10 @@ public abstract class StorageProperties extends ConnectionProperties {
         return false;
     }
 
+    public abstract String convertUrlToFilePath(String url) throws UserException;
+
+
+    public abstract String checkLoadPropsAndReturnUri(Map<String, String> loadProps) throws UserException;
+
+    public abstract String getStorageName();
 }

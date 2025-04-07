@@ -72,6 +72,19 @@ public class S3FileSystem extends ObjFileSystem {
         return objStorage.globList(remotePath, result, fileNameOnly);
     }
 
+    @Override
+    public boolean connectivityTest() throws UserException {
+        S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
+        try {
+            objStorage.getClient().listBuckets();
+            return true;
+        } catch (Exception e) {
+            LOG.error("S3 connectivityTest error", e);
+        }
+        return false;
+
+    }
+
     @VisibleForTesting
     public HadoopAuthenticator getAuthenticator() {
         return authenticator;
