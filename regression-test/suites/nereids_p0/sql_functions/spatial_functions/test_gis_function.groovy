@@ -26,6 +26,10 @@ suite("test_gis_function") {
 
     qt_sql "SELECT ST_Contains(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Point(5, 5));"
     qt_sql "SELECT ST_Contains(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Point(50, 50));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'), ST_GeomFromText('POINT(2 10)'));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText(\"POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))\"),ST_GeomFromText(\"MULTIPOLYGON(((2 2, 4 2, 4 4, 2 4, 2 2)), ((6 6, 8 6, 8 8, 6 8, 6 6)))\"));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText(\"POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))\"),ST_GeomFromText(\"MULTIPOLYGON(((2 2, 2 8, 8 8, 8 2, 2 2)), ((10 10, 10 15, 15 15, 15 10, 10 10)))\"));"
+
 
     qt_sql "SELECT ST_Intersects(ST_Point(0, 0), ST_Point(0, 0));"
     qt_sql "SELECT ST_Intersects(ST_Point(0, 0), ST_Point(5, 5));"
@@ -57,6 +61,11 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_Intersects(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Polygon(\"POLYGON ((10 0, 10 10, 20 10, 20 0, 10 0))\"));"
     qt_sql "SELECT ST_Intersects(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Polygon(\"POLYGON ((11 0, 11 10, 21 10, 21 0, 11 0))\"));"
     qt_sql "SELECT ST_Intersects(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Polygon(\"POLYGON ((10 10, 20 10, 20 20, 10 20, 10 10))\"));"
+
+    qt_sql "SELECT ST_Intersects(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"), ST_Point(0, 0));"
+    qt_sql "SELECT ST_Intersects(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"), ST_LineFromText(\"LINESTRING (4 4, 7 7)\"));"
+    qt_sql "SELECT ST_Intersects(ST_GeometryFromText(\"POLYGON((12 12, 12 15, 15 15, 15 12, 12 12))\"), ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"));"
+    qt_sql "SELECT ST_Intersects(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"), ST_GeometryFromText(\"MULTIPOLYGON(((5 5, 5 8, 8 8, 8 5, 5 5)), ((8 8, 8 12, 12 12, 12 8, 8 8)))\"));"
 
     qt_sql "SELECT ST_Intersects(ST_Circle(1, 1, 1), ST_Point(2, 1));" 
     qt_sql "SELECT ST_Intersects(ST_Circle(1, 1, 1), ST_Point(1, 1));"
@@ -98,8 +107,16 @@ suite("test_gis_function") {
 
     qt_sql "SELECT ST_Touches(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Polygon(\"POLYGON ((5 0, 15 0, 15 10, 5 10, 5 0))\"));"
     qt_sql "SELECT ST_Touches(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Polygon(\"POLYGON ((10 0, 10 10, 20 10, 20 0, 10 0))\"));"
-    qt_sql "SELECT ST_Touches(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Polygon(\"POLYGON ((11 0, 11 10, 21 10, 21 0, 11 0))\"));"
-    qt_sql "SELECT ST_Touches(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Polygon(\"POLYGON ((10 10, 20 10, 20 20, 10 20, 10 10))\"));"
+    qt_sql "SELECT ST_Touches(ST_Polygon('POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))'), ST_Polygon('POLYGON ((11 0, 11 10, 21 10, 21 0, 11 0))'));"
+    qt_sql "SELECT ST_Touches(ST_Polygon('POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))'), ST_Polygon('POLYGON ((10 10, 20 10, 20 20, 10 20, 10 10))'));"
+    qt_sql "SELECT ST_Touches(ST_GeomFromText('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'),ST_GeomFromText('POLYGON((2 10, 5 15, 8 10, 10 15, 5 20, 0 15, 2 10))'));"
+
+    qt_sql "SELECT ST_Touches(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"), ST_Point(5, 5));"
+    qt_sql "SELECT ST_Touches(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"), ST_LineFromText(\"LINESTRING (5 5, 7 7)\"));"
+    qt_sql "SELECT ST_Touches(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"), ST_GeometryFromText(\"POLYGON((5 5, 5 8, 8 8, 8 5, 5 5))\"));"
+    qt_sql "SELECT ST_Touches(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)))\"), ST_GeometryFromText(\"POLYGON((5 5, 5 8, 8 8, 8 5, 5 5))\"));"
+    qt_sql "SELECT ST_Touches(ST_GeometryFromText(\"MULTIPOLYGON (((0 0, 10 0, 10 10, 0 10, 0 0)), ((15 0, 25 0, 25 10, 15 10, 15 0)), ((30 30, 35 35, 40 30, 30 30)))\"),ST_GeometryFromText(\"MULTIPOLYGON (((10 0, 20 0, 20 10, 10 10, 10 0)))\"));"
+
 
     qt_sql "SELECT ST_Touches(ST_Circle(1, 1, 1), ST_Point(2, 1));"
     qt_sql "SELECT ST_Touches(ST_Circle(1, 1, 1), ST_Point(1, 2));"
@@ -143,6 +160,10 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_Disjoint(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Polygon(\"POLYGON ((11 0, 11 10, 21 10, 21 0, 11 0))\"));"
     qt_sql "SELECT ST_Disjoint(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Polygon(\"POLYGON ((10 10, 20 10, 20 20, 10 20, 10 10))\"));"
 
+    qt_sql "SELECT ST_Disjoint(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"), ST_Point(11, 11));"
+    qt_sql "SELECT ST_Disjoint(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"), ST_LineFromText(\"LINESTRING (11 11, 12 12)\"));"
+    qt_sql "SELECT ST_Disjoint(ST_GeometryFromText(\"MULTIPOLYGON(((0 0, 0 5, 5 5, 5 0, 0 0)), ((6 6, 6 10, 10 10, 10 6, 6 6)))\"), ST_GeometryFromText(\"MULTIPOLYGON(((12 12, 12 15, 15 15, 15 12, 12 12)), ((15 15, 15 18, 18 18, 18 15, 15 15)))\"));"
+
     qt_sql "SELECT ST_Disjoint(ST_Circle(1, 1, 1), ST_Point(2, 1));" 
     qt_sql "SELECT ST_Disjoint(ST_Circle(1, 1, 1), ST_Point(1, 1));"
     qt_sql "SELECT ST_Disjoint(ST_Circle(1, 1, 1), ST_Point(3, 1));"  
@@ -175,6 +196,16 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_AsText(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"));"
     qt_sql "SELECT ST_AsText(ST_PolyFromText(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"));"
     qt_sql "SELECT ST_AsText(ST_PolygonFromText(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"));"
+
+    qt_sql "SELECT ST_AsText(ST_GeometryFromText(\"MULTIPOLYGON (((0.0 0.0, 0.0 4.9, 5.3 5.3, 5.2 0.0, 0.0 0.0)), ((20.1 20.3, 20.4 30.6, 30.6 30.4, 30.0 20.2, 20.1 20.3)), ((50.2 50.3, 50.1 60.7, 60.7 60.9, 60.5 50.5, 50.2 50.3)), ((70.3 70.1, 70.5 80.5, 80.3 80.2, 80.0 70.0, 70.3 70.1)))\"));"
+    qt_sql "SELECT ST_AsText(ST_GeometryFromText('MULTIPOLYGON(((5 5, 5 8, 8 8, 8 5, 5 5)), ((8 8, 8 12, 12 12, 12 8, 8 8)))'));"
+    qt_sql "SELECT ST_AsText(ST_GeometryFromText('MULTIPOLYGON(((5 5, 5 8, 8 8, 8 5, 5 5)), ((8 6, 10 6, 10 10, 8 10, 8 6)))'));"
+    qt_sql "SELECT ST_AsText(ST_GeometryFromText(\"MULTIPOLYGON (((0 0, 0 10, 10 10, 10 0, 0 0)), ((5 5, 5 15, 15 15, 15 5, 5 5)))\"));"
+    qt_sql "SELECT ST_AsText(ST_GeomFromText('MULTIPOLYGON (((-10 -10, -10 10, 10 10, 10 -10, -10 -10)), ((20 20, 20 30, 30 30, 30 20, 20 20), (25 25, 25 27, 27 27, 27 25, 25 25)))'));"
+    qt_sql "SELECT ST_AsText(ST_GeometryFromText('MULTIPOLYGON(((0 0, 10 0, 10 10, 0 10, 0 0)), ((2 10, 5 15, 8 10, 10 15, 5 20, 0 15, 2 10)))'));"
+    qt_sql "SELECT ST_AsText(ST_GeomFromText('MULTIPOLYGON (((0 0, 20 0, 20 20, 0 20, 0 0), (5 5, 15 5, 15 15, 5 15, 5 5)), ((5 10, 10 5, 15 10, 10 15, 5 10)))'));"
+    qt_sql "SELECT ST_AsText(ST_GeomFromText('MULTIPOLYGON(((0 0, 0 10, 10 10, 10 0, 0 0), (3 3, 7 3, 7 7, 3 7, 3 3)), ((3 3, 3 7, 7 7, 7 3, 3 3)))'));"
+    qt_sql "SELECT ST_AsText(ST_GeomFromText('MULTIPOLYGON(((0 0, 4 1, 2 4, 0 0)), ((2 4, 5 6, 3 8, 2 4)))'));"
 
     qt_sql "SELECT ST_X(ST_Point(1, 2));"
     qt_sql "SELECT ST_X(ST_Point(24.7, 56.7));"
