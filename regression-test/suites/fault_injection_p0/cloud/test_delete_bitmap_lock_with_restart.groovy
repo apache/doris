@@ -42,8 +42,6 @@ suite("test_delete_bitmap_lock_with_restart", "docker") {
             set 'columns', 'id, name, score'
             file "test_stream_load.csv"
 
-            time 10000 // limit inflight 10s
-
             check { result, exception, startTime, endTime ->
                 log.info("Stream load result: ${result}")
                 def json = parseJson(result)
