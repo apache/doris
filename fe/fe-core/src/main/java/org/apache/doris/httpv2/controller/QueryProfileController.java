@@ -60,7 +60,7 @@ public class QueryProfileController extends BaseController {
     }
 
     @RequestMapping(path = "/query_profile/text/{" + ID + "}", method = RequestMethod.GET)
-    public Object test_profile(@PathVariable(value = ID) String id) {
+    public Object text_profile(@PathVariable(value = ID) String id) {
         String profile = ProfileManager.getInstance().getProfile(id);
         if (profile == null) {
             return ResponseEntityBuilder.okWithCommonError("ID " + id + " does not exist");
