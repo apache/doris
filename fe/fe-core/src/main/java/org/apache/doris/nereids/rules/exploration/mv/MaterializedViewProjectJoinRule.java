@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -39,8 +38,8 @@ public class MaterializedViewProjectJoinRule extends AbstractMaterializedViewJoi
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalProject(logicalJoin(logicalPlan(), logicalPlan())).thenApplyMultiNoThrow(ctx -> {
-                            LogicalProject<LogicalJoin<LogicalPlan, LogicalPlan>> root = ctx.root;
-                            return rewrite(root, ctx.cascadesContext);
-                        }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_JOIN));
+                    LogicalProject<LogicalJoin<LogicalPlan, LogicalPlan>> root = ctx.root;
+                    return rewrite(root, ctx.cascadesContext);
+                }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_JOIN));
     }
 }

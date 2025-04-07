@@ -45,7 +45,7 @@ public class CheckAnalysisTest {
     @Mocked
     private CascadesContext cascadesContext;
 
-    GroupExpression ge = new GroupExpression(
+    private GroupExpression ge = new GroupExpression(
             new LogicalOneRowRelation(
                     new RelationId(1),
                     ImmutableList.of(new Alias(Literal.of(1)))
@@ -53,7 +53,7 @@ public class CheckAnalysisTest {
             ImmutableList.of()
     );
 
-    GroupPlan groupPlan = new GroupPlan(
+    private GroupPlan groupPlan = new GroupPlan(
             new Group(GroupId.createGenerator().getNextId(),
                     ge.getPlan().getLogicalProperties()
             )
