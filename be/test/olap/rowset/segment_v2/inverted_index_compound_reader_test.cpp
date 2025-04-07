@@ -36,9 +36,9 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
+#include "olap/rowset/segment_v2/x_index_file_reader.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
 #include "runtime/exec_env.h"
@@ -382,7 +382,7 @@ TEST_F(DorisCompoundReaderTest, IntegrationWithFileWriter) {
         auto st = index_file_writer->close();
         ASSERT_TRUE(st.ok()) << st;
 
-        auto file_reader = std::make_unique<InvertedIndexFileReader>(
+        auto file_reader = std::make_unique<XIndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V1);
 
         st = file_reader->init();
@@ -429,7 +429,7 @@ TEST_F(DorisCompoundReaderTest, IntegrationWithFileWriter) {
         st = index_file_writer->close();
         ASSERT_TRUE(st.ok()) << st;
 
-        auto file_reader = std::make_unique<InvertedIndexFileReader>(
+        auto file_reader = std::make_unique<XIndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
 
         st = file_reader->init();

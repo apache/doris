@@ -56,7 +56,7 @@ InvertedIndexQueryType get_query_type(const std::string& query_type) {
 Status FunctionMultiMatch::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-        std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+        std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
         segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
     DCHECK(arguments.size() == 2);
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
@@ -75,11 +75,15 @@ Status FunctionMultiMatch::evaluate_inverted_index(
     auto query_str = arguments[1].column->get_data_at(0);
     auto param_type = arguments[1].type->get_primitive_type();
     if (!is_string_type(param_type)) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                 "arguments for multi_match must be string");
     }
 
     // search
+    InvertedIndexParam param;
+    param.query_value = &query_str;
+    param.query_type = query_type;
+    param.num_rows = num_rows;
     for (size_t i = 0; i < data_type_with_names.size(); i++) {
         auto column_name = data_type_with_names[i].first;
         auto* iter = iterators[i];
@@ -89,10 +93,10 @@ Status FunctionMultiMatch::evaluate_inverted_index(
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(error_msg);
         }
 
-        auto single_result = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(iter->read_from_inverted_index(column_name, &query_str, query_type,
-                                                       num_rows, single_result));
-        *roaring |= *single_result;
+        param.column_name = column_name;
+        param.roaring = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR(iter->read_from_index(&param));
+        *roaring |= *param.roaring;
     }
     segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
     bitmap_result = result;

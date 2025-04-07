@@ -40,7 +40,7 @@ namespace segment_v2 {
 class ReaderFileEntry;
 class DorisCompoundReader;
 
-class InvertedIndexFileReader {
+class XIndexFileReader {
 public:
     using EntriesType =
             lucene::util::CLHashMap<char*, ReaderFileEntry*, lucene::util::Compare::Char,
@@ -50,9 +50,9 @@ public:
     using IndicesEntriesMap =
             std::map<std::pair<int64_t, std::string>, std::unique_ptr<EntriesType>>;
 
-    InvertedIndexFileReader(io::FileSystemSPtr fs, std::string index_path_prefix,
-                            InvertedIndexStorageFormatPB storage_format,
-                            InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo())
+    XIndexFileReader(io::FileSystemSPtr fs, std::string index_path_prefix,
+                     InvertedIndexStorageFormatPB storage_format,
+                     InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo())
             : _fs(std::move(fs)),
               _index_path_prefix(std::move(index_path_prefix)),
               _storage_format(storage_format),
