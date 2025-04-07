@@ -71,7 +71,7 @@ public class AlterColumnStatsCommandTest extends TestWithFeService {
         //test normal
         connectContext.getSessionVariable().enableStats = true;
         createDatabase("test_db");
-        createTable("create table test_db.test.tbl\n" + "(k1 int, k2 int)\n"
+        createTable("create table test_db.test_tbl\n" + "(k1 int, k2 int)\n"
                 + "duplicate key(k1)\n" + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); ");
 
