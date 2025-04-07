@@ -2117,6 +2117,19 @@ public class SchemaChangeHandler extends AlterHandler {
                                         + existedIdx.getIndexName() + " of type " + existedIdx.getIndexType()
                                         + " does not support lightweight index changes.");
                             }
+                            for (Column column : olapTable.getBaseSchema()) {
+                                if (!column.getType().isVariantType()) {
+                                    continue;
+                                }
+                                // variant type column can not support for building index
+                                for (String indexColumn : existedIdx.getColumns()) {
+                                    if (column.getName().equalsIgnoreCase(indexColumn)) {
+                                        throw new DdlException("BUILD INDEX operation failed: The "
+                                                + indexDef.getIndexName() + " index can not be built on the "
+                                                + indexColumn + " column, because it is a variant type column.");
+                                    }
+                                }
+                            }
                             index = existedIdx.clone();
                             if (indexDef.getPartitionNames().isEmpty()) {
                                 invertedIndexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
