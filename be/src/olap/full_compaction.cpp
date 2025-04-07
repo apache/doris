@@ -36,6 +36,7 @@
 #include "olap/schema_change.h"
 #include "olap/tablet_meta.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 #include "util/thread.h"
 #include "util/trace.h"
 
@@ -110,6 +111,7 @@ Status FullCompaction::modify_rowsets() {
         RETURN_IF_ERROR(
                 _full_compaction_update_delete_bitmap(_output_rowset, _output_rs_writer.get()));
     }
+    DBUG_EXECUTE_IF("FullCompaction.modify_rowsets.before.block", DBUG_BLOCK);
     std::vector<RowsetSharedPtr> output_rowsets(1, _output_rowset);
     {
         std::lock_guard<std::mutex> rowset_update_wlock(tablet()->get_rowset_update_lock());
