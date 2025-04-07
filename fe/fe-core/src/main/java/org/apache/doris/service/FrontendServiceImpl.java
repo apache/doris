@@ -90,6 +90,7 @@ import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.plsql.metastore.PlsqlPackage;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
@@ -2169,6 +2170,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
         if (request.isSetPartialUpdate() && !request.isPartialUpdate()) {
             ctx.getSessionVariable().setEnableUniqueKeyPartialUpdate(false);
+        }
+        if (ctx.getSessionVariable().isEnableInsertGroupCommit()) {
+            Env env = Env.getCurrentEnv();
+            String fullDbName = request.getDb();
+            Database db = env.getInternalCatalog().getDbNullable(fullDbName);
+            if (db == null) {
+                String dbName = fullDbName;
+                if (Strings.isNullOrEmpty(request.getCluster())) {
+                    dbName = request.getDb();
+                }
+                throw new MetaNotFoundException("unknown database, database=" + dbName);
+            }
+            OlapTable table = (OlapTable) db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
+            LOG.info("check block for " + table.getId());
+            if (Env.getCurrentEnv().getGroupCommitManager().isBlock(table.getId())) {
+                String msg = "insert table " + table.getId() + GroupCommitPlanner.SCHEMA_CHANGE;
+                LOG.info(msg);
+                throw new AnalysisException(msg);
+            }
         }
         try {
             HttpStreamParams httpStreamParams = initHttpStreamPlan(request, ctx);
