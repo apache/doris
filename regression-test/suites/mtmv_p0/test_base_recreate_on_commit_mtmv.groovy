@@ -80,8 +80,23 @@ suite("test_base_recreate_on_commit_mtmv","mtmv") {
             INSERT INTO ${tableName1} VALUES(2,2);
         """
 
-    // after recreate, should refresh auto, because relation not be removed
+    // after recreate, should not refresh auto, because it's is schema_change
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_recreate "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     order_qt_select_recreate "select * from ${mvName}"
+
+    // refresh manual and insert
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} auto
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_recreate_manual "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_select_recreate_manual "select * from ${mvName}"
+
+    sql """
+            INSERT INTO ${tableName1} VALUES(3,3);
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_recreate_manual "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_select_recreate_manual "select * from ${mvName}"
 }
