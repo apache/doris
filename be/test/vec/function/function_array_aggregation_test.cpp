@@ -65,10 +65,10 @@ void check_function(const std::string& func_name, const IntDataSet data_set,
             }
         }
         if (!row.second.is_null) {
-            converted_data_set.emplace_back(std::make_pair<CellSet, Expect>(
+            converted_data_set.emplace_back(std::make_pair<InputCell, Expect>(
                     {array}, convert_to<ReturnType>(row.second.value)));
         } else {
-            converted_data_set.emplace_back(std::make_pair<CellSet, Expect>({array}, Null()));
+            converted_data_set.emplace_back(std::make_pair<InputCell, Expect>({array}, Null()));
         }
     }
     static_cast<void>(check_function<ReturnType, true>(func_name, input_types, converted_data_set));

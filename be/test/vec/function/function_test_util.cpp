@@ -24,9 +24,9 @@
 
 #include "runtime/jsonb_value.h"
 #include "runtime/runtime_state.h"
-#include "util/binary_cast.hpp"
 #include "util/bitmap_value.h"
 #include "util/datetype_cast.hpp"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
 #include "vec/common/assert_cast.h"
@@ -49,32 +49,9 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
-int64_t str_to_date_time(std::string datetime_str, bool datetime) {
-    VecDateTimeValue v;
-    EXPECT_TRUE(v.from_date_str(datetime_str.c_str(), datetime_str.size()));
-    if (datetime) {
-        v.to_datetime();
-    } else {
-        v.cast_to_date();
-    }
-    return binary_cast<VecDateTimeValue, Int64>(v);
-}
-
-uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format) {
-    DateV2Value<DateV2ValueType> v;
-    EXPECT_TRUE(v.from_date_format_str(datetime_format.c_str(), datetime_format.size(),
-                                       datetime_str.c_str(), datetime_str.size()));
-    return binary_cast<DateV2Value<DateV2ValueType>, UInt32>(v);
-}
-
-uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_format) {
-    DateV2Value<DateTimeV2ValueType> v;
-    EXPECT_TRUE(v.from_date_format_str(datetime_format.c_str(), datetime_format.size(),
-                                       datetime_str.c_str(), datetime_str.size()));
-    return binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(v);
-}
 
 // NOLINTBEGIN(readability-function-size)
+// return consumed slots in input_types(for nested types it may greater than 1)
 static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t index,
                                       ut_type::UTDataTypeDesc& ut_desc, DataTypePtr& type) {
     doris::TypeDescriptor& desc = ut_desc.type_desc;
@@ -83,6 +60,7 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
     }
 
     TypeIndex tp;
+    // default is nullable
     if (input_types[index].type() == &typeid(Consted)) {
         tp = any_cast<Consted>(input_types[index]).tp;
     } else if (input_types[index].type() == &typeid(ConstedNotnull)) {
@@ -200,8 +178,8 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         desc.type = doris::PrimitiveType::TYPE_ARRAY;
         ut_type::UTDataTypeDesc sub_desc;
         DataTypePtr sub_type = nullptr;
-        ++index;
-        size_t ret = type_index_to_data_type(input_types, index, sub_desc, sub_type);
+        // parse next TypeIndex as inner type
+        size_t ret = type_index_to_data_type(input_types, ++index, sub_desc, sub_type);
         if (ret <= 0) {
             return ret;
         }
@@ -306,7 +284,8 @@ bool parse_ut_data_type(const std::vector<AnyType>& input_types, ut_type::UTData
 }
 
 template <typename DataType>
-bool insert_datetime_cell(MutableColumnPtr& column, DataTypePtr date_type_ptr, const AnyType& cell) {
+bool insert_datetime_cell(MutableColumnPtr& column, DataTypePtr date_type_ptr,
+                          const AnyType& cell) {
     // accept cell of type string
     auto datetime_str = any_cast<std::string>(cell);
     date_cast::TypeToValueTypeV<DataType> date_value;
@@ -332,6 +311,24 @@ bool insert_datetime_cell(MutableColumnPtr& column, DataTypePtr date_type_ptr, c
     // parse failed. insert null.
     column->insert_default();
     return false;
+}
+
+bool insert_array_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell) {
+    //NOLINTNEXTLINE(modernize-use-auto)
+    std::vector<AnyType> origin_input_array = any_cast<TestArray>(cell);
+    DataTypePtr sub_type = assert_cast<const DataTypeArray*>(type_ptr.get())->get_nested_type();
+    MutableColumnPtr sub_column = sub_type->create_column();
+    for (const auto& item : origin_input_array) {
+        insert_cell(sub_column, sub_type, item);
+    }
+
+    Array field_vector; // derived from std::vector<Field>
+    for (int i = 0; i < sub_column->size(); ++i) {
+        field_vector.push_back((*sub_column)[i]);
+    }
+
+    column->insert(field_vector);
+    return true;
 }
 
 // NOLINTBEGIN(readability-function-size)
@@ -404,23 +401,20 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         auto value = any_cast<Decimal256>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_date_time()) {
-        RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateTime>(
-                column, type_ptr, cell)));
+        RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateTime>(column, type_ptr, cell)));
     } else if (type.is_date()) {
-        RETURN_IF_FALSE(
-                (insert_datetime_cell<DataTypeDate>(column, type_ptr, cell)));
+        RETURN_IF_FALSE((insert_datetime_cell<DataTypeDate>(column, type_ptr, cell)));
     } else if (type.is_date_v2()) {
-        RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateV2>(
-                column, type_ptr, cell)));
+        RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateV2>(column, type_ptr, cell)));
     } else if (type.is_date_time_v2()) {
-        RETURN_IF_FALSE(
-                (insert_datetime_cell<DataTypeDateTimeV2>(
-                        column, type_ptr, cell)));
+        RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateTimeV2>(column, type_ptr, cell)));
+    } else if (type.is_time_v2()) {
+        auto value = any_cast<ut_type::DOUBLE>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_array()) {
-        auto v = any_cast<Array>(cell);
-        column->insert(v);
+        RETURN_IF_FALSE((insert_array_cell(column, type_ptr, cell)));
     } else if (type.is_struct()) {
-        auto v = any_cast<CellSet>(cell);
+        auto v = any_cast<InputCell>(cell);
         const auto* struct_type = assert_cast<const DataTypeStruct*>(type_ptr.get());
         auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
         auto* struct_column =
@@ -442,13 +436,14 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         bool ok = insert_cell(col, col_type, cell);
         nullmap_column->insert_value(ok ? 0 : 1);
     } else {
-        LOG(WARNING) << "dataset not supported for TypeIndex:" << (int)type.idx;
+        std::cerr << "dataset not supported for TypeIndex:" << (int)type.idx;
         return false;
     }
     return true;
 }
 // NOLINTEND(readability-function-size)
 
+// only for table function
 static Block* create_block_from_inputset(const InputTypeSet& input_types,
                                          const InputDataSet& input_set) {
     // 1.0 create data type

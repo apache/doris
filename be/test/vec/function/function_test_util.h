@@ -32,8 +32,6 @@
 #include "testutil/function_utils.h"
 #include "testutil/test_util.h"
 #include "udf/udf.h"
-#include "util/bitmap_value.h"
-#include "util/jsonb_utils.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/block.h"
@@ -54,16 +52,17 @@ class DataTypeJsonb;
 class TableFunction;
 template <typename T>
 class DataTypeDecimal;
-using InputDataSet = std::vector<std::vector<AnyType>>; // without result
-using CellSet = std::vector<AnyType>;
-using Expect = AnyType;
-using Row = std::pair<CellSet, Expect>;
-using DataSet = std::vector<Row>;
-using InputTypeSet = std::vector<AnyType>;
 
-int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
-uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format);
-uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_format);
+using TestArray = std::vector<AnyType>;
+//TODO: replace Map, Struct with AnyType combinations too
+
+using InputCell = std::vector<AnyType>;
+using InputDataSet = std::vector<InputCell>;
+using Expect = AnyType;
+using Row = std::pair<InputCell, Expect>;
+using DataSet = std::vector<Row>;
+// to represent Array<Int64>: {TypeIndex::Array, TypeIndex::Int64}
+using InputTypeSet = std::vector<AnyType>;
 
 struct Nullable {
     TypeIndex tp;
@@ -110,10 +109,6 @@ inline auto DECIMAL256 = [](wide::Int256 x, wide::Int256 y, int scale) {
     return Decimal256::from_int_frac(x, y, scale);
 };
 
-inline auto DECIMALFIELD = [](double v) {
-    return DecimalField<Decimal128V2>(Decimal128V2::double_to_decimalv2(v), 9);
-};
-
 using DATETIME = std::string;
 
 struct UTDataTypeDesc {
@@ -121,7 +116,7 @@ struct UTDataTypeDesc {
     doris::TypeDescriptor type_desc;
     std::string col_name;
     bool is_const = false;
-    bool is_nullable = true;
+    bool is_nullable = true; // ATTN: default is true
 };
 using UTDataTypeDescs = std::vector<UTDataTypeDesc>;
 } // namespace ut_type
@@ -192,7 +187,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                       bool expect_result_ne = false) {
     // 1.0 create data type
     ut_type::UTDataTypeDescs descs;
-    // desc get type's precision and scale here. TODO: replace by DataTypePtr inputs directly.
+    // desc get type's precision and scale here. FIXME: replace by DataTypePtr inputs directly.
     EXPECT_TRUE(parse_ut_data_type(input_types, descs));
 
     // 1.1 insert data and create block
@@ -262,6 +257,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     auto result = block.columns() - 1;
     auto st = func->execute(fn_ctx, block, arguments, result, row_size);
+    std::cout << block.dump_data() << std::endl;
     if (expect_execute_fail) {
         EXPECT_NE(Status::OK(), st);
         return st;
