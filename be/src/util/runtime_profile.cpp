@@ -454,7 +454,7 @@ void RuntimeProfile::add_description(const std::string& name, const std::string&
 
     if (_counter_map.find(name) != _counter_map.end()) {
         Counter* counter = _counter_map[name];
-        if (DescriptionEntry* derived_counter = dynamic_cast<DescriptionEntry*>(counter)) {
+        if (dynamic_cast<DescriptionEntry*>(counter) != nullptr) {
             // Do replace instead of update to avoid data race.
             _counter_map.erase(name);
         } else {

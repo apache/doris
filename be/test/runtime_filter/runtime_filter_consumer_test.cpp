@@ -237,9 +237,8 @@ TEST_F(RuntimeFilterConsumerTest, aquire_signal_at_same_time) {
     for (int i = 0; i < 100; i++) {
         std::shared_ptr<RuntimeFilterConsumer> consumer;
         auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build();
-        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterConsumer::create(RuntimeFilterParamsContext::create(_query_ctx.get()),
-                                              &desc, 0, &consumer, &_profile));
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterConsumer::create(
+                RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, 0, &consumer));
 
         std::shared_ptr<RuntimeFilterProducer> producer;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
