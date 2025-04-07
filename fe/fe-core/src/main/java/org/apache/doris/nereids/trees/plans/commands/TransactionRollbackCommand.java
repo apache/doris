@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -43,11 +42,6 @@ public class TransactionRollbackCommand extends TransactionCommand {
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         handleTransactionRollback(ctx);
-    }
-
-    @Override
-    public RedirectStatus toRedirectStatus() {
-        return RedirectStatus.NO_FORWARD;
     }
 
     private void handleTransactionRollback(ConnectContext ctx) throws AnalysisException {

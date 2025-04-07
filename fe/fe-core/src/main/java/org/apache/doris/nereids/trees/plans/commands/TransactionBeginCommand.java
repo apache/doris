@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -62,11 +61,6 @@ public class TransactionBeginCommand extends TransactionCommand {
             ctx.setTxnEntry(new TransactionEntry());
         }
         ctx.getTxnEntry().setLabel(label);
-    }
-
-    @Override
-    public RedirectStatus toRedirectStatus() {
-        return RedirectStatus.NO_FORWARD;
     }
 
     private void handleTransactionBegin(ConnectContext ctx) {

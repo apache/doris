@@ -25,14 +25,14 @@ import org.apache.doris.qe.StmtExecutor;
 /**
  * base class for all transaction commands
  */
-public abstract class TransactionCommand extends Command implements ForwardWithSync {
+public abstract class TransactionCommand extends Command implements NoForward {
     public TransactionCommand(PlanType type) {
         super(type);
     }
 
     @Override
     public StmtType stmtType() {
-        return StmtType.DROP;
+        return StmtType.TRANSACTION;
     }
 
     @Override
