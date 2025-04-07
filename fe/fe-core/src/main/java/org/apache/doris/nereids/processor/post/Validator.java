@@ -28,15 +28,12 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.LazyCompute;
-import org.apache.doris.nereids.util.PlanUtils;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
 import java.util.BitSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;

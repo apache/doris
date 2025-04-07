@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.commons.lang3.StringUtils;
-
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;

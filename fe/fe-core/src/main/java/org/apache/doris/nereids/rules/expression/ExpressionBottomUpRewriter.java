@@ -32,12 +32,12 @@ import javax.annotation.Nullable;
 
 /** ExpressionBottomUpRewriter */
 public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<ExpressionRewriteContext> {
-    private static final AtomicInteger rewriterId = new AtomicInteger(0);
-    public static final String BATCH_ID_KEY = "batch_id";
+    private static final String BATCH_ID_KEY = "batch_id";
+    private static final AtomicInteger BATCH_ID = new AtomicInteger(0);
     private static final Logger LOG = LogManager.getLogger(ExpressionBottomUpRewriter.class);
-    private static final AtomicInteger rewriteBatchId = new AtomicInteger();
 
-    public final String name = "expr_rewrite_" + rewriterId.getAndIncrement();
+    private final int batchId = BATCH_ID.getAndIncrement();
+    public final String name = "expr_rewrite_" + batchId;
 
     private final ExpressionPatternRules rules;
     private final ExpressionPatternTraverseListeners listeners;
@@ -55,8 +55,7 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
     // entrance
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-        int currentBatch = rewriteBatchId.incrementAndGet();
-        return rewriteBottomUp(expr, ctx, currentBatch, null, rules, listeners, name);
+        return rewriteBottomUp(expr, ctx, batchId, null, rules, listeners, name);
     }
 
     private static Expression rewriteBottomUp(
