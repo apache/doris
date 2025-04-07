@@ -106,10 +106,10 @@ suite("test_base_rename_on_commit_mtmv","mtmv") {
     order_qt_select_recreate_auto "select * from ${mvName}"
 
     // t1 should not trigger refresh
-    order_qt_before_trigger "select count(*)  from tasks('type'='mv') where Name='${mvName}'"
+    order_qt_before_trigger "select count(*)  from tasks('type'='mv') where MvName='${mvName}'"
     sql """
              INSERT INTO ${tableName2} VALUES(4,4);
          """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_after_trigger "select count(*)  from tasks('type'='mv') where Name='${mvName}'"
+    order_qt_after_trigger "select count(*)  from tasks('type'='mv') where MvName='${mvName}'"
 }
