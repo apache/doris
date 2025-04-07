@@ -14,28 +14,37 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #pragma once
 
-#include <CLucene.h>
-
-#include <cstdint>
-#include <string_view>
-#include <vector>
-
 #include "common/status.h"
-#include "inverted_index_compound_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_common.h"
 
-namespace doris {
-class TabletIndex;
-namespace segment_v2 {
+namespace doris::segment_v2 {
+
 class XIndexFileWriter;
-class XIndexFileReader;
 
-Status compact_column(int64_t index_id,
-                      std::vector<std::unique_ptr<DorisCompoundReader>>& src_index_dirs,
-                      std::vector<lucene::store::Directory*>& dest_index_dirs,
-                      std::string_view tmp_path,
-                      const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec,
-                      const std::vector<uint32_t>& dest_segment_num_rows);
-} // namespace segment_v2
-} // namespace doris
+class FileInfo {
+public:
+    std::string filename;
+    int64_t filesize;
+};
+
+class XIndexStorageFormat {
+public:
+    XIndexStorageFormat(XIndexFileWriter* x_file_writer);
+    virtual ~XIndexStorageFormat() = default;
+
+    virtual Status write() = 0;
+
+    void sort_files(std::vector<FileInfo>& file_infos);
+    std::vector<FileInfo> prepare_sorted_files(lucene::store::Directory* directory);
+    void copy_file(const char* fileName, lucene::store::Directory* dir,
+                   lucene::store::IndexOutput* output, uint8_t* buffer, int64_t bufferLength);
+
+protected:
+    XIndexFileWriter* _x_file_writer = nullptr;
+};
+using XIndexStorageFormatPtr = std::unique_ptr<XIndexStorageFormat>;
+
+} // namespace doris::segment_v2

@@ -14,28 +14,27 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#pragma once
 
-#include <CLucene.h>
+#include "ann_index_iterator.h"
 
-#include <cstdint>
-#include <string_view>
-#include <vector>
+#include <memory>
 
-#include "common/status.h"
-#include "inverted_index_compound_reader.h"
+namespace doris::segment_v2 {
 
-namespace doris {
-class TabletIndex;
-namespace segment_v2 {
-class XIndexFileWriter;
-class XIndexFileReader;
+AnnIndexIterator::AnnIndexIterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
+                                   RuntimeState* runtime_state, const IndexReaderPtr& reader)
+        : IndexIterator(io_ctx, stats, runtime_state) {
+    _ann_reader = std::static_pointer_cast<AnnIndexReader>(reader);
+}
 
-Status compact_column(int64_t index_id,
-                      std::vector<std::unique_ptr<DorisCompoundReader>>& src_index_dirs,
-                      std::vector<lucene::store::Directory*>& dest_index_dirs,
-                      std::string_view tmp_path,
-                      const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec,
-                      const std::vector<uint32_t>& dest_segment_num_rows);
-} // namespace segment_v2
-} // namespace doris
+Status AnnIndexIterator::read_from_index(const IndexParam& param) {
+    auto* a_param = std::get<AnnIndexParam*>(param);
+    if (a_param == nullptr) {
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>("a_param is null");
+    }
+    (void)a_param->column_name;
+
+    return _ann_reader->query(a_param);
+}
+
+} // namespace doris::segment_v2
