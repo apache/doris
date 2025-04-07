@@ -76,8 +76,6 @@ public class CreateOutlineCommand extends Command implements ForwardWithSync {
             LOG.info("outline is not enabled, please enable it by: set enable_sql_plan_outlines = true");
             throw new DdlException("outline is not enabled, please enable it by: set enable_sql_plan_outlines = true");
         }
-        String visibleSignature = OutlineMgr.replaceConstant(originalQuery,
-                executor.getContext().getStatementContext().getConstantExpressionMap(), startIndex);
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(query, ctx.getStatementContext());
         executor.setParsedStmt(logicalPlanAdapter);
@@ -89,6 +87,8 @@ public class CreateOutlineCommand extends Command implements ForwardWithSync {
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         executor.setPlanner(planner);
         executor.checkBlockRules();
+        String visibleSignature = OutlineMgr.replaceConstant(originalQuery,
+                executor.getContext().getStatementContext().getConstantExpressionMap(), startIndex);
         String sqlId = DigestUtils.md5Hex(visibleSignature);
         String outlineData = OutlineMgr.createOutlineData(ctx.getSessionVariable());
         OutlineInfo outlineInfo = new OutlineInfo(outlineName, visibleSignature, sqlId,
