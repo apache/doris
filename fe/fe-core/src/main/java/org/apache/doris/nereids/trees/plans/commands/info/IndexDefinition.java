@@ -133,7 +133,8 @@ public class IndexDefinition {
             // 1. in cloud mode
             // 2. enable_inverted_index_v1_for_variant = false
             boolean notSupportInvertedIndexForVariant =
-                    invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
+                    (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
+                        || invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT)
                             && (Config.isCloudMode() || !Config.enable_inverted_index_v1_for_variant);
 
             if (colType.isVariantType() && notSupportInvertedIndexForVariant) {

@@ -116,28 +116,36 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
                 log.info(e.getMessage())
                 assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
             }
-        }
-        sql """
+        } else {
+            sql """
             CREATE TABLE IF NOT EXISTS var_index (
-                k bigint,
-                v variant,
-                INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT ''
-            )
-            DUPLICATE KEY(`k`)
-            DISTRIBUTED BY HASH(k) BUCKETS 1 
-            properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
-        """
+                    k bigint,
+                    v variant,
+                    INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT ''
+                )
+                DUPLICATE KEY(`k`)
+                DISTRIBUTED BY HASH(k) BUCKETS 1 
+                properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
+            """
 
-        sql "DROP TABLE IF EXISTS var_index"
-        sql """
-            CREATE TABLE IF NOT EXISTS var_index (
-                k bigint,
-                v variant
-            )
-            DUPLICATE KEY(`k`)
-            DISTRIBUTED BY HASH(k) BUCKETS 1 
-            properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
-        """
-        sql """ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED"""
+            sql "DROP TABLE IF EXISTS var_index"
+            sql """
+                CREATE TABLE IF NOT EXISTS var_index (
+                    k bigint,
+                    v variant
+                )
+                DUPLICATE KEY(`k`)
+                DISTRIBUTED BY HASH(k) BUCKETS 1 
+                properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
+            """
+            sql """ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED"""
+            try {
+                sql """ build index idx_var on var_index"""
+            } catch (Exception e) {
+                log.info(e.getMessage())
+                assertTrue(e.getMessage().contains("The idx_var index can not be built on the v column, because it is a variant type column"))
+            }
+        }
+        
     }
 }
