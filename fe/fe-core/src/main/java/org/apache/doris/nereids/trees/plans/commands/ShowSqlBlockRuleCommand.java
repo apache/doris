@@ -61,6 +61,11 @@ public class ShowSqlBlockRuleCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
@@ -70,7 +75,7 @@ public class ShowSqlBlockRuleCommand extends ShowCommand {
         List<List<String>> rows = Lists.newArrayList();
         List<SqlBlockRule> sqlBlockRules = Env.getCurrentEnv().getSqlBlockRuleMgr().getSqlBlockRule(ruleName);
         sqlBlockRules.forEach(rule -> rows.add(rule.getShowInfo()));
-        return new ShowResultSet(META_DATA, rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     @Override

@@ -111,7 +111,12 @@ public class ShowDatabasesCommand extends ShowCommand {
 
         LogicalPlan plan = Utils.buildLogicalPlan(selectList, fullTblName, whereClause);
         List<List<String>> rows = Utils.executePlan(ctx, executor, plan);
-        return new ShowResultSet(META_DATA, rows);
+        return new ShowResultSet(getMetaData(), rows);
+    }
+
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
     }
 
     @Override
@@ -155,7 +160,7 @@ public class ShowDatabasesCommand extends ShowCommand {
         }
 
         rows.sort(Comparator.comparing(x -> x.get(0)));
-        return new ShowResultSet(META_DATA, rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     @Override
