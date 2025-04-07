@@ -125,7 +125,7 @@ suite("refactor_storage_param_load") {
         })
 
     }
-/*    s3Load("s3://${bucket}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "true")
+    s3Load("s3://${bucket}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "true")
     s3Load("s3://${bucket}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "false")
     s3Load("s3://${bucket}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "")
     s3Load("s3://${bucket}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "AWS_ACCESS_KEY", ak, "AWS_SECRET_KEY", sk, "")
@@ -154,7 +154,7 @@ suite("refactor_storage_param_load") {
     }
     shouldFail {
         s3Load("s3://${endpoint}/${bucket}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "false")
-    }*/
+    }
     /*----------obs---------------*/
     ak = context.config.otherConfigs.get("hwYunAk")
     sk = context.config.otherConfigs.get("hwYunSk")
@@ -162,7 +162,7 @@ suite("refactor_storage_param_load") {
     region = "cn-north-4"
     bucket = "doris-build";
     outfile_path = outfile_to_S3(bucket, endpoint, region, ak, sk);
-/*    filePath = outfile_path.replace("s3://${bucket}", "")
+    filePath = outfile_path.replace("s3://${bucket}", "")
     s3Load("s3://${bucket}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "true")
     s3Load("s3://${bucket}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "false")
     s3Load("s3://${bucket}${filePath}", bucket, "obs.endpoint", endpoint, "obs.region", region, "obs.access_key", ak, "obs.secret_key", sk, "true")
@@ -173,7 +173,7 @@ suite("refactor_storage_param_load") {
     s3Load("s3://${bucket}${filePath}", bucket, "obs.endpoint", endpoint, "obs.region", region, "obs.access_key", ak, "obs.secret_key", sk, "")
     s3Load("http://${bucket}.${endpoint}${filePath}", bucket, "obs.endpoint", endpoint, "obs.region", region, "obs.access_key", ak, "obs.secret_key", sk, "")
     s3Load("https://${bucket}.${endpoint}${filePath}", bucket, "obs.endpoint", endpoint, "obs.region", region, "obs.access_key", ak, "obs.secret_key", sk, "")
-shouldFail {
+    shouldFail {
         s3Load("https://${bucket}${filePath}", bucket, "", endpoint, "obs.region", region, "obs.access_key", ak, "obs.secret_key", sk, "false")
     }
 
@@ -195,7 +195,7 @@ shouldFail {
     }
     shouldFail {
         s3Load("obs://${endpoint}/${bucket}${filePath}", bucket, "obs.endpoint", endpoint, "obs.region", region, "obs.access_key", ak, "obs.secret_key", sk, "false")
-    }*/
+    }
     
     /*-------------Tencent COS ----------*/
     ak = context.config.otherConfigs.get("txYunAk")
