@@ -97,6 +97,6 @@ suite("test_base_recreate_on_commit_mtmv","mtmv") {
             INSERT INTO ${tableName1} VALUES(3,3);
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_recreate_manual "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-    order_qt_select_recreate_manual "select * from ${mvName}"
+    order_qt_recreate_auto "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_select_recreate_auto "select * from ${mvName}"
 }
