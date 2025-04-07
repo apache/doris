@@ -287,10 +287,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx);
         LogicalProject<Plan> project = eliminateGroupByConstant(groupByExprContext, rewriteContext,
-                normalizedGroupExprs, normalizedAggOutput, bottomProjects, aggregate, upperProjects);
-        if (project == null) {
-            project = new LogicalProject<>(upperProjects, newAggregate);
-        }
+                normalizedGroupExprs, normalizedAggOutput, bottomProjects, aggregate, upperProjects, newAggregate);
 
         // verify project used slots are all coming from agg's output
         List<Slot> slots = collectAllUsedSlots(upperProjects);
@@ -404,11 +401,11 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
     private LogicalProject<Plan> eliminateGroupByConstant(NormalizeToSlotContext groupByExprContext,
             ExpressionRewriteContext rewriteContext, List<Expression> normalizedGroupExprs,
             List<NamedExpression> normalizedAggOutput, Set<NamedExpression> bottomProjects,
-            LogicalAggregate<Plan> aggregate, List<NamedExpression> upperProjects) {
+            LogicalAggregate<Plan> aggregate, List<NamedExpression> upperProjects, LogicalAggregate<?> newAggregate) {
         // 1. Find the expressions in group by that can be folded into constants and build a map(slot, literal)
         Map<Expression, NormalizeToSlotTriplet> replaceMap = groupByExprContext.getNormalizeToSlotMap();
         if (replaceMap.isEmpty()) {
-            return null;
+            return new LogicalProject<>(upperProjects, newAggregate);
         }
         Map<Slot, Expression> slotToLiteral = new HashMap<>();
         for (Map.Entry<Expression, NormalizeToSlotTriplet> entry : replaceMap.entrySet()) {
@@ -418,7 +415,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             }
         }
         if (slotToLiteral.isEmpty()) {
-            return null;
+            return new LogicalProject<>(upperProjects, newAggregate);
         }
         // 2. Regenerate a group by list without constant key
         List<Expression> newNormalizedGroupExprs = new ArrayList<>();
@@ -435,10 +432,10 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             slotToLiteral.remove(lit);
         }
         if (slotToLiteral.isEmpty() || newNormalizedGroupExprs.size() == normalizedGroupExprs.size()) {
-            return null;
+            return new LogicalProject<>(upperProjects, newAggregate);
         }
         // 3. Replace the agg output expression and delete the constant group by key in the output
-        List<NamedExpression> nonConstAggOutput = new ArrayList<>();
+        ImmutableList.Builder<NamedExpression> nonConstAggOutput = ImmutableList.builder();
         for (NamedExpression ne : normalizedAggOutput) {
             if (ne instanceof Alias) {
                 nonConstAggOutput.add(ExpressionUtils.replaceNameExpression(ne, slotToLiteral));
@@ -456,18 +453,21 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // and put into upperProjects for calculation
         Plan bottomPlan;
         if (!bottomProjects.isEmpty()) {
-            List<NamedExpression> newBottomProjects = bottomProjects.stream()
-                    .filter(expr -> !slotToLiteral.containsKey(expr.toSlot()))
-                    .collect(Collectors.toList());
-            bottomPlan = new LogicalProject<>(newBottomProjects, aggregate.child());
+            ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
+            for (NamedExpression bottomProject : bottomProjects) {
+                if (!slotToLiteral.containsKey(bottomProject.toSlot())) {
+                    builder.add(bottomProject);
+                }
+            }
+            bottomPlan = new LogicalProject<>(builder.build(), aggregate.child());
         } else {
             bottomPlan = aggregate.child();
         }
-        LogicalAggregate<Plan> newAggregate = aggregate.withNormalized(newNormalizedGroupExprs, nonConstAggOutput,
-                bottomPlan);
+        LogicalAggregate<Plan> newAggAfterEliminate = aggregate.withNormalized(newNormalizedGroupExprs,
+                nonConstAggOutput.build(), bottomPlan);
         // This upperProjects needs to add the constant key that was deleted in the group by key
         // and change the reference to the constant key to a constant expression
-        List<NamedExpression> newUpperProjects = new ArrayList<>();
+        ImmutableList.Builder<NamedExpression> newUpperProjects = ImmutableList.builder();
         for (NamedExpression upperProject : upperProjects) {
             if (upperProject instanceof Alias) {
                 newUpperProjects.add(ExpressionUtils.replaceNameExpression(upperProject, slotToLiteral));
@@ -482,6 +482,6 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             }
             newUpperProjects.add(upperProject);
         }
-        return new LogicalProject<>(newUpperProjects, newAggregate);
+        return new LogicalProject<>(newUpperProjects.build(), newAggAfterEliminate);
     }
 }
