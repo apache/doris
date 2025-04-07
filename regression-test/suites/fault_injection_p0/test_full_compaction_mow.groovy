@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_full_compaction","nonConcurrent") {
+suite("test_full_compaction_mow","nonConcurrent") {
     if (isCloudMode()) {
         return
     }
@@ -25,7 +25,7 @@ suite("test_full_compaction","nonConcurrent") {
         return
     }
 
-    def tableName = "test_full_compaction"
+    def tableName = "test_full_compaction_mow"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -69,15 +69,8 @@ suite("test_full_compaction","nonConcurrent") {
         def compactJson = parseJson(out.trim())
         assert "success" == compactJson.status.toLowerCase()
 
-        // def t1 = Thread.start {
-        //     Thread.sleep(6000)
-        //     GetDebugPoint().disableDebugPointForAllBEs("FullCompaction.modify_rowsets.before.block")
-        // }
-
         sql """ INSERT INTO ${tableName} VALUES (1,99),(2,99),(3,99);"""
         qt_sql "select * from ${tableName} order by k;"
-
-        // t1.join()
 
         GetDebugPoint().disableDebugPointForAllBEs("FullCompaction.modify_rowsets.before.block")
 
