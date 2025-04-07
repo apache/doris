@@ -299,7 +299,7 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                 .analyze(sql)
                 .rewrite()
                 .matches(logicalAggregate().when(agg ->
-                        agg.getGroupByExpressions().size() == 1 &&
-                                agg.getOutputExpressions().stream().anyMatch(e -> e.toString().contains("COUNT"))));
+                        agg.getGroupByExpressions().size() == 1
+                                && agg.getOutputExpressions().stream().anyMatch(e -> e.toString().contains("COUNT"))));
     }
 }
