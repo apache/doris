@@ -107,8 +107,8 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             return aggregate;
         }
         return aggregate.withGroupByAndOutput(
-                newGroupBy.orElse(ImmutableList.of()),
-                newOutputs.orElse(ImmutableList.of())
+                newGroupBy.orElse(newGroupBy.orElse(aggregate.getGroupByExpressions())),
+                newOutputs.orElse(newOutputs.orElse(aggregate.getOutputs()))
         );
     }
 
@@ -165,9 +165,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             return join;
         }
         return join.withJoinConjuncts(
-                hashConjuncts.orElse(ImmutableList.of()),
-                otherConjuncts.orElse(ImmutableList.of()),
-                markConjuncts.orElse(ImmutableList.of()),
+                hashConjuncts.orElse(join.getHashJoinConjuncts()),
+                otherConjuncts.orElse(join.getOtherJoinConjuncts()),
+                markConjuncts.orElse(join.getMarkJoinConjuncts()),
                 join.getJoinReorderContext()
         ).recomputeLogicalProperties();
     }
@@ -333,7 +333,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             return partitionTopN;
         }
         return partitionTopN.withPartitionKeysAndOrderKeys(
-                partitionKeys.orElse(ImmutableList.of()), orderKeys.orElse(ImmutableList.of())
+                partitionKeys.orElse(partitionTopN.getPartitionKeys()), orderKeys.orElse(partitionTopN.getOrderKeys())
         );
     }
 
