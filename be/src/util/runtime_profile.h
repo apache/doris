@@ -323,8 +323,8 @@ public:
         }
 
     private:
-        std::string _description;
-        std::string _name;
+        const std::string _description;
+        const std::string _name;
     };
 
     // Create a runtime profile object with 'name'.

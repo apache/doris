@@ -289,7 +289,7 @@ TEST_F(RuntimeProfileCounterTreeNodeTest, DescriptionCounter) {
     */
 
     auto rootCounter = std::make_unique<RuntimeProfile::Counter>(TUnit::UNIT);
-    auto descriptionEntry = std::make_unique<RuntimeProfile::DesctiptionEntry>(
+    auto descriptionEntry = std::make_unique<RuntimeProfile::DescriptionEntry>(
             "description_entry", "Updated description");
 
     counterMap["root"] = rootCounter.get();
