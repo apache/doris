@@ -1066,4 +1066,16 @@ ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
     return res;
 }
 
+void ColumnArray::remove_first_n_values(size_t count) {
+    if (count >= size()) {
+        count = size() - 1;
+    }
+    auto offset = get_offsets()[count];
+    data->remove_first_n_values(offset);
+    offsets->remove_first_n_values(count);
+    for (size_t i = 0; i < offsets->size(); ++i) {
+        get_offsets()[count] -= offset;
+    }
+}
+
 } // namespace doris::vectorized

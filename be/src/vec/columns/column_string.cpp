@@ -702,6 +702,25 @@ ColumnPtr ColumnStr<T>::convert_column_if_overflow() {
     return this->get_ptr();
 }
 
+template <typename T>
+void ColumnStr<T>::remove_first_n_values(size_t count) {
+    if (count == 0) {
+        return;
+    }
+    DCHECK_GE(offsets.size() - 1, count);
+    const size_t remain_size = offsets.size() - 1 - count;
+    const T chars_to_remove = offsets[count];
+    std::copy(offsets.begin() + count, offsets.end(), offsets.begin());
+    offsets.resize(remain_size + 1);
+
+    for (size_t i = 0; i <= remain_size; ++i) {
+        offsets[i] -= chars_to_remove;
+    }
+
+    std::copy(chars.begin() + chars_to_remove, chars.end(), chars.begin());
+    chars.resize(offsets.back());
+}
+
 template class ColumnStr<uint32_t>;
 template class ColumnStr<uint64_t>;
 } // namespace doris::vectorized
