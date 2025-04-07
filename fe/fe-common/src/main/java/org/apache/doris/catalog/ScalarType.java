@@ -1129,8 +1129,7 @@ public class ScalarType extends Type {
         }
 
         if (t1.isVariantType() && t2.isVariantType()) {
-            if (((VariantType) t1).getVariantMaxSubcolumnsCount()
-                        == ((VariantType) t2).getVariantMaxSubcolumnsCount()) {
+            if (t1.equals(t2)) {
                 return t1;
             } else {
                 return Type.UNSUPPORTED;

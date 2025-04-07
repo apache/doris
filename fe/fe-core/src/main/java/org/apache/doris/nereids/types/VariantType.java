@@ -104,7 +104,8 @@ public class VariantType extends PrimitiveType {
             return false;
         }
         VariantType other = (VariantType) o;
-        return this.variantMaxSubcolumnsCount == other.variantMaxSubcolumnsCount;
+        return this.variantMaxSubcolumnsCount == other.variantMaxSubcolumnsCount
+                    && Objects.equals(predefinedFields, other.predefinedFields);
     }
 
     @Override

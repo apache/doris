@@ -18,8 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TTypeDesc;
-import org.apache.doris.thrift.TTypeNode;
-import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -79,14 +77,10 @@ public class VariantType extends ScalarType {
 
     @Override
     public void toThrift(TTypeDesc container) {
-        // use ScalarType's toThrift for compatibility, because VariantType use ScalarType to thrift previously
-        if (predefinedFields.isEmpty()) {
-            super.toThrift(container);
-            return;
-        }
-        TTypeNode node = new TTypeNode();
-        container.types.add(node);
-        node.setType(TTypeNodeType.VARIANT);
+        super.toThrift(container);
+        // set the count
+        container.getTypes().get(container.getTypes().size() - 1)
+                .scalar_type.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
     }
 
     @Override
