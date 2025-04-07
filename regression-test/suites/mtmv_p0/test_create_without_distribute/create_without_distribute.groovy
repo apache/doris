@@ -128,7 +128,7 @@ suite("create_without_distribute") {
     sql """DROP MATERIALIZED VIEW IF EXISTS mv_1_1;"""
     sql """
     CREATE MATERIALIZED VIEW mv_1_1
-    BUILD DEFERRED
+    BUILD IMMEDIATE
     REFRESH COMPLETE
     ON MANUAL
     PROPERTIES ('replication_num' = '1')   
@@ -141,4 +141,8 @@ suite("create_without_distribute") {
     orders   
     LEFT JOIN lineitem ON l_orderkey = o_orderkey;
     """
+
+    waitingMTMVTaskFinishedByMvName("mv_1_1", db)
+
+    order_qt_query_1_after "select * from mv_1_1;"
 }
