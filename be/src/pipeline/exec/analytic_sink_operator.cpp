@@ -827,7 +827,7 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
     }
 
     const int64_t remove_rows = unused_rows_pos - _have_removed_rows;
-    auto left_rows = _input_total_rows - _have_removed_rows - remove_rows;
+    // auto left_rows = _input_total_rows - _have_removed_rows - remove_rows;
     {
         SCOPED_TIMER(_remove_rows_timer);
         for (size_t i = 0; i < _agg_functions_size; i++) {
