@@ -19,13 +19,13 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VariantType;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
