@@ -31,7 +31,6 @@ import org.apache.doris.event.EventListener;
 import org.apache.doris.event.TableEvent;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
-import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
@@ -212,13 +211,6 @@ public class MTMVService implements EventListener {
     private boolean canRefresh(MTMV mtmv, TableIf table) {
         if (mtmv.getExcludedTriggerTables().contains(table.getName())) {
             LOG.info("skip refresh mtmv: {}, because exclude trigger table: {}",
-                    mtmv.getName(), table.getName());
-            return false;
-        }
-        // replace/alter base table,not change MTMVRelation, only change MTMV to schema_change,
-        // Therefore, it may trigger incorrect materialized view refresh
-        if (mtmv.getStatus().getState().equals(MTMVState.SCHEMA_CHANGE)) {
-            LOG.info("skip refresh mtmv: {}, because state is SCHEMA_CHANGE, trigger table: {}",
                     mtmv.getName(), table.getName());
             return false;
         }
