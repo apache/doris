@@ -103,7 +103,7 @@ private:
         _rf_filter = std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
         _rf_input = std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
         _always_true_counter = std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
-        _wrapper_debug_string = debug_string();
+        _debug_string_cache = debug_string();
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);
     }
 
@@ -139,7 +139,7 @@ private:
                                   RuntimeFilterWrapper::State::READY});
             _check_state({State::NOT_READY, State::TIMEOUT});
         }
-        _wrapper_debug_string = debug_string();
+        _debug_string_cache = debug_string();
         _rf_state = rf_state;
     }
 
@@ -159,7 +159,7 @@ private:
     std::shared_ptr<RuntimeProfile::Counter> _rf_input = nullptr;
     std::shared_ptr<RuntimeProfile::Counter> _always_true_counter = nullptr;
     // protected by _mtx
-    std::string _wrapper_debug_string;
+    std::string _debug_string_cache;
 
     int32_t _rf_wait_time_ms;
     const int64_t _registration_time;
