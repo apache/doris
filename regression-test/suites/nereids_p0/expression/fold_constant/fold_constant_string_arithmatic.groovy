@@ -430,6 +430,13 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select lower(cast('AbC123' as string))")
     testFoldConst("select lower(cast('Hello World' as string))")
     testFoldConst("select lower('Hello World')")
+    testFoldConst("select lower('ÀÇ')")
+    testFoldConst("SELECT LOWER('İstanbul')")
+    testFoldConst("SELECT LOWER('KIZILAY')")
+    testFoldConst("SELECT LOWER('GROSSE')")
+    testFoldConst("SELECT LOWER('ǅ')")
+    testFoldConst("SELECT LOWER('Å')")
+    testFoldConst("SELECT LOWER('ΣΟΦΟΣ')")
 
     // lpad
     testFoldConst("select lpad(cast('hi' as string), 1, cast('xy' as string))")
@@ -1293,6 +1300,11 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select unhex(NULL)")
     testFoldConst("select upper(cast('Hello World' as string))")
     testFoldConst("select upper('Hello World')")
+    testFoldConst("select upper('àç')")
+    testFoldConst("SELECT UPPER('ﬃ')")
+    testFoldConst("SELECT UPPER('straße')")
+    testFoldConst("SELECT UPPER('ǅ')")
+    testFoldConst("SELECT UPPER('Ångström')")
 
     // url_decode url_encode
     testFoldConst("select url_decode(cast('http%3A%2F%2Fwww.apache.org%2Flicenses%2FLICENSE-2.0' as string))")
