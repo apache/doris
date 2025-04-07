@@ -20,6 +20,8 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -42,6 +44,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
@@ -214,5 +217,52 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
                 new EqualTo(studentGender, new IntegerLiteral(1))
         );
         return conjuncts.size() == 2 && conjuncts.contains(or);
+    }
+
+    @Test
+    public void testExtract5() {
+        Expression expr = new Or(
+                new And(
+                        new GreaterThan(courseCid, new IntegerLiteral(1)),
+                        new Or(
+                                new And(new LessThan(courseCid, new IntegerLiteral(10)),
+                                        new EqualTo(studentAge, new IntegerLiteral(6))),
+                                new And(new LessThan(courseCid, new IntegerLiteral(20)),
+                                        new EqualTo(studentAge, new IntegerLiteral(7)))
+                                )
+                ),
+                new And(
+                        new EqualTo(studentGender, new IntegerLiteral(1)),
+                        new EqualTo(courseName, new StringLiteral("abc"))
+                )
+        );
+        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null);
+        LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
+                .matchesFromRoot(
+                        logicalFilter()
+                                .when(filter -> verifySingleTableExpression5(filter.getConjuncts()))
+                );
+        Assertions.assertNotNull(studentGender);
+    }
+
+    private boolean verifySingleTableExpression5(Set<Expression> conjuncts) {
+        Expression or1 = new Or(
+                new And(new GreaterThan(courseCid, new IntegerLiteral(1)),
+                        new Or(
+                                new LessThan(courseCid, new IntegerLiteral(10)),
+                                new LessThan(courseCid, new IntegerLiteral(20))
+                        )
+                ),
+                new EqualTo(courseName, new StringLiteral("abc"))
+        );
+        Expression or2 = new Or(Arrays.asList(
+                new EqualTo(studentAge, new IntegerLiteral(6)),
+                new EqualTo(studentAge, new IntegerLiteral(7)),
+                new EqualTo(studentGender, new IntegerLiteral(1))
+        ));
+
+        return conjuncts.size() == 3 && conjuncts.contains(or1) && conjuncts.contains(or2);
     }
 }
