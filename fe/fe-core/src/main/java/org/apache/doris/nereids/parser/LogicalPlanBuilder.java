@@ -656,6 +656,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public CreateMTMVCommand visitCreateMTMV(CreateMTMVContext ctx) {
+        if (ctx.buildMode() == null && ctx.refreshMethod() == null && ctx.refreshTrigger() == null
+                && ctx.cols == null && ctx.keys == null
+                && ctx.HASH() == null && ctx.RANDOM() == null && ctx.BUCKETS() == null) {
+            throw new NotSupportedException("create sync mv by using visitCreateMTMV");
+        }
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
 
         BuildMode buildMode = visitBuildMode(ctx.buildMode());
