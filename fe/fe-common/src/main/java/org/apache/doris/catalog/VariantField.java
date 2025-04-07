@@ -102,7 +102,7 @@ public class VariantField {
 
     @Override
     public boolean equals(Object other) {
-        if (!(other instanceof StructField)) {
+        if (!(other instanceof VariantField)) {
             return false;
         }
         VariantField otherFiled = (VariantField) other;

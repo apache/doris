@@ -4089,7 +4089,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public VariantField visitVariantSubColType(VariantSubColTypeContext ctx) {
-        return new VariantField(ctx.qualifiedName().getText(), typedVisit(ctx.dataType()), ctx.commentSpec().getText());
+        String comment;
+        if (ctx.commentSpec() != null) {
+            comment = ctx.commentSpec().STRING_LITERAL().getText();
+            comment = LogicalPlanBuilderAssistant.escapeBackSlash(comment.substring(1, comment.length() - 1));
+        } else {
+            comment = "";
+        }
+        return new VariantField(ctx.qualifiedName().getText(), typedVisit(ctx.dataType()), comment);
     }
 
     @Override

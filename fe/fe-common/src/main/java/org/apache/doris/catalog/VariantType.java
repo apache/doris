@@ -31,6 +31,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Objects;
 
 public class VariantType extends ScalarType {
     private static final Logger LOG = LogManager.getLogger(VariantType.class);
@@ -104,8 +105,8 @@ public class VariantType extends ScalarType {
             return false;
         }
         VariantType otherVariantType = (VariantType) other;
-        return otherVariantType.getPredefinedFields().equals(predefinedFields)
-                    && variantMaxSubcolumnsCount == otherVariantType.variantMaxSubcolumnsCount;
+        return Objects.equals(otherVariantType.getPredefinedFields(), predefinedFields)
+                && variantMaxSubcolumnsCount == otherVariantType.variantMaxSubcolumnsCount;
     }
 
     @Override
