@@ -237,4 +237,27 @@ TEST_F(RuntimeFilterConsumerTest, bitmap_filter) {
             RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, 0, &consumer, &_profile));
 }
 
+TEST_F(RuntimeFilterConsumerTest, aquire_signal_at_same_time) {
+    for (int i = 0; i < 100; i++) {
+        std::shared_ptr<RuntimeFilterConsumer> consumer;
+        auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build();
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+                RuntimeFilterConsumer::create(RuntimeFilterParamsContext::create(_query_ctx.get()),
+                                              &desc, 0, &consumer, &_profile));
+
+        std::shared_ptr<RuntimeFilterProducer> producer;
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
+                RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, &producer, &_profile));
+        producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+
+        std::vector<vectorized::VRuntimeFilterPtr> push_exprs;
+        std::thread thread1(
+                [&]() { [[maybe_unused]] auto res = consumer->acquire_expr(push_exprs); });
+        std::thread thread2([&]() { consumer->signal(producer.get()); });
+        thread1.join();
+        thread2.join();
+
+        ASSERT_NE(consumer->_rf_state, RuntimeFilterConsumer::State::TIMEOUT);
+    }
+}
 } // namespace doris

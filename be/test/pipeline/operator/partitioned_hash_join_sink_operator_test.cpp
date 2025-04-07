@@ -119,7 +119,9 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, InitLocalState) {
 
     RuntimeProfile runtime_profile("test");
     TDataSink t_sink;
-    LocalSinkStateInfo info {.parent_profile = &runtime_profile,
+    LocalSinkStateInfo info {.task_idx = 0,
+                             .parent_profile = &runtime_profile,
+                             .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
                              .tsink = t_sink};
@@ -222,6 +224,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, SinkEosAndSpill) {
 
     LocalSinkStateInfo sink_info {.task_idx = 0,
                                   .parent_profile = _helper.runtime_profile.get(),
+                                  .sender_id = 0,
                                   .shared_state = shared_state.get(),
                                   .shared_state_map = {},
                                   .tsink = TDataSink()};
