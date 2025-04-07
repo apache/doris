@@ -439,6 +439,38 @@ class Syncer {
         allDone
     }
 
+    Boolean checkRestoreError(String dbName = null, String message = null) {
+        if (dbName == null) {
+            dbName = context.db
+        }
+        String checkSQL = "SHOW RESTORE FROM ${dbName}"
+        def records = suite.sql(checkSQL)
+        def haveError = false
+        def expectMessage = (message == null)
+        for (row in records) {
+            logger.info("Restore row is ${row}")
+            String state = row[4]
+            if (state != "FINISHED" && state != "CANCELLED") {
+                haveError = true
+            }
+            if (haveError && message != null && row[5].contains(message)) {
+                expectMessage = false
+            }
+        }
+        (haveError & expectMessage)
+    }
+
+    void waitRestoreError(String dbName = null, String message = null) {
+        int count = 0;
+        while (checkRestoreError(dbName, message)) {
+            if (++count >= 600) {  // 30min
+                logger.error('RESTORE task is timeouted')
+                throw new Exception("RESTORE task is timeouted after 30mins")
+            }
+            Thread.sleep(3000)
+        }
+    }
+
     void waitAllRestoreFinish(String dbName = null) {
         int count = 0;
         while (!checkAllRestoreFinish(dbName)) {
