@@ -99,7 +99,6 @@ private:
                                _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER;
         _rf_wait_time_ms = wait_infinitely ? _state->get_query_ctx()->execution_timeout() * 1000
                                            : _state->get_query_ctx()->runtime_filter_wait_time_ms();
-        _wait_timer = std::make_shared<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);
     }
 
@@ -142,9 +141,7 @@ private:
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 
-    std::unique_ptr<RuntimeProfile> _storage_profile;   // for storage layer stats
-    std::unique_ptr<RuntimeProfile> _execution_profile; // for execution layer stats
-    std::shared_ptr<RuntimeProfile::Counter> _wait_timer = nullptr;
+    std::shared_ptr<RuntimeProfile::Counter> _wait_timer = std::make_shared<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);
     //_rf_filter is used to record the number of rows filtered by the runtime filter.
     //It aggregates the filtering statistics from both the Storage and Execution.
     // Counter will be shared by RuntimeFilterConsumer & VRuntimeFilterWrapper
