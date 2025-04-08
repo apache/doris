@@ -35,6 +35,7 @@ import java.util.Map;
  *  The broker's StorageBackend.StorageType desc
  */
 public class StorageDesc extends ResourceDesc {
+    @Deprecated
     @SerializedName("st")
     protected StorageBackend.StorageType storageType;
 
@@ -49,6 +50,14 @@ public class StorageDesc extends ResourceDesc {
         this.storageType = storageType;
         this.properties = properties;
         this.storageProperties = StorageProperties.createStorageProperties(properties);
+    }
+
+    public StorageDesc(String name, Map<String, String> properties) {
+        this.name = name;
+        this.properties = properties;
+        this.storageProperties = StorageProperties.createStorageProperties(properties);
+        this.storageType = StorageBackend.StorageType.convertToStorageType(storageProperties.getStorageName());
+
     }
 
     public void setName(String name) {

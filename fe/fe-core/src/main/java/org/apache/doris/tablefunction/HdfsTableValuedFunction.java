@@ -55,6 +55,7 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
             throw new AnalysisException(String.format("Properties '%s' is required.", PROP_URI));
         }
         URI uri = URI.create(uriStr);
+        //fixme refactor in HDFSStorageProperties
         StorageBackend.checkUri(uri, StorageType.HDFS);
         filePath = uri.getScheme() + "://" + uri.getAuthority() + uri.getPath();
 

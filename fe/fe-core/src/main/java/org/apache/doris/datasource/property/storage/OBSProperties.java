@@ -20,7 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
-import org.apache.hadoop.conf.Configuration;
+import lombok.Setter;
 
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -28,7 +28,9 @@ import java.util.regex.Pattern;
 
 public class OBSProperties extends AbstractObjectStorageProperties {
 
-    @ConnectorProperty(names = {"obs.endpoint", "s3.endpoint"}, required = false, description = "The endpoint of OBS.")
+    @Setter
+    @ConnectorProperty(names = {"obs.endpoint", "endpoint", "s3.endpoint"}, required = false,
+            description = "The endpoint of OBS.")
     protected String obsEndpoint = "obs.cn-east-3.myhuaweicloud.com";
 
     @ConnectorProperty(names = {"obs.access_key"}, description = "The access key of OBS.")
@@ -38,7 +40,8 @@ public class OBSProperties extends AbstractObjectStorageProperties {
     protected String obsSecretKey = "";
 
 
-    @ConnectorProperty(names = {"obs.region", "s3.region"}, required = false, description = "The region of OBS.")
+    @ConnectorProperty(names = {"obs.region", "region", "s3.region"}, required = false,
+            description = "The region of OBS.")
     protected String region;
 
     public OBSProperties(Map<String, String> origProps) {
@@ -48,17 +51,6 @@ public class OBSProperties extends AbstractObjectStorageProperties {
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
         return origProps.containsKey("obs.access_key");
-    }
-
-
-    @Override
-    public Configuration getHadoopConfiguration() {
-        Configuration conf = new Configuration(false);
-        conf.set("fs.obs.endpoint", obsEndpoint);
-        conf.set("fs.obs.access.key", obsAccessKey);
-        conf.set("fs.obs.secret.key", obsSecretKey);
-        conf.set("fs.obs.impl", "org.apache.hadoop.fs.obs.OBSFileSystem");
-        return conf;
     }
 
     @Override
@@ -87,5 +79,10 @@ public class OBSProperties extends AbstractObjectStorageProperties {
 
     public String getSecretKey() {
         return obsSecretKey;
+    }
+
+    @Override
+    public void setEndpoint(String endpoint) {
+        this.obsEndpoint = endpoint;
     }
 }

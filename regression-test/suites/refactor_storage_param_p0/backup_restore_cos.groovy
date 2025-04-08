@@ -184,22 +184,16 @@ suite("refactor_storage_backup_restore_cos") {
         def dbName6 = currentDBName + "${objPrefix}_6"
         createDBAndTbl("${dbName6}")
         backupAndRestore("${s3repoName6}", dbName6, s3table, "backup_${s3repoName6}_test")
+        def s3repoName7 = "${objPrefix}_s3_repo_7"
+        createRepository("${s3repoName7}", "s3.endpoint", s3_endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "", "https://${bucket}/test_" + System.currentTimeMillis())
+        def dbName7 = currentDBName + "${objPrefix}_7"
+      
+        createDBAndTbl("${dbName7}")
+        backupAndRestore("${s3repoName7}", dbName7, s3table, "backup_${s3repoName7}_test")
         def failedRepoName = "s3_repo_failed"
         // wrong address
         shouldFail {
             createRepository("${failedRepoName}", "s3.endpoint", s3_endpoint, "s3.region", region, "AWS_ACCESS_KEY", ak, "AWS_SECRET_KEY", sk, "true", "s3://ck/" + System.currentTimeMillis())
-        }
-
-        shouldFail {
-            createRepository("${failedRepoName}", "s3.endpoint", s3_endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "", "https://${bucket}/test_" + System.currentTimeMillis())
-        }
-        // http://${bucket}/test_"+System.currentTimeMillis()
-        shouldFail {
-            createRepository("${failedRepoName}", "s3.endpoint", s3_endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "", "http://${bucket}/test_" + System.currentTimeMillis())
-        }
-        // https://${bucket}/test_"+System.currentTimeMillis()
-        shouldFail {
-            createRepository("${failedRepoName}", "s3.endpoint", s3_endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "", "https://${bucket}/test_" + System.currentTimeMillis())
         }
         //endpoint is empty
         shouldFail {
@@ -210,14 +204,14 @@ suite("refactor_storage_backup_restore_cos") {
             createRepository("${failedRepoName}", "s3.endpoint", "", "s3.region", "", "s3.access_key", ak, "s3.secret_key", sk, "", "s3://${bucket}/test_" + System.currentTimeMillis())
         }
     }
+    /*-------------AWS S3--------------------------------*/
     String  ak = context.config.otherConfigs.get("AWSAK")
     String sk = context.config.otherConfigs.get("AWSSK")
     String s3_endpoint = "s3.ap-northeast-1.amazonaws.com"
     String region = "ap-northeast-1"
     String bucket = "selectdb-qa-datalake-test"
     String objPrefix="s3"
-    /*-------------AWS S3--------------------------------*/
-    //test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
+    test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
     /*-----------------Tencent COS----------------*/
     ak = context.config.otherConfigs.get("txYunAk")
     sk = context.config.otherConfigs.get("txYunSk")
@@ -227,6 +221,24 @@ suite("refactor_storage_backup_restore_cos") {
     
     objPrefix="cos"
     test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
+    /*  cos_url  */
+    def cos_repoName1 = "${objPrefix}_repo_cos_prefix_1"
+    // url is : cos://bucket/prefix/
+    createRepository("${cos_repoName1}", "cos.endpoint", s3_endpoint, "cos.region", region, "cos.access_key", ak, "cos.secret_key", sk, "true", "cos://${bucket}/test_" + System.currentTimeMillis())
+
+    def cosDbName1 = currentDBName + "${objPrefix}_cos_1"
+    createDBAndTbl("${cosDbName1}")
+    backupAndRestore("${cos_repoName1}", cosDbName1, s3table, "backup_${cos_repoName1}_test")
+    def cos_repoName2 = "${objPrefix}_repo_cos_prefix_2"
+    // url is : cos://bucket/prefix/
+    createRepository("${cos_repoName2}", "cos.endpoint", s3_endpoint, "cos.region", region, "cos.access_key", ak, "cos.secret_key", sk, "false", "https://${bucket}.${s3_endpoint}/test_" + System.currentTimeMillis())
+
+    def cosDbName2 = currentDBName + "${objPrefix}_cos_2"
+    createDBAndTbl("${cosDbName2}")
+    backupAndRestore("${cos_repoName2}", cosDbName2, s3table, "backup_${cos_repoName1}_test")
+    
+
+
     /*-----------------Huawei OBS----------------*/
     ak = context.config.otherConfigs.get("hwYunAk")
     sk = context.config.otherConfigs.get("hwYunSk")
@@ -235,6 +247,22 @@ suite("refactor_storage_backup_restore_cos") {
     bucket = "doris-build";
     objPrefix="obs"
     test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
+    def obs_repoName1 = "${objPrefix}_repo_obs_prefix_1"
+    // url is : cos://bucket/prefix/
+    createRepository("${obs_repoName1}", "obs.endpoint", s3_endpoint, "obs.region", region, "obs.access_key", ak, "obs.secret_key", sk, "true", "obs://${bucket}/test_" + System.currentTimeMillis())
+
+    def obsDbName1 = currentDBName + "${objPrefix}_obs_1"
+    createDBAndTbl("${obsDbName1}")
+    backupAndRestore("${obs_repoName1}", obsDbName1, s3table, "backup_${obs_repoName1}_test")
+    def obs_repoName2 = "${objPrefix}_repo_obs_prefix_2"
+    // url is : cos://bucket/prefix/
+    createRepository("${obs_repoName2}", "obs.endpoint", s3_endpoint, "obs.region", region, "obs.access_key", ak, "obs.secret_key", sk, "false", "https://${bucket}.${s3_endpoint}/test_" + System.currentTimeMillis())
+
+    def obsDbName2 = currentDBName + "${objPrefix}_obs_2"
+    createDBAndTbl("${obsDbName2}")
+    backupAndRestore("${obs_repoName2}", obsDbName2, s3table, "backup_${obs_repoName1}_test")
+
+
     /*-----------------Aliyun OSS----------------*/
     ak = context.config.otherConfigs.get("aliYunAk")
     sk = context.config.otherConfigs.get("aliYunSk")
@@ -244,4 +272,20 @@ suite("refactor_storage_backup_restore_cos") {
     objPrefix="oss"
     // oss has some problem, so we comment it.
     //test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
+    def oss_repoName1 = "${objPrefix}_repo_oss_prefix_1"
+    // url is : cos://bucket/prefix/
+    createRepository("${oss_repoName1}", "oss.endpoint", s3_endpoint, "oss.region", region, "oss.access_key", ak, "oss.secret_key", sk, "false", "oss://${bucket}/test_" + System.currentTimeMillis())
+
+    def ossDbName1 = currentDBName + "${objPrefix}_oss_1"
+    createDBAndTbl("${ossDbName1}")
+    backupAndRestore("${oss_repoName1}", ossDbName1, s3table, "backup_${oss_repoName1}_test")
+    def oss_repoName2 = "${objPrefix}_repo_oss_prefix_2"
+    // url is : cos://bucket/prefix/
+    createRepository("${oss_repoName2}", "oss.endpoint", s3_endpoint, "oss.region", region, "oss.access_key", ak, "oss.secret_key", sk, "false", "https://${bucket}.${s3_endpoint}/test_" + System.currentTimeMillis())
+
+    def ossDbName2 = currentDBName + "${objPrefix}_oss_2"
+    createDBAndTbl("${ossDbName2}")
+    backupAndRestore("${oss_repoName2}", ossDbName2, s3table, "backup_${oss_repoName1}_test")
+
+
 }

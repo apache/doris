@@ -41,7 +41,7 @@ public class StorageBackend implements ParseNode {
         if (Strings.isNullOrEmpty(path)) {
             throw new AnalysisException(exceptionMsg == null ? "No destination path specified." : exceptionMsg);
         }
-        checkUri(URI.create(path), type);
+        //checkUri(URI.create(path), type);
     }
 
     public static void checkUri(URI uri, StorageBackend.StorageType type) throws AnalysisException {
@@ -82,6 +82,7 @@ public class StorageBackend implements ParseNode {
         }
     }
 
+    // todo only bos used
     public StorageBackend(String storageName, String location,
             StorageType storageType, Map<String, String> properties) {
         this.storageDesc = new StorageDesc(storageName, storageType, properties);
@@ -183,6 +184,21 @@ public class StorageBackend implements ParseNode {
                     return TStorageBackendType.AZURE;
                 default:
                     return TStorageBackendType.BROKER;
+            }
+        }
+
+        public static StorageType convertToStorageType(String storageName) {
+            switch (storageName.toLowerCase()) {
+                case "hdfs":
+                    return StorageType.HDFS;
+                case "s3":
+                    return StorageType.S3;
+                case "jfs":
+                    return StorageType.JFS;
+                case "local":
+                    return StorageType.LOCAL;
+                default:
+                    throw new IllegalArgumentException("Invalid storage type: " + storageName);
             }
         }
     }

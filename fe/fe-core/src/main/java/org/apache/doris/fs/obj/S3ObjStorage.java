@@ -114,6 +114,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
+            remotePath = s3Properties.convertUrlToFilePath(remotePath);
             URI uri = new URI(remotePath);
             String bucketName = uri.getHost();
             String prefix = uri.getPath().substring(1);
@@ -162,6 +163,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public Status headObject(String remotePath) {
         try {
+            remotePath = s3Properties.convertUrlToFilePath(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             HeadObjectResponse response = getClient()
                     .headObject(HeadObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
@@ -183,6 +185,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public Status getObject(String remoteFilePath, File localFile) {
         try {
+            remoteFilePath = s3Properties.convertUrlToFilePath(remoteFilePath);
             S3URI uri = S3URI.create(remoteFilePath, isUsePathStyle, forceParsingByStandardUri);
             GetObjectResponse response = getClient().getObject(
                     GetObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(), localFile.toPath());
@@ -203,6 +206,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public Status putObject(String remotePath, @Nullable InputStream content, long contentLength) {
         try {
+            remotePath = s3Properties.convertUrlToFilePath(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             RequestBody body = RequestBody.fromInputStream(content, contentLength);
             PutObjectResponse response =
@@ -224,6 +228,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public Status deleteObject(String remotePath) {
         try {
+            remotePath = s3Properties.convertUrlToFilePath(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             DeleteObjectResponse response =
                     getClient()
@@ -246,6 +251,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public Status deleteObjects(String absolutePath) {
         try {
+            absolutePath = s3Properties.convertUrlToFilePath(absolutePath);
             S3URI baseUri = S3URI.create(absolutePath, isUsePathStyle, forceParsingByStandardUri);
             String continuationToken = "";
             boolean isTruncated = false;
@@ -291,6 +297,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public Status copyObject(String origFilePath, String destFilePath) {
         try {
+            origFilePath = s3Properties.convertUrlToFilePath(origFilePath);
+            destFilePath = s3Properties.convertUrlToFilePath(destFilePath);
             S3URI origUri = S3URI.create(origFilePath, isUsePathStyle, forceParsingByStandardUri);
             S3URI descUri = S3URI.create(destFilePath, isUsePathStyle, forceParsingByStandardUri);
             CopyObjectResponse response = getClient()
@@ -314,6 +322,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     @Override
     public RemoteObjects listObjects(String absolutePath, String continuationToken) throws DdlException {
         try {
+            absolutePath = s3Properties.convertUrlToFilePath(absolutePath);
             S3URI uri = S3URI.create(absolutePath, isUsePathStyle, forceParsingByStandardUri);
             String bucket = uri.getBucket();
             String prefix = uri.getKey();

@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.hadoop.conf.Configuration;
-
 import java.util.Map;
 
 /**
@@ -27,16 +25,6 @@ import java.util.Map;
  * configurations for different protocols, such as Hadoop HDFS and AWS S3.
  */
 public interface ObjectStorageProperties {
-
-    /**
-     * Converts the object storage properties to a configuration map compatible with the
-     * Hadoop HDFS protocol. This method allows the object storage to be used in a Hadoop-based
-     * environment by providing the necessary configuration details in the form of key-value pairs.
-     *
-     * @param config a map to populate with the HDFS-compatible configuration parameters.
-     *               These parameters will be used by Hadoop clients to connect to the object storage system.
-     */
-    Configuration getHadoopConfiguration();
 
     /**
      * Converts the object storage properties to a configuration map compatible with the
@@ -56,4 +44,7 @@ public interface ObjectStorageProperties {
     String getAccessKey();
 
     String getSecretKey();
+
+    void setEndpoint(String endpoint);
+
 }

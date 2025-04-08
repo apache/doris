@@ -44,7 +44,6 @@ public abstract class ConnectionProperties {
         Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         // 2. overwrite result properties with original properties
         allProps.putAll(origProps);
-        Map<String, String> matchParams = new HashMap<>();
         // 3. set fields from resultProps
         List<Field> supportedProps = PropertyUtils.getConnectorProperties(this.getClass());
         for (Field field : supportedProps) {
@@ -55,7 +54,6 @@ public abstract class ConnectionProperties {
                 if (allProps.containsKey(name)) {
                     try {
                         field.set(this, allProps.get(name));
-                        matchParams.put(name, allProps.get(name));
                     } catch (IllegalAccessException e) {
                         throw new RuntimeException("Failed to set property " + name + ", " + e.getMessage(), e);
                     }
@@ -65,13 +63,15 @@ public abstract class ConnectionProperties {
         }
         // 3. check properties
         checkRequiredProperties();
-        setOrigProps(matchParams);
     }
 
     // Some properties may be loaded from file
     // Subclass can override this method to load properties from file.
     // The return value is the properties loaded from file, not include original properties
     protected Map<String, String> loadConfigFromFile(String resourceConfig) {
+        if (Strings.isNullOrEmpty(resourceConfig)) {
+            return new HashMap<>();
+        }
         if (Strings.isNullOrEmpty(origProps.get(resourceConfig))) {
             return Maps.newHashMap();
         }

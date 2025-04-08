@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
@@ -157,5 +159,20 @@ public class HDFSProperties extends StorageProperties {
         }
 
         return backendConfigProperties;
+    }
+
+    @Override
+    public String convertUrlToFilePath(String url) throws UserException {
+        throw new NotImplementedException("Support HDFS is not implemented");
+    }
+
+    @Override
+    public String checkLoadPropsAndReturnUri(Map<String, String> loadProps) throws UserException {
+        throw new NotImplementedException("Support HDFS is not implemented");
+    }
+
+    @Override
+    public String getStorageName() {
+        return "HDFS";
     }
 }

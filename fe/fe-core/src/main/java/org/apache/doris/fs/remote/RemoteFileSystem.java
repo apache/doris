@@ -139,4 +139,8 @@ public abstract class RemoteFileSystem extends PersistentFileSystem implements C
             fsLock.unlock();
         }
     }
+
+    public  boolean connectivityTest() throws UserException {
+        return true;
+    }
 }

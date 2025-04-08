@@ -18,23 +18,13 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.S3URI;
-import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.datasource.property.constants.AzureProperties;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.thrift.TFileType;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSet;
-import org.apache.commons.lang3.StringUtils;
-
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -52,103 +42,23 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public static final String NAME = "s3";
     public static final String PROP_URI = "uri";
 
-    private static final ImmutableSet<String> DEPRECATED_KEYS =
-            ImmutableSet.of("access_key", "secret_key", "session_token", "region",
-                    "ACCESS_KEY", "SECRET_KEY", "SESSION_TOKEN", "REGION");
-
     public S3TableValuedFunction(Map<String, String> properties) throws AnalysisException {
         // 1. analyze common properties
-        Map<String, String> otherProps = super.parseCommonProperties(properties);
-
-        // 2. analyze uri and other properties
-        String uriStr = getOrDefaultAndRemove(otherProps, PROP_URI, null);
-        if (Strings.isNullOrEmpty(uriStr)) {
-            throw new AnalysisException(String.format("Properties '%s' is required.", PROP_URI));
-        }
-        forwardCompatibleDeprecatedKeys(otherProps);
-
-        String usePathStyle = getOrDefaultAndRemove(otherProps, PropertyConverter.USE_PATH_STYLE,
-                PropertyConverter.USE_PATH_STYLE_DEFAULT_VALUE);
-        String forceParsingByStandardUri = getOrDefaultAndRemove(otherProps,
-                PropertyConverter.FORCE_PARSING_BY_STANDARD_URI,
-                PropertyConverter.FORCE_PARSING_BY_STANDARD_URI_DEFAULT_VALUE);
-
-        S3URI s3uri = getS3Uri(uriStr, Boolean.parseBoolean(usePathStyle.toLowerCase()),
-                Boolean.parseBoolean(forceParsingByStandardUri.toLowerCase()));
-        String endpoint = constructEndpoint(otherProps, s3uri);
-        if (StringUtils.isNotBlank(endpoint)) {
-            otherProps.putIfAbsent(S3Properties.ENDPOINT, endpoint);
-        }
-        if (!otherProps.containsKey(S3Properties.REGION)) {
-            String region;
-            if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
-                // Azure could run without region
-                region = s3uri.getRegion().orElse("DUMMY-REGION");
-            } else {
-                region = s3uri.getRegion().orElse(null);
-            }
-            if (StringUtils.isNotBlank(region)) {
-                otherProps.put(S3Properties.REGION, region);
-            }
-        }
-        // get endpoint first from properties, if not present, get it from s3 uri.
-        // If endpoint is missing, exception will be thrown.
-        locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
-        if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
-            //todo waiting support for Azure
-            // For Azure's compatibility, we need bucket to connect to the blob storage's container
-            locationProperties.put(S3Properties.BUCKET, s3uri.getBucket());
-        }
-        Map<String, String> p = new HashMap<>(properties);
-        p.putAll(otherProps);
-        this.storageProperties = StorageProperties.createStorageProperties(p);
+        Map<String, String> props = super.parseCommonProperties(properties);
+        //todo  rename locationProperties
+        this.storageProperties = StorageProperties.createStorageProperties(props);
         locationProperties.putAll(storageProperties.getBackendConfigProperties());
-        locationProperties.putAll(otherProps);
-
-        filePath = NAME + S3URI.SCHEME_DELIM + s3uri.getBucket() + S3URI.PATH_DELIM + s3uri.getKey();
-
+        try {
+            String uri = storageProperties.checkLoadPropsAndReturnUri(props);
+            filePath = storageProperties.convertUrlToFilePath(uri);
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
         if (FeConstants.runningUnitTest) {
             // Just check
             FileSystemFactory.get(storageProperties);
         } else {
             parseFile();
-        }
-    }
-
-    private String constructEndpoint(Map<String, String> properties, S3URI s3uri) throws AnalysisException {
-        String endpoint;
-        if (!AzureProperties.checkAzureProviderPropertyExist(properties)) {
-            // get endpoint first from properties, if not present, get it from s3 uri.
-            // If endpoint is missing, exception will be thrown.
-            endpoint = getOrDefaultAndRemove(properties, S3Properties.ENDPOINT, s3uri.getEndpoint().orElse(""));
-            /*if (Strings.isNullOrEmpty(endpoint)) {
-                throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ENDPOINT));
-            }*/
-        } else {
-            String bucket = s3uri.getBucket();
-            String accountName = properties.getOrDefault(S3Properties.ACCESS_KEY, "");
-            if (accountName.isEmpty()) {
-                throw new AnalysisException(String.format("Properties '%s' is required.", S3Properties.ACCESS_KEY));
-            }
-            endpoint = String.format(AzureProperties.AZURE_ENDPOINT_TEMPLATE, accountName, bucket);
-        }
-        return endpoint;
-    }
-
-    private void forwardCompatibleDeprecatedKeys(Map<String, String> props) {
-        for (String deprecatedKey : DEPRECATED_KEYS) {
-            String value = props.remove(deprecatedKey);
-            if (!Strings.isNullOrEmpty(value)) {
-                props.put("s3." + deprecatedKey.toLowerCase(), value);
-            }
-        }
-    }
-
-    private S3URI getS3Uri(String uri, boolean isPathStyle, boolean forceParsingStandardUri) throws AnalysisException {
-        try {
-            return S3URI.create(uri, isPathStyle, forceParsingStandardUri);
-        } catch (UserException e) {
-            throw new AnalysisException("parse s3 uri failed, uri = " + uri, e);
         }
     }
 
@@ -166,7 +76,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("S3TvfBroker", StorageType.S3, locationProperties);
+        return new BrokerDesc("S3TvfBroker", locationProperties, storageProperties);
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================

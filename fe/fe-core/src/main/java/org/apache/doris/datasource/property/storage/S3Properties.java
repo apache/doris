@@ -22,7 +22,6 @@ import org.apache.doris.datasource.property.metastore.AWSGlueProperties;
 import org.apache.doris.datasource.property.metastore.AliyunDLFProperties;
 
 import com.google.common.collect.Lists;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.paimon.options.Options;
 
 import java.lang.reflect.Field;
@@ -32,19 +31,22 @@ import java.util.Map;
 
 public class S3Properties extends AbstractObjectStorageProperties {
 
-    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT"},
+
+    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "access_key"},
+            required = false,
             description = "The endpoint of S3.")
     protected String s3Endpoint = "";
 
-    @ConnectorProperty(names = {"s3.region", "AWS_REGION"},
+    @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "region"},
+            required = false,
             description = "The region of S3.")
     protected String s3Region = "us-east-1";
 
-    @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY"},
+    @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
             description = "The access key of S3.")
     protected String s3AccessKey = "";
 
-    @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY"},
+    @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key"},
             description = "The secret key of S3.")
     protected String s3SecretKey = "";
 
@@ -95,6 +97,7 @@ public class S3Properties extends AbstractObjectStorageProperties {
         super(Type.S3, origProps);
     }
 
+
     /**
      * Guess if the storage properties is for this storage type.
      * Subclass should override this method to provide the correct implementation.
@@ -102,9 +105,6 @@ public class S3Properties extends AbstractObjectStorageProperties {
      * @return
      */
     public static boolean guessIsMe(Map<String, String> origProps) {
-        if (origProps.containsKey("s3.access_key") || origProps.containsKey("AWS_ACCESS_KEY")) {
-            return true;
-        }
         List<Field> fields = getIdentifyFields();
         return StorageProperties.checkIdentifierKey(origProps, fields);
     }
@@ -145,20 +145,6 @@ public class S3Properties extends AbstractObjectStorageProperties {
     }
 
     @Override
-    public Configuration getHadoopConfiguration() {
-        Configuration conf = new Configuration(false);
-        conf.set("fs.s3a.access.key", s3AccessKey);
-        conf.set("fs.s3a.secret.key", s3SecretKey);
-        conf.set("fs.s3a.endpoint", s3Endpoint);
-        conf.set("fs.s3a.region", s3Region);
-        conf.set("fs.s3a.connection.maximum", String.valueOf(s3ConnectionMaximum));
-        conf.set("fs.s3a.connection.timeout", String.valueOf(s3ConnectionRequestTimeoutS));
-        conf.set("fs.s3a.request.timeout", String.valueOf(s3ConnectionTimeoutS));
-        conf.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        return conf;
-    }
-
-    @Override
     public void toNativeS3Configuration(Map<String, String> config) {
         Map<String, String> awsS3Properties = generateAWSS3Properties(s3Endpoint, s3Region, s3AccessKey, s3SecretKey,
                 s3ConnectionMaximum, s3ConnectionRequestTimeoutS, s3ConnectionTimeoutS, String.valueOf(usePathStyle));
@@ -190,5 +176,10 @@ public class S3Properties extends AbstractObjectStorageProperties {
     @Override
     public String getSecretKey() {
         return s3SecretKey;
+    }
+
+    @Override
+    public void setEndpoint(String endpoint) {
+        this.s3Endpoint = endpoint;
     }
 }

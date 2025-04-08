@@ -20,15 +20,18 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
-import org.apache.hadoop.conf.Configuration;
+import lombok.Setter;
 
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class OSSProperties extends AbstractObjectStorageProperties {
-    @ConnectorProperty(names = {"oss.endpoint", "s3.endpoint"}, required = false, description = "The endpoint of OSS.")
-    protected String endpoint = "oss-cn-hangzhou.aliyuncs.com";
+
+    @Setter
+    @ConnectorProperty(names = {"oss.endpoint", "endpoint", "s3.endpoint"}, required = false,
+            description = "The endpoint of OSS.")
+    protected String endpoint = "";
 
     @ConnectorProperty(names = {"oss.access_key"}, description = "The access key of OSS.")
     protected String accessKey = "";
@@ -36,7 +39,8 @@ public class OSSProperties extends AbstractObjectStorageProperties {
     @ConnectorProperty(names = {"oss.secret_key"}, description = "The secret key of OSS.")
     protected String secretKey = "";
 
-    @ConnectorProperty(names = {"oss.region", "s3.region"}, required = false, description = "The region of OSS.")
+    @ConnectorProperty(names = {"oss.region", "region", "s3.region"}, required = false,
+            description = "The region of OSS.")
     protected String region;
 
 
@@ -46,17 +50,6 @@ public class OSSProperties extends AbstractObjectStorageProperties {
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
         return origProps.containsKey("oss.access_key");
-    }
-
-    @Override
-    public Configuration getHadoopConfiguration() {
-        Configuration conf = new Configuration(false);
-        conf.set("fs.oss.endpoint", endpoint);
-        conf.set("fs.oss.region", getRegion());
-        conf.set("fs.oss.accessKeyId", accessKey);
-        conf.set("fs.oss.accessKeySecret", secretKey);
-        conf.set("fs.oss.impl", "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem");
-        return conf;
     }
 
     @Override
