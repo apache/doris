@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/data.pb.h>
+
 #include <memory>
 
 #include "common/factory_creator.h"
@@ -26,7 +28,6 @@
 #include "runtime/workload_management/io_context.h"
 #include "runtime/workload_management/memory_context.h"
 #include "runtime/workload_management/task_controller.h"
-#include "runtime/workload_management/workload_group_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -44,49 +45,57 @@ public:
         cpu_context_ = CPUContext::create_unique();
         memory_context_ = MemoryContext::create_unique();
         io_context_ = IOContext::create_unique();
-        workload_group_context_ = WorkloadGroupContext::create_unique();
         task_controller_ = TaskController::create_unique();
+
+        cpu_context_->set_resource_ctx(this);
+        memory_context_->set_resource_ctx(this);
+        io_context_->set_resource_ctx(this);
     }
     ~ResourceContext() = default;
 
     // Only return the raw pointer to the caller, so that the caller should not save it to other variables.
-    CPUContext* cpu_context() { return cpu_context_.get(); }
-    MemoryContext* memory_context() { return memory_context_.get(); }
-    IOContext* io_context() { return io_context_.get(); }
-    WorkloadGroupContext* workload_group_context() { return workload_group_context_.get(); }
-    TaskController* task_controller() { return task_controller_.get(); }
+    CPUContext* cpu_context() const { return cpu_context_.get(); }
+    MemoryContext* memory_context() const { return memory_context_.get(); }
+    IOContext* io_context() const { return io_context_.get(); }
+    TaskController* task_controller() const { return task_controller_.get(); }
+    WorkloadGroupPtr workload_group() const { return _workload_group; }
 
     void set_cpu_context(std::unique_ptr<CPUContext> cpu_context) {
         cpu_context_ = std::move(cpu_context);
+        cpu_context_->set_resource_ctx(this);
     }
     void set_memory_context(std::unique_ptr<MemoryContext> memory_context) {
         memory_context_ = std::move(memory_context);
+        memory_context_->set_resource_ctx(this);
     }
     void set_io_context(std::unique_ptr<IOContext> io_context) {
         io_context_ = std::move(io_context);
-    }
-    void set_workload_group_context(std::unique_ptr<WorkloadGroupContext> wg_context) {
-        workload_group_context_ = std::move(wg_context);
+        io_context_->set_resource_ctx(this);
     }
     void set_task_controller(std::unique_ptr<TaskController> task_controller) {
         task_controller_ = std::move(task_controller);
     }
+    void set_workload_group(WorkloadGroupPtr wg) { _workload_group = wg; }
 
     RuntimeProfile* profile() { return const_cast<RuntimeProfile*>(resource_profile_.get().get()); }
+
+    void to_pb_query_statistics(PQueryStatistics* statistics) const;
+    void to_thrift_query_statistics(TQueryStatistics* statistics) const;
+
     std::string debug_string() { return resource_profile_.get()->pretty_print(); }
     void refresh_resource_profile() {
         std::unique_ptr<RuntimeProfile> resource_profile =
                 std::make_unique<RuntimeProfile>("ResourceContext");
 
-        RuntimeProfile* cpu_profile = resource_profile->create_child(
-                cpu_context_->stats()->profile()->name(), true, false);
-        cpu_profile->merge(cpu_context_->stats()->profile());
+        RuntimeProfile* cpu_profile =
+                resource_profile->create_child(cpu_context_->stats_profile()->name(), true, false);
+        cpu_profile->merge(cpu_context_->stats_profile());
         RuntimeProfile* memory_profile = resource_profile->create_child(
-                memory_context_->stats()->profile()->name(), true, false);
-        memory_profile->merge(memory_context_->stats()->profile());
-        RuntimeProfile* io_profile = resource_profile->create_child(
-                io_context_->stats()->profile()->name(), true, false);
-        io_profile->merge(io_context_->stats()->profile());
+                memory_context_->stats_profile()->name(), true, false);
+        memory_profile->merge(memory_context_->stats_profile());
+        RuntimeProfile* io_profile =
+                resource_profile->create_child(io_context_->stats_profile()->name(), true, false);
+        io_profile->merge(io_context_->stats_profile());
 
         resource_profile_.set(std::move(resource_profile));
     }
@@ -96,9 +105,9 @@ private:
     std::unique_ptr<CPUContext> cpu_context_ = nullptr;
     std::unique_ptr<MemoryContext> memory_context_ = nullptr;
     std::unique_ptr<IOContext> io_context_ = nullptr;
-    std::unique_ptr<WorkloadGroupContext> workload_group_context_ = nullptr;
     std::unique_ptr<TaskController> task_controller_ = nullptr;
 
+    WorkloadGroupPtr _workload_group = nullptr;
     MultiVersion<RuntimeProfile> resource_profile_;
 };
 

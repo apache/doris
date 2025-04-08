@@ -145,6 +145,61 @@ TEST_F(InvertedIndexFileWriterTest, OpenTest) {
     ASSERT_TRUE(writer._indices_dirs.find(key)->second.get() == dir.get());
 }
 
+TEST_F(InvertedIndexFileWriterTest, OpenWithoutRamDirTest) {
+    // This test verifies that when _can_use_ram_dir is set to false,
+    // the directory created by InvertedIndexFileWriter::open is not a RAM directory
+    config::inverted_index_ram_dir_enable_when_base_compaction = false;
+    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                   InvertedIndexStorageFormatPB::V2, nullptr, false);
+
+    int64_t index_id = 1;
+    std::string index_suffix = "suffix_no_ram";
+    auto index_meta = create_mock_tablet_index(index_id, index_suffix);
+    ASSERT_NE(index_meta, nullptr);
+
+    // Open the directory with _can_use_ram_dir = false
+    auto open_result = writer.open(index_meta.get());
+    ASSERT_TRUE(open_result.has_value());
+    auto dir = open_result.value();
+    ASSERT_NE(dir, nullptr);
+
+    // Verify the directory is a regular DorisFSDirectory and not a DorisRAMFSDirectory
+    // This confirms that _can_use_ram_dir = false works as expected
+    ASSERT_STREQ(dir->getObjectName(), "DorisFSDirectory");
+    ASSERT_STRNE(dir->getObjectName(), "DorisRAMFSDirectory");
+
+    // Also check that the directory is properly inserted into the _indices_dirs map
+    auto key = std::make_pair(index_id, index_suffix);
+    ASSERT_TRUE(writer._indices_dirs.find(key) != writer._indices_dirs.end());
+    ASSERT_TRUE(writer._indices_dirs.find(key)->second.get() == dir.get());
+}
+
+TEST_F(InvertedIndexFileWriterTest, OpenWithRamDirTest) {
+    // This test verifies the behavior when _can_use_ram_dir is set to true
+    // Note: In a test environment, whether a RAM directory is actually used depends on
+    // various factors like available memory, file size, etc.
+    config::inverted_index_ram_dir_enable_when_base_compaction = true;
+    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                   InvertedIndexStorageFormatPB::V2, nullptr, true);
+
+    int64_t index_id = 1;
+    std::string index_suffix = "suffix_with_ram";
+    auto index_meta = create_mock_tablet_index(index_id, index_suffix);
+    ASSERT_NE(index_meta, nullptr);
+
+    // Open the directory with _can_use_ram_dir = true
+    auto open_result = writer.open(index_meta.get());
+    ASSERT_TRUE(open_result.has_value());
+    auto dir = open_result.value();
+    ASSERT_NE(dir, nullptr);
+    // Verify the directory is a regular DorisFSDirectory and not a DorisRAMFSDirectory
+    ASSERT_STREQ(dir->getObjectName(), "DorisRAMFSDirectory");
+    ASSERT_STRNE(dir->getObjectName(), "DorisFSDirectory");
+    auto key = std::make_pair(index_id, index_suffix);
+    ASSERT_TRUE(writer._indices_dirs.find(key) != writer._indices_dirs.end());
+    ASSERT_TRUE(writer._indices_dirs.find(key)->second.get() == dir.get());
+}
+
 TEST_F(InvertedIndexFileWriterTest, DeleteIndexTest) {
     InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
                                    InvertedIndexStorageFormatPB::V2);
@@ -390,6 +445,88 @@ TEST_F(InvertedIndexFileWriterTest, PrepareSortedFilesTest) {
         }
     }
 }
+
+TEST_F(InvertedIndexFileWriterTest, PrepareFileMetadataTest) {
+    auto mock_dir = std::make_shared<MockDorisFSDirectoryFileLength>();
+    std::string local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
+            ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir().native(), _rowset_id,
+            _seg_id, 1, "suffix1");
+
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(local_fs_index_path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(local_fs_index_path).ok());
+    mock_dir->init(_fs, local_fs_index_path.c_str());
+
+    std::vector<std::string> files = {"segments_N",  "segments.gen", "0.fnm", "0.tii",
+                                      "null_bitmap", "1.fnm",        "1.tii"};
+    for (auto& file : files) {
+        auto out_file_1 =
+                std::unique_ptr<lucene::store::IndexOutput>(mock_dir->createOutput(file.c_str()));
+        out_file_1->writeString("test1");
+        out_file_1->close();
+    }
+
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("segments_N")))
+            .WillOnce(testing::Return(1000));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("segments.gen")))
+            .WillOnce(testing::Return(1200));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("0.fnm"))).WillOnce(testing::Return(2000));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("0.tii"))).WillOnce(testing::Return(1500));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("null_bitmap")))
+            .WillOnce(testing::Return(500));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("1.fnm"))).WillOnce(testing::Return(2500));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("1.tii"))).WillOnce(testing::Return(2200));
+
+    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                   InvertedIndexStorageFormatPB::V2);
+    auto st = writer._insert_directory_into_map(1, "suffix1", mock_dir);
+    if (!st.ok()) {
+        std::cerr << "_insert_directory_into_map error in PrepareFileMetadataTest: " << st.msg()
+                  << std::endl;
+        ASSERT_TRUE(false);
+        return;
+    }
+
+    int64_t current_offset = 0;
+
+    std::vector<InvertedIndexFileWriter::FileMetadata> file_metadata =
+            writer.prepare_file_metadata(current_offset);
+
+    ASSERT_EQ(file_metadata.size(), 7); // Adjusted size after adding new files
+
+    std::vector<std::string> expected_files = {"null_bitmap", "segments.gen", "segments_N", "0.fnm",
+                                               "1.fnm",       "0.tii",        "1.tii"};
+    std::vector<int64_t> expected_sizes = {500, 1200, 1000, 2000, 2500, 1500, 2200};
+
+    int64_t tmp_current_offset = 0;
+    for (size_t i = 0; i < file_metadata.size(); ++i) {
+        EXPECT_EQ(file_metadata[i].filename, expected_files[i]);
+        EXPECT_EQ(file_metadata[i].length, expected_sizes[i]);
+        if (i == 0) {
+            EXPECT_EQ(file_metadata[i].offset, 0);
+        } else {
+            EXPECT_EQ(file_metadata[i].offset, tmp_current_offset);
+        }
+        tmp_current_offset += file_metadata[i].length;
+    }
+    EXPECT_EQ(current_offset, tmp_current_offset);
+
+    bool is_meta_file_first = true;
+    for (const auto& metadata : file_metadata) {
+        bool is_meta = false;
+        for (const auto& entry : InvertedIndexDescriptor::index_file_info_map) {
+            if (metadata.filename.find(entry.first) != std::string::npos) {
+                is_meta = true;
+                break;
+            }
+        }
+        if (is_meta_file_first && !is_meta) {
+            is_meta_file_first = false;
+        } else if (!is_meta_file_first && is_meta) {
+            FAIL() << "Meta files should appear before normal files in the metadata.";
+        }
+    }
+}
+
 /*TEST_F(InvertedIndexFileWriterTest, CopyFileTest_OpenInputFailure) {
     auto mock_dir = std::make_shared<MockDorisFSDirectoryOpenInput>();
     std::string local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
@@ -1115,6 +1252,204 @@ TEST_F(InvertedIndexFileWriterTest, AddIntoSearcherCacheV1Test) {
     auto searcher_variant = cache_value_use_cache->index_searcher;
     EXPECT_TRUE(std::holds_alternative<BKDIndexSearcherPtr>(searcher_variant));
     config::enable_write_index_searcher_cache = false;
+}
+
+// Mock RowsetWriter class that implements the necessary methods for testing
+class MockRowsetWriter : public RowsetWriter {
+public:
+    MockRowsetWriter(const io::FileSystemSPtr& fs, const std::string& segment_path_prefix,
+                     const RowsetId& rowset_id, TabletSchemaSPtr tablet_schema,
+                     ReaderType compaction_type = ReaderType::READER_QUERY)
+            : RowsetWriter() {
+        _context.rowset_id = rowset_id;
+        _context.tablet_schema = tablet_schema;
+        _context.compaction_type = compaction_type;
+        _segment_path_prefix = segment_path_prefix;
+    }
+
+    Status init(const RowsetWriterContext& rowset_writer_context) override { return Status::OK(); }
+
+    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
+                              FileType file_type = FileType::SEGMENT_FILE) override {
+        std::string index_path =
+                InvertedIndexDescriptor::get_index_file_path_v2(_segment_path_prefix);
+        io::FileWriterOptions opts;
+        Status st = _context.fs()->create_file(index_path, &writer, &opts);
+        return st;
+    }
+
+    // Required overrides for abstract base class but not used in our tests
+    Status add_rowset(RowsetSharedPtr rowset) override { return Status::OK(); }
+    Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) override {
+        return Status::OK();
+    }
+    Status flush() override { return Status::OK(); }
+    Status build(RowsetSharedPtr& rowset) override { return Status::OK(); }
+    RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override {
+        return nullptr;
+    }
+    PUniqueId load_id() override { return PUniqueId(); }
+    Version version() override { return Version(); }
+    int64_t num_rows() const override { return 0; }
+    int64_t num_rows_updated() const override { return 0; }
+    int64_t num_rows_deleted() const override { return 0; }
+    int64_t num_rows_new_added() const override { return 0; }
+    int64_t num_rows_filtered() const override { return 0; }
+    RowsetId rowset_id() override { return _context.rowset_id; }
+    RowsetTypePB type() const override { return BETA_ROWSET; }
+    int32_t allocate_segment_id() override { return 0; }
+    std::shared_ptr<PartialUpdateInfo> get_partial_update_info() override { return nullptr; }
+    bool is_partial_update() override { return false; }
+
+private:
+    std::string _segment_path_prefix;
+};
+
+// Test case for rowset writer's create_inverted_index_file_writer with RAM directory disabled
+TEST_F(InvertedIndexFileWriterTest, RowsetWriterCreateInvertedIndexFileWriterWithoutRamDir) {
+    // Set config flag to disable RAM directory
+    config::inverted_index_ram_dir_enable_when_base_compaction = false;
+
+    // Create a valid TabletSchema for testing
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(tablet_schema_pb);
+
+    // Create a mock rowset writer with base compaction reader type
+    RowsetId rowset_id;
+    rowset_id.init(10001);
+    std::string segment_path_prefix = _absolute_dir + "/test_rowset";
+
+    MockRowsetWriter writer(_fs, segment_path_prefix, rowset_id, tablet_schema,
+                            ReaderType::READER_BASE_COMPACTION);
+
+    uint32_t segment_id = 1;
+    InvertedIndexFileWriterPtr index_file_writer;
+
+    // Call the method to test
+    Status status = writer.create_inverted_index_file_writer(segment_id, &index_file_writer);
+    ASSERT_TRUE(status.ok());
+    ASSERT_NE(index_file_writer, nullptr);
+
+    // Test directory creation with base schema
+    int64_t index_id = 1;
+    std::string index_suffix = "suffix_no_ram";
+    auto index_meta = create_mock_tablet_index(index_id, index_suffix);
+    ASSERT_NE(index_meta, nullptr);
+
+    // Open the directory with _can_use_ram_dir = false (which should be the case due to our config)
+    auto open_result = index_file_writer->open(index_meta.get());
+    ASSERT_TRUE(open_result.has_value());
+    auto dir = open_result.value();
+    ASSERT_NE(dir, nullptr);
+
+    // Verify directory type (should be DorisFSDirectory, not DorisRAMFSDirectory)
+    ASSERT_STREQ(dir->getObjectName(), "DorisFSDirectory");
+    ASSERT_STRNE(dir->getObjectName(), "DorisRAMFSDirectory");
+
+    // Cleanup
+    dir->close();
+    status = index_file_writer->close();
+    ASSERT_TRUE(status.ok());
+}
+
+// Test case for rowset writer's create_inverted_index_file_writer with RAM directory enabled
+TEST_F(InvertedIndexFileWriterTest, RowsetWriterCreateInvertedIndexFileWriterWithRamDir) {
+    // Set config flag to enable RAM directory
+    config::inverted_index_ram_dir_enable_when_base_compaction = true;
+
+    // Create a valid TabletSchema for testing
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(tablet_schema_pb);
+
+    // Create a mock rowset writer with base compaction reader type
+    RowsetId rowset_id;
+    rowset_id.init(10002);
+    std::string segment_path_prefix = _absolute_dir + "/test_rowset_with_ram";
+
+    MockRowsetWriter writer(_fs, segment_path_prefix, rowset_id, tablet_schema,
+                            ReaderType::READER_BASE_COMPACTION);
+
+    uint32_t segment_id = 1;
+    InvertedIndexFileWriterPtr index_file_writer;
+
+    // Call the method to test
+    Status status = writer.create_inverted_index_file_writer(segment_id, &index_file_writer);
+    ASSERT_TRUE(status.ok());
+    ASSERT_NE(index_file_writer, nullptr);
+
+    // Test directory creation with base schema
+    int64_t index_id = 1;
+    std::string index_suffix = "suffix_with_ram";
+    auto index_meta = create_mock_tablet_index(index_id, index_suffix);
+    ASSERT_NE(index_meta, nullptr);
+
+    // Open the directory with _can_use_ram_dir = true (which should be the case due to our config)
+    auto open_result = index_file_writer->open(index_meta.get());
+    ASSERT_TRUE(open_result.has_value());
+    auto dir = open_result.value();
+    ASSERT_NE(dir, nullptr);
+
+    // Verify directory type (should be DorisRAMFSDirectory, not DorisFSDirectory)
+    ASSERT_STREQ(dir->getObjectName(), "DorisRAMFSDirectory");
+    ASSERT_STRNE(dir->getObjectName(), "DorisFSDirectory");
+
+    // Cleanup
+    dir->close();
+    status = index_file_writer->close();
+    ASSERT_TRUE(status.ok());
+}
+
+// Test case for rowset writer's create_inverted_index_file_writer with non-base compaction (should always use RAM)
+TEST_F(InvertedIndexFileWriterTest, RowsetWriterCreateInvertedIndexFileWriterNonBaseCompaction) {
+    // Set config flag to disable RAM directory for base compaction
+    config::inverted_index_ram_dir_enable_when_base_compaction = false;
+
+    // Create a valid TabletSchema for testing
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(tablet_schema_pb);
+
+    // Create a mock rowset writer with QUERY reader type (not base compaction)
+    RowsetId rowset_id;
+    rowset_id.init(10003);
+    std::string segment_path_prefix = _absolute_dir + "/test_rowset_query";
+
+    MockRowsetWriter writer(_fs, segment_path_prefix, rowset_id, tablet_schema,
+                            ReaderType::READER_QUERY); // Not base compaction
+
+    uint32_t segment_id = 1;
+    InvertedIndexFileWriterPtr index_file_writer;
+
+    // Call the method to test
+    Status status = writer.create_inverted_index_file_writer(segment_id, &index_file_writer);
+    ASSERT_TRUE(status.ok());
+    ASSERT_NE(index_file_writer, nullptr);
+
+    // Test directory creation
+    int64_t index_id = 1;
+    std::string index_suffix = "suffix_query";
+    auto index_meta = create_mock_tablet_index(index_id, index_suffix);
+    ASSERT_NE(index_meta, nullptr);
+
+    // Open the directory - should still use RAM dir since this is not base compaction
+    auto open_result = index_file_writer->open(index_meta.get());
+    ASSERT_TRUE(open_result.has_value());
+    auto dir = open_result.value();
+    ASSERT_NE(dir, nullptr);
+
+    // Verify directory type (should be DorisRAMFSDirectory since it's not base compaction)
+    ASSERT_STREQ(dir->getObjectName(), "DorisRAMFSDirectory");
+    ASSERT_STRNE(dir->getObjectName(), "DorisFSDirectory");
+
+    // Cleanup
+    dir->close();
+    status = index_file_writer->close();
+    ASSERT_TRUE(status.ok());
 }
 
 } // namespace doris::segment_v2

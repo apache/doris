@@ -82,6 +82,7 @@ import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.analysis.WarmUpClusterStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.FsBroker;
@@ -149,7 +150,9 @@ import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -161,6 +164,7 @@ import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
+import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
@@ -288,6 +292,7 @@ public class StmtExecutor {
     private Data.PQueryStatistics.Builder statisticsForAuditLog;
     private boolean isCached;
     private String stmtName;
+    private String prepareStmtName; // for prox
     private String mysqlLoadId;
     // Handle selects that fe can do without be
     private boolean isHandleQueryInFe = false;
@@ -573,6 +578,11 @@ public class StmtExecutor {
         UUID uuid;
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
+        // If the query is an `outfile` statement,
+        // we execute it only once to avoid exporting redundant data.
+        if (parsedStmt instanceof Queriable) {
+            retryTime = ((Queriable) parsedStmt).hasOutFileClause() ? 1 : retryTime;
+        }
         for (int i = 1; i <= retryTime; i++) {
             try {
                 execute(queryId);
@@ -715,15 +725,21 @@ public class StmtExecutor {
             if (logicalPlan instanceof UnsupportedCommand || logicalPlan instanceof CreatePolicyCommand) {
                 throw new MustFallbackException("cannot prepare command " + logicalPlan.getClass().getSimpleName());
             }
-            logicalPlan = new PrepareCommand(String.valueOf(context.getStmtId()),
-                    logicalPlan, statementContext.getPlaceholders(), originStmt);
-
+            long stmtId = Config.prepared_stmt_start_id > 0
+                    ? Config.prepared_stmt_start_id : context.getPreparedStmtId();
+            this.prepareStmtName = String.valueOf(stmtId);
+            // When proxy executing, this.statementContext is created in constructor.
+            // But context.statementContext is created in LogicalPlanBuilder.
+            List<Placeholder> placeholders = context == null
+                    ? statementContext.getPlaceholders() : context.getStatementContext().getPlaceholders();
+            logicalPlan = new PrepareCommand(prepareStmtName, logicalPlan, placeholders, originStmt);
         }
         // when we in transaction mode, we only support insert into command and transaction command
         if (context.isTxnModel()) {
             if (!(logicalPlan instanceof BatchInsertIntoTableCommand || logicalPlan instanceof InsertIntoTableCommand
                     || logicalPlan instanceof UpdateCommand || logicalPlan instanceof DeleteFromUsingCommand
-                    || logicalPlan instanceof DeleteFromCommand || logicalPlan instanceof UnsupportedCommand)) {
+                    || logicalPlan instanceof DeleteFromCommand || logicalPlan instanceof TransactionCommand
+                    || logicalPlan instanceof UnsupportedCommand)) {
                 String errMsg = "This is in a transaction, only insert, update, delete, "
                         + "commit, rollback is acceptable.";
                 throw new NereidsException(errMsg, new AnalysisException(errMsg));
@@ -738,8 +754,7 @@ public class StmtExecutor {
                     if (logicalPlan instanceof InsertIntoTableCommand) {
                         profileType = ProfileType.LOAD;
                     }
-                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE
-                            || context.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
                     }
                     if (isProxy) {
@@ -831,9 +846,6 @@ public class StmtExecutor {
             // t3: observer fe receive editlog creating the table from the master fe
             syncJournalIfNeeded();
             planner = new NereidsPlanner(statementContext);
-            if (context.getSessionVariable().isEnableMaterializedViewRewrite()) {
-                statementContext.addPlannerHook(InitMaterializationContextHook.INSTANCE);
-            }
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRules();
@@ -947,7 +959,8 @@ public class StmtExecutor {
                 boolean isNeedRetry = false;
                 if (Config.isCloudMode()) {
                     isNeedRetry = false;
-                    // errCode = 2, detailMessage = There is no scanNode Backend available.[10003: not alive]
+                    // errCode = 2, detailMessage = No backend available as scan node,
+                    // please check the status of your backends. [10003: not alive]
                     List<String> bes = Env.getCurrentSystemInfo().getAllBackendIds().stream()
                                 .map(id -> Long.toString(id)).collect(Collectors.toList());
                     String msg = e.getMessage();
@@ -1165,7 +1178,7 @@ public class StmtExecutor {
         } catch (Exception e) {
             LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    e.getClass().getSimpleName() + ", msg: " + Util.getRootCauseMessage(e));
+                    e.getClass().getSimpleName() + ", msg: " + Util.getRootCauseWithSuppressedMessage(e));
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
@@ -1338,7 +1351,7 @@ public class StmtExecutor {
         if (ConnectContext.get() == null || Strings.isNullOrEmpty(clusterName)) {
             return false;
         }
-        return Env.getCurrentEnv().getAuth().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
+        return Env.getCurrentEnv().getAccessManager().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
             clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
     }
 
@@ -2069,7 +2082,7 @@ public class StmtExecutor {
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
-                    context.setResultAttachedInfo(batch.getBatch().getAttachedInfos());
+                    context.addResultAttachedInfo(batch.getBatch().getAttachedInfos());
                 }
                 if (batch.isEos()) {
                     break;
@@ -2859,7 +2872,7 @@ public class StmtExecutor {
         return exprs.stream().map(e -> PrimitiveType.STRING).collect(Collectors.toList());
     }
 
-    public void sendStmtPrepareOK(int stmtId, List<String> labels) throws IOException {
+    public void sendStmtPrepareOK(int stmtId, List<String> labels, List<Slot> output) throws IOException {
         Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
         serializer.reset();
@@ -2868,13 +2881,19 @@ public class StmtExecutor {
         // statement_id
         serializer.writeInt4(stmtId);
         // num_columns
-        int numColumns = 0;
+        int numColumns = output == null ? 0 : output.size();
         serializer.writeInt2(numColumns);
         // num_params
         int numParams = labels.size();
         serializer.writeInt2(numParams);
         // reserved_1
         serializer.writeInt1(0);
+        if (numParams > 0 || numColumns > 0) {
+            // warning_count
+            serializer.writeInt2(0);
+            // metadata_follows
+            serializer.writeInt1(1);
+        }
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         if (numParams > 0) {
             // send field one by one
@@ -2886,6 +2905,33 @@ public class StmtExecutor {
                 serializer.reset();
                 // serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
                 serializer.writeField(colNames.get(i), Type.STRING);
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
+            serializer.reset();
+            if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+                MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
+                eofPacket.writeTo(serializer);
+            } else {
+                MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
+                okPacket.writeTo(serializer);
+            }
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        }
+        if (numColumns > 0) {
+            for (Slot slot : output) {
+                serializer.reset();
+                if (slot instanceof SlotReference
+                        && ((SlotReference) slot).getColumn().isPresent()
+                        && ((SlotReference) slot).getTable().isPresent()) {
+                    SlotReference slotReference = (SlotReference) slot;
+                    TableIf table = slotReference.getTable().get();
+                    Column column = slotReference.getColumn().get();
+                    DatabaseIf database = table.getDatabase();
+                    String dbName = database == null ? "" : database.getFullName();
+                    serializer.writeField(dbName, table.getName(), column, false);
+                } else {
+                    serializer.writeField(slot.getName(), slot.getDataType().toCatalogDataType());
+                }
                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
             serializer.reset();
@@ -3261,7 +3307,7 @@ public class StmtExecutor {
         TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
         try {
             // create a tmp table with uuid
-            parsedStmt = new CreateTableLikeStmt(false, tmpTableName, targetTableName, null, false);
+            parsedStmt = new CreateTableLikeStmt(false, false, tmpTableName, targetTableName, null, false);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
             // if create tmp table err, return
@@ -3462,6 +3508,16 @@ public class StmtExecutor {
         this.parsedStmt = parsedStmt;
         this.statementContext.setParsedStatement(parsedStmt);
         return parsedStmt;
+    }
+
+    public List<Slot> planPrepareStatementSlots() throws Exception {
+        parseByNereids();
+        Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
+                "Nereids only process LogicalPlanAdapter,"
+                        + " but parsedStmt is " + parsedStmt.getClass().getName());
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+        nereidsPlanner.plan(parsedStmt, context.getSessionVariable().toThrift());
+        return nereidsPlanner.getPhysicalPlan().getOutput();
     }
 
     public List<ResultRow> executeInternalQuery() {
@@ -3750,5 +3806,9 @@ public class StmtExecutor {
         for (ByteBuffer byteBuffer : queryResultBufList) {
             context.getMysqlChannel().sendOnePacket(byteBuffer);
         }
+    }
+
+    public String getPrepareStmtName() {
+        return this.prepareStmtName;
     }
 }

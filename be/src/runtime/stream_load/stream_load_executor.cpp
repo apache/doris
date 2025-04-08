@@ -65,7 +65,8 @@ bvar::LatencyRecorder g_stream_load_begin_txn_latency("stream_load", "begin_txn"
 bvar::LatencyRecorder g_stream_load_precommit_txn_latency("stream_load", "precommit_txn");
 bvar::LatencyRecorder g_stream_load_commit_txn_latency("stream_load", "commit_txn");
 
-Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx) {
+Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx,
+                                                 const TPipelineFragmentParamsList& parent) {
 // submit this params
 #ifndef BE_TEST
     ctx->start_write_data_nanos = MonotonicNanos();
@@ -78,7 +79,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             ctx->txn_id = state->wal_id();
         }
         ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
-        ctx->commit_infos = std::move(state->tablet_commit_infos());
+        ctx->commit_infos = state->tablet_commit_infos();
         ctx->number_total_rows = state->num_rows_load_total();
         ctx->number_loaded_rows = state->num_rows_load_success();
         ctx->number_filtered_rows = state->num_rows_load_filtered();
@@ -146,8 +147,8 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
         st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.params,
                                                            QuerySource::STREAM_LOAD, exec_fragment);
     } else {
-        st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.pipeline_params,
-                                                           QuerySource::STREAM_LOAD, exec_fragment);
+        st = _exec_env->fragment_mgr()->exec_plan_fragment(
+                ctx->put_result.pipeline_params, QuerySource::STREAM_LOAD, exec_fragment, parent);
     }
 
     if (!st.ok()) {

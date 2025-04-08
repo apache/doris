@@ -128,7 +128,14 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         updateSessionVariableForDelete(ctx.getSessionVariable());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        boolean originalIsSkipAuth = ctx.isSkipAuth();
+        // delete not need select priv
+        ctx.setSkipAuth(true);
+        try {
+            planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        } finally {
+            ctx.setSkipAuth(originalIsSkipAuth);
+        }
         executor.setPlanner(planner);
         executor.checkBlockRules();
         // if fe could do fold constant to get delete will do nothing for table, just return.
@@ -214,7 +221,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         }
 
         ArrayList<String> partitionNames = Lists.newArrayList(relation.getPartNames());
-        List<Partition> selectedPartitions = getSelectedPartitions(olapTable, filter, partitionNames);
+        List<Partition> selectedPartitions = getSelectedPartitions(olapTable, filter, scan, partitionNames);
 
         Env.getCurrentEnv()
                 .getDeleteHandler()
@@ -240,7 +247,9 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         }
     }
 
-    private List<Partition> getSelectedPartitions(OlapTable olapTable, PhysicalFilter<?> filter,
+    private List<Partition> getSelectedPartitions(
+            OlapTable olapTable, PhysicalFilter<?> filter,
+            PhysicalOlapScan scan,
             List<String> partitionNames) {
         // For un_partitioned table, return all partitions.
         if (olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
@@ -274,7 +283,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                     .collect(Collectors.toMap(Function.identity(), idToPartitions::get));
         } else {
             Optional<SortedPartitionRanges<?>> sortedPartitionRangesOpt
-                    = Env.getCurrentEnv().getSortedPartitionsCacheManager().get(olapTable);
+                    = Env.getCurrentEnv().getSortedPartitionsCacheManager().get(olapTable, scan);
             if (sortedPartitionRangesOpt.isPresent()) {
                 sortedPartitionRanges = (Optional) sortedPartitionRangesOpt;
             }

@@ -130,41 +130,44 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
     }
 
     DCHECK(_dependency);
-    if (_writer_status.ok()) {
-        while (true) {
-            ThreadCpuStopWatch cpu_time_stop_watch;
-            cpu_time_stop_watch.start();
-            Defer defer {[&]() {
-                if (state && state->get_query_ctx()) {
-                    state->get_query_ctx()->update_cpu_time(cpu_time_stop_watch.elapsed_time());
-                }
-            }};
-            if (!_eos && _data_queue.empty() && _writer_status.ok()) {
-                std::unique_lock l(_m);
-                while (!_eos && _data_queue.empty() && _writer_status.ok()) {
-                    // Add 1s to check to avoid lost signal
-                    _cv.wait_for(l, std::chrono::seconds(1));
-                }
+    while (_writer_status.ok()) {
+        ThreadCpuStopWatch cpu_time_stop_watch;
+        cpu_time_stop_watch.start();
+        Defer defer {[&]() {
+            if (state && state->get_query_ctx()) {
+                state->get_query_ctx()->resource_ctx()->cpu_context()->update_cpu_cost_ms(
+                        cpu_time_stop_watch.elapsed_time());
+            }
+        }};
+
+        //1) wait scan operator write data
+        {
+            std::unique_lock l(_m);
+            while (!_eos && _data_queue.empty() && _writer_status.ok()) {
+                // Add 1s to check to avoid lost signal
+                _cv.wait_for(l, std::chrono::seconds(1));
             }
 
+            //check if eos or writer error
             if ((_eos && _data_queue.empty()) || !_writer_status.ok()) {
                 _data_queue.clear();
                 break;
             }
-
-            auto block = _get_block_from_queue();
-            auto status = write(state, *block);
-            if (!status.ok()) [[unlikely]] {
-                std::unique_lock l(_m);
-                _writer_status.update(status);
-                if (_is_finished()) {
-                    _dependency->set_ready();
-                }
-                break;
-            }
-
-            _return_free_block(std::move(block));
         }
+
+        //2) get the block from  data queue and write to downstream
+        auto block = _get_block_from_queue();
+        auto status = write(state, *block);
+        if (!status.ok()) [[unlikely]] {
+            std::unique_lock l(_m);
+            _writer_status.update(status);
+            if (_is_finished()) {
+                _dependency->set_ready();
+            }
+            break;
+        }
+
+        _return_free_block(std::move(block));
     }
 
     bool need_finish = false;
@@ -231,8 +234,14 @@ void AsyncResultWriter::force_close(Status s) {
 }
 
 void AsyncResultWriter::_return_free_block(std::unique_ptr<Block> b) {
-    _memory_used_counter->update(b->allocated_bytes());
-    _free_blocks.enqueue(std::move(b));
+    if (_low_memory_mode) {
+        return;
+    }
+
+    const auto allocated_bytes = b->allocated_bytes();
+    if (_free_blocks.enqueue(std::move(b))) {
+        _memory_used_counter->update(allocated_bytes);
+    }
 }
 
 std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Block* block,
@@ -247,5 +256,12 @@ std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::vectorized::Blo
     return b;
 }
 
+template <typename T>
+void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
+                  RuntimeProfile::Counter* memory_used_counter = nullptr);
+void AsyncResultWriter::set_low_memory_mode() {
+    _low_memory_mode = true;
+    clear_blocks(_free_blocks, _memory_used_counter);
+}
 } // namespace vectorized
 } // namespace doris

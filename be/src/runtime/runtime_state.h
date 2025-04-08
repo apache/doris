@@ -26,6 +26,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <cstdint>
 #include <fstream>
 #include <functional>
 #include <memory>
@@ -42,16 +43,16 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "io/fs/file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/columns_number.h"
 
 namespace doris {
-class IRuntimeFilter;
+class RuntimeFilter;
 
 inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
     return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
@@ -62,6 +63,7 @@ class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
 class PipelineFragmentContext;
 class PipelineTask;
+class Dependency;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -70,6 +72,8 @@ class ExecEnv;
 class RuntimeFilterMgr;
 class MemTrackerLimiter;
 class QueryContext;
+class RuntimeFilterConsumer;
+class RuntimeFilterProducer;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -115,25 +119,22 @@ public:
                                                            : _query_options.mem_limit / 20;
     }
 
+    int32_t max_column_reader_num() const {
+        return _query_options.__isset.max_column_reader_num ? _query_options.max_column_reader_num
+                                                            : 20000;
+    }
+
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
     MOCK_FUNCTION int batch_size() const { return _query_options.batch_size; }
-    int wait_full_block_schedule_times() const {
-        return _query_options.wait_full_block_schedule_times;
-    }
-    bool abort_on_error() const { return _query_options.abort_on_error; }
-    bool abort_on_default_limit_exceeded() const {
-        return _query_options.abort_on_default_limit_exceeded;
-    }
     int query_parallel_instance_num() const { return _query_options.parallel_instance; }
     int max_errors() const { return _query_options.max_errors; }
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
                                                         : _query_options.query_timeout;
     }
-    int max_io_buffers() const { return _query_options.max_io_buffers; }
     int num_scanner_threads() const {
         return _query_options.__isset.num_scanner_threads ? _query_options.num_scanner_threads : 0;
     }
@@ -215,8 +216,8 @@ public:
     // _unreported_error_idx to _errors_log.size()
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
-    [[nodiscard]] bool is_cancelled() const;
-    Status cancel_reason() const;
+    [[nodiscard]] MOCK_FUNCTION bool is_cancelled() const;
+    MOCK_FUNCTION Status cancel_reason() const;
     void cancel(const Status& reason) {
         if (_exec_status.update(reason)) {
             // Create a error status, so that we could print error stack, and
@@ -272,7 +273,7 @@ public:
     // is_summary is true, means we are going to write the summary line
     // If we need to stop the processing, set stop_processing to true
     Status append_error_msg_to_file(std::function<std::string()> line,
-                                    std::function<std::string()> error_msg, bool* stop_processing,
+                                    std::function<std::string()> error_msg,
                                     bool is_summary = false);
 
     int64_t num_bytes_load_total() { return _num_bytes_load_total.load(); }
@@ -351,11 +352,6 @@ public:
         return _query_options.runtime_filter_wait_time_ms;
     }
 
-    bool runtime_filter_wait_infinitely() const {
-        return _query_options.__isset.runtime_filter_wait_infinitely &&
-               _query_options.runtime_filter_wait_infinitely;
-    }
-
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
 
     int be_exec_version() const {
@@ -365,6 +361,10 @@ public:
     }
     bool enable_local_shuffle() const {
         return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
+    }
+
+    MOCK_FUNCTION bool enable_local_exchange() const {
+        return _query_options.__isset.enable_local_exchange && _query_options.enable_local_exchange;
     }
 
     bool trim_tailing_spaces_for_external_table_query() const {
@@ -412,19 +412,49 @@ public:
 
     bool enable_page_cache() const;
 
-    const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
+    std::vector<TTabletCommitInfo> tablet_commit_infos() const {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
         return _tablet_commit_infos;
     }
 
-    std::vector<TTabletCommitInfo>& tablet_commit_infos() { return _tablet_commit_infos; }
+    void add_tablet_commit_infos(std::vector<TTabletCommitInfo>& commit_infos) {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
+        _tablet_commit_infos.insert(_tablet_commit_infos.end(),
+                                    std::make_move_iterator(commit_infos.begin()),
+                                    std::make_move_iterator(commit_infos.end()));
+    }
 
-    std::vector<THivePartitionUpdate>& hive_partition_updates() { return _hive_partition_updates; }
+    std::vector<TErrorTabletInfo> error_tablet_infos() const {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
+        return _error_tablet_infos;
+    }
 
-    std::vector<TIcebergCommitData>& iceberg_commit_datas() { return _iceberg_commit_datas; }
+    void add_error_tablet_infos(std::vector<TErrorTabletInfo>& tablet_infos) {
+        std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
+        _error_tablet_infos.insert(_error_tablet_infos.end(),
+                                   std::make_move_iterator(tablet_infos.begin()),
+                                   std::make_move_iterator(tablet_infos.end()));
+    }
 
-    const std::vector<TErrorTabletInfo>& error_tablet_infos() const { return _error_tablet_infos; }
+    std::vector<THivePartitionUpdate> hive_partition_updates() const {
+        std::lock_guard<std::mutex> lock(_hive_partition_updates_mutex);
+        return _hive_partition_updates;
+    }
 
-    std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
+    void add_hive_partition_updates(const THivePartitionUpdate& hive_partition_update) {
+        std::lock_guard<std::mutex> lock(_hive_partition_updates_mutex);
+        _hive_partition_updates.emplace_back(hive_partition_update);
+    }
+
+    std::vector<TIcebergCommitData> iceberg_commit_datas() const {
+        std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
+        return _iceberg_commit_datas;
+    }
+
+    void add_iceberg_commit_datas(const TIcebergCommitData& iceberg_commit_data) {
+        std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
+        _iceberg_commit_datas.emplace_back(iceberg_commit_data);
+    }
 
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
@@ -439,7 +469,10 @@ public:
 
     QueryContext* get_query_ctx() { return _query_ctx; }
 
+    [[nodiscard]] bool low_memory_mode() const;
+
     std::weak_ptr<QueryContext> get_query_ctx_weak();
+    WorkloadGroupPtr workload_group();
 
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
@@ -451,11 +484,6 @@ public:
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
 
-    bool enable_verbose_profile() const {
-        return enable_profile() && _query_options.__isset.enable_verbose_profile &&
-               _query_options.enable_verbose_profile;
-    }
-
     int rpc_verbose_profile_max_instance_count() const {
         return _query_options.__isset.rpc_verbose_profile_max_instance_count
                        ? _query_options.rpc_verbose_profile_max_instance_count
@@ -465,11 +493,6 @@ public:
     bool enable_share_hash_table_for_broadcast_join() const {
         return _query_options.__isset.enable_share_hash_table_for_broadcast_join &&
                _query_options.enable_share_hash_table_for_broadcast_join;
-    }
-
-    bool enable_hash_join_early_start_probe() const {
-        return _query_options.__isset.enable_hash_join_early_start_probe &&
-               _query_options.enable_hash_join_early_start_probe;
     }
 
     bool enable_parallel_scan() const {
@@ -505,19 +528,7 @@ public:
                        : 0;
     }
 
-    int64_t external_sort_bytes_threshold() const {
-        if (_query_options.__isset.external_sort_bytes_threshold) {
-            return _query_options.external_sort_bytes_threshold;
-        }
-        return 0;
-    }
-
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
-
-    inline bool enable_delete_sub_pred_v2() const {
-        return _query_options.__isset.enable_delete_sub_predicate_v2 &&
-               _query_options.enable_delete_sub_predicate_v2;
-    }
 
     using LocalState = doris::pipeline::PipelineXLocalStateBase;
     using SinkLocalState = doris::pipeline::PipelineXSinkLocalStateBase;
@@ -551,52 +562,86 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
+                                            std::shared_ptr<RuntimeFilterProducer>* producer_filter,
+                                            RuntimeProfile* parent_profile);
 
     Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
                                             bool need_local_merge, int node_id,
-                                            std::shared_ptr<IRuntimeFilter>* producer_filter);
+                                            std::shared_ptr<RuntimeFilterConsumer>* consumer_filter,
+                                            RuntimeProfile* parent_profile);
+
     bool is_nereids() const;
 
-    bool enable_join_spill() const {
+    bool enable_spill() const {
         return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_join_spill && _query_options.enable_join_spill);
-    }
-
-    bool enable_sort_spill() const {
-        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill);
-    }
-
-    bool enable_agg_spill() const {
-        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill);
+               (_query_options.__isset.enable_spill && _query_options.enable_spill);
     }
 
     bool enable_force_spill() const {
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
 
-    bool enable_local_merge_sort() const {
-        return _query_options.__isset.enable_local_merge_sort &&
-               _query_options.enable_local_merge_sort;
-    }
-
-    bool enable_shared_exchange_sink_buffer() const {
-        return _query_options.__isset.enable_shared_exchange_sink_buffer &&
-               _query_options.enable_shared_exchange_sink_buffer;
-    }
-
-    bool fuzzy_disable_runtime_filter_in_be() const {
-        return _query_options.__isset.fuzzy_disable_runtime_filter_in_be &&
-               _query_options.fuzzy_disable_runtime_filter_in_be;
-    }
-
-    int64_t min_revocable_mem() const {
+    int64_t spill_min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
             return std::max(_query_options.min_revocable_mem, (int64_t)1);
         }
         return 1;
+    }
+
+    int64_t spill_sort_mem_limit() const {
+        if (_query_options.__isset.spill_sort_mem_limit) {
+            return std::max(_query_options.spill_sort_mem_limit, (int64_t)16777216);
+        }
+        return 134217728;
+    }
+
+    int64_t spill_sort_batch_bytes() const {
+        if (_query_options.__isset.spill_sort_batch_bytes) {
+            return std::max(_query_options.spill_sort_batch_bytes, (int64_t)8388608);
+        }
+        return 8388608;
+    }
+
+    int spill_aggregation_partition_count() const {
+        if (_query_options.__isset.spill_aggregation_partition_count) {
+            return std::min(std::max(_query_options.spill_aggregation_partition_count, 16), 8192);
+        }
+        return 32;
+    }
+
+    int spill_hash_join_partition_count() const {
+        if (_query_options.__isset.spill_hash_join_partition_count) {
+            return std::min(std::max(_query_options.spill_hash_join_partition_count, 16), 8192);
+        }
+        return 32;
+    }
+
+    int64_t low_memory_mode_buffer_limit() const {
+        if (_query_options.__isset.low_memory_mode_buffer_limit) {
+            return std::max(_query_options.low_memory_mode_buffer_limit, (int64_t)1);
+        }
+        return 32L * 1024 * 1024;
+    }
+
+    int spill_revocable_memory_high_watermark_percent() const {
+        if (_query_options.__isset.revocable_memory_high_watermark_percent) {
+            return _query_options.revocable_memory_high_watermark_percent;
+        }
+        return -1;
+    }
+
+    MOCK_FUNCTION bool enable_shared_exchange_sink_buffer() const {
+        return _query_options.__isset.enable_shared_exchange_sink_buffer &&
+               _query_options.enable_shared_exchange_sink_buffer;
+    }
+
+    size_t minimum_operator_memory_required_bytes() const {
+        if (_query_options.__isset.minimum_operator_memory_required_kb) {
+            return _query_options.minimum_operator_memory_required_kb * 1024;
+        } else {
+            // refer other database
+            return 100 * 1024;
+        }
     }
 
     void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }
@@ -604,10 +649,6 @@ public:
     int max_operator_id() const { return _max_operator_id; }
 
     void set_task_id(int id) { _task_id = id; }
-
-    void set_task(pipeline::PipelineTask* task) { _task = task; }
-
-    pipeline::PipelineTask* get_task() const { return _task; }
 
     int task_id() const { return _task_id; }
 
@@ -708,6 +749,7 @@ private:
     int64_t _error_row_number;
     std::string _error_log_file_path;
     std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
+    mutable std::mutex _tablet_infos_mutex;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
@@ -715,8 +757,10 @@ private:
     int _task_id = -1;
     int _task_num = 0;
 
+    mutable std::mutex _hive_partition_updates_mutex;
     std::vector<THivePartitionUpdate> _hive_partition_updates;
 
+    mutable std::mutex _iceberg_commit_datas_mutex;
     std::vector<TIcebergCommitData> _iceberg_commit_datas;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;

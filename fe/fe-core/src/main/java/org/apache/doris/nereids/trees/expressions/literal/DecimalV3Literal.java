@@ -78,7 +78,7 @@ public class DecimalV3Literal extends FractionalLiteral {
     }
 
     @Override
-    protected BigDecimal getBigDecimalValue() {
+    public BigDecimal getBigDecimalValue() {
         return value;
     }
 

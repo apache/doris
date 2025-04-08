@@ -23,8 +23,8 @@
 #include <fast_float/fast_float.h>
 #include <fast_float/parse_number.h>
 #include <glog/logging.h>
-#include <stdlib.h>
 
+#include <cstdlib>
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath> // IWYU pragma: keep
 #include <cstdint>
@@ -40,6 +40,7 @@
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/int_exp.h"
+#include "vec/common/string_utils/string_utils.h"
 #include "vec/core/extended_types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_decimal.h"

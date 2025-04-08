@@ -19,8 +19,6 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
-#include "pipeline/exec/sort_sink_operator.h"
-#include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
 #include "vec/runtime/partitioner.h"
@@ -46,6 +44,7 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
     } else {
         block->record_channel_id(channel_id);
     }
+
     if (_data_queue[channel_id].enqueue(std::move(block))) {
         local_state->_shared_state->set_ready_to_read(channel_id);
     }
@@ -129,6 +128,8 @@ Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, 
                                     sink_info.shuffle_idx_to_instance_idx));
     }
 
+    sink_info.local_state->_memory_used_counter->set(
+            sink_info.local_state->_shared_state->mem_usage);
     return Status::OK();
 }
 
@@ -214,15 +215,29 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
      */
     DCHECK(shuffle_idx_to_instance_idx && shuffle_idx_to_instance_idx->size() > 0);
     const auto& map = *shuffle_idx_to_instance_idx;
+    int32_t enqueue_rows = 0;
     for (const auto& it : map) {
         DCHECK(it.second >= 0 && it.second < _num_partitions)
                 << it.first << " : " << it.second << " " << _num_partitions;
         uint32_t start = partition_rows_histogram[it.first];
         uint32_t size = partition_rows_histogram[it.first + 1] - start;
         if (size > 0) {
+            enqueue_rows += size;
             _enqueue_data_and_set_ready(it.second, local_state,
                                         {new_block_wrapper, {row_idx, start, size}});
         }
+    }
+    if (enqueue_rows != rows) [[unlikely]] {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "Type: {}, Local Exchange Id: {}, Shuffled Map: ",
+                       get_exchange_type_name(get_type()), local_state->parent()->node_id());
+        for (const auto& it : map) {
+            fmt::format_to(debug_string_buffer, "[{}:{}], ", it.first, it.second);
+        }
+        return Status::InternalError(
+                "Rows mismatched! Data may be lost. [Expected enqueue rows={}, Real enqueue "
+                "rows={}, Detail: {}]",
+                rows, enqueue_rows, fmt::to_string(debug_string_buffer));
     }
 
     return Status::OK();
@@ -285,6 +300,9 @@ Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_blo
 
     _enqueue_data_and_set_ready(channel_id, sink_info.local_state, std::move(wrapper));
 
+    sink_info.local_state->_memory_used_counter->set(
+            sink_info.local_state->_shared_state->mem_usage);
+
     return Status::OK();
 }
 
@@ -333,6 +351,9 @@ Status PassToOneExchanger::sink(RuntimeState* state, vectorized::Block* in_block
             sink_info.local_state ? sink_info.local_state->_shared_state : nullptr, 0);
     _enqueue_data_and_set_ready(0, sink_info.local_state, std::move(wrapper));
 
+    sink_info.local_state->_memory_used_counter->set(
+            sink_info.local_state->_shared_state->mem_usage);
+
     return Status::OK();
 }
 
@@ -347,94 +368,12 @@ Status PassToOneExchanger::get_block(RuntimeState* state, vectorized::Block* blo
     return Status::OK();
 }
 
-Status LocalMergeSortExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
-                                     Profile&& profile, SinkInfo&& sink_info) {
-    if (!in_block->empty()) {
-        vectorized::Block new_block;
-        if (!_free_blocks.try_dequeue(new_block)) {
-            new_block = {in_block->clone_empty()};
-        }
-        DCHECK_LE(*sink_info.channel_id, _data_queue.size());
-
-        new_block.swap(*in_block);
-        _enqueue_data_and_set_ready(
-                *sink_info.channel_id, sink_info.local_state,
-                BlockWrapper::create_shared(
-                        std::move(new_block),
-                        sink_info.local_state ? sink_info.local_state->_shared_state : nullptr,
-                        *sink_info.channel_id));
-    }
-    if (eos && sink_info.local_state) {
-        sink_info.local_state->_shared_state->source_deps[*sink_info.channel_id]
-                ->set_always_ready();
-    }
-    return Status::OK();
-}
-
 void ExchangerBase::finalize() {
     DCHECK(_running_source_operators == 0);
     vectorized::Block block;
     while (_free_blocks.try_dequeue(block)) {
         // do nothing
     }
-}
-
-void LocalMergeSortExchanger::finalize() {
-    BlockWrapperSPtr next_block;
-    vectorized::Block block;
-    bool eos;
-    int id = 0;
-    for (auto& data_queue : _data_queue) {
-        data_queue.set_eos();
-        while (_dequeue_data(next_block, &eos, &block, id)) {
-            block = vectorized::Block();
-        }
-        id++;
-    }
-    ExchangerBase::finalize();
-}
-
-Status LocalMergeSortExchanger::build_merger(RuntimeState* state,
-                                             LocalExchangeSourceLocalState* local_state) {
-    RETURN_IF_ERROR(_sort_source->build_merger(state, _merger, local_state->profile()));
-    std::vector<vectorized::BlockSupplier> child_block_suppliers;
-    for (int channel_id = 0; channel_id < _num_partitions; channel_id++) {
-        vectorized::BlockSupplier block_supplier = [&, local_state, id = channel_id](
-                                                           vectorized::Block* block, bool* eos) {
-            BlockWrapperSPtr next_block;
-            _dequeue_data(local_state, next_block, eos, block, id);
-            return Status::OK();
-        };
-        child_block_suppliers.push_back(block_supplier);
-    }
-    RETURN_IF_ERROR(_merger->prepare(child_block_suppliers));
-    return Status::OK();
-}
-
-/*
-before
-    sort(8) --> datasink(8) [0,7].  ---->
-    sort(8) --> datasink(8) [8,15]. ---->        [0,23]global merge ---->   Exchange(1)
-    sort(8) --> datasink(8) [16,23].---->
-
-now
-
-    sort(8) --> local merge(1) ---> datasink(1) [0] ---->
-    sort(8) --> local merge(1) ---> datasink(1) [1] ---->     [0,2]global merge ---->   Exchange(1)
-    sort(8) --> local merge(1) ---> datasink(1) [2] ---->
-*/
-Status LocalMergeSortExchanger::get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
-                                          Profile&& profile, SourceInfo&& source_info) {
-    if (source_info.channel_id != 0) {
-        *eos = true;
-        return Status::OK();
-    }
-    if (!_merger) {
-        DCHECK(source_info.local_state);
-        RETURN_IF_ERROR(build_merger(state, source_info.local_state));
-    }
-    RETURN_IF_ERROR(_merger->get_next(block, eos));
-    return Status::OK();
 }
 
 Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
@@ -504,6 +443,8 @@ Status AdaptivePassthroughExchanger::_passthrough_sink(RuntimeState* state,
                     sink_info.local_state ? sink_info.local_state->_shared_state : nullptr,
                     channel_id));
 
+    sink_info.local_state->_memory_used_counter->set(
+            sink_info.local_state->_shared_state->mem_usage);
     return Status::OK();
 }
 
@@ -523,7 +464,11 @@ Status AdaptivePassthroughExchanger::_shuffle_sink(RuntimeState* state, vectoriz
             std::iota(channel_ids.begin() + i, channel_ids.end(), 0);
         }
     }
-    return _split_rows(state, channel_ids.data(), block, std::move(sink_info));
+
+    sink_info.local_state->_memory_used_counter->set(
+            sink_info.local_state->_shared_state->mem_usage);
+    RETURN_IF_ERROR(_split_rows(state, channel_ids.data(), block, std::move(sink_info)));
+    return Status::OK();
 }
 
 Status AdaptivePassthroughExchanger::_split_rows(RuntimeState* state,

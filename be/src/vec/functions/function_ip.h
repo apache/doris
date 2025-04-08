@@ -335,6 +335,7 @@ public:
             process_ipv6_column<ColumnString>(column, input_rows_count, vec_res, offsets_res,
                                               null_map, ipv6_address_data);
         }
+        vec_res.resize(offsets_res[offsets_res.size() - 1]);
 
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(col_res), std::move(null_map)));
@@ -1318,6 +1319,8 @@ public:
             cut_address(address, pos, bytes_to_cut_count);
             offsets_res[i] = cast_set<uint32_t>(pos - begin);
         }
+
+        chars_res.resize(offsets_res[offsets_res.size() - 1]);
 
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();

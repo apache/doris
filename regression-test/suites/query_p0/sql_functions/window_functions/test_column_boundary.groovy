@@ -20,7 +20,8 @@ suite("test_column_boundary","nonConcurrent") {
     sql """
         CREATE TABLE IF NOT EXISTS test_column_boundary (
             u_id int NULL COMMENT "",
-            u_city varchar(40) NULL COMMENT ""
+            u_city varchar(40) NULL COMMENT "",
+            str string NULL COMMENT ""
         ) ENGINE=OLAP
         DUPLICATE KEY(`u_id`, `u_city`)
         DISTRIBUTED BY HASH(`u_id`, `u_city`) BUCKETS 1
@@ -46,25 +47,25 @@ suite("test_column_boundary","nonConcurrent") {
     );
     """
 
-    sql """ insert into test_column_boundary2 select number, number + random() from numbers("number" = "1000000"); """
+    sql """ insert into test_column_boundary2 select number, number from numbers("number" = "1000000"); """
     Integer count = 0;
-    Integer maxCount = 270;
+    Integer maxCount = 200;
     while (count < maxCount) {
         log.info("count: ${count}")
-        sql """ insert into test_column_boundary select * from test_column_boundary2; """
+        sql """ insert into test_column_boundary select *, u_id + '0123456789012345678901234567890123456789' from test_column_boundary2; """
         count++
         sleep(100);
     }
+    sleep(1000);
     sql """ set parallel_pipeline_task_num = 1; """
 
-    qt_sql_1 """ select count() from test_column_boundary; """ // 256000000 rows
+    qt_sql_1 """ select count() from test_column_boundary; """
 
     try {
         GetDebugPoint().enableDebugPointForAllBEs("AnalyticSinkLocalState._remove_unused_rows")
         // before column size will be too large 
-        qt_sql_2 """ select sum(res) from (select count() over(partition by u_city) as res from test_column_boundary) as t; """
+        qt_sql_2 """ select sum(res) from (select count() over(partition by str) as res from test_column_boundary) as t; """
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("AnalyticSinkLocalState._remove_unused_rows")
     }
-    sql """ DROP TABLE IF EXISTS test_column_boundary """
 }

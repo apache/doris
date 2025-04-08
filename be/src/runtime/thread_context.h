@@ -20,6 +20,7 @@
 #include <bthread/bthread.h>
 #include <bthread/types.h>
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <thread>
@@ -92,7 +93,8 @@
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumerByHook(mem_tracker)
 #else
-#define SCOPED_PEAK_MEM() auto VARNAME_LINENUM(scoped_tls_pm) = doris::ScopedInitThreadContext()
+#define SCOPED_PEAK_MEM(peak_mem) \
+    auto VARNAME_LINENUM(scoped_tls_pm) = doris::ScopedInitThreadContext()
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
     auto VARNAME_LINENUM(scoped_tls_cmtbh) = doris::ScopedInitThreadContext()
 #endif
@@ -111,54 +113,41 @@
         __VA_ARGS__;                                                                    \
     } while (0)
 
-#define LIMIT_LOCAL_SCAN_IO(data_dir, bytes_read)                                       \
-    std::shared_ptr<IOThrottle> iot = nullptr;                                          \
-    auto* t_ctx = doris::thread_context(true);                                          \
-    if (t_ctx && t_ctx->is_attach_task() &&                                             \
-        t_ctx->resource_ctx()->workload_group_context()->workload_group() != nullptr) { \
-        iot = t_ctx->resource_ctx()                                                     \
-                      ->workload_group_context()                                        \
-                      ->workload_group()                                                \
-                      ->get_local_scan_io_throttle(data_dir);                           \
-    }                                                                                   \
-    if (iot) {                                                                          \
-        iot->acquire(-1);                                                               \
-    }                                                                                   \
-    Defer defer {                                                                       \
-        [&]() {                                                                         \
-            if (iot) {                                                                  \
-                iot->update_next_io_time(*bytes_read);                                  \
-                t_ctx->resource_ctx()                                                   \
-                        ->workload_group_context()                                      \
-                        ->workload_group()                                              \
-                        ->update_local_scan_io(data_dir, *bytes_read);                  \
-            }                                                                           \
-        }                                                                               \
+#define LIMIT_LOCAL_SCAN_IO(data_dir, bytes_read)                                                 \
+    std::shared_ptr<IOThrottle> iot = nullptr;                                                    \
+    auto* t_ctx = doris::thread_context(true);                                                    \
+    if (t_ctx && t_ctx->is_attach_task() && t_ctx->resource_ctx()->workload_group() != nullptr) { \
+        iot = t_ctx->resource_ctx()->workload_group()->get_local_scan_io_throttle(data_dir);      \
+    }                                                                                             \
+    if (iot) {                                                                                    \
+        iot->acquire(-1);                                                                         \
+    }                                                                                             \
+    Defer defer {                                                                                 \
+        [&]() {                                                                                   \
+            if (iot) {                                                                            \
+                iot->update_next_io_time(*bytes_read);                                            \
+                t_ctx->resource_ctx()->workload_group()->update_local_scan_io(data_dir,           \
+                                                                              *bytes_read);       \
+            }                                                                                     \
+        }                                                                                         \
     }
 
-#define LIMIT_REMOTE_SCAN_IO(bytes_read)                                                \
-    std::shared_ptr<IOThrottle> iot = nullptr;                                          \
-    auto* t_ctx = doris::thread_context(true);                                          \
-    if (t_ctx && t_ctx->is_attach_task() &&                                             \
-        t_ctx->resource_ctx()->workload_group_context()->workload_group() != nullptr) { \
-        iot = t_ctx->resource_ctx()                                                     \
-                      ->workload_group_context()                                        \
-                      ->workload_group()                                                \
-                      ->get_remote_scan_io_throttle();                                  \
-    }                                                                                   \
-    if (iot) {                                                                          \
-        iot->acquire(-1);                                                               \
-    }                                                                                   \
-    Defer defer {                                                                       \
-        [&]() {                                                                         \
-            if (iot) {                                                                  \
-                iot->update_next_io_time(*bytes_read);                                  \
-                t_ctx->resource_ctx()                                                   \
-                        ->workload_group_context()                                      \
-                        ->workload_group()                                              \
-                        ->update_remote_scan_io(*bytes_read);                           \
-            }                                                                           \
-        }                                                                               \
+#define LIMIT_REMOTE_SCAN_IO(bytes_read)                                                          \
+    std::shared_ptr<IOThrottle> iot = nullptr;                                                    \
+    auto* t_ctx = doris::thread_context(true);                                                    \
+    if (t_ctx && t_ctx->is_attach_task() && t_ctx->resource_ctx()->workload_group() != nullptr) { \
+        iot = t_ctx->resource_ctx()->workload_group()->get_remote_scan_io_throttle();             \
+    }                                                                                             \
+    if (iot) {                                                                                    \
+        iot->acquire(-1);                                                                         \
+    }                                                                                             \
+    Defer defer {                                                                                 \
+        [&]() {                                                                                   \
+            if (iot) {                                                                            \
+                iot->update_next_io_time(*bytes_read);                                            \
+                t_ctx->resource_ctx()->workload_group()->update_remote_scan_io(*bytes_read);      \
+            }                                                                                     \
+        }                                                                                         \
     }
 
 namespace doris {
@@ -185,6 +174,8 @@ inline thread_local bool use_mem_hook = false;
 //   4. ThreadMemTrackerMgr
 //
 // There may be other optional info to be added later.
+//
+// Note: Keep the class simple and only add properties.
 class ThreadContext {
 public:
     ThreadContext() { thread_mem_tracker_mgr = std::make_unique<ThreadMemTrackerMgr>(); }
@@ -195,9 +186,8 @@ public:
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
         DCHECK(resource_ctx_ == nullptr);
         resource_ctx_ = rc;
-        thread_mem_tracker_mgr->attach_limiter_tracker(
-                rc->memory_context()->mem_tracker(),
-                rc->workload_group_context()->workload_group());
+        thread_mem_tracker_mgr->attach_limiter_tracker(rc->memory_context()->mem_tracker(),
+                                                       rc->workload_group());
         thread_mem_tracker_mgr->enable_wait_gc();
     }
 
@@ -237,6 +227,7 @@ public:
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the hook is triggered to cause the crash.
     std::unique_ptr<ThreadMemTrackerMgr> thread_mem_tracker_mgr;
+
     int thread_local_handle_count = 0;
 
 private:
@@ -323,7 +314,9 @@ static ThreadContext* thread_context(bool allow_return_null = false) {
 
 class ScopedPeakMem {
 public:
-    explicit ScopedPeakMem(int64* peak_mem) : _peak_mem(peak_mem), _mem_tracker("ScopedPeakMem") {
+    explicit ScopedPeakMem(int64* peak_mem)
+            : _peak_mem(peak_mem),
+              _mem_tracker("ScopedPeakMem:" + UniqueId::gen_uid().to_string()) {
         ThreadLocalHandle::create_thread_local_if_not_exits();
         thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(&_mem_tracker);
     }
@@ -349,6 +342,9 @@ public:
 
 class AttachTask {
 public:
+    // you must use ResourceCtx or MemTracker initialization.
+    explicit AttachTask() = delete;
+
     explicit AttachTask(const std::shared_ptr<ResourceContext>& rc);
 
     // Shortcut attach task, initialize an empty resource context, and set the memory tracker.
@@ -426,22 +422,24 @@ public:
 // Basic macros for mem tracker, usually do not need to be modified and used.
 #if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
 // used to fix the tracking accuracy of caches.
-#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                        \
-    do {                                                                                     \
-        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||          \
-               doris::thread_context()->thread_mem_tracker()->label() != "Orphan")           \
-                << doris::memory_orphan_check_msg;                                           \
-        doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->transfer_to( \
-                size, tracker);                                                              \
+#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                             \
+    do {                                                                                          \
+        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||               \
+               doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label() != \
+                       "Orphan")                                                                  \
+                << doris::memory_orphan_check_msg;                                                \
+        doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->transfer_to(      \
+                size, tracker);                                                                   \
     } while (0)
 
-#define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker)                                        \
-    do {                                                                                       \
-        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||            \
-               doris::thread_context()->thread_mem_tracker()->label() != "Orphan")             \
-                << doris::memory_orphan_check_msg;                                             \
-        tracker->transfer_to(                                                                  \
-                size, doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()); \
+#define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker)                                           \
+    do {                                                                                          \
+        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||               \
+               doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label() != \
+                       "Orphan")                                                                  \
+                << doris::memory_orphan_check_msg;                                                \
+        tracker->transfer_to(                                                                     \
+                size, doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker());    \
     } while (0)
 
 // Mem Hook to consume thread mem tracker

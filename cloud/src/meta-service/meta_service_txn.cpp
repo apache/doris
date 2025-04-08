@@ -2559,6 +2559,10 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                instance_id, db_id, tmp_rowsets_meta, err);
         if ((MetaServiceCode::OK == code) || (TxnErrorCode::TXN_BYTES_TOO_LARGE != err) ||
             !allow_txn_lazy_commit) {
+            if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                msg += ", likely due to committing too many tablets. "
+                       "Please reduce the number of partitions involved in the load.";
+            }
             return;
         }
         DCHECK(code != MetaServiceCode::OK);
@@ -3127,6 +3131,7 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
     const std::string index_key = txn_index_key({instance_id, sub_txn_id});
     std::string index_val;
     TxnIndexPB index_pb;
+    index_pb.mutable_tablet_index()->set_db_id(db_id);
     if (!index_pb.SerializeToString(&index_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         ss << "failed to serialize txn_index_pb "

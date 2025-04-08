@@ -38,7 +38,6 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
-#include "gutil/integral_types.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_system.h"
 #include "io/io_common.h"
@@ -601,7 +600,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         }
 
         auto rowset = DORIS_TRY(_internal_sorting(
-                blocks, Version(_temp_delta_versions.second, _temp_delta_versions.second),
+                blocks, Version(_temp_delta_versions.second, _temp_delta_versions.second + 1),
                 newest_write_timestamp, new_tablet, BETA_ROWSET, segments_overlap,
                 new_tablet_schema));
         _src_rowsets.push_back(std::move(rowset));
@@ -611,7 +610,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         blocks.clear();
 
         // increase temp version
-        _temp_delta_versions.second++;
+        _temp_delta_versions.second += 2;
         return Status::OK();
     };
 
@@ -802,11 +801,15 @@ Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
               << ", alter_version=" << request.alter_version;
 
     // Lock schema_change_lock util schema change info is stored in tablet header
-    std::unique_lock<std::mutex> schema_change_lock(_base_tablet->get_schema_change_lock(),
-                                                    std::try_to_lock);
-    if (!schema_change_lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>("failed to obtain schema change lock. base_tablet={}",
-                                              request.base_tablet_id);
+    static constexpr long TRY_LOCK_TIMEOUT = 30;
+    std::unique_lock schema_change_lock(_base_tablet->get_schema_change_lock(), std::defer_lock);
+    bool owns_lock = schema_change_lock.try_lock_for(std::chrono::seconds(TRY_LOCK_TIMEOUT));
+
+    if (!owns_lock) {
+        return Status::Error<TRY_LOCK_FAILED>(
+                "Failed to obtain schema change lock, there might be inverted index being "
+                "built or cooldown runnning on base_tablet={}",
+                request.base_tablet_id);
     }
 
     Status res = _do_process_alter_tablet(request);

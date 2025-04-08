@@ -24,6 +24,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "vec/columns/column_filter_helper.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
 
@@ -70,7 +71,7 @@ public:
 
     size_t size() const { return next.size(); }
 
-    std::vector<uint8_t>& get_visited() { return visited; }
+    DorisVector<uint8_t>& get_visited() { return visited; }
 
     bool empty_build_side() const { return _empty_build_side; }
 
@@ -178,7 +179,7 @@ public:
     }
 
     template <int JoinOpType, bool is_mark_join>
-    bool iterate_map(std::vector<uint32_t>& build_idxs,
+    bool iterate_map(vectorized::ColumnVector<uint32_t>& build_idxs,
                      vectorized::ColumnFilterHelper* mark_column_helper) const {
         const auto batch_size = max_batch_size;
         const auto elem_num = visited.size();
@@ -187,7 +188,7 @@ public:
 
         while (count < batch_size && iter_idx < elem_num) {
             const auto matched = visited[iter_idx];
-            build_idxs[count] = iter_idx;
+            build_idxs.get_element(count) = iter_idx;
             if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
                 if constexpr (is_mark_join) {
                     mark_column_helper->insert_value(matched);
@@ -209,7 +210,7 @@ public:
 
     bool keep_null_key() { return _keep_null_key; }
 
-    void pre_build_idxs(std::vector<uint32>& buckets) const {
+    void pre_build_idxs(DorisVector<uint32>& buckets) const {
         for (unsigned int& bucket : buckets) {
             bucket = first[bucket];
         }
@@ -469,13 +470,13 @@ private:
     }
 
     const Key* __restrict build_keys;
-    std::vector<uint8_t> visited;
+    DorisVector<uint8_t> visited;
 
     uint32_t bucket_size = 1;
     int max_batch_size = 4064;
 
-    std::vector<uint32_t> first = {0};
-    std::vector<uint32_t> next = {0};
+    DorisVector<uint32_t> first = {0};
+    DorisVector<uint32_t> next = {0};
 
     // use in iter hash map
     mutable uint32_t iter_idx = 1;

@@ -38,6 +38,8 @@ enum class InvertedIndexParserType {
     PARSER_ENGLISH = 3,
     PARSER_CHINESE = 4,
     PARSER_UNICODE = 5,
+    PARSER_ICU = 6,
+    PARSER_BASIC = 7
 };
 
 using CharFilterMap = std::map<std::string, std::string>;
@@ -67,6 +69,8 @@ const std::string INVERTED_INDEX_PARSER_STANDARD = "standard";
 const std::string INVERTED_INDEX_PARSER_UNICODE = "unicode";
 const std::string INVERTED_INDEX_PARSER_ENGLISH = "english";
 const std::string INVERTED_INDEX_PARSER_CHINESE = "chinese";
+const std::string INVERTED_INDEX_PARSER_ICU = "icu";
+const std::string INVERTED_INDEX_PARSER_BASIC = "basic";
 
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY = "support_phrase";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES = "true";

@@ -337,4 +337,8 @@ public class SlotReference extends Slot {
     public String getQualifiedNameWithBackquote() throws UnboundException {
         return Utils.qualifiedNameWithBackquote(getQualifier(), getName());
     }
+
+    public boolean hasAutoInc() {
+        return column != null ? column.isAutoInc() : false;
+    }
 }

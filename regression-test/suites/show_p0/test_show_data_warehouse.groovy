@@ -84,22 +84,29 @@ suite("test_show_data_warehouse") {
         long start = System.currentTimeMillis()
         long dataSize = 0
         long current = -1
+
+        boolean hitDb1 = false;
+        boolean hitDb2 = false;
+        def result;
         do {
             current = System.currentTimeMillis()
-            def res = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name},${db2Name}"); """
-            if (res[0][1].toInteger() > 0 && res[1][1].toInteger() > 0) {
-                break;
+            result = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name}"); """
+            if ((result.size() == 2) && result[0][1].toInteger() == 785 * replicaCount1) {
+                hitDb1 = true;
+            }
+
+            result = sql """ show data properties("entire_warehouse"="true","db_names"="${db2Name}"); """
+            if (result.size() == 2 && result[0][1].toInteger() == 762 * replicaCount1) {
+                hitDb2 = true;
+            }
+            if (hitDb1 && hitDb2) {
+                break
             }
             sleep(30000)
-        } while (current - start < 600000)
+        } while (current - start < 1200 * 1000)
 
-        def result = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name}"); """
-        assertEquals(result.size(), 2)
-        assertEquals(result[0][1].toInteger(), 785 * replicaCount1)
-
-        result = sql """ show data properties("entire_warehouse"="true","db_names"="${db2Name}"); """
-        assertEquals(result.size(), 2)
-        assertEquals(result[0][1].toInteger(), 762 * replicaCount1)
+        // because asan be report maybe cost too much time
+        assertTrue((hitDb1 && hitDb2), "data size check fail after 1200s")
 
         result = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name},${db2Name}"); """
         assertEquals(result.size(), 3)

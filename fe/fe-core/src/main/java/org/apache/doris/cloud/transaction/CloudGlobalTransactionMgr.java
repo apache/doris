@@ -339,14 +339,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Deprecated
     @Override
-    public void commitTransaction(long dbId, List<Table> tableList,
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
-        commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, null);
+        commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, null);
     }
 
     @Override
-    public void commitTransaction(long dbId, List<Table> tableList, long transactionId,
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
@@ -582,7 +582,18 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             TxnCommitAttachment txnCommitAttachment) throws UserException {
         if (DebugPointUtil.isEnable("FE.mow.commit.exception")) {
             LOG.info("debug point FE.mow.commit.exception, throw e");
-            throw new UserException("debug point FE.mow.commit.exception");
+            throw new UserException(InternalErrorCode.INTERNAL_ERR, "debug point FE.mow.commit.exception");
+        }
+        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.executeCommitTxnRequest.block")) {
+            LOG.info("debug point: block at CloudGlobalTransactionMgr.executeCommitTxnRequest.block");
+            while (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.executeCommitTxnRequest.block")) {
+                try {
+                    Thread.sleep(800);
+                } catch (InterruptedException e) {
+                    LOG.info("error ", e);
+                }
+            }
+            LOG.info("debug point: leave CloudGlobalTransactionMgr.executeCommitTxnRequest.block");
         }
         boolean txnOperated = false;
         TransactionState txnState = null;
@@ -608,7 +619,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.info("commitTxn, run txn callback, transactionId:{} callbackId:{}, txnState:{}",
                         transactionId, callbackId, txnState);
                 cb.afterCommitted(txnState, txnOperated);
-                cb.afterVisible(txnState, txnOperated);
+                // do not exectue afterVisible if commit txn fail in cloud mode
+                if (txnOperated) {
+                    cb.afterVisible(txnState, txnOperated);
+                }
             }
         }
     }
@@ -801,17 +815,26 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 if (!lockContext.getBaseCompactionCnts().isEmpty()
                         && !lockContext.getCumulativeCompactionCnts().isEmpty()
                         && !lockContext.getCumulativePoints().isEmpty()) {
+                    boolean hasTabletStats = !lockContext.getTabletStates().isEmpty();
+
                     List<Long> reqBaseCompactionCnts = Lists.newArrayList();
                     List<Long> reqCumulativeCompactionCnts = Lists.newArrayList();
                     List<Long> reqCumulativePoints = Lists.newArrayList();
+                    List<Long> reqTabletStates = Lists.newArrayList();
                     for (long tabletId : tabletList) {
                         reqBaseCompactionCnts.add(lockContext.getBaseCompactionCnts().get(tabletId));
                         reqCumulativeCompactionCnts.add(lockContext.getCumulativeCompactionCnts().get(tabletId));
                         reqCumulativePoints.add(lockContext.getCumulativePoints().get(tabletId));
+                        if (hasTabletStats) {
+                            reqTabletStates.add(lockContext.getTabletStates().get(tabletId));
+                        }
                     }
                     partitionInfo.setBaseCompactionCnts(reqBaseCompactionCnts);
                     partitionInfo.setCumulativeCompactionCnts(reqCumulativeCompactionCnts);
                     partitionInfo.setCumulativePoints(reqCumulativePoints);
+                    if (hasTabletStats) {
+                        partitionInfo.setTabletStates(reqTabletStates);
+                    }
                     if (partitionToSubTxnIds != null) {
                         List<Long> subTxnIds = partitionToSubTxnIds.get(partitionId);
                         if (subTxnIds != null && !subTxnIds.isEmpty()) {
@@ -864,6 +887,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         stopWatch.start();
         getPartitionInfo(mowTableList, tabletCommitInfos, lockContext);
         int totalRetryTime = 0;
+        String retryMsg = "";
         for (Map.Entry<Long, Set<Long>> entry : lockContext.getTableToPartitions().entrySet()) {
             GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
             builder.setTableId(entry.getKey()).setLockId(transactionId).setInitiator(-1)
@@ -911,8 +935,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         break;
                     }
                 } catch (Exception e) {
-                    LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}", transactionId,
-                            retryTime, e);
+                    LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}, tableIds={}",
+                            transactionId,
+                            retryTime, mowTableList.stream().map(Table::getId).collect(Collectors.toList()), e);
+                }
+                retryMsg = response.toString();
+                if (DebugPointUtil.isEnable("FE.mow.check.lock.release")
+                        && response.getStatus().getCode() == MetaServiceCode.LOCK_CONFLICT) {
+                    throw new UserException(InternalErrorCode.INTERNAL_ERR,
+                            "check delete bitmap lock release fail,response is " + response
+                                    + ", tableList=(" + StringUtils.join(mowTableList, ",") + ")");
                 }
                 // sleep random millis [20, 300] ms, avoid txn conflict
                 int randomMillis = 20 + (int) (Math.random() * (300 - 20));
@@ -927,6 +959,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
             Preconditions.checkNotNull(response);
             Preconditions.checkNotNull(response.getStatus());
+            if (DebugPointUtil.isEnable("FE.mow.get_delete_bitmap_lock.fail")) {
+                throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                        "test get_delete_bitmap_lock fail");
+            }
             if (response.getStatus().getCode() != MetaServiceCode.OK) {
                 LOG.warn("get delete bitmap lock failed, transactionId={}, for {} times, response:{}", transactionId,
                         retryTime, response);
@@ -935,9 +971,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
                     // DELETE_BITMAP_LOCK_ERR will be retried on be
                     throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
-                            "Failed to get delete bitmap lock due to confilct");
+                            "Failed to get delete bitmap lock due to conflict");
                 }
-                throw new UserException("Failed to get delete bitmap lock, code: " + response.getStatus().getCode());
+                throw new UserException(
+                        "Failed to get delete bitmap lock, msg: " + response.getStatus().getMsg() + ", code: "
+                                + response.getStatus().getCode());
             }
 
             // record tablet's latest compaction stats from meta service and send them to BEs
@@ -945,26 +983,34 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             List<Long> respBaseCompactionCnts = response.getBaseCompactionCntsList();
             List<Long> respCumulativeCompactionCnts = response.getCumulativeCompactionCntsList();
             List<Long> respCumulativePoints = response.getCumulativePointsList();
+            List<Long> respTabletStates = response.getTabletStatesList();
             int size1 = respBaseCompactionCnts.size();
             int size2 = respCumulativeCompactionCnts.size();
             int size3 = respCumulativePoints.size();
-            if (size1 != tabletList.size() || size2 != tabletList.size() || size3 != tabletList.size()) {
+            int size4 = respTabletStates.size();
+            if (size1 != tabletList.size() || size2 != tabletList.size() || size3 != tabletList.size()
+                    || (size4 > 0 && size4 != tabletList.size())) {
                 throw new UserException("The size of returned compaction cnts can't match the size of tabletList, "
                         + "tabletList.size()=" + tabletList.size() + ", respBaseCompactionCnts.size()=" + size1
-                        + ", respCumulativeCompactionCnts.size()=" + size2 + ", respCumulativePoints.size()=" + size3);
+                        + ", respCumulativeCompactionCnts.size()=" + size2 + ", respCumulativePoints.size()=" + size3
+                        + ", respTabletStates.size()=" + size4);
             }
             for (int i = 0; i < tabletList.size(); i++) {
                 long tabletId = tabletList.get(i);
                 lockContext.getBaseCompactionCnts().put(tabletId, respBaseCompactionCnts.get(i));
                 lockContext.getCumulativeCompactionCnts().put(tabletId, respCumulativeCompactionCnts.get(i));
                 lockContext.getCumulativePoints().put(tabletId, respCumulativePoints.get(i));
+                if (size4 > 0) {
+                    lockContext.getTabletStates().put(tabletId, respTabletStates.get(i));
+                }
             }
             totalRetryTime += retryTime;
         }
         stopWatch.stop();
         LOG.info("get delete bitmap lock successfully. txnId: {}. totalRetryTime: {}. "
-                        + "tableSize: {}. cost: {} ms.", transactionId, totalRetryTime,
-                lockContext.getTableToPartitions().size(), stopWatch.getTime());
+                        + "tableSize: {}. cost: {} ms. tableIds: {}. retryMsg: {}.", transactionId, totalRetryTime,
+                lockContext.getTableToPartitions().size(), stopWatch.getTime(),
+                mowTableList.stream().map(Table::getId).collect(Collectors.toList()), retryMsg);
     }
 
     private void removeDeleteBitmapUpdateLock(List<OlapTable> tableList, long transactionId) {
@@ -1236,13 +1282,48 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         List<Table> tablesToLock = getTablesNeedCommitLock(tableList);
+        StopWatch stopWatch = null;
+        if (!tablesToLock.isEmpty()) {
+            stopWatch = new StopWatch();
+            stopWatch.start();
+        }
         increaseWaitingLockCount(tablesToLock);
+        if (!tablesToLock.isEmpty() && DebugPointUtil.isEnable("FE.mow.check.lock.release")) {
+            for (int i = 0; i < tablesToLock.size(); i++) {
+                if (tablesToLock.get(i).getCommitLockOwner() != null) {
+                    throw new UserException(InternalErrorCode.INTERNAL_ERR,
+                            "check lock release fail,lock owner is " + tablesToLock.get(i).getCommitLockOwner()
+                                    + ", tableList=(" + StringUtils.join(tablesToLock, ",") + ")");
+                }
+            }
+        }
+        if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.tryCommitLock.timeout")) {
+            DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
+                    "CloudGlobalTransactionMgr.tryCommitLock.timeout");
+            int t = debugPoint.param("sleep_time", 5);
+            try {
+                Thread.sleep(t * 1000);
+            } catch (InterruptedException e) {
+                LOG.info("error ", e);
+            }
+            throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                    "test get table cloud commit lock timeout, tableList=("
+                            + StringUtils.join(tablesToLock, ",") + ")");
+        }
         if (!MetaLockUtils.tryCommitLockTables(tablesToLock, timeoutMillis, TimeUnit.MILLISECONDS)) {
             decreaseWaitingLockCount(tablesToLock);
             // DELETE_BITMAP_LOCK_ERR will be retried on be
             throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                     "get table cloud commit lock timeout, tableList=("
                             + StringUtils.join(tablesToLock, ",") + ")");
+        }
+        if (stopWatch != null) {
+            stopWatch.stop();
+            long costTimeMs = stopWatch.getTime();
+            if (costTimeMs > 1000) {
+                LOG.warn("get table cloud commit lock, tableList=(" + StringUtils.join(tablesToLock, ",") + ")"
+                        + ", transactionId=" + transactionId + ", cost=" + costTimeMs + " ms");
+            }
         }
     }
 
@@ -1253,12 +1334,21 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public void commitTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis, TxnCommitAttachment txnCommitAttachment)
+            throws UserException {
+        // There is no publish in cloud mode
+        commitAndPublishTransaction(
+                db, tableList, transactionId, tabletCommitInfos, timeoutMillis, txnCommitAttachment);
+    }
+
+    @Override
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
                                                TxnCommitAttachment txnCommitAttachment) throws UserException {
         beforeCommitTransaction(tableList, transactionId, timeoutMillis);
         try {
-            commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+            commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
             afterCommitTransaction(tableList);
         }

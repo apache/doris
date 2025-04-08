@@ -270,6 +270,11 @@ public:
             _evaluated_rows += current_evaluated_rows;
         }
 
+        Defer defer([&]() {
+            update_filter_info(current_evaluated_rows - current_passed_rows,
+                               current_evaluated_rows);
+        });
+
         if (column.is_nullable()) {
             const auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);

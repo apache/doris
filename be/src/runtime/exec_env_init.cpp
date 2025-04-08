@@ -41,7 +41,6 @@
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -262,6 +261,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     _runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
     CgroupCpuCtl::init_doris_cgroup_path();
+    _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _file_cache_factory = new io::FileCacheFactory();
     std::vector<doris::CachePath> cache_paths;
     init_file_cache_factory(cache_paths);
@@ -270,7 +270,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _workload_group_manager = new WorkloadGroupMgr();
-    _workload_group_manager->init_internal_workload_group();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
@@ -302,7 +301,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
-    _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _wal_manager = WalManager::create_unique(this, config::group_commit_wal_path);
     _dns_cache = new DNSCache();
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
@@ -360,8 +358,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return st;
     }
     _storage_engine->set_heartbeat_flags(this->heartbeat_flags());
-    WorkloadGroupPtr internal_wg = _workload_group_manager->get_internal_wg();
-    if (st = _storage_engine->start_bg_threads(internal_wg); !st.ok()) {
+    if (st = _storage_engine->start_bg_threads(nullptr); !st.ok()) {
         LOG(ERROR) << "Failed to starge bg threads of storage engine, res=" << st;
         return st;
     }
@@ -616,6 +613,8 @@ void ExecEnv::init_mem_tracker() {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "S3FileBuffer");
     _stream_load_pipe_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "StreamLoadPipe");
+    _parquet_meta_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::METADATA, "ParquetMeta");
 }
 
 Status ExecEnv::_check_deploy_mode() {
@@ -722,7 +721,6 @@ void ExecEnv::destroy() {
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
-    _file_cache_open_fd_cache.reset();
     SAFE_STOP(_write_cooldown_meta_executors);
 
     // StorageEngine must be destoried before _cache_manager destory
@@ -743,7 +741,6 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_load_channel_mgr);
 
-    SAFE_DELETE(_spill_stream_mgr);
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
     SAFE_DELETE(_lookup_connection_cache);
@@ -775,6 +772,10 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_bfd_parser);
     SAFE_DELETE(_result_cache);
+    SAFE_DELETE(_vstream_mgr);
+    // When _vstream_mgr is deconstructed, it will try call query context's dctor and will
+    // access spill stream mgr, so spill stream mgr should be deconstructed after data stream manager
+    SAFE_DELETE(_spill_stream_mgr);
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_workload_sched_mgr);
     SAFE_DELETE(_workload_group_manager);
@@ -796,7 +797,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_backend_client_cache);
     SAFE_DELETE(_result_queue_mgr);
 
-    SAFE_DELETE(_vstream_mgr);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
 

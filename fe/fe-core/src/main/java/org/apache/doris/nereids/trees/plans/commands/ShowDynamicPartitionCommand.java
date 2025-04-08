@@ -31,6 +31,7 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -116,6 +117,12 @@ public class ShowDynamicPartitionCommand extends ShowCommand {
                     DynamicPartitionProperty dynamicPartitionProperty
                             = olapTable.getTableProperty().getDynamicPartitionProperty();
                     String tableName = olapTable.getName();
+                    if (olapTable.isTemporary()) {
+                        if (!Util.isTempTableInCurrentSession(tableName)) {
+                            continue;
+                        }
+                        tableName = Util.getTempTableDisplayName(tableName);
+                    }
                     ReplicaAllocation replicaAlloc = dynamicPartitionProperty.getReplicaAllocation();
                     if (replicaAlloc.isNotSet()) {
                         replicaAlloc = olapTable.getDefaultReplicaAllocation();
@@ -151,12 +158,17 @@ public class ShowDynamicPartitionCommand extends ShowCommand {
                 }
             }
         }
-        return new ShowResultSet(SHOW_DYNAMIC_PARTITION_META_DATA, rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowDynamicPartitionCommand(this, context);
+    }
+
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return SHOW_DYNAMIC_PARTITION_META_DATA;
     }
 
     @Override

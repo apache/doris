@@ -22,11 +22,13 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
 class MemTrackerLimiter;
+class ResourceContext;
 
 class MemoryContext : public std::enable_shared_from_this<MemoryContext> {
     ENABLE_FACTORY_CREATOR(MemoryContext);
@@ -71,12 +73,21 @@ public:
 
     MemoryContext() { stats_.init_profile(); }
     virtual ~MemoryContext() = default;
-    Stats* stats() { return &stats_; }
 
-    std::shared_ptr<MemTrackerLimiter> mem_tracker() { return mem_tracker_; }
+    RuntimeProfile* stats_profile() { return stats_.profile(); }
+
+    std::shared_ptr<MemTrackerLimiter> mem_tracker() const { return mem_tracker_; }
     void set_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
         mem_tracker_ = mem_tracker;
     }
+
+    int64_t current_memory_bytes() const { return mem_tracker_->consumption(); }
+    int64_t peak_memory_bytes() const { return mem_tracker_->peak_consumption(); }
+    // TODO, use stats_.max_peak_memory_bytes_counter_->value();
+    int64_t max_peak_memory_bytes() const { return mem_tracker_->peak_consumption(); }
+    int64_t revoke_attempts() const { return stats_.revoke_attempts_counter_->value(); }
+    int64_t revoke_wait_time_ms() const { return stats_.revoke_wait_time_ms_counter_->value(); }
+    int64_t revoked_bytes() const { return stats_.revoked_bytes_counter_->value(); }
 
     // Following method is related with spill disk.
     // Compute the number of bytes could be released.
@@ -92,9 +103,14 @@ public:
     virtual Status leave_arbitration(Status reason) { return Status::OK(); }
 
 protected:
+    friend class ResourceContext;
+
+    void set_resource_ctx(ResourceContext* resource_ctx) { resource_ctx_ = resource_ctx; }
+
     Stats stats_;
     // MemTracker that is shared by all fragment instances running on this host.
-    std::shared_ptr<MemTrackerLimiter> mem_tracker_;
+    std::shared_ptr<MemTrackerLimiter> mem_tracker_ {nullptr};
+    ResourceContext* resource_ctx_ {nullptr};
 };
 
 } // namespace doris

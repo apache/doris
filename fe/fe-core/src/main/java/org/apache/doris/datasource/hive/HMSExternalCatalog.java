@@ -176,7 +176,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
                 hiveConf.set(kv.getKey(), kv.getValue());
             }
-            hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+            HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
                     String.valueOf(Config.hive_metastore_client_timeout_second));
         }
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
@@ -190,10 +190,21 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void onRefresh(boolean invalidCache) {
-        super.onRefresh(invalidCache);
+    public void resetToUninitialized(boolean invalidCache) {
+        super.resetToUninitialized(invalidCache);
         if (metadataOps != null) {
             metadataOps.close();
+        }
+    }
+
+    @Override
+    public void onClose() {
+        super.onClose();
+        if (null != fileSystemExecutor) {
+            ThreadPoolManager.shutdownExecutorService(fileSystemExecutor);
+        }
+        if (null != icebergMetadataOps) {
+            icebergMetadataOps.close();
         }
     }
 

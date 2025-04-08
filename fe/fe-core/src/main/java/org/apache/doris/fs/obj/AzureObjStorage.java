@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.remote.RemoteFile;
 
@@ -41,6 +42,7 @@ import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.ListBlobsOptions;
+import com.azure.storage.blob.specialized.BlockBlobClient;
 import com.azure.storage.common.StorageSharedKeyCredential;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.http.HttpStatus;
@@ -48,20 +50,22 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.UUID;
 
 public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     private static final Logger LOG = LogManager.getLogger(AzureObjStorage.class);
-    private static final String URI_TEMPLATE = "https://%s.blob.core.windows.net";
     protected Map<String, String> properties;
     private BlobServiceClient client;
     private boolean isUsePathStyle = false;
@@ -99,7 +103,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         }
         // Virtual hosted-style is recommended in the s3 protocol.
         // The path-style has been abandoned, but for some unexplainable reasons,
-        // the s3 client will determine whether the endpiont starts with `s3`
+        // the s3 client will determine whether the endpoint starts with `s3`
         // when generating a virtual hosted-sytle request.
         // If not, it will not be converted ( https://github.com/aws/aws-sdk-java-v2/pull/763),
         // but the endpoints of many cloud service providers for object storage do not start with s3,
@@ -116,12 +120,14 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public BlobServiceClient getClient() throws UserException {
         if (client == null) {
-            String uri = String.format(URI_TEMPLATE, properties.get(S3Properties.ACCESS_KEY));
-            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(properties.get(S3Properties.ACCESS_KEY),
+            final String accountName = properties.get(S3Properties.ACCESS_KEY);
+            final String endpoint = AzureProperties.formatAzureEndpoint(
+                    properties.get(S3Properties.ENDPOINT), accountName);
+            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(accountName,
                     properties.get(S3Properties.SECRET_KEY));
             BlobServiceClientBuilder builder = new BlobServiceClientBuilder();
             builder.credential(cred);
-            builder.endpoint(uri);
+            builder.endpoint(endpoint);
             client = builder.buildClient();
         }
         return client;
@@ -163,10 +169,12 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             LOG.info("get file " + remoteFilePath + " success: " + properties.toString());
             return Status.OK;
         } catch (BlobStorageException e) {
+            LOG.warn("{} getObject exception:", remoteFilePath, e);
             return new Status(
                     Status.ErrCode.COMMON_ERROR,
                     "get file from azure error: " + e.getServiceMessage());
         } catch (UserException e) {
+            LOG.warn("{} getObject exception:", remoteFilePath, e);
             return new Status(Status.ErrCode.COMMON_ERROR, "getObject "
                     + remoteFilePath + " failed: " + e.getMessage());
         }
@@ -180,10 +188,12 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             blobClient.upload(content, contentLength);
             return Status.OK;
         } catch (BlobStorageException e) {
+            LOG.warn("{} putObject exception:", remotePath, e);
             return new Status(
                     Status.ErrCode.COMMON_ERROR,
                     "Error occurred while copying the blob:: " + e.getServiceMessage());
         } catch (UserException e) {
+            LOG.warn("{} putObject exception:", remotePath, e);
             return new Status(Status.ErrCode.COMMON_ERROR, "putObject "
                     + remotePath + " failed: " + e.getMessage());
         }
@@ -274,8 +284,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public RemoteObjects listObjects(String remotePath, String continuationToken) throws DdlException {
         try {
-            ListBlobsOptions options = new ListBlobsOptions().setPrefix(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            ListBlobsOptions options = new ListBlobsOptions().setPrefix(uri.getKey());
             PagedIterable<BlobItem> pagedBlobs = getClient().getBlobContainerClient(uri.getBucket())
                     .listBlobs(options, continuationToken, null);
             PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
@@ -389,7 +399,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                     + " failed because azure error: " + e.getMessage());
         } catch (Exception e) {
             LOG.warn("errors while glob file " + remotePath, e);
-            st = new Status(Status.ErrCode.COMMON_ERROR, "errors while glob file " + remotePath + e.getMessage());
+            st = new Status(Status.ErrCode.COMMON_ERROR,
+                    "errors while glob file " + remotePath + ": " + e.getMessage());
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
@@ -404,5 +415,42 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                                                      String newContinuationToken) {
         PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
         return pagedBlobs.iterableByPage().iterator().next();
+    }
+
+
+    public Status multipartUpload(String remotePath, @Nullable InputStream inputStream, long totalBytes) {
+        Status st = Status.OK;
+        long uploadedBytes = 0;
+        int bytesRead = 0;
+        byte[] buffer = new byte[CHUNK_SIZE];
+        List<String> blockIds = new ArrayList<>();
+        BlockBlobClient blockBlobClient = null;
+
+
+        try {
+            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            blockBlobClient = getClient().getBlobContainerClient(uri.getBucket())
+                    .getBlobClient(uri.getKey()).getBlockBlobClient();
+            while (uploadedBytes < totalBytes && (bytesRead = inputStream.read(buffer)) != -1) {
+                String blockId = Base64.getEncoder().encodeToString(UUID.randomUUID().toString().getBytes());
+                blockIds.add(blockId);
+                blockBlobClient.stageBlock(blockId, new ByteArrayInputStream(buffer, 0, bytesRead), bytesRead);
+                uploadedBytes += bytesRead;
+            }
+            blockBlobClient.commitBlockList(blockIds);
+        } catch (Exception e) {
+            LOG.warn("remotePath:{}, ", remotePath, e);
+            st = new Status(Status.ErrCode.COMMON_ERROR, "Failed to multipartUpload " + remotePath
+                    + " reason: " + e.getMessage());
+
+            if (blockBlobClient != null) {
+                try {
+                    blockBlobClient.delete();
+                } catch (Exception e1) {
+                    LOG.warn("abort multipartUpload failed", e1);
+                }
+            }
+        }
+        return st;
     }
 }

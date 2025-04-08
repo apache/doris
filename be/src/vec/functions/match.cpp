@@ -106,7 +106,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
     const ColumnArray* array_col = nullptr;
-    if (source_col->is_column_array()) {
+    if (is_column<vectorized::ColumnArray>(source_col.get())) {
         array_col = check_and_get_column<ColumnArray>(source_col.get());
         if (array_col && !array_col->get_data().is_column_string()) {
             return Status::NotSupported(fmt::format(
@@ -235,7 +235,7 @@ Status FunctionMatchBase::check(FunctionContext* context, const std::string& fun
 
     DBUG_EXECUTE_IF("match.invert_index_not_support_execute_match", {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "{} not support execute_match", function_name);
+                "debug point: {} not support execute_match", function_name);
     });
 
     return Status::OK();

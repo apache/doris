@@ -505,32 +505,42 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     return new PhysicalProperties(
                             DistributionSpecHash.merge(rightHashSpec, leftHashSpec, outputShuffleType)
                     );
-                } else {
+                } else if (shuffleSide == ShuffleSide.RIGHT || shuffleSide == ShuffleSide.NONE) {
                     return new PhysicalProperties(
                             DistributionSpecHash.merge(leftHashSpec, rightHashSpec, outputShuffleType)
                     );
+                } else if (shuffleSide == ShuffleSide.BOTH) {
+                    return new PhysicalProperties(
+                            DistributionSpecHash.merge(leftHashSpec, rightHashSpec, outputShuffleType)
+                                    .withShuffleTypeAndForbidColocateJoin(leftHashSpec.getShuffleType())
+                    );
+                } else {
+                    throw new AnalysisException("unknown shuffle side " + shuffleSide);
                 }
             case LEFT_SEMI_JOIN:
             case LEFT_ANTI_JOIN:
             case NULL_AWARE_LEFT_ANTI_JOIN:
             case LEFT_OUTER_JOIN:
-                if (shuffleSide == ShuffleSide.LEFT) {
+                if (shuffleSide == ShuffleSide.LEFT || shuffleSide == ShuffleSide.BOTH) {
                     return new PhysicalProperties(
                             leftHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
                     );
-                } else {
+                } else if (shuffleSide == ShuffleSide.RIGHT || shuffleSide == ShuffleSide.NONE) {
                     return new PhysicalProperties(leftHashSpec);
+                } else {
+                    throw new AnalysisException("unknown shuffle side " + shuffleSide);
                 }
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:
             case RIGHT_OUTER_JOIN:
-                if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
+                if (shuffleSide == ShuffleSide.RIGHT || shuffleSide == ShuffleSide.BOTH) {
+                    return new PhysicalProperties(
+                            rightHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
+                    );
+                } else if (shuffleSide == ShuffleSide.LEFT || shuffleSide == ShuffleSide.NONE) {
                     return new PhysicalProperties(rightHashSpec);
                 } else {
-                    // retain left shuffle type, since coordinator use left most node to schedule fragment
-                    // forbid colocate join, since right table already shuffle
-                    return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
-                            leftHashSpec.getShuffleType()));
+                    throw new AnalysisException("unknown shuffle side " + shuffleSide);
                 }
             case FULL_OUTER_JOIN:
                 return PhysicalProperties.createAnyFromHash(leftHashSpec, rightHashSpec);
