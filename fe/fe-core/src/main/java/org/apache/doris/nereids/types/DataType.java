@@ -356,7 +356,7 @@ public abstract class DataType {
             case VARCHAR: return VarcharType.createVarcharType(type.getLength());
             case STRING: return StringType.INSTANCE;
             case VARIANT: {
-                ScalarType scType = (ScalarType) type;
+                org.apache.doris.catalog.VariantType scType = (org.apache.doris.catalog.VariantType) type;
                 return new VariantType(scType.getVariantMaxSubcolumnsCount());
             }
             case JSONB: return JsonType.INSTANCE;
@@ -817,6 +817,19 @@ public abstract class DataType {
                             throw new AnalysisException("Duplicate field name " + field.getName()
                                     + " in struct " + catalogType.toSql());
                         }
+                    }
+                }
+            }
+            if (catalogType.isVariantType()) {
+                ArrayList<org.apache.doris.catalog.VariantField> predefinedFields =
+                        ((org.apache.doris.catalog.VariantType) catalogType).getPredefinedFields();
+                Set<String> fieldPatterns = new HashSet<>();
+                for (org.apache.doris.catalog.VariantField field : predefinedFields) {
+                    Type fieldType = field.getType();
+                    validateNestedType(catalogType, fieldType);
+                    if (!fieldPatterns.add(field.getPattern())) {
+                        throw new AnalysisException("Duplicate field name " + field.getPattern()
+                                + " in struct " + catalogType.toSql());
                     }
                 }
             }
