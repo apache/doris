@@ -209,7 +209,7 @@ suite ("test_modify_struct") {
                 },changeErrMsg)
             }
             // 3.9 add sub-column + duplicate sub-column name; when in DataType::validateCatalogDataType will throw exception
-            def duplicateErrMsg="errCode = 2, detailMessage = Duplicate field"
+            def duplicateErrMsg="detailMessage = Field names must be unique"
             expectExceptionLike({
                 sql """ alter table ${tableName} modify column c_s_1 STRUCT<col:VARCHAR(30), col1:INT, col2:DECIMAL(10,2), col1:INT> ${defaultValue} """
                 waitUntilSchemaChangeDone.call(tableName, "")
