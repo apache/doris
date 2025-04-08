@@ -185,10 +185,10 @@ suite("test_ranger_masking", "p2,ranger,external") {
 		def tokens = context.config.jdbcUrl.split('/')
 		def defaultJdbcUrl = tokens[0] + "//" + tokens[2] + "/?"
 		connect("$user", "$pwd", "$defaultJdbcUrl") {
-			sql("""SELECT * FROM internal.${internalDb}.${internalTable}""")
+			order_qt_internal("""SELECT * FROM internal.${internalDb}.${internalTable}""")
 		}
 		connect("$user", "$pwd", "$defaultJdbcUrl") {
-			sql("""SELECT * FROM ${catalog1}.${catalogDb}.${catalogTable}""")
+			order_qt_catalog("""SELECT * FROM ${catalog1}.${catalogDb}.${catalogTable}""")
 		}
 	}
 }

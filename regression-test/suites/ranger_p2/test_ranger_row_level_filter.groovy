@@ -105,6 +105,8 @@ suite("test_ranger_row_level_filter", "p2,ranger,external") {
 		(9, 'DataNin09', 'SampleI9', 'Value9R', 'InfoR901', 'DescI9', 'Extra9I', 'AddVal9', '2024-09-01', '2016-12-02 19:28:30'),
 		(10, 'DataTen10', 'SampleJ0', 'Value0Q', 'InfoQ012', 'DescJ0', 'Extra0J', 'AddVal0', '2025-10-01', '2017-12-02 19:28:30');"""
 
+		order_qt_internal_all("""SELECT * FROM internal.${internalDb}.${internalTable}""")
+		order_qt_catalog_all("""SELECT * FROM ${catalog1}.${catalogDb}.${catalogTable}""")
 		// prepare user
 		String user = 'ranger_test_row_filter_user1'
 		String pwd = 'C123_567p'
@@ -163,10 +165,10 @@ suite("test_ranger_row_level_filter", "p2,ranger,external") {
 		def tokens = context.config.jdbcUrl.split('/')
 		def defaultJdbcUrl = tokens[0] + "//" + tokens[2] + "/?"
 		connect("$user", "$pwd", "$defaultJdbcUrl") {
-			order_qt_1("""SELECT * FROM internal.${internalDb}.${internalTable}""")
+			order_qt_internal("""SELECT * FROM internal.${internalDb}.${internalTable}""")
 		}
 		connect("$user", "$pwd", "$defaultJdbcUrl") {
-			order_qt_2("""SELECT * FROM ${catalog1}.${catalogDb}.${catalogTable}""")
+			order_qt_catalog("""SELECT * FROM ${catalog1}.${catalogDb}.${catalogTable}""")
 		}
 	}
 }
