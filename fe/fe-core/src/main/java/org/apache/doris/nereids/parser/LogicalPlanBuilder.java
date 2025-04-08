@@ -530,6 +530,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusComma
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterColocateGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
@@ -725,6 +726,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.BuildIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ColocateGroupName;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateJobInfo;
@@ -6467,6 +6469,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitKillAnalyzeJob(DorisParser.KillAnalyzeJobContext ctx) {
         long jobId = Long.parseLong(ctx.jobId.getText());
         return new KillAnalyzeJobCommand(jobId);
+    }
+
+    @Override
+    public LogicalPlan visitAlterColocateGroup(DorisParser.AlterColocateGroupContext ctx) {
+        String dbName = null;
+        String group;
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        if (nameParts.size() == 2) {
+            dbName = nameParts.get(0);
+            group = nameParts.get(1);
+        } else if (nameParts.size() == 1) {
+            group = nameParts.get(0);
+        } else {
+            throw new ParseException("invalid group name!");
+        }
+        ColocateGroupName groupName = new ColocateGroupName(dbName, group);
+        Map<String, String> properties = new HashMap<>();
+        properties.putAll(visitPropertyItemList(ctx.propertyItemList()));
+        return new AlterColocateGroupCommand(groupName, properties);
     }
 }
 
