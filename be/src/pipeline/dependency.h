@@ -688,6 +688,7 @@ public:
     // If a calculation involves both nullable and non-nullable columns, the final output should be a nullable column
     Status update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs);
 
+    size_t get_hash_table_size() const;
     /// init in both upstream side.
     //The i-th result expr list refers to the i-th child.
     std::vector<vectorized::VExprContextSPtrs> child_exprs_lists;
