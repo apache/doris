@@ -119,7 +119,7 @@ TEST_F(PipelineTaskTest, TEST_CONSTRUCTOR) {
     EXPECT_EQ(task->_exec_state, PipelineTask::State::INITED);
 }
 
-TEST_F(PipelineTaskTest, TEST_PREPARE_HAPPY_PATH) {
+TEST_F(PipelineTaskTest, TEST_PREPARE) {
     auto num_instances = 1;
     auto pip_id = 0;
     auto task_id = 0;
@@ -145,7 +145,6 @@ TEST_F(PipelineTaskTest, TEST_PREPARE_HAPPY_PATH) {
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
     {
-        // HAPPY PATH
         std::vector<TScanRangeParams> scan_range;
         int sender_id = 0;
         TDataSink tsink;
@@ -154,7 +153,7 @@ TEST_F(PipelineTaskTest, TEST_PREPARE_HAPPY_PATH) {
     }
 }
 
-TEST_F(PipelineTaskTest, TEST_PREPARE) {
+TEST_F(PipelineTaskTest, TEST_PREPARE_ERROR) {
     auto num_instances = 1;
     auto pip_id = 0;
     auto task_id = 0;
@@ -186,6 +185,216 @@ TEST_F(PipelineTaskTest, TEST_PREPARE) {
         TDataSink tsink;
         EXPECT_FALSE(task->prepare(scan_range, sender_id, tsink).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::INITED);
+    }
+}
+
+TEST_F(PipelineTaskTest, TEST_EXTRACT_DEPENDENCIES_ERROR) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    {
+        OperatorPtr source_op;
+        // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    {
+        EXPECT_FALSE(task->_extract_dependencies().ok());
+        EXPECT_TRUE(task->_read_dependencies.empty());
+        EXPECT_TRUE(task->_write_dependencies.empty());
+        EXPECT_TRUE(task->_finish_dependencies.empty());
+        EXPECT_TRUE(task->_spill_dependencies.empty());
+    }
+}
+
+TEST_F(PipelineTaskTest, TEST_OPEN) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    {
+        OperatorPtr source_op;
+        // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    {
+        std::vector<TScanRangeParams> scan_range;
+        int sender_id = 0;
+        TDataSink tsink;
+        EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+    }
+    {
+        EXPECT_TRUE(task->_open().ok());
+        EXPECT_FALSE(task->_read_dependencies.empty());
+        EXPECT_FALSE(task->_write_dependencies.empty());
+        EXPECT_FALSE(task->_finish_dependencies.empty());
+        EXPECT_TRUE(task->_spill_dependencies.empty());
+        EXPECT_TRUE(task->_opened);
+    }
+}
+
+TEST_F(PipelineTaskTest, TEST_EXECUTE) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    Dependency* read_dep;
+    Dependency* write_dep;
+    Dependency* source_finish_dep;
+    {
+        OperatorPtr source_op;
+        // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    task->set_task_queue(_task_queue.get());
+    {
+        // `execute` should be called after `prepare`
+        bool done = false;
+        EXPECT_FALSE(task->execute(&done).ok());
+    }
+    {
+        std::vector<TScanRangeParams> scan_range;
+        int sender_id = 0;
+        TDataSink tsink;
+        EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_FALSE(task->_filter_dependencies.empty());
+        read_dep = _runtime_state->get_local_state_result(task->_operators.front()->operator_id())
+                           .value()
+                           ->dependencies()
+                           .front();
+        write_dep = _runtime_state->get_sink_local_state()->dependencies().front();
+    }
+    {
+        // task is blocked by execution dependency.
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(task->_eos);
+        EXPECT_FALSE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_FALSE(task->_opened);
+        EXPECT_FALSE(_query_ctx->get_execution_dependency()->ready());
+        EXPECT_FALSE(_query_ctx->get_execution_dependency()->_blocked_task.empty());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::BLOCKED);
+    }
+    {
+        // task is blocked by filter dependency.
+        _query_ctx->get_execution_dependency()->set_ready();
+        task->_filter_dependencies.front()->block();
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(task->_eos);
+        EXPECT_FALSE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_FALSE(task->_opened);
+        EXPECT_FALSE(task->_filter_dependencies.front()->ready());
+        EXPECT_FALSE(task->_filter_dependencies.front()->_blocked_task.empty());
+        EXPECT_TRUE(task->_read_dependencies.empty());
+        EXPECT_TRUE(task->_write_dependencies.empty());
+        EXPECT_TRUE(task->_finish_dependencies.empty());
+        EXPECT_TRUE(task->_spill_dependencies.empty());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::BLOCKED);
+    }
+    {
+        // `open` phase. And then task is blocked by read dependency.
+        task->_filter_dependencies.front()->set_ready();
+        read_dep->block();
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(task->_eos);
+        EXPECT_FALSE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_FALSE(task->_read_dependencies.empty());
+        EXPECT_FALSE(task->_write_dependencies.empty());
+        EXPECT_FALSE(task->_finish_dependencies.empty());
+        EXPECT_TRUE(task->_spill_dependencies.empty());
+        EXPECT_TRUE(task->_opened);
+        EXPECT_FALSE(read_dep->ready());
+        EXPECT_TRUE(write_dep->ready());
+        EXPECT_FALSE(read_dep->_blocked_task.empty());
+        source_finish_dep =
+                _runtime_state->get_local_state_result(task->_operators.front()->operator_id())
+                        .value()
+                        ->finishdependency();
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::BLOCKED);
+    }
+    {
+        // `execute` phase. And then task is blocked by finish dependency.
+        read_dep->set_ready();
+        source_finish_dep->block();
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        task->_operators.front()->cast<DummyOperator>()._eos = true;
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_TRUE(task->_eos);
+        EXPECT_FALSE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_FALSE(source_finish_dep->ready());
+        EXPECT_FALSE(source_finish_dep->_blocked_task.empty());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::BLOCKED);
+    }
+    {
+        // `execute` phase.
+        source_finish_dep->set_ready();
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_TRUE(task->_eos);
+        EXPECT_TRUE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+    }
+    {
+        EXPECT_TRUE(task->close(Status::OK()).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
+        EXPECT_TRUE(task->finalize().ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
     }
 }
 

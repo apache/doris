@@ -226,11 +226,7 @@ Status PipelineTask::_open() {
     SCOPED_TIMER(_open_timer);
     _dry_run = _sink->should_dry_run(_state);
     for (auto& o : _operators) {
-        auto* local_state = _state->get_local_state(o->operator_id());
-        auto st = local_state->open(_state);
-        DCHECK(st.is<ErrorCode::PIP_WAIT_FOR_RF>() ? !_filter_dependencies.empty() : true)
-                << debug_string();
-        RETURN_IF_ERROR(st);
+        RETURN_IF_ERROR(_state->get_local_state(o->operator_id())->open(_state));
     }
     RETURN_IF_ERROR(_state->get_sink_local_state()->open(_state));
     RETURN_IF_ERROR(_extract_dependencies());
@@ -334,8 +330,10 @@ void PipelineTask::terminate() {
  * @return
  */
 Status PipelineTask::execute(bool* done) {
-    DCHECK(_exec_state == State::RUNNABLE) << debug_string();
-    DCHECK(_blocked_dep == nullptr) << debug_string();
+    if (_exec_state != State::RUNNABLE || _blocked_dep != nullptr) [[unlikely]] {
+        return Status::InternalError("Pipeline task is not runnable! Task info: {}",
+                                     debug_string());
+    }
     auto fragment_context = _fragment_context.lock();
     DCHECK(fragment_context);
     int64_t time_spent = 0;
@@ -519,8 +517,7 @@ Status PipelineTask::execute(bool* done) {
             Status status = Status::OK();
             DEFER_RELEASE_RESERVED();
             COUNTER_UPDATE(_memory_reserve_times, 1);
-            if (_state->get_query_ctx()->enable_reserve_memory() && workload_group &&
-                !(_wake_up_early || _dry_run)) {
+            if (_state->get_query_ctx()->enable_reserve_memory() && workload_group) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
                 status = sink_reserve_size != 0
                                  ? thread_context()->thread_mem_tracker_mgr->try_reserve(
@@ -612,9 +609,6 @@ Status PipelineTask::finalize() {
     _op_shared_states.clear();
     _shared_state_map.clear();
     _block.reset();
-    _operators.clear();
-    _sink.reset();
-    _pipeline.reset();
     return Status::OK();
 }
 
@@ -669,9 +663,6 @@ std::string PipelineTask::debug_string() {
     std::unique_lock<std::mutex> lc(_dependency_lock);
     auto* cur_blocked_dep = _blocked_dep;
     auto fragment = _fragment_context.lock();
-    if (is_finalized() || !fragment) {
-        return fmt::to_string(debug_string_buffer);
-    }
     auto elapsed = fragment->elapsed_time() / NANOS_PER_SEC;
     fmt::format_to(debug_string_buffer,
                    " elapse time = {}s, block dependency = [{}]\noperators: ", elapsed,
@@ -686,6 +677,9 @@ std::string PipelineTask::debug_string() {
                    _opened && !is_finalized() ? _sink->debug_string(_state, _operators.size())
                                               : _sink->debug_string(_operators.size()));
 
+    if (is_finalized() || !fragment) {
+        return fmt::to_string(debug_string_buffer);
+    }
     fmt::format_to(debug_string_buffer, "\nRead Dependency Information: \n");
 
     size_t i = 0;
