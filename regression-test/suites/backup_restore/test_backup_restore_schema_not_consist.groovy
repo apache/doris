@@ -114,8 +114,6 @@ suite('test_backup_restore_atomic_schema_not_consist', 'docker') {
         """
         syncer.waitRestoreError(dbName, "already exist but with different schema")
 
-        sql " CANCEL RESTORE FROM ${dbName} "
-
         def frontends = cluster.getAllFrontends()
         for (def fe : frontends) {
             def feUrl = "jdbc:mysql://${fe.host}:${fe.queryPort}/?useLocalSessionState=false&allowLoadLocalInfile=false"
