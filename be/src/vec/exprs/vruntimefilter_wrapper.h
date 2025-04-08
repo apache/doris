@@ -67,9 +67,19 @@ public:
     void attach_profile_counter(std::shared_ptr<RuntimeProfile::Counter> rf_input_rows,
                                 std::shared_ptr<RuntimeProfile::Counter> rf_filter_rows,
                                 std::shared_ptr<RuntimeProfile::Counter> always_true_filter_rows) {
-        _rf_input_rows = rf_input_rows;
-        _rf_filter_rows = rf_filter_rows;
-        _always_true_filter_rows = always_true_filter_rows;
+        DCHECK(rf_input_rows != nullptr);
+        DCHECK(rf_filter_rows != nullptr);
+        DCHECK(always_true_filter_rows != nullptr);
+
+        if (rf_input_rows != nullptr) {
+            _rf_input_rows = rf_input_rows;
+        }
+        if (rf_filter_rows != nullptr) {
+            _rf_filter_rows = rf_filter_rows;
+        }
+        if (always_true_filter_rows != nullptr) {
+            _always_true_filter_rows = always_true_filter_rows;
+        }
     }
 
     void update_counters(int64_t filter_rows, int64_t input_rows) {

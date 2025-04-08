@@ -231,13 +231,12 @@ void RuntimeFilterConsumer::collect_realtime_profile(RuntimeProfile* parent_oper
     c->update(_always_true_counter->value());
 
     {
-        // return debug_string_cache instead of calling debug_string()
         // since debug_string will read from  RuntimeFilter::_wrapper
-        // it is a shared_ptr, instead of a atomic_shared_ptr
+        // and it is a shared_ptr, instead of a atomic_shared_ptr
         // so it is not thread safe
         std::unique_lock<std::mutex> l(_mtx);
         parent_operator_profile->add_description(fmt::format("RF{} Info", _filter_id),
-                                                 _debug_string_cache, "RuntimeFilterInfo");
+                                                 debug_string(), "RuntimeFilterInfo");
     }
 }
 

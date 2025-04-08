@@ -307,9 +307,17 @@ public:
             int runtime_filter_id,
             std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
             std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter) {
+        DCHECK(predicate_filtered_rows_counter != nullptr);
+        DCHECK(predicate_input_rows_counter != nullptr);
+
         _runtime_filter_id = runtime_filter_id;
-        _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
-        _predicate_input_rows_counter = predicate_input_rows_counter;
+
+        if (predicate_filtered_rows_counter != nullptr) {
+            _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
+        }
+        if (predicate_input_rows_counter != nullptr) {
+            _predicate_input_rows_counter = predicate_input_rows_counter;
+        }
     }
 
     int precision() const { return _precision; }

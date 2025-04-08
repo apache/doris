@@ -100,10 +100,6 @@ private:
         _rf_wait_time_ms = wait_infinitely ? _state->get_query_ctx()->execution_timeout() * 1000
                                            : _state->get_query_ctx()->runtime_filter_wait_time_ms();
         _wait_timer = std::make_shared<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);
-        _rf_filter = std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
-        _rf_input = std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
-        _always_true_counter = std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
-        _debug_string_cache = debug_string();
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);
     }
 
@@ -139,7 +135,6 @@ private:
                                   RuntimeFilterWrapper::State::READY});
             _check_state({State::NOT_READY, State::TIMEOUT});
         }
-        _debug_string_cache = debug_string();
         _rf_state = rf_state;
     }
 
@@ -155,11 +150,12 @@ private:
     // Counter will be shared by RuntimeFilterConsumer & VRuntimeFilterWrapper
     // OperatorLocalState's close method will collect the statistics from RuntimeFilterConsumer
     // VRuntimeFilterWrapper will update the statistics.
-    std::shared_ptr<RuntimeProfile::Counter> _rf_filter = nullptr;
-    std::shared_ptr<RuntimeProfile::Counter> _rf_input = nullptr;
-    std::shared_ptr<RuntimeProfile::Counter> _always_true_counter = nullptr;
-    // protected by _mtx
-    std::string _debug_string_cache;
+    std::shared_ptr<RuntimeProfile::Counter> _rf_filter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
+    std::shared_ptr<RuntimeProfile::Counter> _rf_input =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
+    std::shared_ptr<RuntimeProfile::Counter> _always_true_counter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
 
     int32_t _rf_wait_time_ms;
     const int64_t _registration_time;
