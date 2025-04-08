@@ -81,20 +81,6 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "nereids_rules_p0/subquery," +
     "workload_manager_p1," +
     "plsql_p0," + // plsql is not developped any more, add by sk
-    "test_dump_image," +
-    "test_index_failure_injection," +
-    "test_profile," +
-    "test_refresh_mtmv," +
-    "test_spark_load," +
-    "test_broker_load_func," +
-    "test_index_compaction_failure_injection," +
-    "test_full_compaction_run_status," +
-    "test_topn_fault_injection," +
-    "docs/table-design/data-partitioning/manual-partitioning.md," +
-    "test_table_properties,test_show_transaction,test_show_create_table_and_views_nereids," +
-    "test_group_commit_data_bytes_property,insert_group_commit_into_max_filter_ratio,test_group_commit_interval_ms_property,insert_group_commit_into_unique_sync_mode," +
-    "test_group_commit_stream_load,"+
-    "test_get_stream_load_state," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
@@ -160,7 +146,7 @@ extArrowFlightSqlPort = 8081
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
 
-max_failure_num=-1
+max_failure_num=50
 
 externalEnvIp="127.0.0.1"
 
