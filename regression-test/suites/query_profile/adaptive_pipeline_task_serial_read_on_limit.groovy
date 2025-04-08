@@ -58,6 +58,7 @@ def verifyProfileContent = { stmt, serialReadOnLimit ->
         logger.error("Profile ID of ${stmt} is not found")
         return false
     }
+
     // Get profile content by using getProfile
     def String profileContent = getProfile(profileId).toString()
     logger.info("Profile content of ${stmt} is\n${profileContent}")
@@ -65,7 +66,7 @@ def verifyProfileContent = { stmt, serialReadOnLimit ->
     if (serialReadOnLimit) {
         return profileContent.contains("- MaxScannerThreadNum: 1") == true
     } else {
-        if !(profileContent.contains("- MaxScannerThreadNum: 1")) {
+        if (!(profileContent.contains("- MaxScannerThreadNum: 1"))) {
             return true
         }
         // Split profileContext by using "\n"
