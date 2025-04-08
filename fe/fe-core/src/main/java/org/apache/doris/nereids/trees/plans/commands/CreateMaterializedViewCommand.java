@@ -103,13 +103,6 @@ import java.util.stream.Collectors;
  * create synchronized materialized view
  */
 public class CreateMaterializedViewCommand extends Command implements ForwardWithSync {
-    private static final String SYNC_MV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE, PRUNE_EMPTY_PARTITION, "
-            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, HAVING_TO_FILTER, ELIMINATE_GROUP_BY, SIMPLIFY_AGG_GROUP_BY, "
-            + "MERGE_PERCENTILE_TO_ARRAY, VARIANT_SUB_PATH_PRUNING, INFER_PREDICATES, INFER_AGG_NOT_NULL, "
-            + "INFER_SET_OPERATOR_DISTINCT, INFER_FILTER_NOT_NULL, INFER_JOIN_NOT_NULL, PUSH_DOWN_MAX_MIN_FILTER, "
-            + "ELIMINATE_SORT, ELIMINATE_AGGREGATE, ELIMINATE_LIMIT, ELIMINATE_SEMI_JOIN, ELIMINATE_NOT_NULL, "
-            + "ELIMINATE_JOIN_BY_UK, ELIMINATE_JOIN_BY_FK, ELIMINATE_GROUP_BY_KEY, ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, "
-            + "ELIMINATE_FILTER_GROUP_BY_KEY, ELIMINATE_ORDER_BY_KEY";
     private final TableNameInfo name;
 
     private final LogicalPlan logicalPlan;
@@ -202,22 +195,12 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             ConnectContext ctx) {
         StatementContext statementContext = ctx.getStatementContext();
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        Set<String> tempDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
-        ctx.getSessionVariable().setDisableNereidsRules(SYNC_MV_PLANER_DISABLE_RULES);
-        ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-        LogicalPlan plan;
-        try {
-            // disable rbo sync mv rewrite
-            ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_SYNC_MV_COST_BASED_REWRITE, "true");
-            // disable constant fold
-            ctx.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
-            plan = (LogicalPlan) planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
-                    ExplainCommand.ExplainLevel.ANALYZED_PLAN);
-        } finally {
-            // after operate, roll back the disable rules
-            ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
-            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-        }
+        // disable rbo sync mv rewrite
+        ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_SYNC_MV_COST_BASED_REWRITE, "true");
+        // disable constant fold
+        ctx.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
+        LogicalPlan plan = (LogicalPlan) planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
+                ExplainCommand.ExplainLevel.ANALYZED_PLAN);
         return Pair.of(plan, planner.getCascadesContext());
     }
 
@@ -253,7 +236,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         @Override
         public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias plan, ValidateContext context) {
             // do nothing
-            return plan;
+            return super.visit(plan, context);
         }
 
         @Override
