@@ -594,12 +594,15 @@ Status PipelineTask::execute(bool* done) {
 
             DBUG_EXECUTE_IF("PipelineTask::execute.terminate", {
                 if (_eos) {
-                    auto required_pipeline_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                            "PipelineTask::execute.terminate", "pipeline_id", -1);
-                    auto required_task_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                            "PipelineTask::execute.terminate", "task_id", -1);
-                    auto required_fragment_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                            "PipelineTask::execute.terminate", "fragment_id", -1);
+                    auto required_pipeline_id =
+                            DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                    "PipelineTask::execute.terminate", "pipeline_id", -1);
+                    auto required_task_id =
+                            DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                    "PipelineTask::execute.terminate", "task_id", -1);
+                    auto required_fragment_id =
+                            DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                    "PipelineTask::execute.terminate", "fragment_id", -1);
                     if (required_pipeline_id == pipeline_id() && required_task_id == task_id() &&
                         fragment_context->get_fragment_id() == required_fragment_id) {
                         _wake_up_early = true;
