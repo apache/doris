@@ -888,32 +888,6 @@ void ColumnObject::check_consistency() const {
                                "unmatched sparse column:, expeted rows: {}, but meet: {}", num_rows,
                                serialized_sparse_column->size());
     }
-
-#ifndef NDEBUG
-    bool error = false;
-    auto [path, value] = get_sparse_data_paths_and_values();
-
-    auto& offsets = serialized_sparse_column_offsets();
-    for (size_t row = 0; row != num_rows; ++row) {
-        size_t offset = offsets[row - 1];
-        size_t end = offsets[row];
-        // Iterator over [path, binary value]
-        for (size_t i = offset; i != end; ++i) {
-            const StringRef sparse_path_string = path->get_data_at(i);
-            const std::string_view sparse_path(sparse_path_string);
-
-            const PathInData column_path(sparse_path);
-            if (auto* subcolumn = get_subcolumn(column_path); subcolumn != nullptr) {
-                LOG(WARNING) << "err path: " << sparse_path;
-                error = true;
-            }
-        }
-    }
-    if (error) {
-        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                               "path {} both exists in subcolumn and sparse columns");
-    }
-#endif
 }
 
 size_t ColumnObject::size() const {
@@ -1825,6 +1799,18 @@ bool ColumnObject::is_visible_root_value(size_t nrow) const {
     const auto* root = subcolumns.get_root();
     if (root->data.is_null_at(nrow)) {
         return false;
+    }
+    for (const auto& subcolumn : subcolumns) {
+        if (subcolumn->data.is_root) {
+            continue; // Skip the root column
+        }
+
+        // If any non-root subcolumn is NOT null, set serialize_root to false and exit early
+        if (!assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                     *subcolumn->data.get_finalized_column_ptr())
+                     .is_null_at(nrow)) {
+            return false;
+        }
     }
     if (root->data.least_common_type.get_base_type_id() == TypeIndex::VARIANT) {
         // nested field
