@@ -141,7 +141,8 @@ private:
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 
-    std::shared_ptr<RuntimeProfile::Counter> _wait_timer = std::make_shared<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);
+    std::shared_ptr<RuntimeProfile::Counter> _wait_timer =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);
     //_rf_filter is used to record the number of rows filtered by the runtime filter.
     //It aggregates the filtering statistics from both the Storage and Execution.
     // Counter will be shared by RuntimeFilterConsumer & VRuntimeFilterWrapper
