@@ -1085,7 +1085,7 @@ Status OrcReader::set_fill_columns(
                               TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end(),
                               read_col) ==
                             TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end()) {
-                _lazy_read_ctx.lazy_read_columns.emplace_back(read_col);
+                    _lazy_read_ctx.lazy_read_columns.emplace_back(read_col);
                 }
             } else {
                 _lazy_read_ctx.predicate_columns.first.emplace_back(iter->first);
