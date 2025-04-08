@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -28,17 +31,44 @@ import java.util.Optional;
 public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
     private PhysicalFileScan scan;
     private SlotReference rowId;
+    private final List<Slot> lazySlots;
+    private List<Slot> output;
 
-    public PhysicalLazyMaterializeFileScan(PhysicalFileScan scan, SlotReference rowId) {
+    public PhysicalLazyMaterializeFileScan(PhysicalFileScan scan, SlotReference rowId, List<Slot> lazySlots) {
         super(scan.getRelationId(), scan.getTable(), scan.getQualifier(), scan.getDistributionSpec(),
-                Optional.empty(), scan.getLogicalProperties(), scan.selectedPartitions, scan.getTableSample(),
-                scan.getTableSnapshot());
+                Optional.empty(), null, scan.selectedPartitions, scan.getTableSample(),
+                scan.getTableSnapshot(), scan.getOperativeSlots());
         this.scan = scan;
         this.rowId = rowId;
+        this.lazySlots = lazySlots;
     }
 
     @Override
     public List<String> getQualifier() {
         return scan.getQualifier();
+    }
+
+
+    @Override
+    public List<Slot> computeOutput() {
+        if (output == null) {
+            output = ImmutableList.<Slot>builder()
+                    .addAll(scan.getOperativeSlots())
+                    .add(rowId).build();
+        }
+        return output;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("PhysicalLazyMaterializeFileScan[")
+                .append(scan.toString());
+
+        if (!getAppliedRuntimeFilters().isEmpty()) {
+            getAppliedRuntimeFilters().forEach(rf -> sb.append(" RF").append(rf.getId().asInt()));
+        }
+        sb.append("]");
+        return sb.toString();
     }
 }

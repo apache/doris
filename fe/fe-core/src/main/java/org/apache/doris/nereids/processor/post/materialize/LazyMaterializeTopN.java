@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -90,7 +91,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             SlotReference rowIdSlot = SlotReference.fromColumn(relation.getTable(), rowIdCol,
                     relation.getQualifier());
             result = result.accept(new LazySlotPruning(),
-                    new LazySlotPruning.Context((PhysicalOlapScan) relation,
+                    new LazySlotPruning.Context((PhysicalCatalogRelation) relation,
                             rowIdSlot, relationToLazySlotMap.get(relation)));
             relationToRowId.put(relation, rowIdSlot);
             rowIdSet.add(rowIdSlot);

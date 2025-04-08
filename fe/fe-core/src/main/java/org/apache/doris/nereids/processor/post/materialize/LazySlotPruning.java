@@ -26,7 +26,10 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -50,17 +53,17 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
      * Context
      */
     public static class Context {
-        private PhysicalOlapScan scan;
+        private PhysicalCatalogRelation scan;
         private List<Slot> lazySlots;
         private SlotReference rowIdSlot;
 
-        public Context(PhysicalOlapScan scan, SlotReference rowIdSlot, List<Slot> lazySlots) {
+        public Context(PhysicalCatalogRelation scan, SlotReference rowIdSlot, List<Slot> lazySlots) {
             this.scan = scan;
             this.lazySlots = lazySlots;
             this.rowIdSlot = rowIdSlot;
         }
 
-        private Context(PhysicalOlapScan scan, List<Slot> lazySlots, SlotReference rowIdSlot) {
+        private Context(PhysicalCatalogRelation scan, List<Slot> lazySlots, SlotReference rowIdSlot) {
             this.scan = scan;
             this.lazySlots = lazySlots;
             this.rowIdSlot = rowIdSlot;
@@ -107,6 +110,18 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
     public Plan visitPhysicalOlapScan(PhysicalOlapScan scan, Context context) {
         if (scan.getOutput().containsAll(context.lazySlots)) {
             PhysicalLazyMaterializeOlapScan lazyScan = new PhysicalLazyMaterializeOlapScan(scan,
+                    context.rowIdSlot.withNullable(false), context.lazySlots);
+            return lazyScan;
+        } else {
+            // should not hit here
+            throw new RuntimeException("Lazy materialize fault");
+        }
+    }
+
+    @Override
+    public Plan visitPhysicalFileScan(PhysicalFileScan scan, Context context) {
+        if (scan.getOutput().containsAll(context.lazySlots)) {
+            PhysicalLazyMaterializeFileScan lazyScan = new PhysicalLazyMaterializeFileScan(scan,
                     context.rowIdSlot.withNullable(false), context.lazySlots);
             return lazyScan;
         } else {

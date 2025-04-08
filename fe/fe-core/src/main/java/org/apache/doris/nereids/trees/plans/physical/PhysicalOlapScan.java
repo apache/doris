@@ -54,7 +54,6 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     private final PreAggStatus preAggStatus;
     private final List<Slot> baseOutputs;
     private final Optional<TableSample> tableSample;
-    private final ImmutableList<Slot> operativeSlots;
 
     /**
      * Constructor for PhysicalOlapScan.
@@ -82,7 +81,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             Optional<TableSample> tableSample,
             Collection<Slot> operativeSlots) {
         super(id, PlanType.PHYSICAL_OLAP_SCAN, olapTable, qualifier,
-                groupExpression, logicalProperties, physicalProperties, statistics);
+                groupExpression, logicalProperties, physicalProperties, statistics, operativeSlots);
         this.selectedIndexId = selectedIndexId;
         this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
         this.selectedPartitionIds = ImmutableList.copyOf(selectedPartitionIds);
@@ -90,7 +89,6 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         this.preAggStatus = preAggStatus;
         this.baseOutputs = ImmutableList.copyOf(baseOutputs);
         this.tableSample = tableSample;
-        this.operativeSlots = ImmutableList.copyOf(operativeSlots);
     }
 
     @Override

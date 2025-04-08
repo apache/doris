@@ -250,9 +250,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
             SlotDescriptor slotDesc = desc.getSlot(slot.getSlotId());
             String colName = slotDesc.getColumn().getName();
-            int idx = tbl.getBaseColumnIdxByName(colName);
-            if (idx == -1) {
-                throw new UserException("Column " + colName + " not found in table " + tbl.getName());
+            int idx;
+            if (colName.startsWith(Column.GLOBAL_ROWID_COL)) {
+                idx = -2;
+            } else {
+                idx = tbl.getBaseColumnIdxByName(colName);
+                if (idx == -1) {
+                    throw new UserException("Column " + colName + " not found in table " + tbl.getName());
+                }
             }
             columnIdxs.add(idx);
         }
