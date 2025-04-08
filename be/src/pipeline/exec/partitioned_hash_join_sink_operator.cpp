@@ -321,7 +321,6 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
 }
 
 Status PartitionedHashJoinSinkLocalState::terminate(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
     if (_terminated) {
         return Status::OK();
     }
