@@ -2184,7 +2184,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (matcher.find()) {
                 tableId = Long.parseLong(matcher.group(1));
             }
-            LOG.info("check block for " + tableId);
             if (Env.getCurrentEnv().getGroupCommitManager().isBlock(tableId)) {
                 String msg = "insert table " + tableId + GroupCommitPlanner.SCHEMA_CHANGE;
                 LOG.info(msg);
