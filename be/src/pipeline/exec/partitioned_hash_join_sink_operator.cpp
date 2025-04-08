@@ -320,6 +320,19 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
     return thread_pool->submit(std::move(spill_runnable));
 }
 
+Status PartitionedHashJoinSinkLocalState::terminate(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    if (_terminated) {
+        return Status::OK();
+    }
+    if (_parent->cast<PartitionedHashJoinSinkOperatorX>()._inner_sink_operator) {
+        RETURN_IF_ERROR(
+                _parent->cast<PartitionedHashJoinSinkOperatorX>()._inner_sink_operator->terminate(
+                        state));
+    }
+    return PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>::terminate(state);
+}
+
 Status PartitionedHashJoinSinkLocalState::revoke_memory(
         RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
     SCOPED_TIMER(_spill_total_timer);
