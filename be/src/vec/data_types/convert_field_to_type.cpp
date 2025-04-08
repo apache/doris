@@ -44,6 +44,8 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/io/io_helper.h"
+#include "vec/runtime/ipv6_value.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -61,7 +63,12 @@ class FieldVisitorToStringSimple : public StaticVisitor<String> {
 public:
     String operator()(const Null& x) const { return "NULL"; }
     String operator()(const UInt64& x) const { return std::to_string(x); }
+    String operator()(const IPv6& x) const {
+        auto value = IPv6Value(x);
+        return value.to_string();
+    }
     String operator()(const Int64& x) const { return std::to_string(x); }
+    String operator()(const Int128& x) const { return int128_to_string(x); }
     String operator()(const Float64& x) const { return std::to_string(x); }
     String operator()(const String& x) const { return x; }
     [[noreturn]] String operator()(const UInt128& x) const {
@@ -71,6 +78,9 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     [[noreturn]] String operator()(const Tuple& x) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
+    [[noreturn]] String operator()(const VariantField& x) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     [[noreturn]] String operator()(const DecimalField<Decimal32>& x) const {

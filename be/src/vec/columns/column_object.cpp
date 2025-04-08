@@ -151,6 +151,7 @@ public:
         }
         return 1 + dimensions;
     }
+    size_t operator()(const VariantField& x) { return apply_visitor(*this, x.get_field()); }
     template <typename T>
     size_t operator()(const T&) const {
         return 0;
@@ -203,17 +204,32 @@ public:
         type = TypeIndex::VARIANT;
         return 1;
     }
+    size_t operator()(const VariantField& x) {
+        typed_field_info =
+                FieldInfo {x.get_type_id(), true, false, 0, x.get_scale(), x.get_precision()};
+        return 1;
+    }
     template <typename T>
     size_t operator()(const T&) {
         type = TypeId<NearestFieldType<T>>::value;
         return 1;
     }
-    void get_scalar_type(TypeIndex* data_type) const { *data_type = type; }
+    void get_scalar_type(TypeIndex* data_type, int* precision, int* scale) const {
+        if (typed_field_info.has_value()) {
+            *data_type = typed_field_info->scalar_type_id;
+            *precision = typed_field_info->precision;
+            *scale = typed_field_info->scale;
+            return;
+        }
+        *data_type = type;
+    }
     bool contain_nulls() const { return have_nulls; }
 
     bool need_convert_field() const { return false; }
 
 private:
+    // initialized when operator()(const VariantField& x)
+    std::optional<FieldInfo> typed_field_info;
     TypeIndex type = TypeIndex::Nothing;
     bool have_nulls = false;
 };
@@ -271,6 +287,15 @@ public:
         type_indexes.insert(TypeIndex::VARIANT);
         return 0;
     }
+    size_t operator()(const VariantField& x) {
+        if (x.get_type_id() == TypeIndex::Array) {
+            apply_visitor(*this, x.get_field());
+        } else {
+            typed_field_info =
+                    FieldInfo {x.get_type_id(), true, false, 0, x.get_scale(), x.get_precision()};
+        }
+        return 0;
+    }
     size_t operator()(const Null&) {
         have_nulls = true;
         return 0;
@@ -282,7 +307,14 @@ public:
         type_indexes.insert(TypeId<NearestFieldType<T>>::value);
         return 0;
     }
-    void get_scalar_type(TypeIndex* type) const {
+    void get_scalar_type(TypeIndex* type, int* precision, int* scale) const {
+        if (typed_field_info.has_value()) {
+            // fast path
+            *type = typed_field_info->scalar_type_id;
+            *precision = typed_field_info->precision;
+            *scale = typed_field_info->scale;
+            return;
+        }
         DataTypePtr data_type;
         get_least_supertype_jsonb(type_indexes, &data_type);
         *type = data_type->get_type_id();
@@ -291,6 +323,8 @@ public:
     bool need_convert_field() const { return field_types.size() > 1; }
 
 private:
+    // initialized when operator()(const VariantField& x)
+    std::optional<FieldInfo> typed_field_info;
     phmap::flat_hash_set<TypeIndex> type_indexes;
     phmap::flat_hash_set<FieldType> field_types;
     bool have_nulls = false;
@@ -334,49 +368,28 @@ void get_field_info_impl(const Field& field, FieldInfo* info) {
     Visitor to_scalar_type_visitor;
     apply_visitor(to_scalar_type_visitor, field);
     TypeIndex type_id;
-    to_scalar_type_visitor.get_scalar_type(&type_id);
+    int precision = 0;
+    int scale = 0;
+    to_scalar_type_visitor.get_scalar_type(&type_id, &precision, &scale);
     // array item's dimension may missmatch, eg. [1, 2, [1, 2, 3]]
     *info = {
             type_id,
             to_scalar_type_visitor.contain_nulls(),
             to_scalar_type_visitor.need_convert_field(),
             apply_visitor(FieldVisitorToNumberOfDimensions(), field),
+            scale,
+            precision,
     };
 }
 
-void get_base_field_info(const Field& field, FieldInfo* info) {
-    const auto& variant_field = field.get<const VariantField&>();
-    const auto& wrapped_field = variant_field.get_field();
-    if (variant_field.get_type_id() == TypeIndex::Array) {
-        if (wrapped_field.safe_get<Array>().empty()) {
-            info->scalar_type_id = TypeIndex::Nothing;
-            ++info->num_dimensions;
-            info->have_nulls = true;
-            info->need_convert = false;
-        } else {
-            ++info->num_dimensions;
-            get_base_field_info(wrapped_field.safe_get<Array>()[0], info);
-        }
-        return;
-    }
-
-    // handle scalar types
-    info->scalar_type_id = variant_field.get_type_id();
-    info->have_nulls = true;
-    info->need_convert = false;
-    info->scale = variant_field.get_scale();
-    info->precision = variant_field.get_precision();
+bool is_complex_field(const Field& field) {
+    return field.is_complex_field() ||
+           (field.is_variant_field() &&
+            field.get<const VariantField&>().get_field().is_complex_field());
 }
 
 void get_field_info(const Field& field, FieldInfo* info) {
-    if (field.is_variant_field()) {
-        // Currently we support specify predefined schema for other types include decimal, datetime ...etc
-        // so we should set specified info to create correct types, and those predefined types are static and
-        // type no need to deduce
-        get_base_field_info(field, info);
-        return;
-    }
-    if (field.is_complex_field()) {
+    if (is_complex_field(field)) {
         get_field_info_impl<FieldVisitorToScalarType>(field, info);
     } else {
         get_field_info_impl<SimpleFieldVisitorToScalarType>(field, info);
