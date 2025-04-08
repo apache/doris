@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <gen_cpp/Metrics_types.h>
+
+#include <memory>
 #include <string>
 
 #include "pipeline/dependency.h"
@@ -39,12 +42,10 @@ public:
     };
 
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
-                         int node_id, std::shared_ptr<RuntimeFilterConsumer>* res,
-                         RuntimeProfile* parent_profile) {
+                         int node_id, std::shared_ptr<RuntimeFilterConsumer>* res) {
         *res = std::shared_ptr<RuntimeFilterConsumer>(
-                new RuntimeFilterConsumer(state, desc, node_id, parent_profile));
+                new RuntimeFilterConsumer(state, desc, node_id));
         RETURN_IF_ERROR((*res)->_init_with_desc(desc, &state->get_query_ctx()->query_options()));
-        (*res)->_profile->add_info_string("Info", ((*res)->debug_string()));
         return Status::OK();
     }
 
@@ -65,6 +66,9 @@ public:
 
     bool is_applied() { return _rf_state == State::APPLIED; }
 
+    // Called by RuntimeFilterConsumerHelper
+    void collect_realtime_profile(RuntimeProfile* parent_operator_profile);
+
     static std::string to_string(const State& state) {
         switch (state) {
         case State::NOT_READY:
@@ -81,31 +85,20 @@ public:
     }
 
 private:
+    friend class RuntimeFilterProducer;
+
     RuntimeFilterConsumer(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
-                          int node_id, RuntimeProfile* parent_profile)
+                          int node_id)
             : RuntimeFilter(state, desc),
               _probe_expr(desc->planId_to_target_expr.find(node_id)->second),
-              _profile(new RuntimeProfile(fmt::format("RF{}", desc->filter_id))),
-              _storage_profile(new RuntimeProfile(fmt::format("Storage", desc->filter_id))),
-              _execution_profile(new RuntimeProfile(fmt::format("Execution", desc->filter_id))),
               _registration_time(MonotonicMillis()),
-              _rf_state(State::NOT_READY) {
+              _rf_state(State::NOT_READY),
+              _filter_id(desc->filter_id) {
         // If bitmap filter is not applied, it will cause the query result to be incorrect
         bool wait_infinitely = _state->get_query_ctx()->runtime_filter_wait_infinitely() ||
                                _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER;
         _rf_wait_time_ms = wait_infinitely ? _state->get_query_ctx()->execution_timeout() * 1000
                                            : _state->get_query_ctx()->runtime_filter_wait_time_ms();
-        _profile->add_info_string("TimeoutLimit", std::to_string(_rf_wait_time_ms) + "ms");
-
-        parent_profile->add_child(_profile.get(), true, nullptr);
-        _profile->add_child(_storage_profile.get(), true, nullptr);
-        _profile->add_child(_execution_profile.get(), true, nullptr);
-        _wait_timer = ADD_TIMER(_profile, "WaitTime");
-
-        _rf_filter = ADD_COUNTER_WITH_LEVEL(
-                parent_profile, fmt::format("RF{} FilterRows", desc->filter_id), TUnit::UNIT, 1);
-        _rf_input = ADD_COUNTER_WITH_LEVEL(
-                parent_profile, fmt::format("RF{} InputRows", desc->filter_id), TUnit::UNIT, 1);
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);
     }
 
@@ -142,21 +135,25 @@ private:
             _check_state({State::NOT_READY, State::TIMEOUT});
         }
         _rf_state = rf_state;
-        _profile->add_info_string("Info", debug_string());
     }
 
     TExpr _probe_expr;
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 
-    std::unique_ptr<RuntimeProfile> _profile;
-    std::unique_ptr<RuntimeProfile> _storage_profile;   // for storage layer stats
-    std::unique_ptr<RuntimeProfile> _execution_profile; // for execution layer stats
-    RuntimeProfile::Counter* _wait_timer = nullptr;
+    std::shared_ptr<RuntimeProfile::Counter> _wait_timer =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);
     //_rf_filter is used to record the number of rows filtered by the runtime filter.
     //It aggregates the filtering statistics from both the Storage and Execution.
-    RuntimeProfile::Counter* _rf_filter = nullptr;
-    RuntimeProfile::Counter* _rf_input = nullptr;
+    // Counter will be shared by RuntimeFilterConsumer & VRuntimeFilterWrapper
+    // OperatorLocalState's close method will collect the statistics from RuntimeFilterConsumer
+    // VRuntimeFilterWrapper will update the statistics.
+    std::shared_ptr<RuntimeProfile::Counter> _rf_filter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
+    std::shared_ptr<RuntimeProfile::Counter> _rf_input =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
+    std::shared_ptr<RuntimeProfile::Counter> _always_true_counter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0, 1);
 
     int32_t _rf_wait_time_ms;
     const int64_t _registration_time;
@@ -169,6 +166,7 @@ private:
     bool _reached_timeout = false;
 
     friend class RuntimeFilterProducer;
+    int _filter_id = -1;
 };
 #include "common/compile_check_end.h"
 } // namespace doris

@@ -89,8 +89,6 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
 
 Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col);
-    DCHECK(_expr_filtered_rows_counter && _expr_input_rows_counter && _always_true_counter)
-            << "rf counter must be initialized";
     if (_judge_counter.fetch_sub(1) == 0) {
         reset_judge_selectivity();
     }
@@ -99,9 +97,7 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
         block->insert({create_always_true_column(size, _data_type->is_nullable()), _data_type,
                        expr_name()});
         *result_column_id = block->columns() - 1;
-        if (_always_true_counter) {
-            COUNTER_UPDATE(_always_true_counter, size);
-        }
+        COUNTER_UPDATE(_always_true_filter_rows, size);
         return Status::OK();
     } else {
         if (_getting_const_col) {

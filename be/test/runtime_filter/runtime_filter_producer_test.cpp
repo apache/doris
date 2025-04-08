@@ -106,8 +106,8 @@ TEST_F(RuntimeFilterProducerTest, sync_filter_size_local_merge) {
             _runtime_states[1]->register_producer_runtime_filter(desc, &producer2, &_profile));
 
     std::shared_ptr<RuntimeFilterConsumer> consumer;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_runtime_states[1]->register_consumer_runtime_filter(
-            desc, true, 0, &consumer, &_profile));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[1]->register_consumer_runtime_filter(desc, true, 0, &consumer));
 
     ASSERT_EQ(producer->_need_sync_filter_size, true);
     ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SEND_SIZE);
@@ -141,8 +141,8 @@ TEST_F(RuntimeFilterProducerTest, set_ignore_or_disable) {
             _runtime_states[1]->register_producer_runtime_filter(desc, &producer2, &_profile));
 
     std::shared_ptr<RuntimeFilterConsumer> consumer;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_runtime_states[1]->register_consumer_runtime_filter(
-            desc, true, 0, &consumer, &_profile));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[1]->register_consumer_runtime_filter(desc, true, 0, &consumer));
 
     ASSERT_EQ(producer->_need_sync_filter_size, true);
     ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SEND_SIZE);
@@ -183,8 +183,8 @@ TEST_F(RuntimeFilterProducerTest, sync_filter_size_local_merge_with_ignored) {
             _runtime_states[1]->register_producer_runtime_filter(desc, &producer2, &_profile));
 
     std::shared_ptr<RuntimeFilterConsumer> consumer;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_runtime_states[1]->register_consumer_runtime_filter(
-            desc, true, 0, &consumer, &_profile));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[1]->register_consumer_runtime_filter(desc, true, 0, &consumer));
 
     ASSERT_EQ(producer->_need_sync_filter_size, true);
     ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SEND_SIZE);

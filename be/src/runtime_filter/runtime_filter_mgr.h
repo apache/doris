@@ -89,8 +89,7 @@ public:
     // get/set consumer
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> get_consume_filters(int filter_id);
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, int node_id,
-                                    std::shared_ptr<RuntimeFilterConsumer>* consumer_filter,
-                                    RuntimeProfile* parent_profile);
+                                    std::shared_ptr<RuntimeFilterConsumer>* consumer_filter);
 
     Status register_local_merger_producer_filter(
             const TRuntimeFilterDesc& desc, std::shared_ptr<RuntimeFilterProducer> producer_filter,
