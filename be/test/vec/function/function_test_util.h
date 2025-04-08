@@ -243,9 +243,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                                   : std::make_shared<ResultType>();
         }
     }();
-    auto func = SimpleFunctionFactory::instance().get_function(
+    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
             func_name, block.get_columns_with_type_and_name(), return_type);
-    ASSERT_TRUE(func != nullptr);
+    assert(func.get() != nullptr);
 
     TypeDescriptor fn_ctx_return = get_return_type_descriptor<ResultType>();
 
@@ -302,11 +302,13 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
         if (expect_result_ne) {
             EXPECT_NE(0, column->compare_at(i, i, *expected_col_ptr, 1))
-                    << ", function result: " << block.get_data_types()[result]->to_string(*column, i)
+                    << ", function result: "
+                    << block.get_data_types()[result]->to_string(*column, i)
                     << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
         } else {
             EXPECT_EQ(0, column->compare_at(i, i, *expected_col_ptr, 1))
-                    << ", function result: " << block.get_data_types()[result]->to_string(*column, i)
+                    << ", function result: "
+                    << block.get_data_types()[result]->to_string(*column, i)
                     << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
         }
     }
