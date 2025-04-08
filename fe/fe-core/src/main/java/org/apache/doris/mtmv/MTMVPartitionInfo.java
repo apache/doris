@@ -26,6 +26,7 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * MTMVPartitionInfo
