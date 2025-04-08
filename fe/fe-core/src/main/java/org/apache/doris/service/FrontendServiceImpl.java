@@ -2173,18 +2173,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetPartialUpdate() && !request.isPartialUpdate()) {
             ctx.getSessionVariable().setEnableUniqueKeyPartialUpdate(false);
         }
-        Pattern pattern = Pattern.compile(
-                "group_commit\\(\\s*\"table_id\"\\s*=\\s*\"(\\d+)\"\\s*\\)",
-                Pattern.CASE_INSENSITIVE
-        );
-        Matcher matcher = pattern.matcher(request.getLoadSql());
-        long tableId = -1;
-        if (matcher.find()) {
-            tableId = Long.parseLong(matcher.group(1));
-            if (Env.getCurrentEnv().getGroupCommitManager().isBlock(tableId)) {
-                String msg = "insert table " + tableId + GroupCommitPlanner.SCHEMA_CHANGE;
-                LOG.info(msg);
-                throw new AnalysisException(msg);
+        String sql = request.getLoadSql();
+        if (sql.contains("doris_internal_table_id") && sql.contains("select * from group_commit")) {
+            Pattern pattern = Pattern.compile(
+                    "group_commit\\(\\s*\"table_id\"\\s*=\\s*\"(\\d+)\"\\s*\\)",
+                    Pattern.CASE_INSENSITIVE
+            );
+            Matcher matcher = pattern.matcher(sql);
+            if (matcher.find()) {
+                long tableId = -1;
+                tableId = Long.parseLong(matcher.group(1));
+                if (Env.getCurrentEnv().getGroupCommitManager().isBlock(tableId)) {
+                    String msg = "insert table " + tableId + GroupCommitPlanner.SCHEMA_CHANGE;
+                    LOG.info(msg);
+                    throw new AnalysisException(msg);
+                }
             }
         }
         try {

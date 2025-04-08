@@ -159,7 +159,6 @@ public class StreamLoadHandler {
     }
 
     private void setDbAndTable() throws UserException, MetaNotFoundException {
-        LOG.info("setDbAndTable: {}", request);
         Env env = Env.getCurrentEnv();
         String fullDbName = request.getDb();
         db = env.getInternalCatalog().getDbNullable(fullDbName);
