@@ -514,9 +514,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                 scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                                 _pipelines[pip_idx]->operators().front()->node_id(),
                                                 scan_ranges);
-                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
-                        task->prepare(scan_ranges, local_params.sender_id,
-                                      request.fragment.output_sink, _query_ctx.get()));
+                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(task->prepare(
+                        scan_ranges, local_params.sender_id, request.fragment.output_sink));
             }
         }
         {
