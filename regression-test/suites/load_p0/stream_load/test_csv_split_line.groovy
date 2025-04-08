@@ -162,7 +162,4 @@ suite("test_csv_split_line", "p0") {
     order_qt_sql """
         select * from ${tableName}3 where tag_value="" order by user_id;
     """
-    
-    sql """ drop table ${tableName}3; """ 
-
 }

@@ -37,6 +37,4 @@ suite("group_bit") {
     qt_select "select group_bit_and(k) from ${table}"
     qt_select "select group_bit_or(k) from ${table}"
     qt_select "select group_bit_xor(k) from ${table}"
-    sql "drop table ${table}"
-
 }

@@ -41,5 +41,4 @@ suite("test_query_json_insert", "query,arrow_flight_sql") {
     sql "insert into ${tableName} values(3,null,9);"
     sql "insert into ${tableName} values(4,null,null);"
     qt_sql1 "select json_insert('{\"id\": 0, \"time\": \"1970-01-01 00:00:00\", \"a1\": [1, 2], \"a2\": [1, 2]}', '\$.id', id, '\$.time', time, '\$.a1[1]', k, '\$.a2[3]', k) from ${tableName} order by id;"
-    sql "DROP TABLE ${tableName};"
 }

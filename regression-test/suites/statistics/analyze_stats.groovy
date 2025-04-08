@@ -2954,7 +2954,5 @@ PARTITION `p599` VALUES IN (599)
     assertEquals(versionResult[0][16], "2")
     assertEquals(versionResult[1][16], "2")
     assertEquals(versionResult[2][16], "2")
-
-    sql """drop database if exists test_version"""
 }
 

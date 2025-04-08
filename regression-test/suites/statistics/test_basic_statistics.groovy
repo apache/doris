@@ -69,9 +69,4 @@ suite("test_basic_statistics") {
     assertEquals(result[0][6], "5.0")
     assertEquals(result[0][7], "\'name1\'")
     assertEquals(result[0][8], "\'name9\'")
-
-    sql """drop stats ${tbl}"""
-    sql """drop table ${tbl}"""
-    sql """drop database ${db}"""
-
 }

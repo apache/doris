@@ -74,6 +74,4 @@ suite("date", "rollup") {
     qt_sql """ SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id """
     qt_sql """ SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id """
     qt_sql """ SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id """
-
-    sql "DROP TABLE ${tbName1} FORCE;"
 }

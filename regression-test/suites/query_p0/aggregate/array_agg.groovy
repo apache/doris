@@ -291,10 +291,4 @@ suite("array_agg") {
 
 
      qt_select """select array_sort(array_agg(k4)),array_sort(array_agg(k6)) from test_array_agg_ip """
-
-    sql "DROP TABLE `test_array_agg`"
-    sql "DROP TABLE `test_array_agg1`"	
-    sql "DROP TABLE `test_array_agg_int`"
-    sql "DROP TABLE `test_array_agg_decimal`"
-    sql "DROP TABLE `test_array_agg_ip`"
 }

@@ -78,7 +78,5 @@ suite ("test_alter_table_property") {
     }
     assertEquals(2, queryReplicaCount("p1"))
     assertEquals(replication_num, queryReplicaCount("p2"))
-
-    sql "DROP TABLE ${tableName}"
 }
 

@@ -41,5 +41,4 @@ suite("test_largeint", "arrow_flight_sql") {
     sql "insert into ${tbName} values (10009,195456789345678955654444443878);"
 
     qt_select "select count(1) from ${tbName} where phone='195456789345678955654444443878';"
-    sql "DROP TABLE ${tbName}"
 }
