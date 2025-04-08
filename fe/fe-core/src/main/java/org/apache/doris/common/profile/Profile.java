@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.hbo.InputTableStatisticsInfo;
 import org.apache.doris.statistics.hbo.PlanStatistics;
 import org.apache.doris.statistics.hbo.PlanStatisticsMatchStrategy;
@@ -503,7 +504,11 @@ public class Profile {
                 planNodeRuntimeStatsItems = RuntimeProfile.toTPlanNodeRuntimeStatsItem(mergedProfile, null);
                 planNodeRuntimeStatsItems = RuntimeProfile.mergeTPlanNodeRuntimeStatsItem(planNodeRuntimeStatsItems);
                 // TODO: failed sql supporting rely on profile's extension.
-                if (isHealthyForHbo() && isSlowQueryForHbo()) {
+                // TODO: session control here seems not good.
+                boolean isEnableHboInfoCollection = ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable().isEnableHboOptimization()
+                        && ConnectContext.get().getSessionVariable().isEnableHboInfoCollection();
+                if (isEnableHboInfoCollection && isHealthyForHbo() && isSlowQueryForHbo()) {
                     // publish to hbo manager, currently only support healthy sql.
                     // NOTE: all statements which no need to collect profile have been excluded.
                     String queryId = DebugUtil.printId(this.executionProfiles.get(0).getQueryId());
