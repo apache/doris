@@ -169,7 +169,7 @@ suite("test_ranger_access_role_resource_catalog", "p2,ranger,external") {
 		println("New Policy created with id: " + createdPolicy.getId())
 		// sleep 6s to wait for ranger policy to take effect
 		// ranger.plugin.doris.policy.pollIntervalMs is 5000ms in ranger-doris-security.xml
-		sleep(6000)
+		waitPolicyEffect()
 		checkCatalogAccess("internal", "allow", userList[0], pwd, "internal", 'ranger_test_catalog_db_1', 'ranger_test_catalog_table_1')
 		checkCatalogAccess("hive", "allow", userList[0], pwd, catalog1, 'ranger_test_catalog_db_2', 'ranger_test_catalog_table_2')
 		checkCatalogAccess("jdbc", "allow", userList[0], pwd, catalog2, 'ranger_test_catalog_db_3', 'ranger_test_catalog_table_3')
@@ -199,7 +199,7 @@ suite("test_ranger_access_role_resource_catalog", "p2,ranger,external") {
 		policyItem.setRoles([roleName])
 		createdPolicy = rangerClient.createPolicy(policy)
 		println("New Policy created with id: " + createdPolicy.getId())
-		sleep(6000)
+		waitPolicyEffect()
 		checkCatalogAccess("internal", "allow", userList[0], pwd, "internal", 'ranger_test_global_db_1', 'ranger_test_global_table_1')
 		checkCatalogAccess("hive", "allow", userList[0], pwd, catalog1, 'ranger_test_global_db_2', 'ranger_test_global_table_2')
 		checkCatalogAccess("jdbc", "allow", userList[0], pwd, catalog2, 'ranger_test_global_db_3', 'ranger_test_global_table_3')

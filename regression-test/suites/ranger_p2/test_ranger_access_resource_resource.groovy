@@ -87,7 +87,7 @@ suite("test_ranger_access_resource", "p2,ranger,external") {
 		println("New Policy created with id: " + createdPolicy.getId())
 		// sleep 6s to wait for ranger policy to take effect
 		// ranger.plugin.doris.policy.pollIntervalMs is 5000ms in ranger-doris-security.xml
-		sleep(6000)
+		waitPolicyEffect()
 		connect("${userList[0]}", "$pwd", "$defaultJdbcUrl") {
 			def ret = sql("""SHOW RESOURCES WHERE NAME= \"${resourceList[0]}\"""")
 			assertTrue(ret.size() > 0)
@@ -102,7 +102,7 @@ suite("test_ranger_access_resource", "p2,ranger,external") {
 		policy.setResources(resource)
 		policyItem.setUsers([userList[1], "admin"])
 		rangerClient.updatePolicy(rangerServiceName, "all%20-%20resource", policy)
-		sleep(6000)
+		waitPolicyEffect()
 		connect("${userList[1]}", "$pwd", "$defaultJdbcUrl") {
 			def ret = sql("""SHOW RESOURCES WHERE NAME= \"${resourceList[0]}\"""")
 			assertTrue(ret.size() > 0)

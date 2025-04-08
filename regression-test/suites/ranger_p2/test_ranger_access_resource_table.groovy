@@ -142,7 +142,7 @@ suite("test_ranger_access_resource_table", "p2,ranger,external") {
 		println("New Policy created with id: " + createdPolicy.getId())
 		// sleep 6s to wait for ranger policy to take effect
 		// ranger.plugin.doris.policy.pollIntervalMs is 5000ms in ranger-doris-security.xml
-		sleep(6000)
+		waitPolicyEffect()
 		checkTableAccess("internal", "allow", userList[0], pwd, "internal", internalDb, internalTableList[0])
 		checkTableAccess("internal", "deny", userList[0], pwd, "internal", internalDb, internalTableList[1])
 		rangerClient.deletePolicy(rangerServiceName, policy1)
@@ -163,7 +163,7 @@ suite("test_ranger_access_resource_table", "p2,ranger,external") {
 		}
 		createdPolicy = rangerClient.createPolicy(policy)
 		System.out.println("New Policy created with id: " + createdPolicy.getId())
-		sleep(6000)
+		waitPolicyEffect()
 		checkTableAccess("internal", "allow", userList[1], pwd, "internal", internalDb, internalTableList[0])
 		checkTableAccess("internal", "allow", userList[1], pwd, "internal", internalDb, internalTableList[1])
 		checkTableAccess("hive", "deny", userList[1], pwd, catalog1, catalogDb, catalogTableList[0])
@@ -186,7 +186,7 @@ suite("test_ranger_access_resource_table", "p2,ranger,external") {
 		}
 		createdPolicy = rangerClient.createPolicy(policy)
 		println("New Policy created with id: " + createdPolicy.getId())
-		sleep(6000)
+		waitPolicyEffect()
 		checkTableAccess("hive", "allow", userList[2], pwd, catalog1, catalogDb, catalogTableList[0])
 		checkTableAccess("hive", "deny", userList[2], pwd, catalog1, catalogDb, catalogTableList[1])
 		rangerClient.deletePolicy(rangerServiceName, policy3)
@@ -207,7 +207,7 @@ suite("test_ranger_access_resource_table", "p2,ranger,external") {
 		}
 		createdPolicy = rangerClient.createPolicy(policy)
 		println("New Policy created with id: " + createdPolicy.getId())
-		sleep(6000)
+		waitPolicyEffect()
 		checkTableAccess("hive", "allow", userList[3], pwd, catalog1, catalogDb, catalogTableList[0])
 		checkTableAccess("hive", "allow", userList[3], pwd, catalog1, catalogDb, catalogTableList[1])
 		checkTableAccess("internal", "deny", userList[3], pwd, "internal", internalDb, internalTableList[0])
@@ -230,7 +230,7 @@ suite("test_ranger_access_resource_table", "p2,ranger,external") {
 		}
 		createdPolicy = rangerClient.createPolicy(policy)
 		println("New Policy created with id: " + createdPolicy.getId())
-		sleep(6000)
+		waitPolicyEffect()
 		checkTableAccess("hive", "allow", userList[4], pwd, catalog1, catalogDb, catalogTableList[1])
 		checkTableAccess("internal", "allow", userList[4], pwd, "internal", internalDb, internalTableList[1])
 		checkTableAccess("hive", "deny", userList[4], pwd, catalog1, catalogDb, catalogTableList[0])
@@ -253,7 +253,7 @@ suite("test_ranger_access_resource_table", "p2,ranger,external") {
 		}
 		createdPolicy = rangerClient.createPolicy(policy)
 		println("New Policy created with id: " + createdPolicy.getId())
-		sleep(6000)
+		waitPolicyEffect()
 		checkTableAccess("hive", "deny", userList[4], pwd, catalog1, catalogDb, catalogTableList[1])
 		checkTableAccess("internal", "deny", userList[4], pwd, "internal", internalDb, internalTableList[1])
 		checkTableAccess("hive", "allow", userList[4], pwd, catalog1, catalogDb, catalogTableList[0])

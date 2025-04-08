@@ -80,3 +80,7 @@ Suite.metaClass.dropRangerUser = { String userId ->
 	}
 }
 
+Suite.metaClass.waitPolicyEffect {
+	sleep(6000)
+	// TODO: check if policy is effective by API
+}

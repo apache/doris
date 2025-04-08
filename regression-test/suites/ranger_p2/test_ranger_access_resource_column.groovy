@@ -136,7 +136,7 @@ suite("test_ranger_access_resource_column", "p2,ranger,external") {
 		println("New Policy created with id: " + createdPolicy.getId())
 		// sleep 6s to wait for ranger policy to take effect
 		// ranger.plugin.doris.policy.pollIntervalMs is 5000ms in ranger-doris-security.xml
-		sleep(6000)
+		waitPolicyEffect()
 		checkColumnAccess("internal", "allow", userList[0], pwd, "internal", internalDb, internalTable, "c3")
 		checkColumnAccess("internal", "deny", userList[0], pwd, "internal", internalDb, internalTable, "c1,c2")
 		checkColumnAccess("internal", "deny", userList[0], pwd, "internal", internalDb, internalTable, "c1,c3")
@@ -161,7 +161,7 @@ suite("test_ranger_access_resource_column", "p2,ranger,external") {
 		}
 		createdPolicy = rangerClient.createPolicy(policy)
 		System.out.println("New Policy created with id: " + createdPolicy.getId())
-		sleep(6000)
+		waitPolicyEffect()
 		checkColumnAccess("hive", "allow", userList[1], pwd, catalog1, catalogDb, catalogTable, "c1,c2")
 		checkColumnAccess("hive", "allow", userList[1], pwd, catalog1, catalogDb, catalogTable, "c1")
 		checkColumnAccess("hive", "allow", userList[1], pwd, catalog1, catalogDb, catalogTable, "c2")
@@ -187,7 +187,7 @@ suite("test_ranger_access_resource_column", "p2,ranger,external") {
 		}
 		createdPolicy = rangerClient.createPolicy(policy)
 		println("New Policy created with id: " + createdPolicy.getId())
-		sleep(6000)
+		waitPolicyEffect()
 		checkColumnAccess("hive", "allow", userList[2], pwd, catalog1, catalogDb, catalogTable, "c1,c2,c3")
 		checkColumnAccess("hive", "allow", userList[2], pwd, catalog1, catalogDb, catalogTable, "c2")
 		checkColumnAccess("hive", "allow", userList[2], pwd, catalog1, catalogDb, catalogTable, "*")
@@ -212,7 +212,7 @@ suite("test_ranger_access_resource_column", "p2,ranger,external") {
 		}
 		createdPolicy = rangerClient.createPolicy(policy)
 		println("New Policy created with id: " + createdPolicy.getId())
-		sleep(6000)
+		waitPolicyEffect()
 		checkColumnAccess("hive", "allow", userList[3], pwd, catalog1, catalogDb, catalogTable, "c1,c2")
 		checkColumnAccess("hive", "allow", userList[3], pwd, catalog1, catalogDb, catalogTable, "c2")
 		checkColumnAccess("hive", "deny", userList[3], pwd, catalog1, catalogDb, catalogTable, "c3")
@@ -240,7 +240,7 @@ suite("test_ranger_access_resource_column", "p2,ranger,external") {
 		}
 		createdPolicy = rangerClient.createPolicy(policy)
 		println("New Policy created with id: " + createdPolicy.getId())
-		sleep(6000)
+		waitPolicyEffect()
 		checkColumnAccess("hive", "allow", userList[4], pwd, catalog1, catalogDb, catalogTable, "c3")
 		checkColumnAccess("hive", "deny", userList[4], pwd, catalog1, catalogDb, catalogTable, "c1")
 		checkColumnAccess("hive", "deny", userList[4], pwd, catalog1, catalogDb, catalogTable, "*")

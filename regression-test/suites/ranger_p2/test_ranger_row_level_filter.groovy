@@ -160,7 +160,7 @@ suite("test_ranger_row_level_filter", "p2,ranger,external") {
 		}
 		createdPolicy = rangerClient.createPolicy(policy)
 		println("New Policy created with id: " + createdPolicy.getId())
-		sleep(6000)
+		waitPolicyEffect()
 		// check
 		def tokens = context.config.jdbcUrl.split('/')
 		def defaultJdbcUrl = tokens[0] + "//" + tokens[2] + "/?"
