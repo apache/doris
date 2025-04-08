@@ -282,7 +282,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
     /**
      * visit logical plan tree and create a LoadPlanInfo
      */
-    public LoadPlanInfo translatePlan(LogicalPlan logicalPlan) {
+    public LoadPlanInfo collectLoadPlanInfo(LogicalPlan logicalPlan) {
         this.logicalPlan = logicalPlan;
         CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(),
                 logicalPlan, PhysicalProperties.ANY);

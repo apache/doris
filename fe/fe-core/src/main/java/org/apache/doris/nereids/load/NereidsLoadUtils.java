@@ -106,15 +106,23 @@ public class NereidsLoadUtils {
      */
     public static LogicalPlan createLoadPlan(NereidsFileGroupInfo fileGroupInfo, PartitionNames partitionNames,
             NereidsParamCreateContext context, boolean isPartialUpdate) throws UserException {
+        // context.scanSlots represent columns read from external file
+        // use LogicalOneRowRelation to hold this info for later use
         LogicalPlan currentRootPlan = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
                 Lists.newArrayList(context.scanSlots));
 
+        // add prefilter if it exists
         if (context.fileGroup.getPrecedingFilterExpr() != null) {
             Set<Expression> conjuncts = new HashSet<>();
             conjuncts.add(context.fileGroup.getPrecedingFilterExpr());
             currentRootPlan = new LogicalPreFilter<>(conjuncts, currentRootPlan);
         }
 
+        // create a cast project to cast context.scanSlots from varchar type to its correct data type in dest table
+        // The scan slot's data type should keep unchanged in the following 2 scenarios:
+        // 1. there is no column has same name as the slot, it means the slot is a temporary slot.
+        // 2. there is a column mapping expr has same name as the slot, it means the mapping expr would replace the
+        // original scan slot use the mapping expr, and its data type will be handled by mapping expr too.
         List<NamedExpression> projects = new ArrayList<>(context.exprMap.size());
         List<String> colNames = new ArrayList<>(context.exprMap.size());
         Set<String> uniqueColNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
@@ -132,7 +140,6 @@ public class NereidsLoadUtils {
             Column col = targetTable.getColumn(colName);
             if (col != null) {
                 if (!uniqueColNames.contains(colName)) {
-                    // projects.add(slotReference);
                     projects.add(new UnboundSlot(colName));
                     colNames.add(colName);
                     uniqueColNames.add(colName);
@@ -148,10 +155,16 @@ public class NereidsLoadUtils {
                 castScanProjects.add(slotReference);
             }
         }
+
+        // create a project to case all scan slots to correct data types
         currentRootPlan = new LogicalProject(castScanProjects, currentRootPlan);
+
+        // create a load project to do calculate mapping exprs
         if (!projects.isEmpty()) {
             currentRootPlan = new LogicalLoadProject(projects, currentRootPlan);
         }
+
+        // create a table sink for dest table
         currentRootPlan = UnboundTableSinkCreator.createUnboundTableSink(targetTable.getFullQualifiers(), colNames,
                 ImmutableList.of(),
                 partitionNames != null && partitionNames.isTemp(),
@@ -195,6 +208,7 @@ public class NereidsLoadUtils {
                 for (NamedExpression expression : projects) {
                     Column column = tbl.getColumn(expression.getName());
                     if (column != null) {
+                        // check if the expression has correct data type for bitmap and quantile_state column
                         if (column.getAggregationType() != null) {
                             if (column.getAggregationType() == AggregateType.BITMAP_UNION
                                     && !expression.getDataType().isBitmapType()) {
@@ -209,6 +223,7 @@ public class NereidsLoadUtils {
                                         column.getName()));
                             }
                         }
+                        // rewrite expression for jsonb column
                         if (column.getType().isJsonbType() && expression.getDataType().isStringLikeType()) {
                             Expression realExpr = expression instanceof Alias ? ((Alias) expression).child()
                                     : expression;
@@ -232,6 +247,10 @@ public class NereidsLoadUtils {
         }
     }
 
+    /** AddPostFilter
+     * The BindSink rule will produce the final project list for load, and the post filter should placed after the
+     * final project, so we use a rule to do it instead of adding it to the original plan tree
+     * */
     private static class AddPostFilter extends OneRewriteRuleFactory {
         private Expression conjunct;
 

@@ -155,10 +155,10 @@ public class NereidsLoadingTaskPlanner {
         NereidsBrokerLoadTask nereidsBrokerLoadTask = new NereidsBrokerLoadTask(txnId, (int) txnTimeout,
                 sendBatchParallelism,
                 strictMode, enableMemtableOnSinkNode, partitionNames);
-        NereidsLoadPlanInfoCollector loadPlanTranslator = new NereidsLoadPlanInfoCollector(table, nereidsBrokerLoadTask,
+        NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(table, nereidsBrokerLoadTask,
                 loadId, dbId, isPartialUpdate ? TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS : TUniqueKeyUpdateMode.UPSERT,
                 partialUpdateInputColumns, context.exprMap);
-        NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = loadPlanTranslator.translatePlan(streamLoadPlan);
+        NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan);
         descTable = loadPlanInfo.getDescriptorTable();
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());
         List<NereidsFileGroupInfo> fileGroupInfos = new ArrayList<>(fileGroups.size());
