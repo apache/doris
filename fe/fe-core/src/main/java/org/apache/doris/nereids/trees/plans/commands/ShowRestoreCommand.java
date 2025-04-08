@@ -96,7 +96,7 @@ public class ShowRestoreCommand extends ShowCommand {
     /**
      * get meta for show restore
      */
-    private ShowResultSetMetaData getMetaData() {
+    public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         List<String> titleNames = needBriefResult ? BRIEF_TITLE_NAMES : TITLE_NAMES;
         for (String title : titleNames) {

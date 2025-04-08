@@ -58,7 +58,9 @@ public:
     Status acquire_expr(std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
 
     std::string debug_string() const override {
-        return fmt::format("Consumer: ({}, state: {})", _debug_string(), to_string(_rf_state));
+        return fmt::format("Consumer: ({}, state: {}, reached_timeout: {}, timeout_limit: {}ms)",
+                           _debug_string(), to_string(_rf_state),
+                           _reached_timeout ? "true" : "false", std::to_string(_rf_wait_time_ms));
     }
 
     bool is_applied() { return _rf_state == State::APPLIED; }
@@ -100,6 +102,10 @@ private:
         _profile->add_child(_execution_profile.get(), true, nullptr);
         _wait_timer = ADD_TIMER(_profile, "WaitTime");
 
+        _rf_filter = ADD_COUNTER_WITH_LEVEL(
+                parent_profile, fmt::format("RF{} FilterRows", desc->filter_id), TUnit::UNIT, 1);
+        _rf_input = ADD_COUNTER_WITH_LEVEL(
+                parent_profile, fmt::format("RF{} InputRows", desc->filter_id), TUnit::UNIT, 1);
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);
     }
 
@@ -116,7 +122,25 @@ private:
         }
     }
 
-    void _set_state(State rf_state) {
+    void _set_state(State rf_state, std::shared_ptr<RuntimeFilterWrapper> other = nullptr) {
+        std::unique_lock<std::mutex> l(_mtx);
+        if (rf_state == State::TIMEOUT) {
+            DorisMetrics::instance()->runtime_filter_consumer_timeout_num->increment(1);
+            _reached_timeout = true;
+            if (_rf_state != State::NOT_READY) {
+                // reach timeout but do not change State::ready to State::timeout
+                return;
+            }
+        } else if (rf_state == State::READY) {
+            DorisMetrics::instance()->runtime_filter_consumer_ready_num->increment(1);
+            DorisMetrics::instance()->runtime_filter_consumer_wait_ready_ms->increment(
+                    MonotonicMillis() - _registration_time);
+            _wrapper = other;
+            _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED,
+                                  RuntimeFilterWrapper::State::IGNORED,
+                                  RuntimeFilterWrapper::State::READY});
+            _check_state({State::NOT_READY, State::TIMEOUT});
+        }
         _rf_state = rf_state;
         _profile->add_info_string("Info", debug_string());
     }
@@ -129,11 +153,20 @@ private:
     std::unique_ptr<RuntimeProfile> _storage_profile;   // for storage layer stats
     std::unique_ptr<RuntimeProfile> _execution_profile; // for execution layer stats
     RuntimeProfile::Counter* _wait_timer = nullptr;
+    //_rf_filter is used to record the number of rows filtered by the runtime filter.
+    //It aggregates the filtering statistics from both the Storage and Execution.
+    RuntimeProfile::Counter* _rf_filter = nullptr;
+    RuntimeProfile::Counter* _rf_input = nullptr;
 
     int32_t _rf_wait_time_ms;
     const int64_t _registration_time;
 
     std::atomic<State> _rf_state;
+    // only used to lock _set_state() to make _wrapper and _rf_state is protected
+    // signal and acquire_expr are called in different threads at the same time
+    std::mutex _mtx;
+
+    bool _reached_timeout = false;
 
     friend class RuntimeFilterProducer;
 };

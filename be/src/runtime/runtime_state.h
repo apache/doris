@@ -43,7 +43,6 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "io/fs/file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
@@ -437,9 +436,25 @@ public:
                                    std::make_move_iterator(tablet_infos.end()));
     }
 
-    std::vector<THivePartitionUpdate>& hive_partition_updates() { return _hive_partition_updates; }
+    std::vector<THivePartitionUpdate> hive_partition_updates() const {
+        std::lock_guard<std::mutex> lock(_hive_partition_updates_mutex);
+        return _hive_partition_updates;
+    }
 
-    std::vector<TIcebergCommitData>& iceberg_commit_datas() { return _iceberg_commit_datas; }
+    void add_hive_partition_updates(const THivePartitionUpdate& hive_partition_update) {
+        std::lock_guard<std::mutex> lock(_hive_partition_updates_mutex);
+        _hive_partition_updates.emplace_back(hive_partition_update);
+    }
+
+    std::vector<TIcebergCommitData> iceberg_commit_datas() const {
+        std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
+        return _iceberg_commit_datas;
+    }
+
+    void add_iceberg_commit_datas(const TIcebergCommitData& iceberg_commit_data) {
+        std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
+        _iceberg_commit_datas.emplace_back(iceberg_commit_data);
+    }
 
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
@@ -635,10 +650,6 @@ public:
 
     void set_task_id(int id) { _task_id = id; }
 
-    void set_task(pipeline::PipelineTask* task) { _task = task; }
-
-    pipeline::PipelineTask* get_task() const { return _task; }
-
     int task_id() const { return _task_id; }
 
     void set_task_num(int task_num) { _task_num = task_num; }
@@ -746,8 +757,10 @@ private:
     int _task_id = -1;
     int _task_num = 0;
 
+    mutable std::mutex _hive_partition_updates_mutex;
     std::vector<THivePartitionUpdate> _hive_partition_updates;
 
+    mutable std::mutex _iceberg_commit_datas_mutex;
     std::vector<TIcebergCommitData> _iceberg_commit_datas;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;

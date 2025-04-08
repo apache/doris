@@ -39,13 +39,22 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
     auto origin_size = push_exprs.size();
     RETURN_IF_ERROR(_get_push_exprs(push_exprs, _probe_expr));
     // The runtime filter is pushed down, adding filtering information.
-    auto* expr_filtered_rows_counter =
-            ADD_COUNTER(_execution_profile, "ExprFilteredRows", TUnit::UNIT);
-    auto* expr_input_rows_counter = ADD_COUNTER(_execution_profile, "ExprInputRows", TUnit::UNIT);
-    auto* always_true_counter = ADD_COUNTER(_execution_profile, "AlwaysTruePassRows", TUnit::UNIT);
+    auto* expr_filtered_rows_counter = _execution_profile->add_collaboration_counter(
+            "ExprFilteredRows", TUnit::UNIT, _rf_filter);
+    auto* expr_input_rows_counter =
+            _execution_profile->add_collaboration_counter("ExprInputRows", TUnit::UNIT, _rf_input);
+    auto* expr_always_true_counter =
+            ADD_COUNTER(_execution_profile, "AlwaysTruePassRows", TUnit::UNIT);
+
+    auto* predicate_filtered_rows_counter = _storage_profile->add_collaboration_counter(
+            "PredicateFilteredRows", TUnit::UNIT, _rf_filter);
+    auto* predicate_input_rows_counter = _storage_profile->add_collaboration_counter(
+            "PredicateInputRows", TUnit::UNIT, _rf_input);
+
     for (auto i = origin_size; i < push_exprs.size(); i++) {
-        push_exprs[i]->attach_profile_counter(expr_filtered_rows_counter, expr_input_rows_counter,
-                                              always_true_counter);
+        push_exprs[i]->attach_profile_counter(
+                expr_filtered_rows_counter, expr_input_rows_counter, expr_always_true_counter,
+                predicate_filtered_rows_counter, predicate_input_rows_counter);
     }
     return Status::OK();
 }
@@ -56,23 +65,13 @@ Status RuntimeFilterConsumer::acquire_expr(std::vector<vectorized::VRuntimeFilte
     }
     if (_rf_state != State::APPLIED && _rf_state != State::TIMEOUT) {
         _set_state(State::TIMEOUT);
-        DorisMetrics::instance()->runtime_filter_consumer_timeout_num->increment(1);
-        _profile->add_info_string("ReachTimeoutLimit", "true");
     }
     return Status::OK();
 }
 
 void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
     COUNTER_SET(_wait_timer, int64_t((MonotonicMillis() - _registration_time) * NANOS_PER_MILLIS));
-    _wrapper = other->_wrapper;
-    _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED,
-                          RuntimeFilterWrapper::State::IGNORED,
-                          RuntimeFilterWrapper::State::READY});
-    _check_state({State::NOT_READY, State::TIMEOUT});
-    _set_state(State::READY);
-    DorisMetrics::instance()->runtime_filter_consumer_ready_num->increment(1);
-    DorisMetrics::instance()->runtime_filter_consumer_wait_ready_ms->increment(MonotonicMillis() -
-                                                                               _registration_time);
+    _set_state(State::READY, other->_wrapper);
     if (!_filter_timer.empty()) {
         for (auto& timer : _filter_timer) {
             timer->call_ready();

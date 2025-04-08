@@ -79,7 +79,7 @@ public class ShowBackupCommand extends ShowCommand {
     /**
      * get metadata
      */
-    private ShowResultSetMetaData getMetaData() {
+    public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TITLE_NAMES) {
             builder.addColumn(new Column(title, ScalarType.STRING));

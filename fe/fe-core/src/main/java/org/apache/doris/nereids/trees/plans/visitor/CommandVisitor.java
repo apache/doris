@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
@@ -64,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCachedStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
@@ -88,6 +90,9 @@ import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
@@ -109,6 +114,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowClustersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowColumnHistogramStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
@@ -149,7 +155,9 @@ import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionComm
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
@@ -164,6 +172,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
@@ -173,6 +182,10 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountComman
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
@@ -532,6 +545,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showSmallFilesCommand, context);
     }
 
+    default R visitShowSnapshotCommand(ShowSnapshotCommand showSnapshotCommand, C context) {
+        return visitCommand(showSnapshotCommand, context);
+    }
+
     default R visitShowSqlBlockRuleCommand(ShowSqlBlockRuleCommand showblockruleCommand, C context) {
         return visitCommand(showblockruleCommand, context);
     }
@@ -678,6 +695,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showLoadProfileCommand, context);
     }
 
+    default R visitAlterStoragePolicyCommand(AlterStoragePolicyCommand alterStoragePolicyCommand, C context) {
+        return visitCommand(alterStoragePolicyCommand, context);
+    }
+
     default R visitAlterSqlBlockRuleCommand(AlterSqlBlockRuleCommand cmd, C context) {
         return visitCommand(cmd, context);
     }
@@ -809,6 +830,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showConvertLSCCommand, context);
     }
 
+    default R visitShowClustersCommand(ShowClustersCommand showClustersCommand, C context) {
+        return visitCommand(showClustersCommand, context);
+    }
+
     default R visitSwitchCommand(SwitchCommand switchCommand, C context) {
         return visitCommand(switchCommand, context);
     }
@@ -819,6 +844,14 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterDatabaseRenameCommand(AlterDatabaseRenameCommand alterDatabaseRenameCommand, C context) {
         return visitCommand(alterDatabaseRenameCommand, context);
+    }
+
+    default R visitKillQueryCommand(KillQueryCommand killQueryCommand, C context) {
+        return visitCommand(killQueryCommand, context);
+    }
+
+    default R visitKillConnectionCommand(KillConnectionCommand killConnectionCommand, C context) {
+        return visitCommand(killConnectionCommand, context);
     }
 
     default R visitAlterDatabaseSetQuotaCommand(AlterDatabaseSetQuotaCommand alterDatabaseSetQuotaCommand, C context) {
@@ -832,6 +865,10 @@ public interface CommandVisitor<R, C> {
     default R visitAlterRepositoryCommand(AlterRepositoryCommand alterRepositoryCommand,
                                           C context) {
         return visitCommand(alterRepositoryCommand, context);
+    }
+
+    default R visitShowRowPolicyCommand(ShowRowPolicyCommand showRowPolicyCommand, C context) {
+        return visitCommand(showRowPolicyCommand, context);
     }
 
     default R visitShowAnalyzeCommand(ShowAnalyzeCommand showAnalyzeCommand, C context) {
@@ -867,8 +904,16 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showTableStatsCommand, context);
     }
 
+    default R visitShowTabletsFromTableCommand(ShowTabletsFromTableCommand showTabletsFromTableCommand, C context) {
+        return visitCommand(showTabletsFromTableCommand, context);
+    }
+
     default R visitDropStatsCommand(DropStatsCommand dropStatsCommand, C context) {
         return visitCommand(dropStatsCommand, context);
+    }
+
+    default R visitUnlockTablesCommand(UnlockTablesCommand unlockTablesCommand, C context) {
+        return visitCommand(unlockTablesCommand, context);
     }
 
     default R visitDropCachedStatsCommand(DropCachedStatsCommand dropCachedStatsCommand, C context) {
@@ -893,5 +938,25 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterColumnStatsCommand(AlterColumnStatsCommand alterColumnStatsCommand, C context) {
         return visitCommand(alterColumnStatsCommand, context);
+    }
+
+    default R visitTransactionBeginCommand(TransactionBeginCommand transactionBeginCommand, C context) {
+        return visitCommand(transactionBeginCommand, context);
+    }
+
+    default R visitTransactionCommitCommand(TransactionCommitCommand transactionCommitCommand, C context) {
+        return visitCommand(transactionCommitCommand, context);
+    }
+
+    default R visitTransactionRollbackCommand(TransactionRollbackCommand transactionRollbackCommand, C context) {
+        return visitCommand(transactionRollbackCommand, context);
+    }
+
+    default R visitKillAnalyzeJobCommand(KillAnalyzeJobCommand killAnalyzeJobCommand, C context) {
+        return visitCommand(killAnalyzeJobCommand, context);
+    }
+
+    default R visitDropAnalyzeJobCommand(DropAnalyzeJobCommand dropAnalyzeJobCommand, C context) {
+        return visitCommand(dropAnalyzeJobCommand, context);
     }
 }
