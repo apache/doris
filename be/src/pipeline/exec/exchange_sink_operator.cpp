@@ -220,8 +220,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
 
-    if ((_part_type == TPartitionType::UNPARTITIONED) &&
-        !_only_local_exchange) {
+    if ((_part_type == TPartitionType::UNPARTITIONED) && !_only_local_exchange) {
         _broadcast_pb_mem_limiter =
                 vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_queue_dependency);
     } else if (_last_local_channel_idx > -1) {
@@ -300,7 +299,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
     if (_part_type != TPartitionType::UNPARTITIONED) {
         // if the destinations only one dest, we need to use broadcast
         std::unordered_set<UniqueId> dest_fragment_ids_set;
-        for (auto &dest: _dests) {
+        for (auto& dest : _dests) {
             dest_fragment_ids_set.insert(dest.fragment_instance_id);
             if (dest_fragment_ids_set.size() > 1) {
                 break;
