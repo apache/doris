@@ -149,7 +149,11 @@ Status PipelineTask::_extract_dependencies() {
     read_dependencies.resize(_operators.size());
     size_t i = 0;
     for (auto& op : _operators) {
-        auto* local_state = _state->get_local_state(op->operator_id());
+        auto result = _state->get_local_state_result(op->operator_id());
+        if (!result) {
+            return result.error();
+        }
+        auto* local_state = result.value();
         read_dependencies[i] = local_state->dependencies();
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
