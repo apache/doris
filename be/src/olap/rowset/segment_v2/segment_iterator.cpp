@@ -1350,9 +1350,6 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
             }
-            if (predicate->is_runtime_filter()) {
-                _filter_info_id.push_back(predicate);
-            }
         }
 
         // handle delete_condition
@@ -1877,17 +1874,6 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     return selected_size;
 }
 
-void SegmentIterator::_collect_runtime_filter_predicate() {
-    // collect profile
-    for (auto* p : _filter_info_id) {
-        // There is a situation, such as with in or minmax filters,
-        // where intermediate conversion to a key range or other types
-        // prevents obtaining the filter id.
-        if (p->is_runtime_filter()) {
-            _opts.stats->filter_info[p->get_runtime_filter_id()] = p->get_filtered_info();
-        }
-    }
-}
 Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                 std::vector<rowid_t>& rowid_vector,
                                                 uint16_t* sel_rowid_idx, size_t select_size,
@@ -2146,8 +2132,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             //          to reduce cost of read short circuit columns.
             //          In SSB test, it make no difference; So need more scenarios to test
             selected_size = _evaluate_short_circuit_predicate(_sel_rowid_idx.data(), selected_size);
-
-            _collect_runtime_filter_predicate();
             if (selected_size > 0) {
                 // step 3.1: output short circuit and predicate column
                 // when lazy materialization enables, _predicate_column_ids = distinct(_short_cir_pred_column_ids + _vec_pred_column_ids)
