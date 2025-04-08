@@ -55,7 +55,7 @@ public:
                  int task_idx);
 
     Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
-                   const TDataSink& tsink, QueryContext* query_ctx);
+                   const TDataSink& tsink);
 
     Status execute(bool* done);
 

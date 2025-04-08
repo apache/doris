@@ -83,14 +83,16 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
                   state->get_query_ctx()->get_memory_sufficient_dependency()) {
     _pipeline_task_watcher.start();
 
-    auto shared_state = _sink->create_shared_state();
-    if (shared_state) {
-        _sink_shared_state = shared_state;
+    if (!_shared_state_map.contains(_sink->dests_id().front())) {
+        auto shared_state = _sink->create_shared_state();
+        if (shared_state) {
+            _sink_shared_state = shared_state;
+        }
     }
 }
 
 Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
-                             const TDataSink& tsink, QueryContext* query_ctx) {
+                             const TDataSink& tsink) {
     DCHECK(_sink);
     _init_profile();
     SCOPED_TIMER(_task_profile->total_time_counter());
@@ -130,7 +132,10 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
     if (auto fragment = _fragment_context.lock()) {
         if (fragment->get_query_ctx()->is_cancelled()) {
             terminate();
+            return fragment->get_query_ctx()->exec_status();
         }
+    } else {
+        return Status::InternalError("Fragment already finished! Query: {}", print_id(_query_id));
     }
     _block = doris::vectorized::Block::create_unique();
     return _state_transition(State::RUNNABLE);
@@ -241,42 +246,24 @@ bool PipelineTask::_wait_to_start() {
     // Before task starting, we should make sure
     // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
     // 2. Runtime filter dependencies are ready
-    if (_execution_dep->is_blocked_by(shared_from_this())) {
-        return true;
-    }
-
-    for (auto* dep : _filter_dependencies) {
-        if (dep->is_blocked_by(shared_from_this())) {
-            return true;
-        }
-    }
-    return false;
+    return _execution_dep->is_blocked_by(shared_from_this()) ||
+           std::any_of(
+                   _filter_dependencies.begin(), _filter_dependencies.end(),
+                   [&](Dependency* dep) -> bool { return dep->is_blocked_by(shared_from_this()); });
 }
 
 bool PipelineTask::_is_pending_finish() {
     // Spilling may be in progress if eos is true.
-    for (auto* dep : _spill_dependencies) {
-        if (dep->is_blocked_by(shared_from_this())) {
-            return true;
-        }
-    }
-    for (auto* dep : _finish_dependencies) {
-        if (dep->is_blocked_by(shared_from_this())) {
-            return true;
-        }
-    }
-    return false;
+    return std::any_of(_spill_dependencies.begin(), _spill_dependencies.end(),
+                       [&](Dependency* dep) -> bool {
+                           return dep->is_blocked_by(shared_from_this());
+                       }) ||
+           std::any_of(
+                   _finish_dependencies.begin(), _finish_dependencies.end(),
+                   [&](Dependency* dep) -> bool { return dep->is_blocked_by(shared_from_this()); });
 }
 
 bool PipelineTask::_is_blocked() {
-    for (auto* dep : _spill_dependencies) {
-        if (dep->is_blocked_by(shared_from_this())) {
-            return true;
-        }
-    }
-    if (_memory_sufficient_dependency->is_blocked_by(shared_from_this())) {
-        return true;
-    }
     // `_dry_run = true` means we do not need data from source operator.
     if (!_dry_run) {
         for (int i = _read_dependencies.size() - 1; i >= 0; i--) {
@@ -292,12 +279,14 @@ bool PipelineTask::_is_blocked() {
             }
         }
     }
-    for (auto* dep : _write_dependencies) {
-        if (dep->is_blocked_by(shared_from_this())) {
-            return true;
-        }
-    }
-    return false;
+    return std::any_of(_spill_dependencies.begin(), _spill_dependencies.end(),
+                       [&](Dependency* dep) -> bool {
+                           return dep->is_blocked_by(shared_from_this());
+                       }) ||
+           _memory_sufficient_dependency->is_blocked_by(shared_from_this()) ||
+           std::any_of(
+                   _write_dependencies.begin(), _write_dependencies.end(),
+                   [&](Dependency* dep) -> bool { return dep->is_blocked_by(shared_from_this()); });
 }
 
 void PipelineTask::terminate() {
