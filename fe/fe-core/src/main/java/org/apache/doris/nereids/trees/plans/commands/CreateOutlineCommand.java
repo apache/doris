@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.hint.OutlineInfo;
 import org.apache.doris.nereids.hint.OutlineMgr;
@@ -32,6 +32,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.base.Strings;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -52,6 +53,8 @@ public class CreateOutlineCommand extends Command implements ForwardWithSync {
 
     private final int startIndex;
 
+    private final String targetQuery;
+
     /**
      * create outline command
      * @param outlineName outline name which is unique
@@ -61,20 +64,22 @@ public class CreateOutlineCommand extends Command implements ForwardWithSync {
      * @param startIndex start index of original query
      */
     public CreateOutlineCommand(String outlineName, boolean ignoreExist,
-                                LogicalPlan query, String originalQuery, int startIndex) {
+                                LogicalPlan query, String originalQuery, int startIndex, String targetQuery) {
         super(PlanType.CREATE_OUTLINE_COMMAND);
         this.outlineName = outlineName;
         this.ignoreExist = ignoreExist;
         this.query = query;
         this.originalQuery = originalQuery;
         this.startIndex = startIndex;
+        this.targetQuery = targetQuery;
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctx.getSessionVariable().isEnableSqlPlanOutlines()) {
             LOG.info("outline is not enabled, please enable it by: set enable_sql_plan_outlines = true");
-            throw new DdlException("outline is not enabled, please enable it by: set enable_sql_plan_outlines = true");
+            throw new AnalysisException(
+                    "outline is not enabled, please enable it by: set enable_sql_plan_outlines = true");
         }
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(query, ctx.getStatementContext());
@@ -87,12 +92,21 @@ public class CreateOutlineCommand extends Command implements ForwardWithSync {
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
         executor.setPlanner(planner);
         executor.checkBlockRules();
-        String visibleSignature = OutlineMgr.replaceConstant(originalQuery,
+        String visibleSignature;
+        if (Strings.isNullOrEmpty(targetQuery)) {
+            visibleSignature = OutlineMgr.replaceConstant(originalQuery,
                 executor.getContext().getStatementContext().getConstantExpressionMap(), startIndex);
+        } else {
+            if (!targetQuery.equals(originalQuery)) {
+                LOG.info("target query should be the same as the original query");
+                throw new AnalysisException("target query should be the same as the original query");
+            }
+            visibleSignature = targetQuery;
+        }
         String sqlId = DigestUtils.md5Hex(visibleSignature);
         String outlineData = OutlineMgr.createOutlineData(ctx.getSessionVariable());
         OutlineInfo outlineInfo = new OutlineInfo(outlineName, visibleSignature, sqlId,
-                originalQuery, "outlineTarget", outlineData);
+                originalQuery, targetQuery, outlineData);
         OutlineMgr.createOutlineInternal(outlineInfo, ignoreExist, false);
     }
 
