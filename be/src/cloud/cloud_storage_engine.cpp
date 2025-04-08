@@ -645,25 +645,6 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                                         tablet->tablet_id());
         }
     }
-    auto compaction = std::make_shared<CloudCumulativeCompaction>(*this, tablet);
-    auto st = compaction->prepare_compact();
-    if (!st.ok()) {
-        long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-        if (st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>() &&
-            st.msg() != "_last_delete_version.first not equal to -1") {
-            // Backoff strategy if no suitable version
-            tablet->last_cumu_no_suitable_version_ms = now;
-        }
-        tablet->set_last_cumu_compaction_failure_time(now);
-        std::lock_guard lock(_compaction_mtx);
-        _tablet_preparing_cumu_compaction.erase(tablet->tablet_id());
-        return st;
-    }
-    {
-        std::lock_guard lock(_compaction_mtx);
-        _tablet_preparing_cumu_compaction.erase(tablet->tablet_id());
-        _submitted_cumu_compactions[tablet->tablet_id()].push_back(compaction);
-    }
     auto erase_submitted_cumu_compaction = [=, this]() {
         std::lock_guard lock(_compaction_mtx);
         auto it = _submitted_cumu_compactions.find(tablet->tablet_id());
@@ -680,7 +661,27 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
             tablet->last_cumu_no_suitable_version_ms = 0;
         }
     };
-    st = _cumu_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
+    Status st = Status::OK();
+    st = _cumu_compaction_thread_pool->submit_func([=, this]() {
+        auto compaction = std::make_shared<CloudCumulativeCompaction>(*this, tablet);
+        auto st = compaction->prepare_compact();
+        if (!st.ok()) {
+            long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+            if (st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>() &&
+                st.msg() != "_last_delete_version.first not equal to -1") {
+                // Backoff strategy if no suitable version
+                tablet->last_cumu_no_suitable_version_ms = now;
+            }
+            tablet->set_last_cumu_compaction_failure_time(now);
+            std::lock_guard lock(_compaction_mtx);
+            _tablet_preparing_cumu_compaction.erase(tablet->tablet_id());
+            return;
+        }
+        {
+            std::lock_guard lock(_compaction_mtx);
+            _tablet_preparing_cumu_compaction.erase(tablet->tablet_id());
+            _submitted_cumu_compactions[tablet->tablet_id()].push_back(compaction);
+        }
         signal::tablet_id = tablet->tablet_id();
         bool is_large_task = true;
         Defer defer {[&]() {
@@ -733,7 +734,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                 }
             }
         } while (false);
-        auto st = compaction->execute_compact();
+        st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
             long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
