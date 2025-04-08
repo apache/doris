@@ -18,6 +18,8 @@
 package org.apache.doris.statistics.util;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableProperty;
@@ -43,6 +45,7 @@ import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import mockit.Mock;
@@ -500,5 +503,59 @@ class StatisticsUtilTest {
             }
         };
         Assertions.assertTrue(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+    }
+
+    @Test
+    void testCanCollectColumn() {
+        Column column = new Column("testColumn", Type.INT, true, null, null, "");
+        List<Column> schema = new ArrayList<>();
+        schema.add(column);
+        OlapTable table = new OlapTable(200, "testTable", schema, KeysType.AGG_KEYS, null, null);
+
+        // Test full analyze always return true;
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, false, 1));
+
+        // Test null table return true;
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, null, true, 1));
+
+        // Test external table always return true;
+        HMSExternalCatalog externalCatalog = new HMSExternalCatalog();
+        HMSExternalDatabase externalDatabase = new HMSExternalDatabase(externalCatalog, 1L, "dbName", "dbName");
+        HMSExternalTable hmsTable = new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase);
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, hmsTable, true, 1));
+
+        // Test agg key return true;
+        MaterializedIndexMeta meta = new MaterializedIndexMeta(1L, schema, 1, 1, (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS, null);
+        new MockUp<OlapTable>() {
+            @Mock
+            public MaterializedIndexMeta getIndexMetaByIndexId(long indexId) {
+                return meta;
+            }
+        };
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, true, 1));
+
+        // Test agg value return false
+        column = new Column("testColumn", Type.INT, false, null, null, "");
+        Assertions.assertFalse(StatisticsUtil.canCollectColumn(column, table, true, 1));
+
+        // Test unique mor value column return false
+        MaterializedIndexMeta meta1 = new MaterializedIndexMeta(1L, schema, 1, 1, (short) 1, TStorageType.COLUMN, KeysType.UNIQUE_KEYS, null);
+        new MockUp<OlapTable>() {
+            @Mock
+            public MaterializedIndexMeta getIndexMetaByIndexId(long indexId) {
+                return meta1;
+            }
+
+            @Mock
+            public boolean isUniqKeyMergeOnWrite() {
+                return false;
+            }
+        };
+        Assertions.assertFalse(StatisticsUtil.canCollectColumn(column, table, true, 1));
+
+        // Test unique mor key column return true
+        column = new Column("testColumn", Type.INT, true, null, null, "");
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, true, 1));
+
     }
 }
