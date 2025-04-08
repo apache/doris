@@ -236,7 +236,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             }
 
             do {
-                for (int j = 0; j < outputTable.getColumns().length; ++j) {
+                for (int j = 0; j < outputColumnCount; ++j) {
                     String outputColumnName = outputTable.getFields()[j];
                     Integer columnIndex = columnIndexMap.get(outputColumnName);
 
@@ -250,7 +250,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 curBlockRows++;
             } while (curBlockRows < batchSize && resultSet.next());
 
-            for (int j = 0; j < outputTable.getColumns().length; ++j) {
+            for (int j = 0; j < outputColumnCount; ++j) {
                 String outputColumnName = outputTable.getFields()[j];
                 Integer columnIndex = columnIndexMap.get(outputColumnName);
 
