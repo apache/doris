@@ -93,7 +93,7 @@ struct AggregateFunctionSortData {
         // If memory allocate failed during deserialize, st is not ok, throw exception here to
         // stop the query.
         if (!st.ok()) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, status.to_string());
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
     }
 
