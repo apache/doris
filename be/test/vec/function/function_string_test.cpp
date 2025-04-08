@@ -3374,4 +3374,55 @@ TEST(function_string_test, function_rpad_test) {
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
 
+TEST(function_string_test, function_xpath_string_test) {
+    std::string func_name = "xpath_string";
+    BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+
+    DataSet data_set = {
+            {{std::string("<a>123</a>"), std::string("/a")}, std::string("123")},
+            {{std::string("<a><b>123</b></a>"), std::string("/a/b")}, std::string("123")},
+            {{std::string("<a><b>123</b><c>456</c></a>"), std::string("/a/c")}, std::string("456")},
+            {{std::string("<a><b>123</b><c>456</c></a>"), std::string("/a/d")}, std::string("")},
+            {{std::string("<a><b>123</b><b>456</b></a>"), std::string("/a/b[1]")},
+             std::string("123")},
+            {{std::string("<a><b>123</b><b>456</b></a>"), std::string("/a/b[2]")},
+             std::string("456")},
+            {{std::string("<a><b>123</b><b>456</b></a>"), std::string("/a/b[3]")}, std::string("")},
+            {{std::string("<a><b attr='val'>123</b></a>"), std::string("/a/b[@attr]")},
+             std::string("123")},
+            {{std::string("<a><b attr='val'>123</b></a>"), std::string("/a/b[@attr='val']")},
+             std::string("123")},
+            {{std::string("<a><b attr='val'>123</b></a>"), std::string("/a/b[@attr='wrong']")},
+             std::string("")},
+            {{std::string("<a><!-- comment -->123</a>"), std::string("/a")}, std::string("123")},
+            {{std::string("<a><![CDATA[123]]></a>"), std::string("/a")}, std::string("123")},
+            {{std::string("<a>123<b>456</b>789</a>"), std::string("/a")}, std::string("123456789")},
+            {{std::string("<a>  123  </a>"), std::string("/a")}, std::string("  123  ")},
+            {{std::string("<a></a>"), std::string("/a")}, std::string("")},
+            {{std::string("<a/>"), std::string("/a")}, std::string("")},
+            {{std::string("<a>123</a>"), std::string("")}, Null()},
+            {{std::string(""), std::string("/a")}, Null()},
+            {{Null(), std::string("/a")}, Null()},
+            {{std::string("<a>123</a>"), Null()}, Null()},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("//title/text()")},
+             std::string("Intro to Hive")},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("//author/text()")},
+             std::string("John Doe")},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("//publisher/text()")},
+             std::string("Tech Press")},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("/book")},
+             std::string("Intro to HiveJohn DoeTech Press")},
+            {{Null(), Null()}, Null()}};
+
+    check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+}
+
 } // namespace doris::vectorized

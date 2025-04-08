@@ -56,6 +56,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -852,12 +853,13 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
     if (parent.__isset.runtime_filter_info) {
         auto info = parent.runtime_filter_info;
-        if (info.__isset.runtime_filter_params &&
-            !info.runtime_filter_params.rid_to_runtime_filter.empty()) {
-            auto handler = std::make_shared<RuntimeFilterMergeControllerEntity>(
-                    RuntimeFilterParamsContext::create(context->get_runtime_state()));
-            RETURN_IF_ERROR(handler->init(params.query_id, info.runtime_filter_params));
-            query_ctx->set_merge_controller_handler(handler);
+        if (info.__isset.runtime_filter_params) {
+            if (!info.runtime_filter_params.rid_to_runtime_filter.empty()) {
+                auto handler = std::make_shared<RuntimeFilterMergeControllerEntity>(
+                        RuntimeFilterParamsContext::create(context->get_runtime_state()));
+                RETURN_IF_ERROR(handler->init(params.query_id, info.runtime_filter_params));
+                query_ctx->set_merge_controller_handler(handler);
+            }
 
             query_ctx->runtime_filter_mgr()->set_runtime_filter_params(info.runtime_filter_params);
         }
@@ -1325,7 +1327,13 @@ Status FragmentMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
     query_id.__set_hi(queryid.hi);
     query_id.__set_lo(queryid.lo);
     if (auto q_ctx = get_query_ctx(query_id)) {
-        return q_ctx->runtime_filter_mgr()->sync_filter_size(request);
+        try {
+            return q_ctx->runtime_filter_mgr()->sync_filter_size(request);
+        } catch (const Exception& e) {
+            return Status::InternalError(
+                    "Sync filter size failed: Query context (query-id: {}) error: {}",
+                    queryid.to_string(), e.what());
+        }
     } else {
         return Status::EndOfFile(
                 "Sync filter size failed: Query context (query-id: {}) already finished",
@@ -1342,7 +1350,9 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
     query_id.__set_lo(queryid.lo);
     if (auto q_ctx = get_query_ctx(query_id)) {
         SCOPED_ATTACH_TASK(q_ctx.get());
-        std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
+        if (!q_ctx->get_merge_controller_handler()) {
+            return Status::InternalError("Merge filter failed: Merge controller handler is null");
+        }
         return q_ctx->get_merge_controller_handler()->merge(q_ctx, request, attach_data);
     } else {
         return Status::EndOfFile(
