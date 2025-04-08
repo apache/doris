@@ -69,16 +69,16 @@ Status OlapScanLocalState::_init_profile() {
         static const char* sync_rowset_timer_name = "SyncRowsetTime";
         _sync_rowset_timer = ADD_TIMER(_scanner_profile, sync_rowset_timer_name);
         _sync_rowset_get_remote_rowsets_num =
-                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsNum", TUnit::UNIT,
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsCount", TUnit::UNIT,
                                   sync_rowset_timer_name);
         _sync_rowset_get_remote_rowsets_rpc_timer =
                 ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsRpcMs",
                                   TUnit::TIME_MS, sync_rowset_timer_name);
         _sync_rowset_get_local_delete_bitmap_rowsets_num =
-                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetLocalDeleteBitmapRowsetsNum",
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetLocalDeleteBitmapRowsetsCount",
                                   TUnit::UNIT, sync_rowset_timer_name);
         _sync_rowset_get_remote_delete_bitmap_rowsets_num =
-                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRowsetsNum",
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRowsetsCount",
                                   TUnit::UNIT, sync_rowset_timer_name);
         _sync_rowset_get_remote_delete_bitmap_key_count =
                 ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapKeyCount",
@@ -443,7 +443,7 @@ Status OlapScanLocalState::hold_tablets() {
         return Status::OK();
     }
 
-    auto update_sync_rowset_profile = [&](const SyncStatistics& sync_stat) {
+    auto update_sync_rowset_profile = [&](const SyncRowsetStats& sync_stat) {
         COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_num, sync_stat.get_remote_rowsets_num);
         COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_rpc_timer,
                        sync_stat.get_remote_rowsets_rpc_ms);
@@ -469,7 +469,7 @@ Status OlapScanLocalState::hold_tablets() {
                         _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(), version);
         if (config::is_cloud_mode()) {
             int64_t duration_ns = 0;
-            SyncStatistics sync_stats;
+            SyncRowsetStats sync_stats;
             {
                 SCOPED_RAW_TIMER(&duration_ns);
                 auto tablet =
@@ -490,7 +490,7 @@ Status OlapScanLocalState::hold_tablets() {
 
     if (config::is_cloud_mode()) {
         int64_t duration_ns = 0;
-        std::vector<SyncStatistics> sync_statistics {};
+        std::vector<SyncRowsetStats> sync_statistics {};
         sync_statistics.reserve(_tablets.size());
         {
             SCOPED_RAW_TIMER(&duration_ns);

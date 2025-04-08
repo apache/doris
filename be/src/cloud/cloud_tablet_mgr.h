@@ -33,7 +33,7 @@ class CloudTablet;
 class CloudStorageEngine;
 class LRUCachePolicy;
 class CountDownLatch;
-struct SyncStatistics;
+struct SyncRowsetStats;
 
 extern uint64_t g_tablet_report_inactive_duration_ms;
 
@@ -46,7 +46,7 @@ public:
     // sync rowsets after, and download segment data in background if `warmup_data` is true.
     Result<std::shared_ptr<CloudTablet>> get_tablet(int64_t tablet_id, bool warmup_data = false,
                                                     bool sync_delete_bitmap = true,
-                                                    SyncStatistics* sync_stats = nullptr);
+                                                    SyncRowsetStats* sync_stats = nullptr);
 
     void erase_tablet(int64_t tablet_id);
 

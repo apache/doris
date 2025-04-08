@@ -26,7 +26,7 @@ namespace doris {
 
 class CloudStorageEngine;
 
-struct SyncStatistics {
+struct SyncRowsetStats {
     int64_t get_remote_rowsets_num {0};
     int64_t get_remote_rowsets_rpc_ms {0};
 
@@ -87,7 +87,7 @@ public:
     // If `query_version` > 0 and local max_version of the tablet >= `query_version`, do nothing.
     // If 'need_download_data_async' is true, it means that we need to download the new version
     // rowsets datum async.
-    Status sync_rowsets(const SyncOptions& options = {}, SyncStatistics* stats = nullptr);
+    Status sync_rowsets(const SyncOptions& options = {}, SyncRowsetStats* stats = nullptr);
 
     // Synchronize the tablet meta from meta service.
     Status sync_meta();
@@ -239,7 +239,7 @@ private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
 
-    Status sync_if_not_running(SyncStatistics* stats = nullptr);
+    Status sync_if_not_running(SyncRowsetStats* stats = nullptr);
 
     CloudStorageEngine& _engine;
 

@@ -144,7 +144,7 @@ Status CloudTablet::merge_rowsets_schema() {
 
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
 // This function will erase the tablet from `CloudTabletMgr` when it can't find this tablet in MS.
-Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncStatistics* stats) {
+Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* stats) {
     RETURN_IF_ERROR(sync_if_not_running(stats));
 
     if (options.query_version > 0) {
@@ -174,7 +174,7 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncStatistics* sta
 // Sync tablet meta and all rowset meta if not running.
 // This could happen when BE didn't finish schema change job and another BE committed this schema change job.
 // It should be a quite rare situation.
-Status CloudTablet::sync_if_not_running(SyncStatistics* stats) {
+Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
     if (tablet_state() == TABLET_RUNNING) {
         return Status::OK();
     }

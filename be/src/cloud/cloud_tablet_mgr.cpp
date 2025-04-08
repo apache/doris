@@ -151,7 +151,7 @@ void set_tablet_access_time_ms(CloudTablet* tablet) {
 
 Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_id, bool warmup_data,
                                                                 bool sync_delete_bitmap,
-                                                                SyncStatistics* sync_stats) {
+                                                                SyncRowsetStats* sync_stats) {
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
     class Value : public LRUCacheValueBase {
     public:
