@@ -44,6 +44,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -88,28 +89,27 @@ public class ShowCatalogRecycleBinCommand extends ShowCommand {
     /**
      * validate
      */
-    private void validate() throws AnalysisException {
+    public void validate() throws AnalysisException {
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                     PrivPredicate.ADMIN.getPrivs().toString());
         }
 
-        if (whereClause == null) {
-            return;
-        }
-        boolean valid = analyzeWhereClause();
-        if (!valid) {
+        if (!analyzeWhereClause()) {
             throw new AnalysisException("Where clause should like: Name = \"name\", "
                     + " or Name LIKE \"matcher\"");
         }
     }
 
     private boolean analyzeWhereClause() {
-        if (whereClause instanceof EqualTo) {
+        if (whereClause == null) {
+            return false;
+        } else if (whereClause instanceof EqualTo) {
             EqualTo equalTo = (EqualTo) whereClause;
+            String a = equalTo.child(0).toSql();
             if (equalTo.left() instanceof UnboundSlot
-                    && ((UnboundSlot) equalTo.left()).getName().equals("name")
+                    && equalTo.child(0).toSql().toLowerCase(Locale.ROOT).equals("name")
                     && equalTo.right() instanceof Literal) {
                 nameValue = ((Literal) equalTo.right()).getStringValue();
             } else {
@@ -118,16 +118,13 @@ public class ShowCatalogRecycleBinCommand extends ShowCommand {
         } else if (whereClause instanceof Like) {
             Like like = (Like) whereClause;
             if (like.left() instanceof UnboundSlot
-                    && ((UnboundSlot) like.left()).getName().equals("name")
+                    && like.child(0).toSql().toLowerCase(Locale.ROOT).equals("name")
                     && like.right() instanceof Literal) {
                 nameValue = ((Literal) like.right()).getStringValue();
             } else {
                 return false;
             }
         } else {
-            return false;
-        }
-        if (!(whereClause instanceof Like || whereClause instanceof EqualTo)) {
             return false;
         }
         return !Strings.isNullOrEmpty(nameValue);
