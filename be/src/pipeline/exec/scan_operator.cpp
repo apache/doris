@@ -18,6 +18,7 @@
 #include "scan_operator.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
 
 #include <cstdint>
 #include <memory>
@@ -73,7 +74,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
-    RETURN_IF_ERROR(_helper.init(state, profile(), p.is_serial_operator(), _filter_dependencies,
+    RETURN_IF_ERROR(_helper.init(state, p.is_serial_operator(), _filter_dependencies,
                                  p.operator_id(), p.node_id(),
                                  p.get_name() + "_FILTER_DEPENDENCY"));
     RETURN_IF_ERROR(_init_profile());
@@ -287,7 +288,9 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                                 if (need_set_runtime_filter_id) {
                                     auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(
                                             conjunct_expr_root.get());
-                                    value_range.set_runtime_filter_info(
+                                    DCHECK(rf_expr->predicate_filtered_rows_counter() != nullptr);
+                                    DCHECK(rf_expr->predicate_input_rows_counter() != nullptr);
+                                    value_range.attach_profile_counter(
                                             rf_expr->filter_id(),
                                             rf_expr->predicate_filtered_rows_counter(),
                                             rf_expr->predicate_input_rows_counter());
@@ -591,8 +594,8 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                 iter = hybrid_set->begin();
             } else {
                 int runtime_filter_id = -1;
-                RuntimeProfile::Counter* predicate_filtered_rows_counter = nullptr;
-                RuntimeProfile::Counter* predicate_input_rows_counter = nullptr;
+                std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter = nullptr;
+                std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter = nullptr;
                 if (expr_ctx->root()->is_rf_wrapper()) {
                     auto* rf_expr =
                             assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
@@ -1275,7 +1278,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> {}.swap(_scanners);
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, rf_time);
-
+    _helper.collect_realtime_profile(profile());
     return PipelineXLocalState<>::close(state);
 }
 
