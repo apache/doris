@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -31,13 +32,14 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -116,36 +118,33 @@ public class ShowColumnsCommand extends ShowCommand {
         }
     }
 
-    private boolean matchesCondition(Column col, Pair<String, String> equal) {
-        String columnName = equal.first.toLowerCase(Locale.ROOT);
-        String columnValue = equal.second;
-        switch (columnName) {
-            case "field":
-                return col.getName().equals(columnValue);
-            case "type":
-                return col.getOriginType().toString().equals(columnValue);
-            case "null":
-                return col.isAllowNull() == Boolean.parseBoolean(columnValue);
-            case "key":
-                return col.isKey() == Boolean.parseBoolean(columnValue);
-            case "default":
-                return col.getDefaultValue().equals(columnValue);
-            case "extra":
-                return col.getAggregationType().toSql().equals(columnValue);
-            case "comment":
-                return col.getComment().equals(columnValue);
-            default:
-                return false;
+    private class ReplaceColumnNameVisitor extends DefaultExpressionRewriter<Void> {
+        @Override
+        public Expression visitUnboundSlot(UnboundSlot slot, Void context) {
+            String columnName = ALIAS_COLUMN_MAP.get(slot.getName().toLowerCase(Locale.ROOT));
+            if (columnName != null) {
+                return UnboundSlot.quoted(columnName);
+            }
+            return slot;
         }
     }
 
-    private boolean skipColumn(Column col) {
-        for (Pair<String, String> equal : equalConditions) {
-            if (!matchesCondition(col, equal)) {
-                return true;
+    private ShowResultSet execute(ConnectContext ctx, StmtExecutor executor, String whereClause) {
+        List<AliasInfo> selectList = new ArrayList<>();
+        ALIAS_COLUMN_MAP.forEach((key, value) -> {
+            if (!isVerbose && (key.equals("collation") || key.equals("privileges") || key.equals("comment"))) {
+                return;
             }
-        }
-        return false;
+            selectList.add(AliasInfo.of(value, key));
+        });
+
+        TableNameInfo fullTblName = new TableNameInfo(tableNameInfo.getCtl(), InfoSchemaDb.DATABASE_NAME, "columns");
+
+        // We need to use TABLE_SCHEMA as a condition to query When querying external catalogs.
+        // This also applies to the internal catalog.
+        LogicalPlan plan = Utils.buildLogicalPlan(selectList, fullTblName, whereClause);
+        List<List<String>> rows = Utils.executePlan(ctx, executor, plan);
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     private ShowResultSet handleShowColumn() throws AnalysisException {
@@ -163,9 +162,6 @@ public class ShowColumnsCommand extends ShowCommand {
             List<Column> columns = table.getBaseSchema();
             for (Column col : columns) {
                 if (matcher != null && !matcher.match(col.getName())) {
-                    continue;
-                }
-                if (!equalConditions.isEmpty() && skipColumn(col)) {
                     continue;
                 }
                 final String columnName = col.getName();
@@ -202,33 +198,14 @@ public class ShowColumnsCommand extends ShowCommand {
         return new ShowResultSet(getMetaData(), rows);
     }
 
-    private void parseWhereClause() throws AnalysisException {
-        if (whereClause == null) {
-            return;
-        }
-        List<Expression> conjunctions = ExpressionUtils.extractConjunction(whereClause);
-        for (Expression conj : conjunctions) {
-            if (conj instanceof EqualTo) {
-                EqualTo equalTo = (EqualTo) conj;
-                if (equalTo.left() instanceof UnboundSlot && equalTo.right() instanceof Literal) {
-                    String columnName = ((UnboundSlot) equalTo.left()).getName();
-                    String columnValue = ((Literal) equalTo.right()).getStringValue();
-                    if (ALIAS_COLUMN_MAP.containsKey(columnName.toLowerCase(Locale.ROOT))) {
-                        equalConditions.add(Pair.of(columnName, columnValue));
-                    } else {
-                        throw new AnalysisException("Unknown column: " + columnName);
-                    }
-                } else {
-                    throw new AnalysisException("Unsupported where clause: " + conj.toSql());
-                }
-            }
-        }
-    }
-
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
-        parseWhereClause();
+        if (whereClause != null) {
+            Expression rewrited = whereClause.accept(new ReplaceColumnNameVisitor(), null);
+            String whereCondition = " WHERE `TABLE_NAME` = '" + tableNameInfo.getTbl() + "' AND " + rewrited.toSql();
+            return execute(ctx, executor, whereCondition);
+        }
         return handleShowColumn();
     }
 
