@@ -151,6 +151,7 @@ Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::stri
             LOG(INFO) << "Another thread created HDFS handler, reuse it, hash_code=" << hash_code
                       << ", is_kerberos=" << it->second->is_kerberos_auth
                       << ", principal=" << it->second->principal << ", fs_name=" << fs_name;
+            new_fs_handler->disconnect();
             it->second->update_access_time();
             *fs_handler = it->second;
             return Status::OK();

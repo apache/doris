@@ -67,6 +67,10 @@ public:
     }
 
     void update_access_time() { last_access_time = std::time(nullptr); }
+
+    void disconnect() {
+       hdfsDisconnect(hdfs_fs);
+    }
 };
 
 namespace hdfs_bvar {
