@@ -611,9 +611,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             Set<Pair<IndexType, List<String>>> distinctCol = new HashSet<>();
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = PropertyAnalyzer
                     .analyzeInvertedIndexFileStorageFormat(new HashMap<>(properties));
-            boolean disableInvertedIndexV1ForVariant =
-                    (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1)
-                            && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
+
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();
                 if (!engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
@@ -626,8 +624,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                             indexDef.checkColumn(column,
                                     getKeysDesc().getKeysType(),
                                     enableUniqueKeyMergeOnWrite,
-                                    invertedIndexFileStorageFormat,
-                                    disableInvertedIndexV1ForVariant);
+                                    invertedIndexFileStorageFormat);
                             found = true;
                             break;
                         }
