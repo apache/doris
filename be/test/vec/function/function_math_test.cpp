@@ -49,10 +49,10 @@ TEST(MathFunctionTest, acosh_test) {
     std::vector input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{1.0}, 0.0},
-                        {{2.0}, 1.3169578969248168},
+                        {{2.0}, 1.3169578969248166},
                         {{3.0}, 1.7627471740390861},
                         {{10.0}, 2.9932228461263808},
-                        {{100.0}, 5.2982923656104850}};
+                        {{100.0}, 5.298292365610484}};
 
     static_cast<void>(
             check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
@@ -103,8 +103,8 @@ TEST(MathFunctionTest, atanh_test) {
     std::vector input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{0.0}, 0.0},
-                        {{0.5}, 0.5493061443340549},
-                        {{-0.5}, -0.5493061443340549},
+                        {{0.5}, 0.5493061443340548},
+                        {{-0.5}, -0.5493061443340548},
                         {{0.9}, 1.4722194895832204},
                         {{-0.9}, -1.4722194895832204}};
 
@@ -148,8 +148,8 @@ TEST(MathFunctionTest, sinh_test) {
     DataSet data_set = {{{0.0}, 0.0},
                         {{1.0}, 1.1752011936438014},
                         {{-1.0}, -1.1752011936438014},
-                        {{2.0}, 3.6268604078470186},
-                        {{-2.0}, -3.6268604078470186}};
+                        {{2.0}, 3.626860407847019},
+                        {{-2.0}, -3.626860407847019}};
 
     static_cast<void>(
             check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));

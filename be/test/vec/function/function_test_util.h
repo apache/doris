@@ -259,7 +259,6 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     auto result = block.columns() - 1;
     auto st = func->execute(fn_ctx, block, arguments, result, row_size);
-    std::cout << block.dump_data() << std::endl;
     if (expect_execute_fail) {
         EXPECT_NE(Status::OK(), st);
         return st;
