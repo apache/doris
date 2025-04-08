@@ -87,13 +87,6 @@ public class AlterColumnStatsCommandTest extends TestWithFeService {
         AlterColumnStatsCommand command = new AlterColumnStatsCommand(tableNameInfo, partitionNamesInfo, indexName, columnName, properties);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
 
-        //test OlapTable
-        /*  String indexName2 = "test_index_name";
-        TableNameInfo tableNameInfo2 = new TableNameInfo(CatalogMocker.MYSQL_DB, CatalogMocker.MYSQL_TBL);
-        AlterColumnStatsCommand command2 = new AlterColumnStatsCommand(tableNameInfo2, partitionNamesInfo, indexName2, columnName, properties);
-        Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext),
-                "Only OlapTable support alter index stats. Table mysql-tbl is not OlapTable.");*/
-
         //test not a partitioned table
         createTable("create table test_db.test_tbl2(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
         TableNameInfo tableNameInfo2 =
