@@ -449,12 +449,10 @@ class Syncer {
         def expectMessage = (message == null)
         for (def row in records) {
             logger.info("Restore row is ${row}")
-            String state = row[4]
-            if (state != "FINISHED" && state != "CANCELLED") {
-                haveError = true
-            }
-            if (haveError && message != null && !row[5].contains(message)) {
-                expectMessage = false
+            String mess = row[19]
+            haveError = mess != "[OK]"
+            if (haveError && message != null) {
+                expectMessage = mess.contains(message)
             }
         }
         (haveError && expectMessage)
