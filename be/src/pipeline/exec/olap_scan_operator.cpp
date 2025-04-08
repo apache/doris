@@ -33,6 +33,7 @@
 #include "pipeline/query_cache/query_cache.h"
 #include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "service/backend_options.h"
+#include "util/runtime_profile.h"
 #include "util/to_string.h"
 #include "vec/exec/scan/olap_scanner.h"
 #include "vec/exprs/vectorized_fn_call.h"
@@ -65,21 +66,29 @@ Status OlapScanLocalState::_init_profile() {
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
     _delete_bitmap_get_agg_timer = ADD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime");
     if (config::is_cloud_mode()) {
-        _sync_rowset_timer = ADD_TIMER(_scanner_profile, "SyncRowsetTime");
+        static const char* sync_rowset_timer_name = "SyncRowsetTime";
+        _sync_rowset_timer = ADD_TIMER(_scanner_profile, sync_rowset_timer_name);
         _sync_rowset_get_remote_rowsets_num =
-                ADD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsNum", TUnit::UNIT);
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsNum", TUnit::UNIT,
+                                  sync_rowset_timer_name);
         _sync_rowset_get_remote_rowsets_rpc_timer =
-                ADD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsRpcMs", TUnit::TIME_MS);
-        _sync_rowset_get_local_delete_bitmap_rowsets_num = ADD_COUNTER(
-                _scanner_profile, "SyncRowsetGetLocalDeleteBitmapRowsetsNum", TUnit::UNIT);
-        _sync_rowset_get_remote_delete_bitmap_rowsets_num = ADD_COUNTER(
-                _scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRowsetsNum", TUnit::UNIT);
-        _sync_rowset_get_remote_delete_bitmap_key_count = ADD_COUNTER(
-                _scanner_profile, "SyncRowsetGetRemoteDeleteBitmapKeyCount", TUnit::UNIT);
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsRpcMs",
+                                  TUnit::TIME_MS, sync_rowset_timer_name);
+        _sync_rowset_get_local_delete_bitmap_rowsets_num =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetLocalDeleteBitmapRowsetsNum",
+                                  TUnit::UNIT, sync_rowset_timer_name);
+        _sync_rowset_get_remote_delete_bitmap_rowsets_num =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRowsetsNum",
+                                  TUnit::UNIT, sync_rowset_timer_name);
+        _sync_rowset_get_remote_delete_bitmap_key_count =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapKeyCount",
+                                  TUnit::UNIT, sync_rowset_timer_name);
         _sync_rowset_get_remote_delete_bitmap_bytes =
-                ADD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapBytes", TUnit::BYTES);
-        _sync_rowset_get_remote_delete_bitmap_rpc_timer = ADD_COUNTER(
-                _scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRpcMs", TUnit::TIME_MS);
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapBytes",
+                                  TUnit::BYTES, sync_rowset_timer_name);
+        _sync_rowset_get_remote_delete_bitmap_rpc_timer =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRpcMs",
+                                  TUnit::TIME_MS, sync_rowset_timer_name);
     }
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
