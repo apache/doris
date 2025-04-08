@@ -69,7 +69,6 @@ Status PartitionedHashJoinSinkLocalState::open(RuntimeState* state) {
     _shared_state->setup_shared_profile(_profile);
     RETURN_IF_ERROR(PipelineXSpillSinkLocalState::open(state));
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
-    _shared_state->inner_runtime_state->set_task(state->get_task());
     for (uint32_t i = 0; i != p._partition_count; ++i) {
         auto& spilling_stream = _shared_state->spilled_streams[i];
         RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
@@ -165,12 +164,7 @@ size_t PartitionedHashJoinSinkLocalState::get_reserve_mem_size(RuntimeState* sta
 }
 
 Dependency* PartitionedHashJoinSinkLocalState::finishdependency() {
-    if (auto* tmp_sink_state = _shared_state->inner_runtime_state->get_sink_local_state()) {
-        auto* inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(tmp_sink_state);
-        return inner_sink_state->finishdependency();
-    }
-    DCHECK(false) << "Should not reach here!";
-    return nullptr;
+    return _finish_dependency.get();
 }
 
 Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
@@ -198,6 +192,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
         // therefore, all runtime filters are temporarily disabled.
         RETURN_IF_ERROR(inner_sink_state->_runtime_filter_producer_helper->skip_process(
                 _shared_state->inner_runtime_state.get()));
+        _finish_dependency->set_ready();
     }
 
     if (build_block.rows() <= 1) {
@@ -521,7 +516,6 @@ Status PartitionedHashJoinSinkLocalState::_setup_internal_operator(RuntimeState*
     auto inner_runtime_state = RuntimeState::create_unique(
             state->fragment_instance_id(), state->query_id(), state->fragment_id(),
             state->query_options(), TQueryGlobals {}, state->exec_env(), state->get_query_ctx());
-    inner_runtime_state->set_task(state->get_task());
     inner_runtime_state->set_task_execution_context(state->get_task_execution_context().lock());
     inner_runtime_state->set_be_number(state->be_number());
 
@@ -549,6 +543,8 @@ Status PartitionedHashJoinSinkLocalState::_setup_internal_operator(RuntimeState*
     DCHECK(probe_local_state != nullptr);
     RETURN_IF_ERROR(probe_local_state->open(state));
     RETURN_IF_ERROR(sink_local_state->open(state));
+
+    _finish_dependency = sink_local_state->finishdependency()->shared_from_this();
 
     /// Set these two values after all the work is ready.
     _shared_state->inner_shared_state = std::move(inner_shared_state);

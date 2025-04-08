@@ -120,6 +120,15 @@ std::string PipelineXSinkLocalState<SharedStateArg>::name_suffix() {
     }() + ")";
 }
 
+template <typename SharedStateArg>
+Status PipelineXSinkLocalState<SharedStateArg>::terminate(RuntimeState* state) {
+    if (_terminated) {
+        return Status::OK();
+    }
+    _terminated = true;
+    return Status::OK();
+}
+
 DataDistribution OperatorBase::required_data_distribution() const {
     return _child && _child->is_serial_operator() && !is_source()
                    ? DataDistribution(ExchangeType::PASSTHROUGH)
@@ -235,6 +244,17 @@ Status OperatorXBase::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(_child->prepare(state));
     }
     return Status::OK();
+}
+
+Status OperatorXBase::terminate(RuntimeState* state) {
+    if (_child && !is_source()) {
+        RETURN_IF_ERROR(_child->terminate(state));
+    }
+    auto result = state->get_local_state_result(operator_id());
+    if (!result) {
+        return result.error();
+    }
+    return result.value()->terminate(state);
 }
 
 Status OperatorXBase::close(RuntimeState* state) {
@@ -388,6 +408,14 @@ void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos)
     }
 }
 
+Status DataSinkOperatorXBase::terminate(RuntimeState* state) {
+    auto result = state->get_sink_local_state_result();
+    if (!result) {
+        return result.error();
+    }
+    return result.value()->terminate(state);
+}
+
 std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
 
@@ -528,6 +556,15 @@ Status PipelineXLocalState<SharedStateArg>::open(RuntimeState* state) {
                     state, _intermediate_projections[i][j]));
         }
     }
+    return Status::OK();
+}
+
+template <typename SharedStateArg>
+Status PipelineXLocalState<SharedStateArg>::terminate(RuntimeState* state) {
+    if (_terminated) {
+        return Status::OK();
+    }
+    _terminated = true;
     return Status::OK();
 }
 
@@ -815,6 +852,11 @@ template class AsyncWriterSink<doris::vectorized::VTabletWriter, OlapTableSinkOp
 template class AsyncWriterSink<doris::vectorized::VTabletWriterV2, OlapTableSinkV2OperatorX>;
 template class AsyncWriterSink<doris::vectorized::VHiveTableWriter, HiveTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VIcebergTableWriter, IcebergTableSinkOperatorX>;
+
+#ifdef BE_TEST
+template class OperatorX<DummyOperatorLocalState>;
+template class DataSinkOperatorX<DummySinkLocalState>;
+#endif
 
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

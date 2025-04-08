@@ -141,6 +141,8 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
         _options.map_key_delim = ':';
         _options.null_format = "null";
         _options.null_len = 4;
+        _options.mysql_collection_delim = ", ";
+        _options.is_bool_value_num = true;
         break;
     case TSerdeDialect::PRESTO:
         // eg:
@@ -151,6 +153,20 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
         _options.map_key_delim = '=';
         _options.null_format = "NULL";
         _options.null_len = 4;
+        _options.mysql_collection_delim = ", ";
+        _options.is_bool_value_num = true;
+        break;
+    case TSerdeDialect::HIVE:
+        // eg:
+        //  array: ["abc","def","",null]
+        //  map: {"k1":null,"k2":"v3"}
+        _options.nested_string_wrapper = "\"";
+        _options.wrapper_len = 1;
+        _options.map_key_delim = ':';
+        _options.null_format = "null";
+        _options.null_len = 4;
+        _options.mysql_collection_delim = ",";
+        _options.is_bool_value_num = false;
         break;
     default:
         return Status::InternalError("unknown serde dialect: {}", serde_dialect);

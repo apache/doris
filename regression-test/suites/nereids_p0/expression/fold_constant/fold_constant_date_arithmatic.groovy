@@ -48,4 +48,34 @@ suite("fold_constant_date_arithmatic") {
     testFoldConst("select str_to_date('31/12/2020 23:59', '%d/%m/%Y %H:%i');")
     testFoldConst("select str_to_date('31/12/2020 11:59 PM', '%d/%m/%Y %h:%i %p');")
     testFoldConst("select str_to_date('20201231T235959', '%Y%m%dT%H%i%s');")
+
+    // test leap year and leap month edge cases
+    testFoldConst("select months_between('2020-02-29', '2020-02-29')")
+    testFoldConst("select months_between('2020-02-29', '2020-03-29')")
+    testFoldConst("select months_between('2020-01-29', '2020-02-29')")
+    testFoldConst("select months_between('2020-02-29', '2021-02-28')")
+    testFoldConst("select months_between('2019-02-28', '2020-02-29')")
+    
+    // test with time components in leap year
+    testFoldConst("select months_between('2020-02-29 12:00:00', '2020-02-29 15:00:00')")
+    testFoldConst("select months_between('2020-02-29 23:59:59', '2020-03-29 00:00:00')")
+    
+    // test with different round_off settings in leap year
+    testFoldConst("select months_between('2020-02-29', '2020-03-30', true)")
+    testFoldConst("select months_between('2020-02-29', '2020-03-30', false)")
+    
+    // test across multiple leap years
+    testFoldConst("select months_between('2020-02-29', '2024-02-29')")
+    testFoldConst("select months_between('2020-02-29 23:59:59', '2024-02-29 00:00:00')")
+
+    // test case with last day of the month
+    testFoldConst("select months_between('2024-03-31', '2024-02-29')")
+    testFoldConst("select months_between('2024-03-30', '2024-02-29')")
+    testFoldConst("select months_between('2024-03-29', '2024-02-29')")
+
+    // Test next_day
+    testFoldConst("select next_day('2020-02-27', 'SAT');") // 2020-02-29 (leap year)
+    testFoldConst("select next_day('2020-02-29', 'MON');") // 2020-03-02 (leap year to next month)
+    testFoldConst("select next_day('2019-02-26', 'THU');") // 2019-02-28 (non-leap year)
+    testFoldConst("select next_day('2019-02-28', 'SUN');") // 2019-03-03 (non-leap year to next month)
 }

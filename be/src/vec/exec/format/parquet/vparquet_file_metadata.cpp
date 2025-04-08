@@ -22,11 +22,21 @@
 #include <sstream>
 #include <vector>
 
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "schema_desc.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-FileMetaData::FileMetaData(tparquet::FileMetaData& metadata) : _metadata(metadata) {}
+
+FileMetaData::FileMetaData(tparquet::FileMetaData& metadata, size_t mem_size)
+        : _metadata(metadata), _mem_size(mem_size) {
+    ExecEnv::GetInstance()->parquet_meta_tracker()->consume(mem_size);
+}
+
+FileMetaData::~FileMetaData() {
+    ExecEnv::GetInstance()->parquet_meta_tracker()->release(_mem_size);
+}
 
 Status FileMetaData::init_schema() {
     if (_metadata.schema[0].num_children <= 0) {

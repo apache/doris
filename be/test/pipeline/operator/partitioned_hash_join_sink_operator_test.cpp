@@ -119,7 +119,9 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, InitLocalState) {
 
     RuntimeProfile runtime_profile("test");
     TDataSink t_sink;
-    LocalSinkStateInfo info {.parent_profile = &runtime_profile,
+    LocalSinkStateInfo info {.task_idx = 0,
+                             .parent_profile = &runtime_profile,
+                             .sender_id = 0,
                              .shared_state = shared_state.get(),
                              .shared_state_map = {},
                              .tsink = t_sink};
@@ -222,6 +224,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, SinkEosAndSpill) {
 
     LocalSinkStateInfo sink_info {.task_idx = 0,
                                   .parent_profile = _helper.runtime_profile.get(),
+                                  .sender_id = 0,
                                   .shared_state = shared_state.get(),
                                   .shared_state_map = {},
                                   .tsink = TDataSink()};
@@ -347,6 +350,10 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
 
     sink_state->_shared_state->inner_runtime_state->emplace_sink_local_state(
             0, std::move(inner_sink_local_state));
+
+    sink_state->_finish_dependency =
+            Dependency::create_shared(sink_operator->operator_id(), sink_operator->node_id(),
+                                      "HashJoinBuildFinishDependency", true);
 
     // Expect revoke memory to trigger spilling
     status = sink_state->revoke_memory(_helper.runtime_state.get(), nullptr);

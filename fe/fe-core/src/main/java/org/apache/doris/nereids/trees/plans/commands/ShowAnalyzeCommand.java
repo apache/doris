@@ -206,7 +206,12 @@ public class ShowAnalyzeCommand extends ShowCommand {
                         analysisInfo.catalogId, analysisInfo.dbId, analysisInfo.tblId, e.getMessage());
             }
         }
-        return new ShowResultSet(META_DATA, resultRows);
+        return new ShowResultSet(getMetaData(), resultRows);
+    }
+
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
     }
 
     @Override
