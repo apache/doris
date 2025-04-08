@@ -136,12 +136,6 @@ private:
 
 private:
     StorageEngine& _engine;
-    ExecEnv* _env = nullptr;
-    int64_t _job_id;
-    int64_t _task_id;
-    const TNetworkAddress _broker_addr;
-    const std::map<std::string, std::string> _prop;
-    std::shared_ptr<io::RemoteFileSystem> _remote_fs;
     // for test remote_http_download
     size_t _http_download_files_num;
 };
