@@ -23,6 +23,7 @@
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
+#include "vec/common/schema_util.h"
 
 namespace doris {
 
@@ -37,8 +38,8 @@ class ScalarColumnWriter;
 
 struct VariantStatistics {
     // If reached the size of this, we should stop writing statistics for sparse data
-    std::map<std::string, size_t> subcolumns_non_null_size;
-    std::map<std::string, size_t> sparse_column_non_null_size;
+    std::map<std::string, int64_t> subcolumns_non_null_size;
+    std::map<std::string, int64_t> sparse_column_non_null_size;
 
     void to_pb(VariantStatisticsPB* stats) const;
     void from_pb(const VariantStatisticsPB& stats);
@@ -94,6 +95,11 @@ private:
 
     // hold the references of subcolumns indexes
     std::vector<std::unique_ptr<TabletIndex>> _subcolumns_indexes;
+
+    // hold the references of subcolumns info
+    std::unordered_map<vectorized::PathInData, vectorized::schema_util::SubColumnInfo,
+                       vectorized::PathInData::Hash>
+            _subcolumns_info;
 };
 
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,

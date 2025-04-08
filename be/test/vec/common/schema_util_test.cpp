@@ -355,3 +355,115 @@ TEST_F(SchemaUtilTest, get_subpaths_no_path_stats) {
     EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 0);
     EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 0);
 }
+
+TEST_F(SchemaUtilTest, generate_sub_column_info_based) {
+    TabletColumn variant;
+    variant.set_unique_id(10);
+    variant.set_variant_max_subcolumns_count(3);
+
+    TabletColumn subcolumn;
+    subcolumn.set_name("profile.id.*");
+    subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    variant.add_sub_column(subcolumn);
+
+    TabletColumn subcolumn2;
+    subcolumn2.set_name("profile.name.?");
+    subcolumn2.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    variant.add_sub_column(subcolumn2);
+
+    TabletColumn subcolumn3;
+    subcolumn3.set_name("id[0-9]");
+    subcolumn3.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    variant.add_sub_column(subcolumn3);
+
+    TabletColumn subcolumn4;
+    subcolumn4.set_name("id[0-9].*");
+    subcolumn4.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    variant.add_sub_column(subcolumn4);
+
+    TabletSchema schema;
+    schema.append_column(variant);
+
+    schema_util::SubColumnInfo sub_column_info;
+    bool match = schema_util::generate_sub_column_info(schema, 10, PathInData("profile.id.name"),
+                                                       &sub_column_info);
+    EXPECT_TRUE(match);
+    EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
+
+    match = schema_util::generate_sub_column_info(schema, 10, PathInData("profile.name.x"),
+                                                  &sub_column_info);
+    EXPECT_TRUE(match);
+    EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
+
+    match = schema_util::generate_sub_column_info(schema, 10, PathInData("profile.name.xx"),
+                                                  &sub_column_info);
+    EXPECT_FALSE(match);
+
+    match = schema_util::generate_sub_column_info(schema, 10, PathInData("id5"), &sub_column_info);
+    EXPECT_TRUE(match);
+
+    match = schema_util::generate_sub_column_info(schema, 10, PathInData("id5.profile.name"),
+                                                  &sub_column_info);
+    EXPECT_TRUE(match);
+}
+
+TEST_F(SchemaUtilTest, generate_sub_column_info_advanced) {
+    TabletColumn variant;
+    variant.set_unique_id(10);
+    variant.set_variant_max_subcolumns_count(3);
+
+    TabletColumn subcolumn;
+    subcolumn.set_name("profile?id");
+    subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn subcolumn_item;
+    subcolumn_item.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    subcolumn.add_sub_column(subcolumn_item);
+    variant.add_sub_column(subcolumn);
+
+    TabletColumn subcolumn2;
+    subcolumn2.set_name("profile?id.*");
+    subcolumn2.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn subcolumn2_item;
+    subcolumn2_item.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    subcolumn2.add_sub_column(subcolumn2_item);
+    variant.add_sub_column(subcolumn2);
+
+    TabletColumn subcolumn3;
+    subcolumn3.set_name("profile.id[0-9]");
+    subcolumn3.set_type(FieldType::OLAP_FIELD_TYPE_DECIMAL64);
+    variant.add_sub_column(subcolumn3);
+
+    TabletSchema schema;
+    schema.append_column(variant);
+
+    TabletIndex index;
+    index._properties["field_pattern"] = "profile?id.*";
+    index._col_unique_ids = {10};
+    schema.append_index(std::move(index));
+
+    TabletIndex index2;
+    index2._properties["field_pattern"] = "profile.id[0-9]";
+    index2._col_unique_ids = {10};
+    schema.append_index(std::move(index2));
+
+    schema_util::SubColumnInfo sub_column_info;
+    bool match = schema_util::generate_sub_column_info(schema, 10, PathInData("profile.id.name"),
+                                                       &sub_column_info);
+    EXPECT_TRUE(match);
+    EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
+    EXPECT_TRUE(sub_column_info.index);
+
+    match = schema_util::generate_sub_column_info(schema, 10, PathInData("profile.id2"),
+                                                  &sub_column_info);
+    EXPECT_TRUE(match);
+    EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
+    EXPECT_TRUE(sub_column_info.index);
+
+    match = schema_util::generate_sub_column_info(schema, 10, PathInData("profilexid"),
+                                                  &sub_column_info);
+    EXPECT_TRUE(match);
+    EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
+    EXPECT_FALSE(sub_column_info.index);
+
+}
+

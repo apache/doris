@@ -520,6 +520,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     _subcolumn_readers = std::make_unique<SubcolumnColumnReaders>();
     _statistics = std::make_unique<VariantStatistics>();
     const ColumnMetaPB& self_column_pb = footer.columns(column_id);
+    const auto* parent_index = opts.tablet_schema->inverted_index(self_column_pb.unique_id());
     for (const ColumnMetaPB& column_pb : footer.columns()) {
         // Find all columns belonging to the current variant column
         // 1. not the variant column
@@ -585,12 +586,22 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
             }
             _subcolumn_readers->add(relative_path,
                                     SubcolumnReader {std::move(reader), get_data_type_fn()});
-            // init TabletIndex for subcolumns
-            if (opts.inverted_index) {
+            vectorized::schema_util::SubColumnInfo sub_column_info;
+            if (vectorized::schema_util::generate_sub_column_info(
+                        *opts.tablet_schema, self_column_pb.unique_id(), relative_path,
+                        &sub_column_info) &&
+                sub_column_info.index) {
+                const auto* index_meta = sub_column_info.index.get();
+                DCHECK(index_meta != nullptr);
+                auto subcolumn_index = std::make_unique<TabletIndex>(*index_meta);
+                subcolumn_index->set_escaped_escaped_index_suffix_path(path.get_path());
+                LOG(INFO) << "add index meta for column: with suffix path: " << path.get_path();
+                _variant_subcolumns_indexes.emplace(path.get_path(), std::move(subcolumn_index));
+            } else if (parent_index) {
                 const auto& suffix_path = path.get_path();
                 auto it = _variant_subcolumns_indexes.find(suffix_path);
                 if (it == _variant_subcolumns_indexes.end()) {
-                    auto subcolumn_index = std::make_unique<TabletIndex>(*opts.inverted_index);
+                    auto subcolumn_index = std::make_unique<TabletIndex>(*parent_index);
                     subcolumn_index->set_escaped_escaped_index_suffix_path(suffix_path);
                     _variant_subcolumns_indexes.emplace(suffix_path, std::move(subcolumn_index));
                 } else {

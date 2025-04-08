@@ -54,7 +54,7 @@ struct ColumnWithTypeAndName;
 
 const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 namespace doris::vectorized::schema_util {
-using PathToNoneNullValues = std::unordered_map<std::string, size_t>;
+using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 
 /// Returns number of dimensions in Array type. 0 if type is not array.
 size_t get_number_of_dimensions(const IDataType& type);
@@ -142,6 +142,9 @@ Status collect_path_stats(const RowsetSharedPtr& rs,
 // Build the temporary schema for compaction, this will reduce the memory usage of compacting variant columns
 Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target);
 
+TabletSchemaSPtr calculate_variant_extended_schema(const std::vector<RowsetSharedPtr>& rowsets,
+                                                   const TabletSchemaSPtr& base_schema);
+
 // Check if the path stats are consistent between inputs rowsets and output rowset.
 // Used to check the correctness of compaction.
 Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetSharedPtr output,
@@ -153,5 +156,12 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
                              size_t num_rows);
 
 void get_field_info(const Field& field, FieldInfo* info);
+struct SubColumnInfo {
+    TabletColumn column;
+    TabletIndexPtr index;
+};
+
+bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
+                              const PathInData& path, SubColumnInfo* sub_column_info);
 
 } // namespace  doris::vectorized::schema_util

@@ -17,6 +17,10 @@
 
 suite("regression_test_variant_predefine_schema", "p0"){
     sql """DROP TABLE IF EXISTS test_predefine"""
+    def count = "0"
+    if (new Random().nextInt(100) < 50) {
+        count = "1000"
+    }
     sql """
         CREATE TABLE `test_predefine` (
             `id` bigint NOT NULL,
@@ -24,7 +28,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
             `v1` variant<'a.b.c':int,'ss':string,'dcm':decimal,'dt':datetime,'ip':ipv4,'a.b.d':double> NULL,
             INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english") )
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 3
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_max_subcolumns_count" = "0");
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_max_subcolumns_count" = "${count}");
     """
 
     sql """insert into test_predefine values(1, '1', '{"a" : {"b" : {"c" : "123456", "d" : "11.111"}}, "ss" : 199991111, "dcm" : 123.456, "dt" : "2021-01-01 00:00:00", "ip" : "127.0.0.1"}')"""
@@ -105,7 +109,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
                 'varchar_':varchar
             > NULL
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_max_subcolumns_count" = "0");
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_max_subcolumns_count" = "${count}");
     """
     def json1 = """
         {
@@ -270,7 +274,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     "enable_single_replica_compaction" = "false",
     "group_commit_interval_ms" = "10000",
     "group_commit_data_bytes" = "134217728",
-    "variant_max_subcolumns_count" = "0"
+    "variant_max_subcolumns_count" = "${count}"
     );
     """
     sql """
@@ -289,7 +293,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     "replication_allocation" = "tag.location.default: 1",
     "min_load_replica_num" = "-1",
     "bloom_filter_columns" = "var",
-    "variant_max_subcolumns_count" = "0"
+    "variant_max_subcolumns_count" = "${count}"
     );
     """
 

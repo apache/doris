@@ -90,6 +90,11 @@ struct FieldInfo {
 #define ENABLE_CHECK_CONSISTENCY(this) (this)->check_consistency()
 #endif
 
+namespace schema_util {
+struct SubColumnInfo;
+}
+
+void get_field_info(const Field& field, FieldInfo* info);
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
  *  a trie-like structure. ColumnObject is not suitable for writing into tables
@@ -566,6 +571,10 @@ public:
     // Deserialize the i-th row of the column from the sparse column.
     static std::pair<Field, FieldInfo> deserialize_from_sparse_column(const ColumnString* value,
                                                                       size_t row);
+
+    Status pick_subcolumns_to_sparse_column(
+            const std::unordered_map<PathInData, schema_util::SubColumnInfo, PathInData::Hash>&
+                    typed_paths);
 
 private:
     // May throw execption

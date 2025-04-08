@@ -101,6 +101,7 @@ const TypeInfo* get_scalar_type_info(FieldType field_type) {
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_IPV4>(),
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_IPV6>(),
             nullptr};
+    LOG(INFO) << "field_type: " << (int)field_type;
     return field_type_array[int(field_type)];
 }
 

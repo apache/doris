@@ -204,7 +204,7 @@ message ColumnMetaPB {
     optional int32 be_exec_version = 20; // used on agg_state type
     optional VariantStatisticsPB variant_statistics = 21; // only used in variant type
     optional int32 variant_max_subcolumns_count = 22 [default = 0];
-    optional uint32 none_null_size = 23;
+    optional uint64 none_null_size = 23;
 }
 
 message PrimaryKeyIndexMetaPB {

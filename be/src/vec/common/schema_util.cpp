@@ -19,6 +19,7 @@
 
 #include <assert.h>
 #include <fmt/format.h>
+#include <fnmatch.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
@@ -254,7 +255,9 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         column.set_length(INT_MAX);
         return;
     }
-    if (WhichDataType(*data_type).is_simple()) {
+    if (WhichDataType(*data_type).is_simple() || WhichDataType(*data_type).is_date_time() ||
+        WhichDataType(*data_type).is_date() || WhichDataType(*data_type).is_date_v2() ||
+        WhichDataType(*data_type).is_ipv4() || WhichDataType(*data_type).is_ipv6()) {
         column.set_length(data_type->get_size_of_value_in_memory());
         return;
     }
@@ -422,7 +425,9 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
 
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr* target_schema) {
-    DCHECK(target.is_extracted_column());
+    if (!target.is_extracted_column()) {
+        return;
+    }
     target.set_aggregation_method(source.aggregation());
 
     // 1. bloom filter
@@ -709,7 +714,11 @@ void get_subpaths(const TabletColumn& variant,
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
         paths_with_sizes.reserve(stats.size());
         for (const auto& [path, size] : stats) {
-            paths_with_sizes.emplace_back(size, path);
+            if (size < 0) {
+                uid_to_paths_set_info[uid].typed_path_set.emplace(path);
+            } else {
+                paths_with_sizes.emplace_back(size, path);
+            }
         }
         std::sort(paths_with_sizes.begin(), paths_with_sizes.end(), std::greater());
 
@@ -768,7 +777,7 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
                         original_uid_to_path_stats.at(uid).end()) {
                         continue;
                     }
-                    if (original_uid_to_path_stats.at(uid).at(path) > size) {
+                    if (size > 0 && original_uid_to_path_stats.at(uid).at(path) > size) {
                         return Status::InternalError(
                                 "Path stats not smaller for uid {} with path `{}`, input size {}, "
                                 "output "
@@ -790,7 +799,7 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
                         stats.size());
             }
             for (const auto& [path, size] : stats) {
-                if (original_uid_to_path_stats.at(uid).at(path) != size) {
+                if (size > 0 && original_uid_to_path_stats.at(uid).at(path) != size) {
                     return Status::InternalError(
                             "Path stats not match for uid {} with path `{}`, input size {}, output "
                             "size {}, "
@@ -833,23 +842,28 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
 
         // get the subpaths
         get_subpaths(*column, uid_to_path_stats, uid_to_paths_set_info);
-        std::vector<StringRef> sorted_subpaths(
-                uid_to_paths_set_info[column->unique_id()].sub_path_set.begin(),
-                uid_to_paths_set_info[column->unique_id()].sub_path_set.end());
-        std::sort(sorted_subpaths.begin(), sorted_subpaths.end());
-        // append subcolumns
-        for (const auto& subpath : sorted_subpaths) {
-            TabletColumn subcolumn;
-            subcolumn.set_name(column->name_lower_case() + "." + subpath.to_string());
-            subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-            subcolumn.set_parent_unique_id(column->unique_id());
-            subcolumn.set_path_info(
-                    PathInData(column->name_lower_case() + "." + subpath.to_string()));
-            subcolumn.set_aggregation_method(column->aggregation());
-            subcolumn.set_variant_max_subcolumns_count(column->variant_max_subcolumns_count());
-            subcolumn.set_is_nullable(true);
-            output_schema->append_column(subcolumn);
-        }
+
+        auto append_subcolumn = [&](phmap::flat_hash_set<std::string>& path_set) {
+            std::vector<StringRef> sorted_subpaths(path_set.begin(), path_set.end());
+            std::sort(sorted_subpaths.begin(), sorted_subpaths.end());
+            // append subcolumns
+            for (const auto& subpath : sorted_subpaths) {
+                TabletColumn subcolumn;
+                subcolumn.set_name(column->name_lower_case() + "." + subpath.to_string());
+                subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+                subcolumn.set_parent_unique_id(column->unique_id());
+                subcolumn.set_path_info(
+                        PathInData(column->name_lower_case() + "." + subpath.to_string()));
+                subcolumn.set_aggregation_method(column->aggregation());
+                subcolumn.set_variant_max_subcolumns_count(column->variant_max_subcolumns_count());
+                subcolumn.set_is_nullable(true);
+                output_schema->append_column(subcolumn);
+            }
+        };
+
+        append_subcolumn(uid_to_paths_set_info[column->unique_id()].typed_path_set);
+        append_subcolumn(uid_to_paths_set_info[column->unique_id()].sub_path_set);
+
         // append sparse column
         TabletColumn sparse_column = create_sparse_column(*column);
         output_schema->append_column(sparse_column);
@@ -1128,6 +1142,129 @@ void get_field_info(const Field& field, FieldInfo* info) {
     } else {
         get_field_info_impl<SimpleFieldVisitorToScalarType>(field, info);
     }
+bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
+                              const PathInData& path, SubColumnInfo* sub_column_info) {
+    const auto& parent_column = schema.column_by_uid(col_unique_id);
+    const auto& path_str = path.get_path();
+    std::function<void(const TabletColumn&, TabletColumn*)> generate_result_column =
+            [&](const TabletColumn& from_column, TabletColumn* to_column) {
+                to_column->set_name(parent_column.name_lower_case() + "." + path_str);
+                to_column->set_type(from_column.type());
+                to_column->set_parent_unique_id(parent_column.unique_id());
+                vectorized::PathInDataBuilder full_path_builder;
+                auto full_path = full_path_builder.append(parent_column.name_lower_case(), false)
+                                         .append(path.get_parts(), false)
+                                         .build();
+                to_column->set_path_info(full_path);
+                to_column->set_aggregation_method(parent_column.aggregation());
+                to_column->set_is_nullable(true);
+                to_column->set_precision(from_column.precision());
+                to_column->set_frac(from_column.frac());
+                to_column->set_parent_unique_id(parent_column.unique_id());
+                to_column->set_is_decimal(from_column.is_decimal());
+
+                if (from_column.is_array_type()) {
+                    TabletColumn nested_column;
+                    generate_result_column(*from_column.get_sub_columns()[0], &nested_column);
+                    to_column->add_sub_column(nested_column);
+                }
+            };
+
+    const auto& sub_columns = parent_column.get_sub_columns();
+    for (const auto& sub_column : sub_columns) {
+        const char* pattern = sub_column->name().c_str();
+        switch (sub_column->pattern_type()) {
+        case PatternTypePB::MATCH_NAME: {
+            if (strcmp(pattern, path_str.c_str()) == 0) {
+                generate_result_column(*sub_column, &sub_column_info->column);
+                sub_column_info->index =
+                        schema.inverted_index_by_field_pattern(col_unique_id, std::string(pattern));
+                return true;
+            }
+            break;
+        }
+        case PatternTypePB::MATCH_NAME_GLOB: {
+            int result = fnmatch(pattern, path_str.c_str(), FNM_PATHNAME);
+            if (result == 0) {
+                generate_result_column(*sub_column, &sub_column_info->column);
+                sub_column_info->index =
+                        schema.inverted_index_by_field_pattern(col_unique_id, std::string(pattern));
+                return true;
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+    return false;
+}
+
+TabletSchemaSPtr calculate_variant_extended_schema(const std::vector<RowsetSharedPtr>& rowsets,
+                                                   const TabletSchemaSPtr& base_schema) {
+    if (rowsets.empty()) {
+        return nullptr;
+    }
+
+    std::vector<TabletSchemaSPtr> schemas;
+    for (const auto& rs : rowsets) {
+        if (rs->num_segments() == 0) {
+            continue;
+        }
+        const auto& tablet_schema = rs->tablet_schema();
+        SegmentCacheHandle segment_cache;
+        auto st = SegmentLoader::instance()->load_segments(std::static_pointer_cast<BetaRowset>(rs),
+                                                           &segment_cache);
+        if (!st.ok()) {
+            return base_schema;
+        }
+        for (const auto& segment : segment_cache.get_segments()) {
+            TabletSchemaSPtr schema = tablet_schema->copy_without_variant_extracted_columns();
+            for (const auto& column : tablet_schema->columns()) {
+                if (!column->is_variant_type()) {
+                    continue;
+                }
+                auto column_reader_or = segment->get_column_reader(column->unique_id());
+                if (!column_reader_or.has_value()) {
+                    continue;
+                }
+                auto* column_reader = column_reader_or.value();
+                if (!column_reader) {
+                    continue;
+                }
+
+                CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
+                const auto* subcolumn_readers =
+                        assert_cast<VariantColumnReader*>(column_reader)->get_subcolumn_readers();
+                for (const auto& entry : *subcolumn_readers) {
+                    if (entry->path.empty()) {
+                        continue;
+                    }
+                    const std::string& column_name =
+                            column->name_lower_case() + "." + entry->path.get_path();
+                    const vectorized::DataTypePtr& data_type = entry->data.file_column_type;
+                    vectorized::PathInDataBuilder full_path_builder;
+                    auto full_path = full_path_builder.append(column->name_lower_case(), false)
+                                             .append(entry->path.get_parts(), false)
+                                             .build();
+                    TabletColumn subcolumn =
+                            get_column_by_type(data_type, column_name,
+                                               vectorized::schema_util::ExtraInfo {
+                                                       .unique_id = -1,
+                                                       .parent_unique_id = column->unique_id(),
+                                                       .path_info = full_path});
+                    schema->append_column(subcolumn);
+                }
+            }
+            schemas.emplace_back(schema);
+        }
+    }
+    TabletSchemaSPtr least_common_schema;
+    auto st = get_least_common_schema(schemas, base_schema, least_common_schema, false);
+    if (!st.ok()) {
+        return base_schema;
+    }
+    return least_common_schema;
 }
 
 #include "common/compile_check_end.h"

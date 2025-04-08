@@ -122,4 +122,8 @@ public class VariantType extends PrimitiveType {
     public String toString() {
         return toSql();
     }
+
+    public List<VariantField> getPredefinedFields() {
+        return predefinedFields;
+    }
 }

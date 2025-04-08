@@ -89,7 +89,7 @@ struct ColumnReaderOptions {
 
     int be_exec_version = -1;
 
-    const TabletIndex* inverted_index = nullptr;
+    const TabletSchemaSPtr tablet_schema = nullptr;
 };
 
 struct ColumnIteratorOptions {
@@ -333,6 +333,8 @@ public:
 
     bool exist_in_sparse_column(const vectorized::PathInData& path) const;
 
+    const SubcolumnColumnReaders* get_subcolumn_readers() const { return _subcolumn_readers.get(); }
+
 private:
     // init for compaction read
     Status _new_default_iter_with_same_nested(ColumnIterator** iterator, const TabletColumn& col);
@@ -349,7 +351,7 @@ private:
     std::unique_ptr<SubcolumnColumnReaders> _subcolumn_readers;
     std::unique_ptr<ColumnReader> _sparse_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
-    std::map<std::string, std::unique_ptr<TabletIndex>> _variant_subcolumns_indexes;
+    std::unordered_map<std::string, std::unique_ptr<TabletIndex>> _variant_subcolumns_indexes;
 };
 
 // Base iterator to read one column data

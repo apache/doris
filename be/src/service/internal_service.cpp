@@ -1207,7 +1207,12 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                     }
                     auto schema = res.value()->merged_tablet_schema();
                     if (schema != nullptr) {
-                        tablet_schemas.push_back(schema);
+                        if (!schema->need_record_variant_extended_schema()) {
+                            schema = res.value()->calculate_variant_extended_schema();
+                        }
+                        if (schema != nullptr) {
+                            tablet_schemas.push_back(schema);
+                        }
                     }
                 }
                 if (!tablet_schemas.empty()) {
