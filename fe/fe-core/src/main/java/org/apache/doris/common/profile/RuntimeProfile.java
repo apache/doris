@@ -864,22 +864,26 @@ public class RuntimeProfile {
 
         // Handle runtime profile structure
         /*
-        -  BloomRuntimeFilterInfo:  sum  ,  avg  ,  max  ,  min
-            -  bloom  filter  id  =  3  filtered:
-                sum  4.809288M  (4809288),  avg  4.809288M  (4809288),
-                max  4.809288M  (4809288),  min  4.809288M  (4809288)
-            -  bloom  filter  id  =  3  input:
-                sum  5.995884M  (5995884),  avg  5.995884M  (5995884),
-                max  5.995884M  (5995884),  min  5.995884M  (5995884)
-            -  bloom  filter  id  =  5  filtered:
-                sum  712.946K  (712946),  avg  712.946K  (712946),
-                max  712.946K  (712946),  min  712.946K  (712946)
-            -  bloom  filter  id  =  5  input:
-                sum  1.186596M  (1186596),  avg  1.186596M  (1186596),
-                max  1.186596M  (1186596),  min  1.186596M  (1186596)
-        */
+- RuntimeFilterInfo: sum 0, avg 0, max 0, min 0
+- RF0 FilterRows: sum 1, avg 0, max 1, min 0
+- RF0 InputRows: sum 390.144K (390144), avg 8.128K (8128), max 8.128K (8128), min 8.128K (8128)
+- RF1 FilterRows: sum 9.349313M (9349313), avg 194.777K (194777), max 196.512K (196512), min 192.736K (192736)
+- RF1 InputRows: sum 11.692823M (11692823), avg 243.6K (243600), max 245.822K (245822), min 240.939K (240939)
+- RF2 FilterRows: sum 0, avg 0, max 0, min 0
+- RF2 InputRows: sum 390.143K (390143), avg 8.127K (8127), max 8.128K (8128), min 8.127K (8127)
+- RF3 FilterRows: sum 0, avg 0, max 0, min 0
+- RF3 InputRows: sum 0, avg 0, max 0, min 0
+- RF4 FilterRows: sum 0, avg 0, max 0, min 0
+- RF4 InputRows: sum 0, avg 0, max 0, min 0
+- RF5 FilterRows: sum 86.632484M (86632484), avg 1.804843M (1804843), max 1.809673M (1809673), min 1.7993M (1799300)
+- RF5 InputRows: sum 144.419127M (144419127), avg 3.008731M (3008731), max 3.015499M (3015499), min 3.001376M (3001376)
+- RF6 FilterRows: sum 0, avg 0, max 0, min 0
+- RF6 InputRows: sum 361.696K (361696), avg 7.535K (7535), max 16.256K (16256), min 0
+- RF7 FilterRows: sum 46.09382M (46093820), avg 960.287K (960287), max 962.989K (962989), min 956.812K (956812)
+- RF7 InputRows: sum 57.786643M (57786643), avg 1.203888M (1203888), max 1.206715M (1206715), min 1.199902M (1199902)
+         */
         for (Entry<String, TreeSet<String>> entry : this.childCounterMap.entrySet()) {
-            if (entry.getKey().equals("BloomRuntimeFilterInfo")) {
+            if (entry.getKey().equals("RuntimeFilterInfo")) {
                 AggCounter filteredAggCounter = new AggCounter(TUnit.UNIT);
                 AggCounter inputAggCounter = new AggCounter(TUnit.UNIT);
                 Set<String> childCounterSet = entry.getValue();
@@ -889,14 +893,15 @@ public class RuntimeProfile {
                         LOG.warn("Should not happen, childCounter {} not found.", childCounterName);
                         throw new RuntimeException("Invalid profile");
                     }
+                    // Only merged profile will call toTPlanNodeRuntimeStatsItem()
                     if (!(rhsAggCounter instanceof AggCounter)) {
                         LOG.warn("Should not happen, invalid counter type, counter name: {}", childCounterName);
                         throw new RuntimeException("Invalid profile");
                     }
 
-                    if (childCounterName.endsWith("filtered")) {
+                    if (childCounterName.endsWith("FilterRows")) {
                         filteredAggCounter.mergeCounter((AggCounter) rhsAggCounter);
-                    } else if (childCounterName.endsWith("input")) {
+                    } else if (childCounterName.endsWith("InputRows")) {
                         inputAggCounter.mergeCounter((AggCounter) rhsAggCounter);
                     } else {
                         LOG.warn("Should not happen, childCounterName: " + childCounterName);
