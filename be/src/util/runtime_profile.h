@@ -280,25 +280,32 @@ public:
 
     using ConditionCounterFunction = std::function<bool(int64_t, int64_t)>;
 
+    // ConditionCounter is a specialized counter that only updates its value when a specific condition is met.
+    // It uses a condition function (condition_func) to determine when the counter's value should be updated.
+    // This type of counter is particularly useful for tracking maximum values, minimum values, or other metrics
+    // that should only be updated when they meet certain criteria.
+    // For example, it can be used to record the maximum value of a specific metric during query execution,
+    // or to update the counter only when a new value exceeds some threshold.
     class ConditionCounter : public Counter {
     public:
-        ConditionCounter(TUnit::type type, 
-                         const ConditionCounterFunction& condition_func,
-                         int64_t condition = 0,
-                         int64_t value = 0, 
-                         int64_t level = 2)
-            : Counter(type, value, level), 
-              _condition(condition),
-              _value(value),
-              _condition_func(condition_func) {}
+        ConditionCounter(TUnit::type type, const ConditionCounterFunction& condition_func,
+                         int64_t condition = 0, int64_t value = 0, int64_t level = 2)
+                : Counter(type, value, level),
+                  _condition(condition),
+                  _value(value),
+                  _condition_func(condition_func) {}
 
         virtual Counter* clone() const override {
             return new ConditionCounter(type(), _condition_func, _condition, value(), level());
         }
 
-        virtual int64_t value() const override { return _value; }
+        virtual int64_t value() const override {
+            std::lock_guard<std::mutex> l(_mutex);
+            return _value;
+        }
 
         void conditional_update(int64_t c, int64_t v) {
+            std::lock_guard<std::mutex> l(_mutex);
             if (_condition_func(_condition, c)) {
                 _value = v;
                 _condition = c;
@@ -306,6 +313,7 @@ public:
         }
 
     private:
+        mutable std::mutex _mutex;
         int64_t _condition;
         int64_t _value;
         ConditionCounterFunction _condition_func;

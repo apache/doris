@@ -474,9 +474,7 @@ void RuntimeProfile::add_description(const std::string& name, const std::string&
 }
 
 RuntimeProfile::ConditionCounter* RuntimeProfile::add_conditition_counter(
-        const std::string& name,
-        TUnit::type type,
-        const ConditionCounterFunction& counter_fn,
+        const std::string& name, TUnit::type type, const ConditionCounterFunction& counter_fn,
         const std::string& parent_counter_name) {
     std::lock_guard<std::mutex> l(_counter_map_lock);
 
