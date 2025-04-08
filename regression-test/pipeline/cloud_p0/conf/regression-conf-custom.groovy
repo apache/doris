@@ -68,7 +68,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "plsql_p0," + // plsql is not developped any more, add by sk.
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
-max_failure_num = 50
+max_failure_num = -1
 
 // test_routine_load
 enableKafkaTest=true
