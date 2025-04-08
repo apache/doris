@@ -96,7 +96,8 @@ private:
                 generate_uuid(), ExecEnv::GetInstance(), query_options, TNetworkAddress {}, true,
                 fe_address, QuerySource::INTERNAL_FRONTEND);
 
-        auto st = wg->add_query(query_context->query_id(), query_context);
+        auto st =
+                wg->add_task_resource_ctx(query_context->query_id(), query_context->resource_ctx());
         EXPECT_TRUE(st.ok()) << "add query to workload group failed: " << st.to_string();
 
         query_context->set_workload_group(wg);

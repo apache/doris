@@ -74,6 +74,7 @@ public:
     }
     void set_task_controller(std::unique_ptr<TaskController> task_controller) {
         task_controller_ = std::move(task_controller);
+        task_controller_->set_resource_ctx(this);
     }
     void set_workload_group(WorkloadGroupPtr wg) { _workload_group = wg; }
 
