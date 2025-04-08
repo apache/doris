@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -72,12 +73,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -106,7 +109,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             + "INFER_SET_OPERATOR_DISTINCT, INFER_FILTER_NOT_NULL, INFER_JOIN_NOT_NULL, PUSH_DOWN_MAX_MIN_FILTER, "
             + "ELIMINATE_SORT, ELIMINATE_AGGREGATE, ELIMINATE_LIMIT, ELIMINATE_SEMI_JOIN, ELIMINATE_NOT_NULL, "
             + "ELIMINATE_JOIN_BY_UK, ELIMINATE_JOIN_BY_FK, ELIMINATE_GROUP_BY_KEY, ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, "
-            + "ELIMINATE_FILTER_GROUP_BY_KEY";
+            + "ELIMINATE_FILTER_GROUP_BY_KEY, ELIMINATE_ORDER_BY_KEY";
     private final TableNameInfo name;
 
     private final LogicalPlan logicalPlan;
@@ -248,6 +251,17 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         }
 
         @Override
+        public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias plan, ValidateContext context) {
+            // do nothing
+            return plan;
+        }
+
+        @Override
+        public Plan visitLogicalApply(LogicalApply plan, ValidateContext context) {
+            throw new AnalysisException("subquery or join is not supported");
+        }
+
+        @Override
         public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, ValidateContext validateContext) {
             OlapTable olapTable = olapScan.getTable();
             if (olapTable.isTemporary()) {
@@ -331,6 +345,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             int groupByExprCount = aggregate.getGroupByExpressions().size();
             context.groupByExprs = Maps.newHashMap();
             for (int i = 0; i < groupByExprCount; ++i) {
+                if (outputs.get(i).getDataType().isOnlyMetricType()) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
                 context.groupByExprs.put(outputs.get(i).getExprId(), outputs.get(i));
             }
             context.exprReplaceMap.putAll(ExpressionUtils.generateReplaceMap(outputs));
@@ -344,6 +361,11 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 throw new AnalysisException(String.format("Only support one sort node, the second is %s", sort));
             }
             checkNoNondeterministicFunction(sort);
+            if (sort.getOrderKeys().stream().anyMatch((
+                    orderKey -> orderKey.getExpr().getDataType()
+                            .isOnlyMetricType()))) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
             context.orderByExprs = (List<NamedExpression>) sort.getExpressions();
             if (!context.exprReplaceMap.isEmpty()) {
                 context.orderByExprs = ExpressionUtils.replaceNamedExpressions(context.orderByExprs,
