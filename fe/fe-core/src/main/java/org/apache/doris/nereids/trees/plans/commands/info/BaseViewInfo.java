@@ -63,6 +63,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -162,8 +166,9 @@ public class BaseViewInfo {
     protected void createFinalCols(List<Slot> outputs) throws org.apache.doris.common.AnalysisException {
         if (simpleColumnDefinitions.isEmpty()) {
             for (Slot output : outputs) {
-                Column column = new Column(output.getName(), output.getDataType().toCatalogDataType(),
-                        output.nullable());
+                DataType dataType = TypeCoercionUtils.replaceSpecifiedType(output.getDataType(), NullType.class,
+                        TinyIntType.INSTANCE);
+                Column column = new Column(output.getName(), dataType.toCatalogDataType(), output.nullable());
                 finalCols.add(column);
             }
         } else {
@@ -171,8 +176,10 @@ public class BaseViewInfo {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_VIEW_WRONG_LIST);
             }
             for (int i = 0; i < simpleColumnDefinitions.size(); ++i) {
+                DataType dataType = TypeCoercionUtils.replaceSpecifiedType(outputs.get(i).getDataType(), NullType.class,
+                        TinyIntType.INSTANCE);
                 Column column = new Column(simpleColumnDefinitions.get(i).getName(),
-                        outputs.get(i).getDataType().toCatalogDataType(), outputs.get(i).nullable());
+                        dataType.toCatalogDataType(), outputs.get(i).nullable());
                 column.setComment(simpleColumnDefinitions.get(i).getComment());
                 finalCols.add(column);
             }
