@@ -17,6 +17,7 @@
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 #include <mysql/mysql.h>
 
 #include <cstdint>
@@ -35,7 +36,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/block.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
@@ -53,6 +53,8 @@ class TableFunction;
 template <typename T>
 class DataTypeDecimal;
 
+// for an input row with only one column, should use {AnyType(xxx)} to represent it because TestArray is same with
+// InputCell. just {} will be treated as copy-constructor rather than initializer list.
 using TestArray = std::vector<AnyType>;
 //TODO: replace Map, Struct with AnyType combinations too
 
@@ -71,7 +73,7 @@ struct Nullable {
 struct Notnull {
     TypeIndex tp;
 };
-
+// Consted already defined in types.h
 struct ConstedNotnull {
     TypeIndex tp;
 };
@@ -243,7 +245,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     }();
     auto func = SimpleFunctionFactory::instance().get_function(
             func_name, block.get_columns_with_type_and_name(), return_type);
-    EXPECT_TRUE(func != nullptr);
+    ASSERT_TRUE(func != nullptr);
 
     TypeDescriptor fn_ctx_return = get_return_type_descriptor<ResultType>();
 

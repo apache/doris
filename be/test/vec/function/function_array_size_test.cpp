@@ -32,7 +32,8 @@ TEST(function_array_size_test, size) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32};
 
         TestArray vec = {Int32(1), Int32(2), Int32(3)};
-        DataSet data_set = {{{vec}, Int64(3)}, {{Null()}, Null()}, {{empty_arr}, Int64(0)}};
+        DataSet data_set = {
+                {{AnyType(vec)}, Int64(3)}, {{Null()}, Null()}, {{AnyType(empty_arr)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
@@ -43,10 +44,10 @@ TEST(function_array_size_test, size) {
 
         TestArray vec1 = {std::string("abc"), std::string(""), std::string("def")};
         TestArray vec2 = {std::string("abc"), std::string("123"), std::string("def")};
-        DataSet data_set = {{{vec1}, Int64(3)},
-                            {{vec2}, Int64(3)},
+        DataSet data_set = {{{AnyType(vec1)}, Int64(3)},
+                            {{AnyType(vec2)}, Int64(3)},
                             {{Null()}, Null()},
-                            {{empty_arr}, Int64(0)}};
+                            {{AnyType(empty_arr)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
@@ -61,7 +62,8 @@ TEST(function_array_size_test, cardinality) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32};
 
         TestArray vec = {Int32(1), Int32(2), Int32(3)};
-        DataSet data_set = {{{vec}, Int64(3)}, {{Null()}, Null()}, {{empty_arr}, Int64(0)}};
+        DataSet data_set = {
+                {{AnyType(vec)}, Int64(3)}, {{Null()}, Null()}, {{AnyType(empty_arr)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
@@ -72,10 +74,10 @@ TEST(function_array_size_test, cardinality) {
 
         TestArray vec1 = {std::string("abc"), std::string(""), std::string("def")};
         TestArray vec2 = {std::string("abc"), std::string("123"), std::string("def")};
-        DataSet data_set = {{{vec1}, Int64(3)},
-                            {{vec2}, Int64(3)},
+        DataSet data_set = {{{AnyType(vec1)}, Int64(3)},
+                            {{AnyType(vec2)}, Int64(3)},
                             {{Null()}, Null()},
-                            {{empty_arr}, Int64(0)}};
+                            {{AnyType(empty_arr)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
@@ -90,7 +92,8 @@ TEST(function_array_size_test, array_size) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32};
 
         TestArray vec = {Int32(1), Int32(2), Int32(3)};
-        DataSet data_set = {{{vec}, Int64(3)}, {{Null()}, Null()}, {{empty_arr}, Int64(0)}};
+        DataSet data_set = {
+                {{AnyType(vec)}, Int64(3)}, {{Null()}, Null()}, {{AnyType(empty_arr)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
@@ -101,10 +104,10 @@ TEST(function_array_size_test, array_size) {
 
         TestArray vec1 = {std::string("abc"), std::string(""), std::string("def")};
         TestArray vec2 = {std::string("abc"), std::string("123"), std::string("def")};
-        DataSet data_set = {{{vec1}, Int64(3)},
-                            {{vec2}, Int64(3)},
+        DataSet data_set = {{{AnyType(vec1)}, Int64(3)},
+                            {{AnyType(vec2)}, Int64(3)},
                             {{Null()}, Null()},
-                            {{empty_arr}, Int64(0)}};
+                            {{AnyType(empty_arr)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }

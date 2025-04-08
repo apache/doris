@@ -63,6 +63,7 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
     // default is nullable
     if (input_types[index].type() == &typeid(Consted)) {
         tp = any_cast<Consted>(input_types[index]).tp;
+        ut_desc.is_nullable = true;
     } else if (input_types[index].type() == &typeid(ConstedNotnull)) {
         tp = any_cast<ConstedNotnull>(input_types[index]).tp;
         ut_desc.is_nullable = false;
@@ -90,7 +91,7 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         type = std::make_shared<DataTypeBitMap>();
         return 1;
     case TypeIndex::HLL:
-        desc.type = doris::PrimitiveType::TYPE_OBJECT;
+        desc.type = doris::PrimitiveType::TYPE_HLL;
         type = std::make_shared<DataTypeHLL>();
         return 1;
     case TypeIndex::IPv4:
@@ -349,10 +350,10 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         auto str = any_cast<ut_type::STRING>(cell);
         JsonBinaryValue jsonb_val(str.c_str(), str.size());
         column->insert_data(jsonb_val.value(), jsonb_val.size());
-    } else if (type.idx == TypeIndex::BitMap) {
+    } else if (type.is_bitmap()) {
         auto* bitmap = any_cast<BitmapValue*>(cell);
         column->insert_data((char*)bitmap, sizeof(BitmapValue));
-    } else if (type.idx == TypeIndex::HLL) {
+    } else if (type.is_hll()) {
         auto* hll = any_cast<HyperLogLog*>(cell);
         column->insert_data((char*)hll, sizeof(HyperLogLog));
     } else if (type.is_ipv4()) {

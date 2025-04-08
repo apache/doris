@@ -20,7 +20,6 @@
 #include <string>
 
 #include "function_test_util.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 
@@ -77,7 +76,7 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Array,
                                     TypeIndex::Date};
 
-        TestArray vec1 = {std::string("2022-01-02"), std::string(""), std::string("2022-07-08")};
+        TestArray vec1 = {std::string("2022-01-02"), std::string("2022-01-02"), std::string("2022-07-08")};
         TestArray vec2 = {std::string("2022-01-02")};
         DataSet data_set = {
                 {{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)}};
@@ -90,12 +89,12 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::Array,
                                     TypeIndex::DateTime};
 
-        TestArray vec1 = {std::string("2022-01-02 00:00:00"), std::string(""),
+        TestArray vec1 = {std::string("2022-01-02 00:00:00"), std::string("2022-01-02 00:00:00"),
                           std::string("2022-07-08 00:00:00")};
         TestArray vec2 = {std::string("2022-01-02 00:00:00")};
         TestArray vec3 = {std::string("")};
         DataSet data_set = {{{vec1, vec2}, UInt8(1)},
-                            {{vec1, vec3}, UInt8(1)},
+                            {{vec1, vec3}, Null()},
                             {{Null(), vec1}, Null()},
                             {{empty_arr, vec1}, UInt8(0)}};
 
