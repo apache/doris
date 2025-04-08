@@ -2330,9 +2330,9 @@ private:
     size_t split_str(size_t& pos, const StringRef str_ref, StringRef delimiter_ref) const {
         size_t old_size = pos;
         size_t str_size = str_ref.size;
-        while (pos < str_size &&
-               memcmp_small_allow_overflow15(str_ref.data + pos, delimiter_ref.data,
-                                             delimiter_ref.size)) {
+        while (pos < str_size && memcmp_small_allow_overflow15((const uint8_t*)str_ref.data + pos,
+                                                               (const uint8_t*)delimiter_ref.data,
+                                                               delimiter_ref.size)) {
             pos++;
         }
         return pos - old_size;
@@ -2471,8 +2471,9 @@ private:
     size_t find_pos(size_t pos, const StringRef str_ref, const StringRef pattern_ref) const {
         size_t old_size = pos;
         size_t str_size = str_ref.size;
-        while (pos < str_size && memcmp_small_allow_overflow15(str_ref.data + pos, pattern_ref.data,
-                                                               pattern_ref.size)) {
+        while (pos < str_size &&
+               memcmp_small_allow_overflow15((const uint8_t*)str_ref.data + pos,
+                                             (const uint8_t*)pattern_ref.data, pattern_ref.size)) {
             pos++;
         }
         return pos - old_size;
