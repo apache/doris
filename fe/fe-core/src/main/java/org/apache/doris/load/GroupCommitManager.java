@@ -85,13 +85,13 @@ public class GroupCommitManager {
     public void waitWalFinished(long tableId) {
         List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
         long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
+        // delay 500ms to start to prevent boundary issues on wal creating
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException ie) {
+            LOG.warn("failed to wait for wal for table={} when schema change", tableId, ie);
+        }
         while (true) {
-            // delay 300ms to start to prevent wal boundary issues
-            try {
-                Thread.sleep(300);
-            } catch (InterruptedException ie) {
-                LOG.warn("failed to wait for wal for table={} when schema change", tableId, ie);
-            }
             LOG.info("wait for wal queue size to be empty");
             boolean walFinished = Env.getCurrentEnv().getGroupCommitManager()
                     .isPreviousWalFinished(tableId, aliveBeIds);
