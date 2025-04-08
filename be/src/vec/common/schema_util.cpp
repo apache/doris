@@ -643,7 +643,8 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     res.set_aggregation_method(variant.aggregation());
     res.set_path_info(PathInData {variant.name_lower_case() + "." + SPARSE_COLUMN_PATH});
     res.set_parent_unique_id(variant.unique_id());
-
+    // set default value to "NULL" DefaultColumnIterator will call insert_many_defaults
+    res.set_default_value("NULL");
     TabletColumn child_tcolumn;
     child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     res.add_sub_column(child_tcolumn);

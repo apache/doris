@@ -292,4 +292,31 @@ suite("regression_test_variant_predefine_schema", "p0"){
     "variant_max_subcolumns_count" = "0"
     );
     """
+
+    // array with nulls
+
+    sql "DROP TABLE IF EXISTS test_array_with_nulls"
+    // test bf with bool
+    sql """
+        CREATE TABLE `test_array_with_nulls` (
+      `k` bigint NULL,
+      `var` variant<array_decimal:array<decimalv3(27,9)>>
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k`)
+    DISTRIBUTED BY HASH(`k`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "min_load_replica_num" = "-1",
+    "variant_max_subcolumns_count" = "0"
+    );
+    """
+    sql """insert into test_array_with_nulls values(3, '{"array_decimal" : [null, 2.2, 3.3, 4.4]}')"""
+    qt_sql_arr_null_1 "select * from test_array_with_nulls order by k"
+    sql """insert into test_array_with_nulls values(1, '{"array_decimal" : [1.1, 2.2, 3.3, null]}')"""
+    sql """insert into test_array_with_nulls values(2, '{"array_decimal" : [1.1, 2.2, null, 4.4]}')"""
+    sql """insert into test_array_with_nulls values(4, '{"array_decimal" : [1.1, null, 3.3, 4.4]}')"""
+    sql """insert into test_array_with_nulls values(5, '{"array_decimal" : [1.1, 2.2, 3.3, 4.4]}')"""
+    sql """insert into test_array_with_nulls values(6, '{"array_decimal" : []}')"""
+    sql """insert into test_array_with_nulls values(7, '{"array_decimal" : [null, null]}')"""
+    qt_sql_arr_null_2 "select * from test_array_with_nulls order by k"
 }

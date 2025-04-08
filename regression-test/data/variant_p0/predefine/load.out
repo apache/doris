@@ -149,3 +149,15 @@ id	bigint	No	true	\N
 v	variant<nested.a:text>	Yes	false	\N	NONE
 v.auto_type	json	Yes	false	\N	NONE
 
+-- !sql_arr_null_1 --
+3	{"array_decimal":[null, 2.200000000, 3.300000000, 4.400000000]}
+
+-- !sql_arr_null_2 --
+1	{"array_decimal":[1.100000000, 2.200000000, 3.300000000, null]}
+2	{"array_decimal":[1.100000000, 2.200000000, null, 4.400000000]}
+3	{"array_decimal":[null, 2.200000000, 3.300000000, 4.400000000]}
+4	{"array_decimal":[1.100000000, null, 3.300000000, 4.400000000]}
+5	{"array_decimal":[1.100000000, 2.200000000, 3.300000000, 4.400000000]}
+6	{}
+7	{}
+
