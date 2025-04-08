@@ -346,7 +346,6 @@ TEST_F(RuntimeProfileCounterTreeNodeTest, DescriptionCounter) {
 }
 
 TEST_F(RuntimeProfileCounterTreeNodeTest, ConditionCounterTest) {
-    
     auto min_counter = std::make_unique<RuntimeProfile::ConditionCounter>(
             TUnit::UNIT, [](int64_t _c, int64_t c) { return c < _c; }, 100000, 1000000);
 
