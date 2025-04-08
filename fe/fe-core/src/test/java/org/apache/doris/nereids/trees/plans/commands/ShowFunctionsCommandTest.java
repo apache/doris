@@ -17,11 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CreateUserStmt;
+import org.apache.doris.analysis.GrantStmt;
+import org.apache.doris.analysis.TablePattern;
+import org.apache.doris.analysis.UserDesc;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -30,7 +38,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -38,12 +45,9 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 public class ShowFunctionsCommandTest extends TestWithFeService {
+    private Auth auth;
     @Mocked
-    private ConnectContext ctx;
-    @Mocked
-    private Env env;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
+    private Analyzer analyzer;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -92,7 +96,7 @@ public class ShowFunctionsCommandTest extends TestWithFeService {
         ShowFunctionsCommand sf = new ShowFunctionsCommand("test", true, false, null);
         List<String> func1 = sf.getFunctions(connectContext);
         List<List<String>> re1 = sf.getResultRowSetByFunctions(func1);
-        Assertions.assertTrue(re1.get(0).size() > 100);
+        Assertions.assertTrue(re1.size() > 100);
 
         // test for not builtin functions
         sf = new ShowFunctionsCommand("test", false, false, null);
@@ -105,22 +109,22 @@ public class ShowFunctionsCommandTest extends TestWithFeService {
         sf = new ShowFunctionsCommand("test", true, true, null);
         List<String> func3 = sf.getFunctions(connectContext);
         List<List<String>> re3 = sf.getResultRowSetByFunctions(func3);
-        Assertions.assertTrue(re3.get(0).size() > 100);
-        Assertions.assertEquals("", re3.get(1).get(0));
-        Assertions.assertEquals("", re3.get(2).get(0));
-        Assertions.assertEquals("", re3.get(3).get(0));
-        Assertions.assertEquals("", re3.get(4).get(0));
+        Assertions.assertTrue(re3.size() > 100);
+        Assertions.assertEquals("", re3.get(0).get(1));
+        Assertions.assertEquals("", re3.get(0).get(2));
+        Assertions.assertEquals("", re3.get(0).get(3));
+        Assertions.assertEquals("", re3.get(0).get(4));
 
         // test for full not builtin functions
         sf = new ShowFunctionsCommand("test", false, true, null);
         List<String> func4 = sf.getFunctions(connectContext);
         List<List<String>> re4 = sf.getResultRowSetByFunctions(func4);
-        Assertions.assertEquals(1, re4.get(0).size());
+        Assertions.assertEquals(5, re4.get(0).size());
         Assertions.assertEquals("test_for_create_function", re4.get(0).get(0));
-        Assertions.assertEquals("", re4.get(1).get(0));
-        Assertions.assertEquals("", re4.get(2).get(0));
-        Assertions.assertEquals("", re4.get(3).get(0));
-        Assertions.assertEquals("", re4.get(4).get(0));
+        Assertions.assertEquals("", re4.get(0).get(1));
+        Assertions.assertEquals("", re4.get(0).get(2));
+        Assertions.assertEquals("", re4.get(0).get(3));
+        Assertions.assertEquals("", re4.get(0).get(4));
 
         // test for full not builtin functions with where condition
         Expression where = new Like(new UnboundSlot(Lists.newArrayList("empty key")),
@@ -128,12 +132,12 @@ public class ShowFunctionsCommandTest extends TestWithFeService {
         sf = new ShowFunctionsCommand("test", false, true, where);
         List<String> func5 = sf.getFunctions(connectContext);
         List<List<String>> re5 = sf.getResultRowSetByFunctions(func5);
-        Assertions.assertEquals(1, re5.get(0).size());
+        Assertions.assertEquals(5, re5.get(0).size());
         Assertions.assertEquals("test_for_create_function", re5.get(0).get(0));
-        Assertions.assertEquals("", re5.get(1).get(0));
-        Assertions.assertEquals("", re5.get(2).get(0));
-        Assertions.assertEquals("", re5.get(3).get(0));
-        Assertions.assertEquals("", re5.get(4).get(0));
+        Assertions.assertEquals("", re5.get(0).get(1));
+        Assertions.assertEquals("", re5.get(0).get(2));
+        Assertions.assertEquals("", re5.get(0).get(3));
+        Assertions.assertEquals("", re5.get(0).get(4));
     }
 
     @Test
@@ -145,32 +149,47 @@ public class ShowFunctionsCommandTest extends TestWithFeService {
 
     @Test
     void testAuth() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
+        auth = Env.getCurrentEnv().getAuth();
+        TablePattern tablePattern1 = new TablePattern("test", "*");
+        List<AccessPrivilegeWithCols> privileges1 = Lists
+                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV));
+        UserIdentity user1 = new UserIdentity("cmy", "%");
+        UserDesc userDesc = new UserDesc(user1, "12345", true);
+        CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
+        try {
+            createUserStmt.analyze(analyzer);
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
 
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
+        try {
+            auth.createUser(createUserStmt);
+        } catch (DdlException e) {
+            e.printStackTrace();
+        }
 
-                accessControllerManager.checkDbPriv((ConnectContext) any, InternalCatalog.INTERNAL_CATALOG_NAME,
-                        "test", PrivPredicate.SHOW);
-                minTimes = 0;
-                result = true;
+        GrantStmt grantStmt = new GrantStmt(user1, null, tablePattern1, privileges1);
+        try {
+            grantStmt.analyze(analyzer);
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
 
-                accessControllerManager.checkDbPriv((ConnectContext) any, InternalCatalog.INTERNAL_CATALOG_NAME,
-                        "test_no_priv", PrivPredicate.SHOW);
-                minTimes = 0;
-                result = false;
-            }
-        };
+        try {
+            auth.grant(grantStmt);
+        } catch (DdlException e) {
+            e.printStackTrace();
+        }
 
+        ConnectContext ctx = ConnectContext.get();
+        ctx.setCurrentUserIdentity(user1);
+
+        // user1 have select privilege of db test
         ShowFunctionsCommand sf = new ShowFunctionsCommand("test", true, true, null);
-        sf.handleShowFunctions(ConnectContext.get(), null);
+        sf.handleShowFunctions(ctx, null);
 
+        // but user1 have not select privilege of db test_no_priv
         ShowFunctionsCommand sfNoPriv = new ShowFunctionsCommand("test_no_priv", true, true, null);
-        Assertions.assertThrows(AnalysisException.class, () -> sfNoPriv.handleShowFunctions(ConnectContext.get(), null));
+        Assertions.assertThrows(AnalysisException.class, () -> sfNoPriv.handleShowFunctions(ctx, null));
     }
 }
