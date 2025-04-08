@@ -20,12 +20,12 @@ package org.apache.doris.nereids.trees.plans.commands.load;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 /**
- * load LoadWhereClause for nereids
+ * load LoadPrecedingFilterClause for nereids
  */
-public class LoadWhereClause implements LoadProperty {
+public class LoadPrecedingFilterClause implements LoadProperty {
     private final Expression expression;
 
-    public LoadWhereClause(Expression expression) {
+    public LoadPrecedingFilterClause(Expression expression) {
         this.expression = expression;
     }
 
