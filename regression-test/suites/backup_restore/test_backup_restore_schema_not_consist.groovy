@@ -17,20 +17,27 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite('test_backup_restore_schema_not_consist', 'docker') {
-    String suiteName = "test_backup_restore_schema_not_consist"
+suite('test_backup_restore_atomic_schema_not_consist', 'docker') {
+    String suiteName = "test_backup_restore_atomic_schema_not_consist"
     String repoName = "${suiteName}_repo"
     String dbName = "${suiteName}_db"
     String snapshotName = "${suiteName}_snapshot_" + UUID.randomUUID().toString().replace('-', '')
-
-    def isOldSchema = { res -> Boolean
-        return res[0][1].contains("`k` int NULL")
+    def exist = { res -> Boolean
+        return res.size() != 0
     }
     def isNewSchema = { res -> Boolean
         return res[0][1].contains("`k1` int NULL")
     }
 
-    docker {
+    def options = new ClusterOptions()
+    // contains 3 frontends
+    options.feNum = 3
+    // contains 3 backends
+    options.beNum = 3
+    // each backend has 1 HDD disk and 3 SSD disks
+    options.beDisks = ['HDD=1', 'SSD=3']
+
+    docker (options) {
         def syncer = getSyncer()
         syncer.createS3Repository(repoName)
         sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
@@ -55,12 +62,6 @@ suite('test_backup_restore_schema_not_consist', 'docker') {
             PROPERTIES (
               "replication_num" = "3"
             );
-        """
-        sql """
-            insert into ${dbName}.t1 values (1, 1), (2, 2), (3, 3);
-        """
-        sql """
-            insert into ${dbName}.t2 values (4, 4), (5, 5), (6, 6);
         """
 
         sql """
@@ -107,50 +108,31 @@ suite('test_backup_restore_schema_not_consist', 'docker') {
             PROPERTIES
             (
                 "backup_timestamp" = "${snapshot}",
-                "reserve_replica" = "true"
+                "reserve_replica" = "true",
+                "atomic_restore" = "true"
             )
         """
         syncer.waitRestoreError(dbName, "already exist but with different schema")
-        res = sql " show create table ${dbName}.t1 "
-        assertTrue(isNewSchema(res))
-        res = sql " show create table ${dbName}.t2 "
-        assertTrue(isNewSchema(res))
 
         sql " CANCEL RESTORE FROM ${dbName} "
-        sql """
-            RESTORE SNAPSHOT ${dbName}.${snapshotName}
-            FROM `${repoName}`
-            ON ( `t1` as `alias_t1`, `t2`)
-            PROPERTIES
-            (
-                "backup_timestamp" = "${snapshot}",
-                "reserve_replica" = "true"
-            )
-        """
-        syncer.waitRestoreError(dbName, "already exist but with different schema")
-        res = sql " show create table ${dbName}.t1 "
-        assertTrue(isNewSchema(res))
-        res = sql " show create table ${dbName}.t2 "
-        assertTrue(isNewSchema(res))
 
-        sql " CANCEL RESTORE FROM ${dbName} "
-        sql """
-            RESTORE SNAPSHOT ${dbName}.${snapshotName}
-            FROM `${repoName}`
-            ON ( `t1` as `alias_t1`, `t2` as `alias_t2`)
-            PROPERTIES
-            (
-                "backup_timestamp" = "${snapshot}",
-                "reserve_replica" = "true"
-            )
-        """
-        syncer.waitAllRestoreFinish(dbName)
-        sql " alter table ${dbName}.t1 replace with table alias_t1 PROPERTIES('swap' = 'false'); "
-        sql " alter table ${dbName}.t2 replace with table alias_t2 PROPERTIES('swap' = 'false'); "
-        res = sql " show create table ${dbName}.t1 "
-        assertTrue(isOldSchema(res))
-        res = sql " show create table ${dbName}.t2 "
-        assertTrue(isOldSchema(res))
+        def frontends = cluster.getAllFrontends()
+        for (def fe : frontends) {
+            def feUrl = "jdbc:mysql://${fe.host}:${fe.queryPort}/?useLocalSessionState=false&allowLoadLocalInfile=false"
+            feUrl = context.config.buildUrlWithDb(feUrl, context.dbName)
+            connect('root', '', feUrl) {
+                log.info("connect to ${fe.host}:${fe.queryPort}")
+                sql " use ${dbName} "
+                res = sql " show tables like \"t1\" "
+                assertTrue(exist(res))
+                res = sql " show tables like \"t2\" "
+                assertTrue(exist(res))
+                res = sql " show create table t1 "
+                assertTrue(isNewSchema(res))
+                res = sql " show create table t2 "
+                assertTrue(isNewSchema(res))
+            }
+        }
 
         sql "DROP TABLE ${dbName}.t1 FORCE"
         sql "DROP TABLE ${dbName}.t2 FORCE"
