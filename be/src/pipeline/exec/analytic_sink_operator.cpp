@@ -287,12 +287,8 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     local_state._shared_state->all_block_end.row_num = block_rows;
     local_state._shared_state->all_block_end.pos = local_state._shared_state->input_total_rows;
 
-    if (local_state._shared_state->origin_cols
-                .empty()) { //record origin columns, maybe be after this, could cast some column but no need to save
-        for (int c = 0; c < input_block->columns(); ++c) {
-            local_state._shared_state->origin_cols.emplace_back(c);
-        }
-    }
+    // record origin columns, maybe be after this, could cast some column but no need to output
+    auto column_to_keep = input_block->columns();
 
     {
         SCOPED_TIMER(local_state._compute_agg_data_timer);
@@ -326,6 +322,8 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
             local_state._shared_state->ordey_by_column_idxs[i] = result_col_id;
         }
     }
+
+    vectorized::Block::erase_useless_column(input_block, column_to_keep);
 
     COUNTER_UPDATE(local_state._memory_used_counter, input_block->allocated_bytes());
 
