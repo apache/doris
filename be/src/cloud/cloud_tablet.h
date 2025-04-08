@@ -43,8 +43,6 @@ struct SyncOptions {
     bool full_sync = false;
     bool merge_schema = false;
     int64_t query_version = -1;
-
-    SyncStatistics stats {};
 };
 
 class CloudTablet final : public BaseTablet {
