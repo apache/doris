@@ -805,6 +805,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnDesc;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadDeleteOnClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadPartitionNames;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadPrecedingFilterClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
@@ -1798,14 +1799,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ((ImportPartitionsContext) ctx).partitionSpec());
             loadProperty = new LoadPartitionNames(partitionSpec.first, partitionSpec.second);
         } else if (ctx instanceof ImportPrecedingFilterContext) {
-            loadProperty = new LoadWhereClause(getExpression(((ImportPrecedingFilterContext) ctx)
-                    .importPrecedingFilterStatement().booleanExpression()), true);
+            loadProperty = new LoadPrecedingFilterClause(getExpression(((ImportPrecedingFilterContext) ctx)
+                    .importPrecedingFilterStatement().booleanExpression()));
         } else if (ctx instanceof ImportSequenceContext) {
             loadProperty = new LoadSequenceClause(((ImportSequenceContext) ctx)
                     .importSequenceStatement().identifier().getText());
         } else if (ctx instanceof ImportWhereContext) {
             loadProperty = new LoadWhereClause(getExpression(((ImportWhereContext) ctx)
-                    .importWhereStatement().booleanExpression()), false);
+                    .importWhereStatement().booleanExpression()));
         }
         return loadProperty;
     }
@@ -1822,11 +1823,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (labelParts.size() == 2) {
             labelDbName = labelParts.get(0);
             labelName = labelParts.get(1);
-        } else if (labelParts.size() == 3) {
-            labelDbName = labelParts.get(1);
-            labelName = labelParts.get(2);
         } else {
-            throw new AnalysisException("labelParts in load should be [ctl.][db.]label");
+            throw new AnalysisException("labelParts in load should be [db.]label");
         }
         LabelNameInfo jobLabelInfo = new LabelNameInfo(labelDbName, labelName);
         String tableName = null;
