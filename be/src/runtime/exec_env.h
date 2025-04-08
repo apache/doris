@@ -153,7 +153,7 @@ public:
 
     // Requires ExenEnv ready
     static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
-                                             SyncStatistics* sync_stat = nullptr);
+                                             SyncStatistics* sync_stats = nullptr);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }
