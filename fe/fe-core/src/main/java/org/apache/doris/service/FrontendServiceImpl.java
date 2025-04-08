@@ -1664,8 +1664,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     + request.isSetDbId() + " id: " + Long.toString(request.isSetDbId() ? request.getDbId() : 0)
                     + " fullDbName: " + fullDbName);
         }
-        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2
-                : Config.try_commit_lock_timeout_seconds * 1000;
+
+        long minTimeoutMs = (Config.try_commit_lock_timeout_seconds + Config.publish_version_timeout_second) * 1000;
+        long timeoutMs = 0L;
+        if (request.isSetThriftRpcTimeoutMs()) {
+            long rpcTimeoutMs = request.getThriftRpcTimeoutMs();
+            timeoutMs = rpcTimeoutMs / 2 > minTimeoutMs ? rpcTimeoutMs / 2 : rpcTimeoutMs - 5 * 1000;
+        } else {
+            timeoutMs = minTimeoutMs;
+        }
+
         List<Table> tables = queryLoadCommitTables(request, db);
         return Env.getCurrentGlobalTransactionMgr()
                 .commitAndPublishTransaction(db, tables, request.getTxnId(),
@@ -1777,8 +1785,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // Step 4: get timeout
-        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2
-                : Config.try_commit_lock_timeout_seconds * 1000;
+        long minTimeoutMs = (Config.try_commit_lock_timeout_seconds + Config.publish_version_timeout_second) * 1000;
+        long timeoutMs = 0L;
+        if (request.isSetThriftRpcTimeoutMs()) {
+            long rpcTimeoutMs = request.getThriftRpcTimeoutMs();
+            timeoutMs = rpcTimeoutMs / 2 > minTimeoutMs ? rpcTimeoutMs / 2 : rpcTimeoutMs - 5 * 1000;
+        } else {
+            timeoutMs = minTimeoutMs;
+        }
 
         // Step 5: commit and publish
         if (request.isSetTxnInsert() && request.isTxnInsert()) {
