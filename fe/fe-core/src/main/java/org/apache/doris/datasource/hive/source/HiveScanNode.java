@@ -431,6 +431,8 @@ public class HiveScanNode extends FileQueryScanNode {
         Table table = hmsTable.getRemoteTable();
         // TODO: separate hive text table and OpenCsv table
         String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
+        int skipHeaderLine = HiveProperties.getCsvSkipHeaderLine(table);
+        fileAttributes.setSkipLines(skipHeaderLine);
         if (serDeLib.equals("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe")) {
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             // set properties of LazySimpleSerDe

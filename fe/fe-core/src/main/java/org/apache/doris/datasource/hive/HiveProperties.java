@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.serde2.OpenCSVSerde;
@@ -129,6 +130,14 @@ public class HiveProperties {
     public static String getEscapeChar(Table table) {
         Optional<String> escapeChar = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_ESCAPE_CHAR);
         return HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_ESCAPE_CHAR, escapeChar);
+    }
+
+    public static int getCsvSkipHeaderLine(Table table) {
+        String valueFromTbl = table.getParameters().get("skip.header.line.count");
+        if (!Strings.isNullOrEmpty(valueFromTbl)) {
+            return Integer.valueOf(valueFromTbl);
+        }
+        return 0;
     }
 
     // Set properties to table
