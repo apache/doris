@@ -72,13 +72,14 @@ std::vector<std::shared_ptr<RuntimeFilterConsumer>> RuntimeFilterMgr::get_consum
 
 Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc, int node_id,
                                                   std::shared_ptr<RuntimeFilterConsumer>* consumer,
-                                                  RuntimeProfile* parent_profile) {
+                                                  RuntimeProfile* cousumer_helper_profile,
+                                                  RuntimeProfile* parent_operator_profile) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
     std::lock_guard<std::mutex> l(_lock);
-    RETURN_IF_ERROR(
-            RuntimeFilterConsumer::create(_state, &desc, node_id, consumer, parent_profile));
+    RETURN_IF_ERROR(RuntimeFilterConsumer::create(
+            _state, &desc, node_id, consumer, cousumer_helper_profile, parent_operator_profile));
     _consumer_map[key].push_back(*consumer);
     return Status::OK();
 }

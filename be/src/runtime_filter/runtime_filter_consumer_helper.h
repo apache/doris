@@ -71,7 +71,8 @@ private:
     std::shared_ptr<std::atomic_bool> _blocked_by_rf;
 
     RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
-    std::unique_ptr<RuntimeProfile> _profile;
+    std::unique_ptr<RuntimeProfile> _consumer_profile;
+    RuntimeProfile* _parent_operator_profile;
 };
 #include "common/compile_check_end.h"
 } // namespace doris
