@@ -33,5 +33,4 @@ class RewriteSqlTest extends SqlTestBase {
                 .matches(logicalFilter().when(f -> f.getConjuncts().stream().anyMatch(e -> e.toSql().equals("OR[(id = 1),AND[(score = 2),OR[(a = 3),(b = 4)]]]"))));
     }
 
-
 }
