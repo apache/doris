@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_ddl") {
+    sql """set enable_sql_plan_outlines=true;"""
     String dbName = "test_outline_ddl"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "USE ${dbName}"
@@ -23,30 +24,37 @@ suite("test_ddl") {
     sql """DROP TABLE IF EXISTS ${tableName}"""
     sql """create table ${tableName} (c1 int, c11 int) distributed by hash(c1) buckets 3 properties('replication_num' = '1');"""
 
-    sql """drop outline if exists outline1"""
-    sql """drop outline if exists outline2"""
-    sql """create outline outline1 on select * from ${tableName}"""
-    sql """create outline outline2 on select * from ${tableName}"""
+    sql """drop outline if exists ${dbName}_outline1"""
+    sql """drop outline if exists ${dbName}_outline2"""
+    sql """create outline ${dbName}_outline1 on select * from ${tableName}"""
+    sql """create outline ${dbName}_outline2 on select * from ${tableName} where c1 = 1 and c11 = 2"""
     qt_sql """select outline_name from information_schema.optimizer_sql_plan_outline order by outline_name;"""
-    qt_sql """select outline_name from information_schema.optimizer_sql_plan_outline where outline_name = "outline1" order by outline_name;"""
+    qt_sql """select outline_name from information_schema.optimizer_sql_plan_outline where outline_name = "${dbName}_outline1" order by outline_name;"""
 
     // should visible outline1 already exists
     test {
-        sql """create outline outline1 on select * from ${tableName}"""
-        exception "outline1 already exists"
+        sql """create outline ${dbName}_outline1 on select * from ${tableName}"""
+        exception "${dbName}_outline1 already exists"
+    }
+    // should visible outline1 already exists
+    test {
+        sql """create outline ${dbName}_outline3 on select * from ${tableName}"""
+        exception "select * from t1 already exists"
     }
     // or replace should work
-    sql """create or replace outline outline1 on select * from ${tableName}"""
+    sql """create or replace outline ${dbName}_outline1 on select * from ${tableName}"""
     // test drop
-    sql """drop outline if exists outline1"""
+    sql """drop outline if exists ${dbName}_outline1"""
     qt_sql """select outline_name from information_schema.optimizer_sql_plan_outline order by outline_name;"""
-    sql """create outline outline1 on select * from ${tableName}"""
+    sql """create outline ${dbName}_outline1 on select * from ${tableName}"""
     // test drop without if exists
-    sql """drop outline outline1"""
+    sql """drop outline ${dbName}_outline1"""
     test {
-        sql """drop outline outline1"""
+        sql """drop outline ${dbName}_outline1"""
         exception "outline1 not exists"
     }
+    sql """drop outline if exists ${dbName}_outline1"""
+    sql """drop outline if exists ${dbName}_outline2"""
 
     sql """drop database ${dbName}"""
 }

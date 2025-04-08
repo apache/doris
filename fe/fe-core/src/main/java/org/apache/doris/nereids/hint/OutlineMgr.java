@@ -246,10 +246,14 @@ public class OutlineMgr implements Writable {
         writeLock();
         try {
             boolean isPresent = outlineMap.containsKey(outlineName);
-            if (!ifExists && !isPresent) {
+            if (!isPresent) {
                 LOG.info("outline not exists, ignored to drop outline: {}, is replay: {}",
                         outlineName, isReplay);
-                throw new DdlException(outlineName + " not exists");
+                if (!ifExists) {
+                    throw new DdlException(outlineName + " not exists");
+                } else {
+                    return;
+                }
             }
 
             OutlineInfo outlineInfo = outlineMap.get(outlineName);
