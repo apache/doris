@@ -4778,6 +4778,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableExternalTableBatchMode() {
         return enableExternalTableBatchMode;
+    }
 
     public boolean showSplitProfileInfo() {
         return enableProfile() && getProfileLevel() > 1;
