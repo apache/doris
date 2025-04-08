@@ -295,9 +295,6 @@ public class NereidsLoadScanProvider {
             }
         }
 
-        // get shadow column desc when table schema change
-        copiedColumnExprs.addAll(getSchemaChangeShadowColumnDesc(tbl, columnExprMap));
-
         Map<String, Pair<String, List<String>>> columnToHadoopFunction = fileGroup.getColumnToHadoopFunction();
         // validate hadoop functions
         if (columnToHadoopFunction != null) {

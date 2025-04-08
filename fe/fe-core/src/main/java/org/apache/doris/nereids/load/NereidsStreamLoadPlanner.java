@@ -239,9 +239,9 @@ public class NereidsStreamLoadPlanner {
         NereidsParamCreateContext context = loadScanProvider.createLoadContext();
         LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, dataDescription.getPartitionNames(),
                 context, hasMissingColExceptAutoIncKey);
-        NereidsLoadPlanInfoCollector loadPlanTranslator = new NereidsLoadPlanInfoCollector(destTable, taskInfo, loadId,
+        NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(destTable, taskInfo, loadId,
                 db.getId(), uniquekeyUpdateMode, partialUpdateInputColumns, context.exprMap);
-        NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = loadPlanTranslator.translatePlan(streamLoadPlan);
+        NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan);
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());
         fileScanNode.finalizeForNereids(loadId, Lists.newArrayList(fileGroupInfo), Lists.newArrayList(context),
                 loadPlanInfo);
