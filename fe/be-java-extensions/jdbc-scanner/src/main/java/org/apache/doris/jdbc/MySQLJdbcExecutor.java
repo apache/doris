@@ -88,6 +88,8 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
         for (int i = 0; i < columnCount; ++i) {
             if (replaceStringList[i].equals("bitmap") || replaceStringList[i].equals("hll")) {
                 block.add(new byte[batchSizeNum][]);
+            } else if (replaceStringList[i].equals("variant")) {
+                block.add(new String[batchSizeNum]);
             } else if (outputTable.getColumnType(i).getType() == Type.ARRAY) {
                 block.add(new String[batchSizeNum]);
             } else if (outputTable.getColumnType(i).getType() == Type.TINYINT
@@ -109,6 +111,8 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                 return null;
             }
             return data;
+        } else if (replaceStringList[columnIndex].equals("variant")) {
+            return resultSet.getString(columnIndex + 1);
         } else {
             switch (type.getType()) {
                 case BOOLEAN:
