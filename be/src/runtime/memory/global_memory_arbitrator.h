@@ -147,22 +147,6 @@ public:
                                      TUnit::BYTES));
     }
 
-    static std::string process_limit_exceeded_errmsg_str() {
-        return fmt::format("{} exceed limit {} or {} less than low water mark {}",
-                           process_memory_used_details_str(), MemInfo::mem_limit_str(),
-                           sys_mem_available_str(),
-                           PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(),
-                                                TUnit::BYTES)); // only process memory print details
-    }
-
-    static std::string process_soft_limit_exceeded_errmsg_str() {
-        return fmt::format("{} exceed soft limit {} or {} less than warning water mark {}.",
-                           process_memory_used_details_str(), MemInfo::soft_mem_limit_str(),
-                           sys_mem_available_str(),
-                           PrettyPrinter::print(MemInfo::sys_mem_available_warning_water_mark(),
-                                                TUnit::BYTES));
-    }
-
     static void refresh_memory_bvar();
 
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,

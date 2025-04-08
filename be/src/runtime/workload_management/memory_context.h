@@ -79,10 +79,26 @@ public:
     std::shared_ptr<MemTrackerLimiter> mem_tracker() const { return mem_tracker_; }
     void set_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
         mem_tracker_ = mem_tracker;
+        _user_set_mem_limit = mem_tracker_->limit();
+        _adjusted_mem_limit = mem_tracker_->limit();
     }
+
+    // This method is called by workload group manager to set query's memlimit using slot
+    // If user set query limit explicitly, then should use less one
+    void set_mem_limit(int64_t new_mem_limit) const { mem_tracker_->set_limit(new_mem_limit); }
+    int64_t mem_limit() const { return mem_tracker_->limit(); }
+
+    // The new memlimit should be less than user set memlimit.
+    void set_adjusted_mem_limit(int64_t new_mem_limit) {
+        _adjusted_mem_limit = std::min<int64_t>(new_mem_limit, _user_set_mem_limit);
+    }
+    // Expected mem limit is the limit when workload group reached limit.
+    int64_t adjusted_mem_limit() { return _adjusted_mem_limit; }
+    void effect_adjusted_mem_limit() { set_mem_limit(_adjusted_mem_limit); }
 
     int64_t current_memory_bytes() const { return mem_tracker_->consumption(); }
     int64_t peak_memory_bytes() const { return mem_tracker_->peak_consumption(); }
+    int64_t reserved_consumption() const { return mem_tracker_->reserved_consumption(); }
     // TODO, use stats_.max_peak_memory_bytes_counter_->value();
     int64_t max_peak_memory_bytes() const { return mem_tracker_->peak_consumption(); }
     int64_t revoke_attempts() const { return stats_.revoke_attempts_counter_->value(); }
@@ -102,6 +118,8 @@ public:
 
     virtual Status leave_arbitration(Status reason) { return Status::OK(); }
 
+    std::string debug_string();
+
 protected:
     friend class ResourceContext;
 
@@ -111,6 +129,9 @@ protected:
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> mem_tracker_ {nullptr};
     ResourceContext* resource_ctx_ {nullptr};
+
+    int64_t _user_set_mem_limit = 0;
+    std::atomic<int64_t> _adjusted_mem_limit = 0;
 };
 
 } // namespace doris

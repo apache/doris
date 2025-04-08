@@ -15,27 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/action/shrink_mem_action.h"
+#include "runtime/workload_management/memory_context.h"
 
-#include <fmt/core.h>
-
-#include "http/http_channel.h"
-#include "http/http_request.h"
-#include "runtime/exec_env.h"
-#include "runtime/memory/memory_reclamation.h"
-#include "util/brpc_client_cache.h"
-#include "util/mem_info.h"
-#include "util/string_util.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
-void ShrinkMemAction::handle(HttpRequest* req) {
-    LOG(INFO) << "begin shrink memory";
-    /* this interface might be ready for cloud in the near future
-     * int freed_mem = 0;
-     * doris::MemInfo::process_cache_gc(&freed_mem); */
-    MemoryReclamation::revoke_process_memory("ShrinkMemAction");
-    LOG(INFO) << "shrink memory triggered, using Process GC Free Memory";
-    HttpChannel::send_reply(req, HttpStatus::OK, "shrinking");
+
+std::string MemoryContext::debug_string() {
+    return fmt::format("TaskId={}, Memory [Used={}, Limit={}, Peak={}]",
+                       print_id(resource_ctx_->task_controller()->task_id()),
+                       MemCounter::print_bytes(current_memory_bytes()),
+                       MemCounter::print_bytes(mem_limit()),
+                       MemCounter::print_bytes(peak_memory_bytes()));
 }
 
 } // namespace doris
