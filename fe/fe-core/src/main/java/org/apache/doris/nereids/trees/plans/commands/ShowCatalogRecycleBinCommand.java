@@ -107,7 +107,6 @@ public class ShowCatalogRecycleBinCommand extends ShowCommand {
             return false;
         } else if (whereClause instanceof EqualTo) {
             EqualTo equalTo = (EqualTo) whereClause;
-            String a = equalTo.child(0).toSql();
             if (equalTo.left() instanceof UnboundSlot
                     && equalTo.child(0).toSql().toLowerCase(Locale.ROOT).equals("name")
                     && equalTo.right() instanceof Literal) {
