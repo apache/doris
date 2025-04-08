@@ -3320,4 +3320,8 @@ public class Config extends ConfigBase {
     public static long meta_service_rpc_reconnect_interval_ms = 5000;
 
     public static long meta_service_rpc_retry_cnt = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"是否允许 variant 类型的列使用倒排索引格式 v1",
+            "Whether to allow the use of inverted index v1 for variant"})
+    public static boolean enable_inverted_index_v1_for_variant = false;
 }
