@@ -602,7 +602,7 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
         std::string lock_val;
         TxnErrorCode err = txn->get(lock_key, &lock_val);
         LOG(INFO) << "get remove delete bitmap update lock info, table_id=" << table_id
-                  << " key=" << hex(lock_key) << " err=" << err;
+                  << " key=" << hex(lock_key) << " err=" << err << " initiator=" << lock_initiator;
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get delete bitmap update lock key, instance_id="
                          << instance_id << " table_id=" << table_id << " key=" << hex(lock_key)
@@ -1216,6 +1216,9 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                 }
                 new_recorded_job.clear_schema_change();
                 new_tablet_job_val = new_recorded_job.SerializeAsString();
+                remove_delete_bitmap_update_lock(txn, instance_id, new_table_id, new_tablet_id,
+                                                 COMPACTION_DELETE_BITMAP_LOCK_ID,
+                                                 schema_change.delete_bitmap_lock_initiator());
                 txn->put(new_tablet_job_key, new_tablet_job_val);
             }
             INSTANCE_LOG(INFO) << "remove schema_change job tablet_id=" << tablet_id
