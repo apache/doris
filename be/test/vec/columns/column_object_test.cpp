@@ -88,6 +88,23 @@ auto construct_dst_varint_column() {
     return ColumnObject::create(5, std::move(dynamic_subcolumns));
 }
 
+TEST(ColumnVariantTest, insert_try_insert) {
+    auto v = construct_dst_varint_column();
+    FieldInfo info;
+    info.scalar_type_id = TypeIndex::Nothing;
+    info.num_dimensions = 0;
+    PathInData path("v.f");
+    auto sub = v->get_subcolumn(path);
+    Int64 value = 43;
+    sub->insert(value, info);
+
+    info.num_dimensions = 1;
+    sub->insert(value, info);
+
+    info.num_dimensions = 2;
+    sub->insert(value, info);
+}
+
 TEST(ColumnVariantTest, basic_finalize) {
     auto variant = construct_basic_varint_column();
     // 4. finalize
@@ -251,6 +268,11 @@ doris::vectorized::Field get_field(std::string_view type) {
         field_map["string"] = str_field;
         field_map["array_int"] = arr_int_field;
         field_map["array_str"] = arr_str_field;
+
+        // add other int value
+        field_map["int_16"] = std::numeric_limits<Int16>::max();
+        field_map["int_32"] = std::numeric_limits<Int32>::max();
+        field_map["int_64"] = Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1);
     }
     return field_map[type];
 }
@@ -402,6 +424,31 @@ std::string convert_field_to_string(doris::vectorized::Field array) {
     return std::string(buffer.GetString());
 }
 
+TEST(ColumnVariantTest, is_null_at) {
+    auto v = construct_dst_varint_column();
+    PathInData path("v.f");
+    auto sub = v->get_subcolumn(path);
+    std::cout << sub->get_least_common_typeBase()->get_name() << std::endl;
+    EXPECT_TRUE(sub->is_null_at(0));
+
+    auto v1 = construct_advanced_varint_column();
+    PathInData path1("v.b.d");
+    auto sub1 = v1->get_subcolumn(path1);
+    EXPECT_TRUE(sub1->is_null_at(2));
+    EXPECT_ANY_THROW(sub1->is_null_at(16));
+    vectorized::Field f;
+    EXPECT_ANY_THROW(sub1->get(16, f));
+    std::cout << sub1->num_rows << std::endl;
+    EXPECT_NO_THROW(sub1->resize(sub1->num_rows));
+
+    auto [sparse_column_keys, sparse_column_values] = v1->get_sparse_data_paths_and_values();
+    std::string_view pa("v.a");
+    EXPECT_NO_THROW(
+            sub1->serialize_to_sparse_column(sparse_column_keys, pa, sparse_column_values, 2));
+    EXPECT_ANY_THROW(
+            sub1->serialize_to_sparse_column(sparse_column_keys, pa, sparse_column_values, 16));
+}
+
 TEST(ColumnVariantTest, advanced_finalize) {
     auto variant = construct_advanced_varint_column();
 
@@ -426,6 +473,17 @@ TEST(ColumnVariantTest, advanced_finalize) {
     }
     for (int row = 5; row < 15; ++row) {
         EXPECT_EQ(offsets[row] - offsets[row - 1], 3);
+    }
+
+    {
+        // Test fill_path_column_from_sparse_data
+        auto map = std::make_unique<NullMap>(15, 0);
+        vectorized::ColumnObject::fill_path_column_from_sparse_data(
+                *variant->get_subcolumn({}) /*root*/, map.get(), StringRef {"array"},
+                variant->get_sparse_column(), 0, 5);
+        vectorized::ColumnObject::fill_path_column_from_sparse_data(
+                *variant->get_subcolumn({}) /*root*/, map.get(), StringRef {"array"},
+                variant->get_sparse_column(), 5, 15);
     }
 }
 
@@ -643,8 +701,9 @@ auto construct_varint_column_more_subcolumns() {
     data.emplace_back("v.c", 20);
     data.emplace_back("v.f", 20);
     data.emplace_back("v.e", "50");
-    data.emplace_back("v.x", "str");
-    data.emplace_back("v.y", 20);
+    data.emplace_back("v.x", get_field("int_16"));
+    data.emplace_back("v.y", get_field("int_32"));
+    data.emplace_back("v.z", get_field("int_64"));
     for (int i = 0; i < 5; ++i) {
         auto field = construct_variant_map(data);
         variant->try_insert(field);
@@ -693,7 +752,7 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
     EXPECT_EQ(src_contains_seven_subcolumns->size(), 5);
 
     // subcolumn->subcolumn          v.a v.b v.c v.f v.e
-    // add sprase columns            v.x v.y
+    // add sprase columns            v.x v.y v.z
     dst->insert_range_from(*src_contains_seven_subcolumns, 0, 5);
     EXPECT_EQ(dst->size(), 11);
 
@@ -707,7 +766,7 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
         EXPECT_EQ(start, end);
     }
 
-    // v.x v.y
+    // v.x v.y v.z
     for (int row = 6; row < 11; ++row) {
         size_t start = offsets[row - 1];
         size_t end = offsets[row];
@@ -715,13 +774,18 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.x", 3));
         auto pair = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(convert_field_to_string(pair.first),
-                  convert_field_to_string(get_field("string")));
+        EXPECT_EQ(pair.first.get<Int16>(), std::numeric_limits<Int16>::max());
 
         auto data2 = path->get_data_at(start);
         EXPECT_EQ(data2, StringRef("v.y", 3));
         auto pair2 = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair2.first.get<Int64>(), 20);
+        EXPECT_EQ(pair2.first.get<Int32>(), std::numeric_limits<Int32>::max());
+
+        auto data3 = path->get_data_at(start);
+        EXPECT_EQ(data3, StringRef("v.z", 3));
+        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
+        EXPECT_EQ(pair3.first.get<Int64>(),
+                  Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
 
         EXPECT_EQ(start, end);
     }
@@ -755,13 +819,18 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.x", 3));
         auto pair = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(convert_field_to_string(pair.first),
-                  convert_field_to_string(get_field("string")));
+        EXPECT_EQ(pair.first.get<Int16>(), std::numeric_limits<Int16>::max());
 
         auto data2 = path->get_data_at(start);
         EXPECT_EQ(data2, StringRef("v.y", 3));
         auto pair2 = dst->deserialize_from_sparse_column(value, start++);
-        EXPECT_EQ(pair2.first.get<Int64>(), 20);
+        EXPECT_EQ(pair2.first.get<Int32>(), std::numeric_limits<Int32>::max());
+
+        auto data3 = path->get_data_at(start);
+        EXPECT_EQ(data3, StringRef("v.z", 3));
+        auto pair3 = dst->deserialize_from_sparse_column(value, start++);
+        EXPECT_EQ(pair3.first.get<Int64>(),
+                  Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
 
         EXPECT_EQ(start, end);
     }

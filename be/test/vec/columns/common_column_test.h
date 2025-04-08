@@ -26,19 +26,15 @@
 #include <random>
 #include <string>
 
-#include "olap/schema.h"
 #include "testutil/test_util.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_object.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/cow.h"
 #include "vec/core/field.h"
-#include "vec/core/sort_block.h"
-#include "vec/core/sort_description.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
@@ -1382,6 +1378,7 @@ public:
             EXPECT_EQ(target_column->size(), src_size - n);
             checkColumn(*target_column, *source_column, target_column->size());
         }
+        EXPECT_ANY_THROW(source_column->pop_back(src_size + 1)); // pop_back out of range
     }
 
     //virtual MutablePtr
@@ -1703,7 +1700,7 @@ public:
         for (size_t i = 0; i < src_size; ++i) {
             counts[i] = rand() % 10;
             total_size += counts[i];
-            offsets[i] = total_size;
+            offsets[i] = uint32(total_size);
         }
         {
             auto target_column = source_column->clone_empty();
@@ -2213,7 +2210,7 @@ public:
             LOG(INFO) << "now we are in update_hashes column : " << load_cols[i]->get_name()
                       << " for column size : " << source_column->size();
             EXPECT_NO_FATAL_FAILURE(source_column->update_crcs_with_value(
-                    crc_hash_vals.data(), pts[i], source_column->size()));
+                    crc_hash_vals.data(), pts[i], uint32_t(source_column->size())));
             // check after update_hashes: 1 in selector present the load cols data is selected and data should be default value
             auto ser_col = ColumnString::create();
             ser_col->reserve(source_column->size());
@@ -2792,7 +2789,7 @@ auto assert_column_vector_update_crc_hashes_callback = [](const MutableColumns& 
             std::cout << "now we are in update_hashes column : " << load_cols[i]->get_name()
                       << " for column size : " << source_column->size() << std::endl;
             EXPECT_NO_FATAL_FAILURE(source_column->update_crcs_with_value(
-                    crc_hash_vals.data(), pts[i], source_column->size(), 0, null_data));
+                    crc_hash_vals.data(), pts[i], uint32_t(source_column->size()), 0, null_data));
             // check after update_hashes: 1 in selector present the load cols data is selected and data should be default value
             auto ser_col = ColumnString::create();
             ser_col->reserve(source_column->size());

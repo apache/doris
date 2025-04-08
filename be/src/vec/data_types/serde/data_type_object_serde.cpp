@@ -129,7 +129,6 @@ Status DataTypeObjectSerDe::serialize_one_cell_to_json(const IColumn& column, in
 Status DataTypeObjectSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
     vectorized::ParseConfig config;
-    config.enable_flatten_nested = options.variant_flatten_nested;
     auto parser = parsers_pool.get([] { return new JsonParser(); });
     RETURN_IF_CATCH_EXCEPTION(
             parse_json_to_variant(column, slice.data, slice.size, parser.get(), config));

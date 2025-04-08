@@ -179,10 +179,6 @@ public:
          */
         const char* nested_string_wrapper;
         int wrapper_len;
-        /**
-         *  variant flat or not
-         */
-        const bool variant_flatten_nested = false;
 
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {

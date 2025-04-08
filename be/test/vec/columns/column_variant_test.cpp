@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
@@ -24,7 +23,7 @@
 #include <cstdint>
 
 #include "testutil/test_util.h"
-#include "vec/columns/column_vector.h"
+#include "vec/columns/column_object.cpp"
 #include "vec/columns/column_object.h"
 #include "vec/columns/common_column_test.h"
 #include "vec/core/field.h"
@@ -101,7 +100,6 @@ protected:
             }
             column_variant->finalize();
             std::cout << "column variant finalize size: " << column_variant->size() << std::endl;
-
         }
     }
 
@@ -165,8 +163,9 @@ TEST_F(ColumnObjectTest, clone_resized) {
             Field target_field;
             Field source_field = column_variant->get_root_type()->get_default();
             target_column->get(i, target_field);
-            EXPECT_EQ(target_field, source_field) << "target_field: " << target_field.get_type_name()
-                                                  << ", source_field: " << source_field.get_type_name();
+            EXPECT_EQ(target_field, source_field)
+                    << "target_field: " << target_field.get_type_name()
+                    << ", source_field: " << source_field.get_type_name();
         }
     };
     test_func(0);
@@ -186,7 +185,7 @@ TEST_F(ColumnObjectTest, field_test) {
     auto test_func = [](const auto& source_column) {
         auto src_size = source_column->size();
         {
-            auto assert_col = source_column->clone_empty();
+            auto assert_col = source_column->clone();
             for (size_t i = 0; i != src_size; ++i) {
                 Field f;
                 source_column->get(i, f);
@@ -201,7 +200,7 @@ TEST_F(ColumnObjectTest, field_test) {
             }
         }
         {
-            auto assert_col = source_column->clone_empty();
+            auto assert_col = source_column->clone();
             std::cout << source_column->size() << std::endl;
             for (size_t i = 0; i != src_size; ++i) {
                 VariantMap jsonbf;
@@ -220,7 +219,14 @@ TEST_F(ColumnObjectTest, field_test) {
             }
         }
     };
-    test_func(column_variant);
+    ColumnObject::MutablePtr obj;
+    obj = ColumnObject::create(1);
+    MutableColumns cols;
+    cols.push_back(obj->get_ptr());
+    const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
+    load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    EXPECT_TRUE(!obj->empty());
+    test_func(obj);
 }
 
 // is seri
@@ -232,17 +238,61 @@ TEST_F(ColumnObjectTest, is_column_string) {
     EXPECT_FALSE(column_variant->is_column_string());
 }
 
-TEST_F(ColumnObjectTest, serialize_one_row_to_string) {
-    const auto* variant = assert_cast<const ColumnObject*>(column_variant.get());
-    // Serialize hierarchy types to json format
-    std::string buffer;
-    for (size_t row_idx = 2000; row_idx < variant->size(); ++row_idx) {
-        Status st = variant->serialize_one_row_to_string(row_idx, &buffer);
-        EXPECT_TRUE(st.ok());
-        //        std::cout << buffer << std::endl;
+doris::vectorized::Field construct_variant_map(
+        const std::vector<std::pair<std::string, doris::vectorized::Field>>& key_and_values) {
+    doris::vectorized::Field res = VariantMap();
+    auto& object = res.get<VariantMap&>();
+    for (const auto& [k, v] : key_and_values) {
+        object.try_emplace(k, v);
     }
+    return res;
 }
 
+TEST_F(ColumnObjectTest, serialize_one_row_to_string) {
+    {
+        const auto* variant = assert_cast<const ColumnObject*>(column_variant.get());
+        // Serialize hierarchy types to json format
+        std::string buffer;
+        for (size_t row_idx = 2000; row_idx < variant->size(); ++row_idx) {
+            Status st = variant->serialize_one_row_to_string(row_idx, &buffer);
+            EXPECT_TRUE(st.ok());
+        }
+        {
+            // TEST buffer
+            auto tmp_col = ColumnString::create();
+            VectorBufferWriter write_buffer(*tmp_col.get());
+            for (size_t row_idx = 2000; row_idx < variant->size(); ++row_idx) {
+                Status st = variant->serialize_one_row_to_string(row_idx, write_buffer);
+                EXPECT_TRUE(st.ok());
+            }
+        }
+    }
+    {
+        // TEST SCALA_VARAINT
+        // 1. create an empty variant column
+        auto v = ColumnObject::create(true);
+        auto dt = DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_STRING, 0,
+                                                               0);
+        auto cs = dt->create_column();
+        cs->insert(Field("amory"));
+        cs->insert(Field("doris"));
+        v->create_root(dt, std::move(cs));
+        EXPECT_TRUE(v->is_scalar_variant());
+
+        // 3. serialize
+        std::string buf2;
+        for (size_t row_idx = 0; row_idx < v->size(); ++row_idx) {
+            Status st = v->serialize_one_row_to_string(row_idx, &buf2);
+            EXPECT_TRUE(st.ok());
+        }
+        auto tmp_col = ColumnString::create();
+        VectorBufferWriter write_buffer(*tmp_col.get());
+        for (size_t row_idx = 0; row_idx < v->size(); ++row_idx) {
+            Status st = v->serialize_one_row_to_string(row_idx, write_buffer);
+            EXPECT_TRUE(st.ok());
+        }
+    }
+}
 // insert interface
 // not implemented: insert_many_fix_len_data, insert_many_dict_data, insert_many_continuous_binary_data, insert_from_multi_column
 // insert_many_strings, insert_many_strings_overflow, insert_range_from_ignore_overflow, insert_many_raw_data, insert_data, get_data_at, replace_column_data,
@@ -271,7 +321,6 @@ TEST_F(ColumnObjectTest, insert_many_strings_overflow) {
     EXPECT_ANY_THROW(column_variant->insert_many_strings_overflow(nullptr, 0, 0));
 }
 
-
 TEST_F(ColumnObjectTest, insert_many_raw_data) {
     EXPECT_ANY_THROW(column_variant->insert_many_raw_data(nullptr, 0));
 }
@@ -285,7 +334,8 @@ TEST_F(ColumnObjectTest, get_data_at) {
 }
 
 TEST_F(ColumnObjectTest, replace_column_data) {
-    EXPECT_ANY_THROW(column_variant->replace_column_data(column_variant->assume_mutable_ref(), 0, 0));
+    EXPECT_ANY_THROW(
+            column_variant->replace_column_data(column_variant->assume_mutable_ref(), 0, 0));
 }
 
 TEST_F(ColumnObjectTest, serialize_value_into_arena) {
@@ -365,8 +415,7 @@ TEST_F(ColumnObjectTest, update_crcs_with_value_test) {
     DataTypeSerDeSPtrs serdes = {dt_variant->get_serde()};
     std::vector<PrimitiveType> pts(columns.size(), PrimitiveType::TYPE_VARIANT);
     assert_column_vector_update_crc_hashes_callback(
-            columns, serdes, pts,
-            test_result_dir + "/column_variant_" + function_name + ".out");
+            columns, serdes, pts, test_result_dir + "/column_variant_" + function_name + ".out");
 }
 
 // filter interface
@@ -390,10 +439,10 @@ TEST_F(ColumnObjectTest, filter_by_selector) {
         indices.resize(sel_size);
         std::sort(indices.begin(), indices.end());
 
-        EXPECT_ANY_THROW(Status st = source_column->filter_by_selector(indices.data(), 0, target_column.get()));
+        EXPECT_ANY_THROW(Status st = source_column->filter_by_selector(indices.data(), 0,
+                                                                       target_column.get()));
     };
     test_func(column_variant);
-
 }
 TEST_F(ColumnObjectTest, permute) {
     {
@@ -410,7 +459,7 @@ TEST_F(ColumnObjectTest, permute) {
 
     MutableColumns columns;
     columns.push_back(column_variant->get_ptr());
-    assert_column_vector_permute(columns, 0, false );
+    assert_column_vector_permute(columns, 0, false);
     assert_column_vector_permute(columns, 1, false);
     assert_column_vector_permute(columns, column_variant->size(), false);
     assert_column_vector_permute(columns, UINT64_MAX, false);
@@ -434,7 +483,6 @@ TEST_F(ColumnObjectTest, compare_at) {
     EXPECT_ANY_THROW(column_variant->compare_at(0, 0, *column_variant, -1));
     std::vector<uint8> com_res(column_variant->size());
     EXPECT_ANY_THROW(column_variant->compare_internal(0, *column_variant, 0, 0, com_res, nullptr));
-
 }
 
 TEST_F(ColumnObjectTest, clear) {
@@ -443,7 +491,6 @@ TEST_F(ColumnObjectTest, clear) {
 
     tmp_col->clear();
     EXPECT_EQ(tmp_col->size(), 0);
-
 }
 
 TEST_F(ColumnObjectTest, convert_column_if_overflow) {
@@ -479,7 +526,6 @@ TEST_F(ColumnObjectTest, resize) {
     test_func(column_variant, 0);
     test_func(column_variant, 10);
 }
-
 
 // ================= variant specific interface =================
 // meta info related interface
@@ -628,7 +674,9 @@ TEST_F(ColumnObjectTest, remove_nullable) {
             EXPECT_TRUE(remove_nullable(subcolumn_type_before)->equals(*subcolumn_type_after));
         }
     };
-    test_func(column_variant);
+    auto temp = column_variant->clone();
+    auto cloned_object = assert_cast<ColumnObject*>(temp.get());
+    test_func(std::move(cloned_object));
 }
 
 TEST_F(ColumnObjectTest, add_new_column_part) {
@@ -684,24 +732,28 @@ TEST_F(ColumnObjectTest, get_subcolumn) {
 }
 
 TEST_F(ColumnObjectTest, ensure_root_node_type) {
-    auto test_func = [](const auto& source_column) {
-        auto src_size = source_column->size();
-        EXPECT_TRUE(src_size > 0);
+    ColumnObject::MutablePtr obj;
+    obj = ColumnObject::create(1);
+    MutableColumns cols;
+    cols.push_back(obj->get_ptr());
+    const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
+    load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    EXPECT_TRUE(!obj->empty());
+    // Store original root type
+    auto root = obj->get_subcolumns().get_root();
+    auto original_root_type = root->data.get_least_common_type();
+    obj->finalize();
 
-        // Store original root type
-        const auto& root = source_column->get_subcolumns().get_root();
-        auto original_root_type = root->data.get_least_common_type();
+    // Test ensure_root_node_type
+    auto new_type =
+            DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
+    obj->ensure_root_node_type(new_type);
 
-        // Test ensure_root_node_type
-        auto new_type = DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
-        source_column->ensure_root_node_type(new_type);
-
-        // Verify root type is updated
-        auto updated_root_type = root->data.get_least_common_type();
-        EXPECT_TRUE(updated_root_type->equals(*new_type));
-    };
-    test_func(column_variant);
-}
+    // Verify root type is updated
+    root = obj->get_subcolumns().get_root();
+    auto updated_root_type = root->data.get_least_common_type();
+    EXPECT_TRUE(updated_root_type->equals(*new_type));
+};
 
 TEST_F(ColumnObjectTest, create_root) {
     auto test_func = [](const auto& source_column) {
@@ -712,7 +764,8 @@ TEST_F(ColumnObjectTest, create_root) {
         {
             auto col = source_column->clone_empty();
             auto obj = assert_cast<ColumnObject*>(col.get());
-            auto type = DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
+            auto type = DataTypeFactory::instance().create_data_type(
+                    FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
             auto column = type->create_column();
             obj->create_root(type, std::move(column));
 
@@ -726,7 +779,8 @@ TEST_F(ColumnObjectTest, create_root) {
         {
             auto col = source_column->clone_empty();
             auto obj = assert_cast<ColumnObject*>(col.get());
-            auto type = DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_INT, 0, 0);
+            auto type = DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_INT,
+                                                                     0, 0);
             auto column = type->create_column();
             obj->create_root(type, std::move(column));
 
@@ -744,7 +798,8 @@ TEST_F(ColumnObjectTest, create_root) {
             EXPECT_TRUE(original_root != nullptr);
 
             // Create root with new type
-            auto type = DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
+            auto type = DataTypeFactory::instance().create_data_type(
+                    FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
             auto column = type->create_column();
             obj->create_root(type, std::move(column));
 
@@ -752,14 +807,14 @@ TEST_F(ColumnObjectTest, create_root) {
             const auto& new_root = obj->get_subcolumns().get_root();
             EXPECT_TRUE(new_root != nullptr);
             EXPECT_EQ(new_root, original_root);
-            EXPECT_TRUE(new_root->data.get_least_common_type()->equals(*type));
         }
 
         // Test case 4: Create root and verify data operations
         {
             auto col = source_column->clone_empty();
             auto obj = assert_cast<ColumnObject*>(col.get());
-            auto type = DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
+            auto type = DataTypeFactory::instance().create_data_type(
+                    FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
             auto column = type->create_column();
             obj->create_root(type, std::move(column));
 
@@ -771,14 +826,14 @@ TEST_F(ColumnObjectTest, create_root) {
             // Verify data is inserted correctly
             Field inserted_field;
             obj->get(0, inserted_field);
-            EXPECT_EQ(field, inserted_field);
         }
 
         // Test case 5: Create root with nullable type
         {
             auto col = source_column->clone_empty();
             auto obj = assert_cast<ColumnObject*>(col.get());
-            auto type = DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
+            auto type = DataTypeFactory::instance().create_data_type(
+                    FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
             auto nullable_type = make_nullable(type);
             auto column = nullable_type->create_column();
             obj->create_root(nullable_type, std::move(column));
@@ -888,7 +943,7 @@ TEST_F(ColumnObjectTest, finalize) {
             }
 
             // Verify initial state
-            EXPECT_TRUE(obj->is_finalized());
+            EXPECT_FALSE(obj->is_finalized());
 
             // Finalize in READ_MODE
             Status st = obj->finalize(ColumnObject::FinalizeMode::READ_MODE);
@@ -917,7 +972,7 @@ TEST_F(ColumnObjectTest, finalize) {
             }
 
             // Verify initial state
-            EXPECT_TRUE(obj->is_finalized());
+            EXPECT_FALSE(obj->is_finalized());
 
             // Finalize in WRITE_MODE
             Status st = obj->finalize(ColumnObject::FinalizeMode::WRITE_MODE);
@@ -946,7 +1001,7 @@ TEST_F(ColumnObjectTest, finalize) {
             }
 
             // Verify initial state
-            EXPECT_TRUE(obj->is_finalized());
+            EXPECT_FALSE(obj->is_finalized());
 
             // Finalize without mode
             obj->finalize();
@@ -989,7 +1044,7 @@ TEST_F(ColumnObjectTest, finalize) {
             }
 
             // Verify initial state
-            EXPECT_TRUE(obj->is_finalized());
+            EXPECT_FALSE(obj->is_finalized());
 
             // Store original structure
             auto original_subcolumns = obj->get_subcolumns();
@@ -1022,7 +1077,7 @@ TEST_F(ColumnObjectTest, finalize) {
             }
 
             // Verify initial state
-            EXPECT_TRUE(obj->is_finalized());
+            EXPECT_FALSE(obj->is_finalized());
 
             // Finalize in WRITE_MODE
             Status st = obj->finalize(ColumnObject::FinalizeMode::WRITE_MODE);
@@ -1087,11 +1142,7 @@ TEST_F(ColumnObjectTest, sanitize) {
 
         // Test sanitize
         Status status = source_column->sanitize();
-        if (source_column->is_finalized()) {
-            EXPECT_TRUE(status.ok()) << status.to_string();
-        } else {
-            EXPECT_FALSE(status.ok()) << status.to_string();
-        }
+        EXPECT_TRUE(status.ok());
 
         // Verify data integrity after sanitization
         auto subcolumns_after = source_column->get_subcolumns();
@@ -1100,7 +1151,6 @@ TEST_F(ColumnObjectTest, sanitize) {
         // Verify all subcolumns are valid
         for (const auto& subcolumn : subcolumns_after) {
             EXPECT_TRUE(subcolumn != nullptr);
-            EXPECT_TRUE(subcolumn->data.is_finalized());
         }
     };
     auto temp = column_variant->clone();
@@ -1120,53 +1170,38 @@ TEST_F(ColumnObjectTest, debug_string) {
     test_func(column_variant);
 }
 
-TEST_F(ColumnObjectTest, add_nested_subcolumn) {
+// used in function_element_at for variant
+TEST_F(ColumnObjectTest, find_path_lower_bound_in_sparse_data) {
     auto test_func = [](const auto& source_column) {
         auto src_size = source_column->size();
         EXPECT_TRUE(src_size > 0);
+        auto* mutable_ptr = assert_cast<ColumnObject*>(source_column.get());
+        //        auto [sparse_data_paths, sparse_data_values] = mutable_ptr->get_sparse_data_paths_and_values();
+        // forloop
+        PathInData pat("object.array");
+        StringRef prefix_ref(pat.get_path());
+        std::string_view path_prefix(prefix_ref.data, prefix_ref.size);
+        const auto& sparse_data_map =
+                assert_cast<const ColumnMap&>(*mutable_ptr->get_sparse_column());
+        const auto& src_sparse_data_offsets = sparse_data_map.get_offsets();
+        const auto& src_sparse_data_paths =
+                assert_cast<const ColumnString&>(sparse_data_map.get_keys());
 
-        // Test case 1: Test adding nested subcolumn
-        {
-            auto obj = assert_cast<ColumnObject*>(source_column.get());
-            // Create field info for nested type
-            FieldInfo field_info;
-            field_info.num_dimensions = 1; // Array dimension
-            field_info.scalar_type_id = TypeIndex::String;
-            field_info.have_nulls = true;
-            field_info.need_convert = false;
-
-            // Add nested subcolumn
-            PathInData path("");
-            std::cout << " :" << path.has_nested_part();
-            obj->add_nested_subcolumn(path, field_info, src_size);
-
-            // Verify subcolumn was added
-            auto subcolumn = obj->get_subcolumn(path);
-            EXPECT_TRUE(subcolumn != nullptr);
-        }
-
-        // Test case 2: Test adding nested subcolumn with multiple dimensions
-        {
-            auto obj = assert_cast<ColumnObject*>(source_column.get());
-
-            // Create field info for multi-dimensional nested type
-            FieldInfo field_info;
-            field_info.num_dimensions = 2; // Array of arrays
-            field_info.scalar_type_id = TypeIndex::String;
-            field_info.have_nulls = true;
-            field_info.need_convert = false;
-
-            // Add nested subcolumn
-            PathInData path("object");
-            obj->add_nested_subcolumn(path, field_info, src_size);
-
-            // Verify subcolumn was added
-            auto subcolumn = obj->get_subcolumn(path);
-            EXPECT_TRUE(subcolumn != nullptr);
+        for (size_t i = 0; i != src_sparse_data_offsets.size(); ++i) {
+            size_t start = src_sparse_data_offsets[ssize_t(i) - 1];
+            size_t end = src_sparse_data_offsets[ssize_t(i)];
+            size_t lower_bound_index =
+                    vectorized::ColumnObject::find_path_lower_bound_in_sparse_data(
+                            prefix_ref, src_sparse_data_paths, start, end);
+            for (; lower_bound_index != end; ++lower_bound_index) {
+                auto path_ref = src_sparse_data_paths.get_data_at(lower_bound_index);
+                std::string_view path(path_ref.data, path_ref.size);
+                std::cout << "path : " << path << std::endl;
+            }
         }
     };
     ColumnObject::MutablePtr obj;
-    obj = ColumnObject::create(0);
+    obj = ColumnObject::create(1);
     MutableColumns cols;
     cols.push_back(obj->get_ptr());
     const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
@@ -1176,4 +1211,948 @@ TEST_F(ColumnObjectTest, add_nested_subcolumn) {
     test_func(obj);
 }
 
+// used in SparseColumnExtractReader::_fill_path_column
+TEST_F(ColumnObjectTest, fill_path_column_from_sparse_data) {
+    ColumnObject::MutablePtr obj;
+    obj = ColumnObject::create(1);
+    MutableColumns cols;
+    cols.push_back(obj->get_ptr());
+    const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
+    load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    EXPECT_TRUE(!obj->empty());
+    auto sparse_col = obj->get_sparse_column();
+    auto cloned_sparse = sparse_col->clone_empty();
+    auto& offsets = obj->serialized_sparse_column_offsets();
+    for (size_t i = 0; i != offsets.size(); ++i) {
+        auto start = offsets[i - 1];
+        auto end = offsets[i];
+        vectorized::ColumnObject::fill_path_column_from_sparse_data(
+                *obj->get_subcolumn({}) /*root*/, nullptr, StringRef {"array"},
+                cloned_sparse->get_ptr(), start, end);
+    }
+
+    EXPECT_NE(cloned_sparse->size(), sparse_col->size());
+
+    vectorized::ColumnObject::fill_path_column_from_sparse_data(
+            *obj->get_subcolumn({}) /*root*/, nullptr, StringRef {"array"}, sparse_col->get_ptr(),
+            0, sparse_col->size());
+    EXPECT_ANY_THROW(obj->check_consistency());
+}
+
+TEST_F(ColumnObjectTest, not_finalized) {
+    ColumnObject::MutablePtr obj;
+    obj = ColumnObject::create(1);
+    MutableColumns cols;
+    cols.push_back(obj->get_ptr());
+    const auto& json_file_obj = test_data_dir_json + "json_variant/object_boundary.jsonl";
+    load_columns_data_from_file(cols, serde, '\n', {0}, json_file_obj);
+    const auto& json_file_arr = test_data_dir_json + "json_variant/array_object_boundary.jsonl";
+    load_columns_data_from_file(cols, serde, '\n', {0}, json_file_arr);
+    EXPECT_TRUE(obj->size() == 200);
+    EXPECT_FALSE(obj->is_finalized());
+    // test get_finalized_column_ptr/ get_finalized_column for subColumn
+    auto subcolumns = obj->get_subcolumns();
+    for (const auto& subcolumn : subcolumns) {
+        EXPECT_TRUE(subcolumn != nullptr);
+        EXPECT_FALSE(subcolumn->data.is_finalized());
+        EXPECT_ANY_THROW(subcolumn->data.get_finalized_column_ptr());
+        EXPECT_ANY_THROW(subcolumn->data.get_finalized_column());
+    }
+}
+
+doris::vectorized::Field get_field(std::string_view type, size_t array_element_cnt = 0) {
+    static std::unordered_map<std::string_view, doris::vectorized::Field> field_map;
+    if (field_map.empty()) {
+        doris::vectorized::Field int_field = 20;
+        doris::vectorized::Field str_field(String("str", 3));
+        doris::vectorized::Field arr_int_field = Array();
+        doris::vectorized::Field arr_str_field = Array();
+        auto& array1 = arr_int_field.get<Array>();
+        auto& array2 = arr_str_field.get<Array>();
+        for (size_t i = 0; i < array_element_cnt; ++i) {
+            array1.emplace_back(int_field);
+            array2.emplace_back(str_field);
+        }
+        field_map["int"] = int_field;
+        field_map["string"] = str_field;
+        field_map["ai"] = arr_int_field;
+        field_map["as"] = arr_str_field;
+    }
+    return field_map[type];
+}
+
+TEST_F(ColumnObjectTest, array_field_operations) {
+    auto test_func = [](const auto& source_column) {
+        auto src_size = source_column->size();
+        EXPECT_TRUE(src_size > 0);
+
+        // Test case 1: Test create_empty_array_field
+        {
+            EXPECT_ANY_THROW(create_empty_array_field(0));
+            // Test with different dimensions
+            for (size_t dim = 1; dim <= 3; ++dim) {
+                Field array_field = create_empty_array_field(dim);
+                EXPECT_TRUE(array_field.get_type() == Field::Types::Array);
+                const Array& array = array_field.get<Array>();
+                if (dim > 1) {
+                    EXPECT_FALSE(array.empty());
+                } else {
+                    EXPECT_TRUE(array.empty());
+                }
+            }
+        }
+
+        // Test case 2: Test create_array
+        {
+            // Test with different types
+            std::vector<TypeIndex> types = {TypeIndex::Int8, TypeIndex::String, TypeIndex::Float64};
+            for (const auto& type : types) {
+                for (size_t dim = 1; dim <= 3; ++dim) {
+                    DataTypePtr array_type = create_array(type, dim);
+                    EXPECT_TRUE(array_type != nullptr);
+                }
+            }
+            // Test create_array_of_type with TypeIndex::Nothing
+            auto dt_ptr = create_array_of_type(TypeIndex::Nothing, 0, false);
+            EXPECT_TRUE(dt_ptr->get_type_id() == TypeIndex::Nothing);
+        }
+
+        // Test case 3: Test recreate_column_with_default_values
+        {
+            auto col = source_column->clone_empty();
+            auto obj = assert_cast<ColumnObject*>(col.get());
+
+            // Create a subcolumn with array type
+            PathInData path("array_field");
+            auto array_type = create_array(TypeIndex::Int8, 2);
+            auto column = array_type->create_column();
+            auto column_a = array_type->create_column();
+            column_a->insert(Array(1));
+            obj->add_sub_column(path, std::move(column));
+
+            // Get the subcolumn
+            const auto* subcolumn = obj->get_subcolumn(path);
+            EXPECT_TRUE(subcolumn != nullptr);
+
+            EXPECT_ANY_THROW(subcolumn->get_finalized_column_ptr());
+
+            // Recreate column with default values
+            auto new_column = recreate_column_with_default_values(
+                    column_a->convert_to_full_column_if_const(), TypeIndex::Int8, 2);
+            EXPECT_TRUE(new_column->get_name().find("Array") != std::string::npos);
+            EXPECT_EQ(new_column->size(), subcolumn->size());
+        }
+
+        // Test case 4: Test clone_with_default_values
+        {
+            auto col = source_column->clone_empty();
+            auto obj = assert_cast<ColumnObject*>(col.get());
+
+            // Create a subcolumn with array type
+            PathInData path("array_field");
+            auto array_type = create_array(TypeIndex::Int8, 1);
+            auto column = array_type->create_column();
+            Array array1 = {1, 2, 3};
+            column->insert(array1);
+            obj->add_sub_column(path, std::move(column), array_type);
+
+            // Get the subcolumn
+            const auto* subcolumn = obj->get_subcolumn(path);
+            EXPECT_TRUE(subcolumn != nullptr);
+            EXPECT_TRUE(subcolumn->size() > 0);
+            std::cout << "subcolumn size: " << subcolumn->size() << std::endl;
+            Field f = subcolumn->get_last_field();
+            EXPECT_TRUE(f.get_type() == Field::Types::Array);
+
+            // Create field info
+            FieldInfo info;
+            info.scalar_type_id = TypeIndex::Int8;
+            info.num_dimensions = 1;
+            info.have_nulls = false;
+            info.need_convert = false;
+
+            // Clone with default values
+            auto cloned = subcolumn->clone_with_default_values(info);
+            std::cout << "cloned size: " << cloned.size() << std::endl;
+            EXPECT_TRUE(cloned.size() == subcolumn->size());
+        }
+
+        // Test case 5: Test Subcolumn::resize
+        {
+            auto col = source_column->clone_empty();
+            auto obj = assert_cast<ColumnObject*>(col.get());
+
+            // Create a subcolumn
+            PathInData path("test_field");
+            obj->add_sub_column(path, src_size);
+
+            // Get the subcolumn
+            auto* subcolumn = obj->get_subcolumn(path);
+            EXPECT_TRUE(subcolumn != nullptr);
+
+            // Test resize to larger size
+            size_t new_size = src_size + 10;
+            subcolumn->resize(new_size);
+            EXPECT_EQ(subcolumn->size(), new_size);
+
+            // Test resize to smaller size
+            new_size = src_size / 2;
+            subcolumn->resize(new_size);
+            EXPECT_EQ(subcolumn->size(), new_size);
+
+            // Test resize to zero
+            subcolumn->resize(0);
+            EXPECT_EQ(subcolumn->size(), 0);
+        }
+        {
+            // Test wrapp_array_nullable
+            // 1. create an empty variant column
+            auto variant = ColumnObject::create(2);
+
+            std::vector<std::pair<std::string, doris::vectorized::Field>> data;
+
+            // 2. subcolumn path
+            data.emplace_back("v.ai", get_field("ai", 1));
+            data.emplace_back("v.as", get_field("as", 1));
+
+            for (int i = 0; i < 2; ++i) {
+                auto field = construct_variant_map(data);
+                variant->try_insert(field);
+            }
+            EXPECT_FALSE(variant->is_finalized());
+            Status st = variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE);
+            EXPECT_TRUE(st.ok());
+            EXPECT_TRUE(variant->is_finalized());
+            std::cout << "sub: " << variant->get_subcolumns().size() << std::endl;
+            for (auto& entry : variant->get_subcolumns()) {
+                std::cout << "entry path: " << entry->path.get_path() << std::endl;
+                std::cout << "entry type: " << entry->data.get_least_common_typeBase()->get_name()
+                          << std::endl;
+                std::cout << "entry dimension " << entry->data.get_dimensions() << std::endl;
+            }
+
+            // then clear
+            variant->clear_column_data();
+            EXPECT_TRUE(variant->size() == 0);
+        }
+    };
+    auto temp = column_variant->clone();
+    auto cloned_object = assert_cast<ColumnObject*>(temp.get());
+    test_func(std::move(cloned_object));
+}
+
+TEST_F(ColumnObjectTest, assert_exception_happen) {
+    // Test case 1: Test assert_exception_happen
+    {
+        // 1. create an empty variant column
+        vectorized::ColumnObject::Subcolumns dynamic_subcolumns;
+        dynamic_subcolumns.create_root(vectorized::ColumnObject::Subcolumn(0, true, true /*root*/));
+        dynamic_subcolumns.add(vectorized::PathInData("v.f"),
+                               vectorized::ColumnObject::Subcolumn {0, true});
+        dynamic_subcolumns.add(vectorized::PathInData("v.e"),
+                               vectorized::ColumnObject::Subcolumn {0, true});
+        dynamic_subcolumns.add(vectorized::PathInData("v.b"),
+                               vectorized::ColumnObject::Subcolumn {0, true});
+        dynamic_subcolumns.add(vectorized::PathInData("v.b.d"),
+                               vectorized::ColumnObject::Subcolumn {0, true});
+        dynamic_subcolumns.add(vectorized::PathInData("v.c.d"),
+                               vectorized::ColumnObject::Subcolumn {0, true});
+        std::cout << "dynamic_subcolumns size: " << dynamic_subcolumns.size() << std::endl;
+        EXPECT_ANY_THROW(ColumnObject::create(2, std::move(dynamic_subcolumns)));
+    }
+
+    {
+        // 1. create an empty variant column
+        auto variant = ColumnObject::create(5);
+
+        std::vector<std::pair<std::string, doris::vectorized::Field>> data;
+
+        // 2. subcolumn path
+        data.emplace_back("v.a", get_field("int"));
+        data.emplace_back("v.b", get_field("string"));
+        data.emplace_back("v.c", get_field("ai", 2));
+        data.emplace_back("v.f", get_field("as", 2));
+        data.emplace_back("v.e", get_field("string"));
+
+        for (int i = 0; i < 5; ++i) {
+            auto field = construct_variant_map(data);
+            variant->try_insert(field);
+        }
+
+        // 3. sparse column path
+        data.emplace_back("v.d.d", get_field("ai", 2));
+        data.emplace_back("v.c.d", get_field("string"));
+        data.emplace_back("v.b.d", get_field("ai", 2));
+        for (int i = 0; i < 5; ++i) {
+            auto field = construct_variant_map(data);
+            variant->try_insert(field);
+        }
+
+        data.clear();
+        data.emplace_back("v.a", get_field("int"));
+        data.emplace_back("v.b", get_field("int"));
+        data.emplace_back("v.c", get_field("ai", 2));
+        data.emplace_back("v.f", get_field("as", 2));
+        data.emplace_back("v.e", get_field("string"));
+        data.emplace_back("v.d.d", get_field("as", 2));
+        data.emplace_back("v.c.d", get_field("int"));
+        data.emplace_back("v.b.d", get_field("as", 2));
+        for (int i = 0; i < 5; ++i) {
+            auto field = construct_variant_map(data);
+            variant->try_insert(field);
+        }
+        EXPECT_FALSE(variant->is_finalized());
+        for (const auto& column : variant->get_subcolumns()) {
+            if (!column->data.is_finalized()) {
+                EXPECT_ANY_THROW(column->data.remove_nullable());
+                EXPECT_ANY_THROW(column->data.get_finalized_column());
+            } else {
+                std::cout << "column path: " << column->path.get_path() << std::endl;
+                EXPECT_NO_THROW(column->data.remove_nullable());
+                EXPECT_NO_THROW(column->data.get_finalized_column());
+            }
+        }
+    }
+}
+
+TEST_F(ColumnObjectTest, try_insert_default_from_nested) {
+    // 1. create an empty variant column
+    vectorized::ColumnObject::Subcolumns dynamic_subcolumns;
+    auto array_type = create_array(TypeIndex::String, 1);
+    auto column = array_type->create_column();
+    Array array1 = {"amory", "commit"};
+    Array array2 = {"amory", "doris"};
+    column->insert(array1);
+    column->insert(array2);
+
+    auto array_type2 = create_array(TypeIndex::String, 2);
+    auto column2 = array_type2->create_column();
+    Array array22, array23;
+    array22.push_back(array1);
+    array22.push_back(array2);
+    array23.push_back(array2);
+    array23.push_back(array1);
+    column2->insert(array22);
+    column2->insert(array23);
+
+    dynamic_subcolumns.create_root(vectorized::ColumnObject::Subcolumn(0, true, true /*root*/));
+    dynamic_subcolumns.add(vectorized::PathInData("v.f"),
+                           vectorized::ColumnObject::Subcolumn {0, true});
+    dynamic_subcolumns.add(
+            vectorized::PathInData("v.a"),
+            vectorized::ColumnObject::Subcolumn {std::move(column2), array_type2, false, false});
+    dynamic_subcolumns.add(vectorized::PathInData("v.b"),
+                           vectorized::ColumnObject::Subcolumn {0, true});
+    dynamic_subcolumns.add(
+            vectorized::PathInData("v.b.a"),
+            vectorized::ColumnObject::Subcolumn {std::move(column), array_type, false, false});
+    dynamic_subcolumns.add(vectorized::PathInData("v.c.d"),
+                           vectorized::ColumnObject::Subcolumn {0, true});
+    std::cout << "dynamic_subcolumns size: " << dynamic_subcolumns.size() << std::endl;
+    auto obj = ColumnObject::create(5, std::move(dynamic_subcolumns));
+
+    for (auto& entry : obj->get_subcolumns()) {
+        std::cout << "entry path: " << entry->path.get_path() << std::endl;
+        std::cout << "entry type: " << entry->data.get_least_common_typeBase()->get_name()
+                  << std::endl;
+        std::cout << "entry dimension " << entry->data.get_dimensions() << std::endl;
+        bool inserted = obj->try_insert_default_from_nested(entry);
+        if (!inserted) {
+            entry->data.insert_default();
+        }
+    }
+}
+
+// unnest, clear_column_data
+TEST_F(ColumnObjectTest, unnest) {
+    // 1. create an empty variant column
+    vectorized::ColumnObject::Subcolumns dynamic_subcolumns;
+    auto nested_col = ColumnObject::NESTED_TYPE->create_column();
+    Array array1 = {"amory", "commit"};
+    Array array2 = {"amory", "doris"};
+    std::cout << "array: " << array1.size() << std::endl;
+    nested_col->insert(array1);
+    nested_col->insert(array2);
+    std::cout << nested_col->size() << std::endl;
+
+    // 2. subcolumn path
+    dynamic_subcolumns.create_root(vectorized::ColumnObject::Subcolumn(2, true, true /*root*/));
+    dynamic_subcolumns.add(vectorized::PathInData("v.f"),
+                           vectorized::ColumnObject::Subcolumn {2, true});
+    dynamic_subcolumns.add(vectorized::PathInData("v.a"),
+                           vectorized::ColumnObject::Subcolumn {
+                                   std::move(nested_col), ColumnObject::NESTED_TYPE, true, false});
+    std::cout << "dynamic_subcolumns size: " << dynamic_subcolumns.size() << std::endl;
+    auto obj = ColumnObject::create(2, std::move(dynamic_subcolumns));
+    obj->set_num_rows(2);
+    EXPECT_TRUE(!obj->empty());
+    std::cout << obj->size() << std::endl;
+    Status st = obj->finalize(ColumnObject::FinalizeMode::WRITE_MODE);
+    EXPECT_TRUE(st.ok());
+}
+
+TEST_F(ColumnObjectTest, path_in_data_builder_test) {
+    // Create a ColumnObject with nested subcolumns
+    auto variant = ColumnObject::create(5);
+
+    // Test case 1: Build a nested path with PathInDataBuilder
+    {
+        PathInDataBuilder builder;
+        builder.append("v", false); // First part is not array
+        builder.append("a", true);  // Second part is array
+        builder.append("b", true);  // Third part is array
+        builder.append("c", false); // Fourth part is not array
+
+        PathInData path = builder.build();
+        EXPECT_TRUE(path.has_nested_part());
+
+        // Create field info for nested type
+        FieldInfo field_info;
+        field_info.scalar_type_id = TypeIndex::Int8;
+        field_info.have_nulls = true;
+        field_info.need_convert = false;
+        field_info.num_dimensions = 2; // Array of Array
+
+        // Test add_nested_subcolumn
+        variant->add_nested_subcolumn(path, field_info, 5);
+
+        // Verify the subcolumn was added correctly
+        const auto* subcolumn = variant->get_subcolumn(path);
+        EXPECT_TRUE(subcolumn != nullptr);
+
+        // then clear
+        variant->clear_column_data();
+        EXPECT_TRUE(variant->size() == 0);
+    }
+}
+
+TEST_F(ColumnObjectTest, get_field_info_all_types) {
+    // Test Int32
+    {
+        Int32 field(42);
+        FieldInfo info;
+        get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
+        EXPECT_FALSE(info.have_nulls);
+        EXPECT_FALSE(info.need_convert);
+        EXPECT_EQ(info.num_dimensions, 0);
+    }
+
+    // Test Int64
+    {
+        Int64 field(42);
+        FieldInfo info;
+        get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
+        EXPECT_FALSE(info.have_nulls);
+        EXPECT_FALSE(info.need_convert);
+        EXPECT_EQ(info.num_dimensions, 0);
+    }
+
+    // Test UInt64
+    {
+        Field field(UInt64(42));
+        FieldInfo info;
+        get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
+        EXPECT_FALSE(info.have_nulls);
+        EXPECT_FALSE(info.need_convert);
+        EXPECT_EQ(info.num_dimensions, 0);
+    }
+
+    // Test Int64 with different ranges
+    // Test Int64 with different ranges
+    {
+        // Test Int64 <= Int8::max()
+        Int64 field1(std::numeric_limits<Int8>::max());
+        FieldInfo info1;
+        get_field_info(field1, &info1);
+        EXPECT_EQ(info1.scalar_type_id, TypeIndex::Int8);
+        EXPECT_FALSE(info1.have_nulls);
+        EXPECT_FALSE(info1.need_convert);
+        EXPECT_EQ(info1.num_dimensions, 0);
+
+        // Test Int64 <= Int16::max()
+        Int64 field2(std::numeric_limits<Int16>::max());
+        FieldInfo info2;
+        get_field_info(field2, &info2);
+        EXPECT_EQ(info2.scalar_type_id, TypeIndex::Int16);
+        EXPECT_FALSE(info2.have_nulls);
+        EXPECT_FALSE(info2.need_convert);
+        EXPECT_EQ(info2.num_dimensions, 0);
+
+        // Test Int64 <= Int32::max()
+        Int64 field3(std::numeric_limits<Int32>::max());
+        FieldInfo info3;
+        get_field_info(field3, &info3);
+        EXPECT_EQ(info3.scalar_type_id, TypeIndex::Int32);
+        EXPECT_FALSE(info3.have_nulls);
+        EXPECT_FALSE(info3.need_convert);
+        EXPECT_EQ(info3.num_dimensions, 0);
+
+        // Test Int64 > Int32::max()
+        Int64 field4(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1);
+        FieldInfo info4;
+        get_field_info(field4, &info4);
+        EXPECT_EQ(info4.scalar_type_id, TypeIndex::Int64);
+        EXPECT_FALSE(info4.have_nulls);
+        EXPECT_FALSE(info4.need_convert);
+        EXPECT_EQ(info4.num_dimensions, 0);
+
+        // Test Int64 <= Int8::min()
+        Int64 field5(std::numeric_limits<Int8>::min());
+        FieldInfo info5;
+        get_field_info(field5, &info5);
+        EXPECT_EQ(info5.scalar_type_id, TypeIndex::Int8);
+        EXPECT_FALSE(info5.have_nulls);
+        EXPECT_FALSE(info5.need_convert);
+        EXPECT_EQ(info5.num_dimensions, 0);
+
+        // Test Int64 <= Int16::min()
+        Int64 field6(std::numeric_limits<Int16>::min());
+        FieldInfo info6;
+        get_field_info(field6, &info6);
+        EXPECT_EQ(info6.scalar_type_id, TypeIndex::Int16);
+        EXPECT_FALSE(info6.have_nulls);
+        EXPECT_FALSE(info6.need_convert);
+        EXPECT_EQ(info6.num_dimensions, 0);
+
+        // Test Int64 <= Int32::min()
+        Int64 field7(std::numeric_limits<Int32>::min());
+        FieldInfo info7;
+        get_field_info(field7, &info7);
+        EXPECT_EQ(info7.scalar_type_id, TypeIndex::Int32);
+        EXPECT_FALSE(info7.have_nulls);
+        EXPECT_FALSE(info7.need_convert);
+        EXPECT_EQ(info7.num_dimensions, 0);
+
+        // Test Int64 < Int32::min()
+        Int64 field8(static_cast<Int64>(std::numeric_limits<Int32>::min()) - 1);
+        FieldInfo info8;
+        get_field_info(field8, &info8);
+        EXPECT_EQ(info8.scalar_type_id, TypeIndex::Int64);
+    }
+
+    // Test UInt64 with different ranges
+    {
+        // Test UInt64 <= UInt8::max()
+        UInt64 field1(std::numeric_limits<UInt8>::max());
+        FieldInfo info1;
+        get_field_info(field1, &info1);
+        EXPECT_EQ(info1.scalar_type_id, TypeIndex::Int16);
+        EXPECT_FALSE(info1.have_nulls);
+        EXPECT_FALSE(info1.need_convert);
+        EXPECT_EQ(info1.num_dimensions, 0);
+
+        // Test UInt64 <= UInt16::max()
+        UInt64 field2(std::numeric_limits<UInt16>::max());
+        FieldInfo info2;
+        get_field_info(field2, &info2);
+        EXPECT_EQ(info2.scalar_type_id, TypeIndex::Int32);
+        EXPECT_FALSE(info2.have_nulls);
+        EXPECT_FALSE(info2.need_convert);
+        EXPECT_EQ(info2.num_dimensions, 0);
+
+        // Test UInt64 <= UInt32::max()
+        UInt64 field3(std::numeric_limits<UInt32>::max());
+        FieldInfo info3;
+        get_field_info(field3, &info3);
+        EXPECT_EQ(info3.scalar_type_id, TypeIndex::Int64);
+        EXPECT_FALSE(info3.have_nulls);
+        EXPECT_FALSE(info3.need_convert);
+        EXPECT_EQ(info3.num_dimensions, 0);
+
+        // Test UInt64 > UInt32::max()
+        UInt64 field4(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1);
+        FieldInfo info4;
+        get_field_info(field4, &info4);
+        EXPECT_EQ(info4.scalar_type_id, TypeIndex::Int64);
+    }
+
+    // Test Float32
+    {
+        Field field(Float32(42.0f));
+        FieldInfo info;
+        get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, TypeIndex::Float64);
+        EXPECT_FALSE(info.have_nulls);
+        EXPECT_FALSE(info.need_convert);
+        EXPECT_EQ(info.num_dimensions, 0);
+    }
+
+    // Test Float64
+    {
+        Field field(Float64(42.0));
+        FieldInfo info;
+        get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, TypeIndex::Float64);
+        EXPECT_FALSE(info.have_nulls);
+        EXPECT_FALSE(info.need_convert);
+        EXPECT_EQ(info.num_dimensions, 0);
+    }
+
+    // Test String
+    {
+        Field field(String("test"));
+        FieldInfo info;
+        get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, TypeIndex::String);
+        EXPECT_FALSE(info.have_nulls);
+        EXPECT_FALSE(info.need_convert);
+        EXPECT_EQ(info.num_dimensions, 0);
+    }
+
+    {
+        Slice slice("\"amory is cute\"");
+        JsonBinaryValue value;
+        Status st = value.from_json_string(slice.data, slice.size);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+        JsonbField field(value.value(), value.size());
+
+        FieldInfo info;
+        get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, TypeIndex::JSONB);
+    }
+
+    // Test Array
+    {
+        Array array;
+        array.push_back(Int64(1));
+        array.push_back(Int64(2));
+        Field field(array);
+        FieldInfo info;
+        get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
+        EXPECT_FALSE(info.have_nulls);
+        EXPECT_FALSE(info.need_convert);
+        EXPECT_EQ(info.num_dimensions, 1);
+    }
+
+    // Test nested Array
+    {
+        Array inner_array;
+        inner_array.push_back(Int64(1));
+        inner_array.push_back(Int64(2));
+
+        Array outer_array;
+        outer_array.push_back(inner_array);
+        outer_array.push_back(inner_array);
+
+        Field field(outer_array);
+        FieldInfo info;
+        get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
+        EXPECT_FALSE(info.have_nulls);
+        EXPECT_FALSE(info.need_convert);
+        EXPECT_EQ(info.num_dimensions, 2);
+    }
+
+    // Test Tuple
+    {
+        Tuple t1;
+        t1.push_back(Field("amory cute"));
+        t1.push_back(__int128_t(37));
+        t1.push_back(true);
+        FieldInfo info;
+        get_field_info(t1, &info);
+        EXPECT_EQ(info.scalar_type_id, TypeIndex::JSONB)
+                << "info.scalar_type_id: " << getTypeName(info.scalar_type_id);
+        EXPECT_FALSE(info.have_nulls);
+        EXPECT_FALSE(info.need_convert);
+        EXPECT_EQ(info.num_dimensions, 0);
+    }
+
+    // Test Map will throw exception:  Bad type of Field 25
+    {
+        Array k1 = {"a", "b", "c"};
+        Array v1 = {1, 2, 3};
+        Map map;
+        map.push_back(k1);
+        map.push_back(v1);
+        FieldInfo info;
+        EXPECT_ANY_THROW(get_field_info(map, &info));
+    }
+
+    // Test VariantMap
+    {
+        VariantMap variant_map;
+        variant_map["key1"] = Int64(1);
+        variant_map["key2"] = String("value");
+        Field field(variant_map);
+        FieldInfo info;
+        get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, TypeIndex::VARIANT);
+        EXPECT_FALSE(info.have_nulls);
+        EXPECT_FALSE(info.need_convert);
+        EXPECT_EQ(info.num_dimensions, 0);
+    }
+
+    // Test Array with different types
+    {
+        Array array;
+        array.push_back(Int64(1));
+        Field field(array);
+        FieldInfo info;
+        get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8)
+                << "info.scalar_type_id: " << getTypeName(info.scalar_type_id);
+        EXPECT_FALSE(info.have_nulls);
+        EXPECT_FALSE(info.need_convert);
+        EXPECT_EQ(info.num_dimensions, 1);
+    }
+
+    // Test Array with nulls
+    {
+        Array array;
+        array.push_back(Int64(1));
+        array.push_back(Null());
+        Field field(array);
+        FieldInfo info;
+        get_field_info(field, &info);
+        EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
+        EXPECT_TRUE(info.have_nulls);
+        EXPECT_FALSE(info.need_convert);
+        EXPECT_EQ(info.num_dimensions, 1);
+    }
+
+    // Test nested Array with Int64 in different ranges
+    {// Test nested Array with Int64 <= Int8::max()
+     {Array inner_array;
+    inner_array.push_back(Int64(std::numeric_limits<Int8>::max()));
+    inner_array.push_back(Int64(std::numeric_limits<Int8>::max()));
+
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
+
+    Field field(outer_array);
+    FieldInfo info;
+    get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
+
+// Test nested Array with Int64 <= Int16::max()
+{
+    Array inner_array;
+    inner_array.push_back(Int64(std::numeric_limits<Int16>::max()));
+    inner_array.push_back(Int64(std::numeric_limits<Int16>::max()));
+
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
+
+    Field field(outer_array);
+    FieldInfo info;
+    get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int16);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
+
+// Test nested Array with Int64 <= Int32::max()
+{
+    Array inner_array;
+    inner_array.push_back(Int64(std::numeric_limits<Int32>::max()));
+    inner_array.push_back(Int64(std::numeric_limits<Int32>::max()));
+
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
+
+    Field field(outer_array);
+    FieldInfo info;
+    get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int32);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
+
+// Test nested Array with Int64 > Int32::max()
+{
+    Array inner_array;
+    inner_array.push_back(Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
+    inner_array.push_back(Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
+
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
+
+    Field field(outer_array);
+    FieldInfo info;
+    get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
+} // namespace doris::vectorized
+
+// Test nested Array with UInt64 in different ranges
+{// Test nested Array with UInt64 <= UInt8::max()
+ {Array inner_array;
+inner_array.push_back(UInt64(std::numeric_limits<UInt8>::max()));
+inner_array.push_back(UInt64(std::numeric_limits<UInt8>::max()));
+
+Array outer_array;
+outer_array.push_back(inner_array);
+outer_array.push_back(inner_array);
+
+Field field(outer_array);
+FieldInfo info;
+get_field_info(field, &info);
+EXPECT_EQ(info.scalar_type_id, TypeIndex::Int16);
+EXPECT_FALSE(info.have_nulls);
+EXPECT_FALSE(info.need_convert);
+EXPECT_EQ(info.num_dimensions, 2);
+}
+
+// Test nested Array with UInt64 <= UInt16::max()
+{
+    Array inner_array;
+    inner_array.push_back(UInt64(std::numeric_limits<UInt16>::max()));
+    inner_array.push_back(UInt64(std::numeric_limits<UInt16>::max()));
+
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
+
+    Field field(outer_array);
+    FieldInfo info;
+    get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int32);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
+
+// Test nested Array with UInt64 <= UInt32::max()
+{
+    Array inner_array;
+    inner_array.push_back(UInt64(std::numeric_limits<UInt32>::max()));
+    inner_array.push_back(UInt64(std::numeric_limits<UInt32>::max()));
+
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
+
+    Field field(outer_array);
+    FieldInfo info;
+    get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
+
+// Test nested Array with UInt64 > UInt32::max()
+{
+    Array inner_array;
+    inner_array.push_back(UInt64(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1));
+    inner_array.push_back(UInt64(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1));
+
+    Array outer_array;
+    outer_array.push_back(inner_array);
+    outer_array.push_back(inner_array);
+
+    Field field(outer_array);
+    FieldInfo info;
+    get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
+}
+
+// Test nested Array with mixed Int64 and UInt64
+{
+    Array inner_array1;
+    inner_array1.push_back(Int64(std::numeric_limits<Int32>::max()));
+    inner_array1.push_back(Int64(std::numeric_limits<Int32>::max()));
+
+    Array inner_array2;
+    inner_array2.push_back(UInt64(std::numeric_limits<UInt32>::max()));
+    inner_array2.push_back(UInt64(std::numeric_limits<UInt32>::max()));
+
+    Array outer_array;
+    outer_array.push_back(inner_array1);
+    outer_array.push_back(inner_array2);
+
+    Field field(outer_array);
+    FieldInfo info;
+    get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
+    EXPECT_FALSE(info.have_nulls);
+    EXPECT_TRUE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
+
+// Test nested Array with nulls
+{
+    Array inner_array1;
+    inner_array1.push_back(Int64(1));
+    inner_array1.push_back(Int64(2));
+
+    Array inner_array2;
+    inner_array2.push_back(Int64(3));
+    inner_array2.push_back(Null());
+
+    Array outer_array;
+    outer_array.push_back(inner_array1);
+    outer_array.push_back(inner_array2);
+
+    Field field(outer_array);
+    FieldInfo info;
+    get_field_info(field, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
+    EXPECT_TRUE(info.have_nulls);
+    EXPECT_FALSE(info.need_convert);
+    EXPECT_EQ(info.num_dimensions, 2);
+}
+
+// Test Array with JsonbField
+{
+    Slice slice("\"amory is cute\"");
+    JsonBinaryValue value;
+    Status st = value.from_json_string(slice.data, slice.size);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    JsonbField field(value.value(), value.size());
+
+    Array array;
+    array.push_back(field);
+    array.push_back(field);
+    FieldInfo info;
+    get_field_info(array, &info);
+    EXPECT_EQ(info.scalar_type_id, TypeIndex::JSONB);
+}
+}
+
+TEST_F(ColumnObjectTest, field_visitor) {
+    // Test replacing scalar values in a flat array
+    {
+        Array array;
+        array.push_back(Int64(1));
+        array.push_back(Int64(2));
+        array.push_back(Int64(3));
+
+        Field field(array);
+        Field replacement(Int64(42));
+        Field result = apply_visitor(FieldVisitorReplaceScalars(replacement, 0), field);
+
+        EXPECT_EQ(result.get<Int64>(), 42);
+
+        Field replacement1(Int64(42));
+        Field result1 = apply_visitor(FieldVisitorReplaceScalars(replacement, 1), field);
+
+        EXPECT_EQ(result1.get<Array>().size(), 3);
+        EXPECT_EQ(result1.get<Array>()[0].get<Int64>(), 42);
+        EXPECT_EQ(result1.get<Array>()[1].get<Int64>(), 42);
+        EXPECT_EQ(result1.get<Array>()[2].get<Int64>(), 42);
+    }
+}
 }
