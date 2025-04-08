@@ -362,7 +362,7 @@ struct WindowFunnelState {
         // If memory allocate failed during deserialize, st is not ok, throw exception here to
         // stop the query.
         if (!status.ok()) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, status.to_string());
+            throw doris::Exception(status);
         }
         mutable_block = MutableBlock(std::move(block));
         _reset_columns_ptr();
