@@ -433,6 +433,23 @@ Status OlapScanLocalState::hold_tablets() {
     if (!_tablets.empty()) {
         return Status::OK();
     }
+
+    auto update_sync_rowset_profile = [&](const SyncStatistics& sync_stat) {
+        COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_num, sync_stat.get_remote_rowsets_num);
+        COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_rpc_timer,
+                       sync_stat.get_remote_rowsets_rpc_ms);
+        COUNTER_UPDATE(_sync_rowset_get_local_delete_bitmap_rowsets_num,
+                       sync_stat.get_local_delete_bitmap_rowsets_num);
+        COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rowsets_num,
+                       sync_stat.get_remote_delete_bitmap_rowsets_num);
+        COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_key_count,
+                       sync_stat.get_remote_delete_bitmap_key_count);
+        COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_bytes,
+                       sync_stat.get_remote_delete_bitmap_bytes);
+        COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rpc_timer,
+                       sync_stat.get_remote_delete_bitmap_rpc_ms);
+    };
+
     MonotonicStopWatch timer;
     timer.start();
     _tablets.resize(_scan_ranges.size());
@@ -441,13 +458,24 @@ Status OlapScanLocalState::hold_tablets() {
         int64_t version = 0;
         std::from_chars(_scan_ranges[i]->version.data(),
                         _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(), version);
-        auto tablet = DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id));
-        _tablets[i] = {std::move(tablet), version};
-
         if (config::is_cloud_mode()) {
+            int64_t duration_ns = 0;
+            SyncStatistics sync_stats;
+            {
+                SCOPED_RAW_TIMER(&duration_ns);
+                auto tablet =
+                        DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id, &sync_stats));
+                _tablets[i] = {std::move(tablet), version};
+            }
+            COUNTER_UPDATE(_sync_rowset_timer, duration_ns);
+            update_sync_rowset_profile(sync_stats);
+
             // FIXME(plat1ko): Avoid pointer cast
             ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(
                     *_tablets[i].tablet);
+        } else {
+            auto tablet = DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id));
+            _tablets[i] = {std::move(tablet), version};
         }
     }
 
@@ -471,21 +499,9 @@ Status OlapScanLocalState::hold_tablets() {
             }
             RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
         }
-        _sync_rowset_timer->update(duration_ns);
-        for (const auto& sync_stat : sync_statistics) {
-            COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_num, sync_stat.get_remote_rowsets_num);
-            COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_rpc_timer,
-                           sync_stat.get_remote_rowsets_rpc_ms);
-            COUNTER_UPDATE(_sync_rowset_get_local_delete_bitmap_rowsets_num,
-                           sync_stat.get_local_delete_bitmap_rowsets_num);
-            COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rowsets_num,
-                           sync_stat.get_remote_delete_bitmap_rowsets_num);
-            COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_key_count,
-                           sync_stat.get_remote_delete_bitmap_key_count);
-            COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_bytes,
-                           sync_stat.get_remote_delete_bitmap_bytes);
-            COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rpc_timer,
-                           sync_stat.get_remote_delete_bitmap_rpc_ms);
+        COUNTER_UPDATE(_sync_rowset_timer, duration_ns);
+        for (const auto& sync_stats : sync_statistics) {
+            update_sync_rowset_profile(sync_stats);
         }
     }
     for (size_t i = 0; i < _scan_ranges.size(); i++) {

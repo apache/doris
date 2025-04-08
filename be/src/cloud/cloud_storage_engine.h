@@ -57,7 +57,8 @@ public:
     void stop() override;
     bool stopped() override;
 
-    Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) override;
+    Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
+                                      SyncStatistics* sync_stat = nullptr) override;
 
     Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) override;
 

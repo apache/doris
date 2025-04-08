@@ -235,8 +235,9 @@ bool CloudStorageEngine::stopped() {
     return _stopped;
 }
 
-Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id) {
-    return _tablet_mgr->get_tablet(tablet_id, false).transform([](auto&& t) {
+Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id,
+                                                      SyncStatistics* sync_stat) {
+    return _tablet_mgr->get_tablet(tablet_id, false, sync_stat).transform([](auto&& t) {
         return static_pointer_cast<BaseTablet>(std::move(t));
     });
 }
