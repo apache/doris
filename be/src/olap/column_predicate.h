@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <memory>
 #include <roaring/roaring.hh>
 
 #include "common/exception.h"
@@ -24,6 +25,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/define_primitive_type.h"
+#include "util/runtime_profile.h"
 #include "vec/columns/column.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
@@ -184,8 +186,6 @@ public:
         }
 
         uint16_t new_size = _evaluate_inner(column, sel, size);
-        _evaluated_rows += size;
-        _passed_rows += new_size;
         if (_can_ignore()) {
             do_judge_selectivity(size - new_size, size);
         }
@@ -255,31 +255,25 @@ public:
 
     int get_runtime_filter_id() const { return _runtime_filter_id; }
 
-    void set_runtime_filter_info(int filter_id,
-                                 RuntimeProfile::Counter* predicate_filtered_rows_counter,
-                                 RuntimeProfile::Counter* predicate_input_rows_counter) {
-        if (filter_id >= 0) {
-            DCHECK(predicate_filtered_rows_counter != nullptr);
-            DCHECK(predicate_input_rows_counter != nullptr);
-        }
+    void attach_profile_counter(
+            int filter_id, std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
+            std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter) {
         _runtime_filter_id = filter_id;
-        _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
-        _predicate_input_rows_counter = predicate_input_rows_counter;
+        DCHECK(predicate_filtered_rows_counter != nullptr);
+        DCHECK(predicate_input_rows_counter != nullptr);
+
+        if (predicate_filtered_rows_counter != nullptr) {
+            _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
+        }
+        if (predicate_input_rows_counter != nullptr) {
+            _predicate_input_rows_counter = predicate_input_rows_counter;
+        }
     }
 
     /// TODO: Currently we only record statistics for runtime filters, in the future we should record for all predicates
     void update_filter_info(int64_t filter_rows, int64_t input_rows) const {
-        if (_predicate_input_rows_counter) {
-            COUNTER_UPDATE(_predicate_input_rows_counter, input_rows);
-        }
-        if (_predicate_filtered_rows_counter) {
-            COUNTER_UPDATE(_predicate_filtered_rows_counter, filter_rows);
-        }
-    }
-
-    PredicateFilterInfo get_filtered_info() const {
-        return PredicateFilterInfo {static_cast<int>(type()), _evaluated_rows - 1,
-                                    _evaluated_rows - 1 - _passed_rows};
+        COUNTER_UPDATE(_predicate_input_rows_counter, input_rows);
+        COUNTER_UPDATE(_predicate_filtered_rows_counter, filter_rows);
     }
 
     static std::string pred_type_string(PredicateType type) {
@@ -353,8 +347,6 @@ protected:
     // TODO: the value is only in delete condition, better be template value
     bool _opposite;
     int _runtime_filter_id = -1;
-    mutable uint64_t _evaluated_rows = 1;
-    mutable uint64_t _passed_rows = 0;
     // VRuntimeFilterWrapper and ColumnPredicate share the same logic,
     // but it's challenging to unify them, so the code is duplicated.
     // _judge_counter, _judge_input_rows, _judge_filter_rows, and _always_true
@@ -368,8 +360,11 @@ protected:
     mutable uint64_t _judge_filter_rows = 0;
     mutable bool _always_true = false;
 
-    RuntimeProfile::Counter* _predicate_filtered_rows_counter = nullptr;
-    RuntimeProfile::Counter* _predicate_input_rows_counter = nullptr;
+    std::shared_ptr<RuntimeProfile::Counter> _predicate_filtered_rows_counter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+
+    std::shared_ptr<RuntimeProfile::Counter> _predicate_input_rows_counter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
 };
 
 } //namespace doris
