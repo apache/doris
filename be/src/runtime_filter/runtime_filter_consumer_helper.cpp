@@ -62,8 +62,7 @@ void RuntimeFilterConsumerHelper::_init_dependency(
     std::vector<std::shared_ptr<pipeline::Dependency>> local_dependencies;
 
     for (size_t i = 0; i < _consumers.size(); ++i) {
-        dependencies[i] =
-                std::make_shared<pipeline::Dependency>(id, node_id, name, _consumers[i].get());
+        dependencies[i] = std::make_shared<pipeline::Dependency>(id, node_id, name);
         runtime_filter_timers[i] = _consumers[i]->create_filter_timer(dependencies[i]);
         if (_consumers[i]->has_remote_target()) {
             // The gloabl runtime filter timer need set local runtime filter dependencies.
