@@ -544,9 +544,9 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction6) {
     sink->_agg_expr_ctxs[0] =
             MockSlotRef::create_mock_contexts(2, std::make_shared<DataTypeInt64>());
     sink->_partition_by_eq_expr_ctxs =
-        MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
     sink->_order_by_eq_expr_ctxs =
-        MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>());
+            MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>());
     TAnalyticWindow temp_window;
     temp_window.type = TAnalyticWindowType::ROWS;
     TAnalyticWindowBoundary window_end;
@@ -556,12 +556,12 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction6) {
     create_local_state();
     // test with row_number agg function and has window: _get_next_for_unbounded_rows
     std::vector<int64_t> suppkey = {5,  5,  17, 17, 26, 26, 32, 32, 36, 36,
-                                40, 40, 41, 41, 51, 51, 87, 87, 93, 93};
+                                    40, 40, 41, 41, 51, 51, 87, 87, 93, 93};
     std::vector<int64_t> orderkey = {5, 5, 7, 7, 7, 7, 7, 7, 6, 6, 7, 7, 5, 5, 7, 7, 5, 5, 7, 7};
     std::vector<int64_t> quantity = {50, 50, 46, 46, 35, 35, 28, 28, 37, 37,
-                                 38, 38, 26, 26, 12, 12, 15, 15, 9,  9};
+                                     38, 38, 26, 26, 12, 12, 15, 15, 9,  9};
     std::vector<int64_t> first_value_quantity_A = {50, 50, 46, 46, 35, 35, 28, 28, 37, 37,
-                                               38, 38, 26, 26, 12, 12, 15, 15, 9,  9};
+                                                   38, 38, 26, 26, 12, 12, 15, 15, 9,  9};
 
     auto sink_data = [&](int row_count, bool eos) {
         std::vector<int64_t> col1, col2, col3;
@@ -571,7 +571,6 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction6) {
             col3.push_back(quantity[row_count + i]);
         }
         vectorized::Block block;
-
 
         block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col1));
         block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col2));
@@ -612,11 +611,8 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction6) {
         result_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col2));
         result_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col3));
         result_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(expect_vals));
-        std::cout << "block for real result is: \n "
-                  << result_block.dump_data()
-                  << std::endl;
-        EXPECT_TRUE(ColumnHelper::block_equal(
-                block, result_block));
+        std::cout << "block for real result is: \n " << result_block.dump_data() << std::endl;
+        EXPECT_TRUE(ColumnHelper::block_equal(block, result_block));
     };
 
     {

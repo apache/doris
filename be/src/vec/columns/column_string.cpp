@@ -703,17 +703,14 @@ ColumnPtr ColumnStr<T>::convert_column_if_overflow() {
 }
 
 template <typename T>
-void ColumnStr<T>::remove_first_n_values(size_t count) {
-    if (count == 0) {
-        return;
-    }
-    DCHECK_GE(offsets.size() - 1, count);
-    const size_t remain_size = offsets.size() - 1 - count;
-    const T chars_to_remove = offsets[count];
-    std::copy(offsets.begin() + count, offsets.end(), offsets.begin());
-    offsets.resize(remain_size + 1);
+void ColumnStr<T>::remove_first_n_values(size_t n) {
+    DCHECK_GE(offsets.size(), n);
+    const size_t remain_size = offsets.size() - n;
+    const T chars_to_remove = offsets[n - 1];
+    memmove(offsets.data(), offsets.data() + n, remain_size * sizeof(T));
+    offsets.resize(remain_size);
 
-    for (size_t i = 0; i <= remain_size; ++i) {
+    for (size_t i = 0; i < remain_size; ++i) {
         offsets[i] -= chars_to_remove;
     }
 

@@ -277,9 +277,9 @@ public:
 
     void finalize() override { data->finalize(); }
 
-    void remove_first_n_values(size_t count) override {
-        DCHECK_GE(s, count);
-        s = s - count;
+    void remove_first_n_values(size_t n) override {
+        DCHECK_GE(s, n);
+        s = s - n;
     }
 };
 } // namespace doris::vectorized
