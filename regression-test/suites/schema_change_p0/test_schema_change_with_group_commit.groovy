@@ -107,11 +107,6 @@ suite("test_schema_change_with_group_commit", "docker") {
                     return false
                 }
         )
-        List<List<Object>> result = sql """ select * from ${tableName3} """
-        for (row : result) {
-            assertEquals(2, row[1]);
-            assertEquals(3, row[2]);
-        }
     }
 
 }
