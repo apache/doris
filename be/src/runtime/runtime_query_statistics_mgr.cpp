@@ -67,6 +67,7 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
         try {
             rpc_client->reportExecStatus(res, req);
         } catch (const apache::thrift::transport::TTransportException& e) {
+#ifndef ADDRESS_SANITIZER
             LOG_WARNING("Transport exception from {}, reason: {}, reopening",
                         PrintThriftNetworkAddress(coor_addr), e.what());
             client_status = rpc_client.reopen(config::thrift_rpc_timeout_ms);
@@ -76,6 +77,9 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
             }
 
             rpc_client->reportExecStatus(res, req);
+#else
+            return Status::RpcError("Transport exception when report query profile, {}", e.what());
+#endif
         }
     } catch (apache::thrift::TApplicationException& e) {
         if (e.getType() == e.UNKNOWN_METHOD) {
@@ -90,6 +94,14 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
                     PrintThriftNetworkAddress(coor_addr), e.what());
         }
         return Status::RpcError("Send stats failed");
+    } catch (apache::thrift::TException& e) {
+        LOG_WARNING("Failed to report query profile to {}, reason: {} ",
+                    PrintThriftNetworkAddress(coor_addr), e.what());
+        std::this_thread::sleep_for(
+                std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
+        // just reopen to disable this connection
+        static_cast<void>(rpc_client.reopen(config::thrift_rpc_timeout_ms));
+        return Status::RpcError("Transport exception when report query profile");
     } catch (std::exception& e) {
         LOG_WARNING(
                 "Failed to report query profile to {}, reason: {}, you can see fe log for details.",
@@ -411,6 +423,7 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
                 coord->reportExecStatus(res, params);
                 rpc_result[addr] = true;
             } catch (apache::thrift::transport::TTransportException& e) {
+#ifndef ADDRESS_SANITIZER
                 LOG_WARNING(
                         "[report_query_statistics] report to fe {} failed, reason:{}, try reopen.",
                         add_str, e.what());
@@ -424,17 +437,24 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
                     coord->reportExecStatus(res, params);
                     rpc_result[addr] = true;
                 }
+#else
+                std::cerr << "thrift error, reason=" << e.what();
+#endif
             }
         } catch (apache::thrift::TApplicationException& e) {
             LOG_WARNING(
                     "[report_query_statistics]fe {} throw exception when report statistics, "
                     "reason:{}, you can see fe log for details.",
                     add_str, e.what());
-        } catch (apache::thrift::transport::TTransportException& e) {
+        } catch (apache::thrift::TException& e) {
             LOG_WARNING(
                     "[report_query_statistics]report workload runtime statistics to {} failed,  "
                     "reason: {}",
                     add_str, e.what());
+            std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
+            // just reopen to disable this connection
+            static_cast<void>(coord.reopen(config::thrift_rpc_timeout_ms));
         } catch (std::exception& e) {
             LOG_WARNING(
                     "[report_query_statistics]unknown exception when report workload runtime "
