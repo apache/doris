@@ -50,6 +50,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.InitConsistentMaterializationContextHook;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -120,6 +121,7 @@ public class PlanChecker {
     }
 
     public PlanChecker analyze() {
+        this.cascadesContext.getStatementContext().addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);
         this.cascadesContext.newTableCollector().collect();
         this.cascadesContext.setCteContext(new CTEContext());
         this.cascadesContext.newAnalyzer().analyze();
@@ -130,6 +132,7 @@ public class PlanChecker {
 
     public PlanChecker analyze(Plan plan) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        this.cascadesContext.getStatementContext().addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);
         this.cascadesContext.newTableCollector().collect();
         this.cascadesContext.setCteContext(new CTEContext());
         Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
@@ -145,6 +148,7 @@ public class PlanChecker {
 
     public PlanChecker analyze(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
+        this.cascadesContext.getStatementContext().addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);
         this.cascadesContext.newTableCollector().collect();
         this.cascadesContext.setCteContext(new CTEContext());
         this.cascadesContext.newAnalyzer().analyze();
