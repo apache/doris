@@ -4,7 +4,7 @@
 
 -- !q01_2 --
 id	bigint	No	true	\N	
-v1	variant<array_int:array<int>,array_string:array<text>,array_decimal:array<decimalv3(27,9)>,array_datetime:array<datetime>,array_datetimev2:array<datetimev2(0)>,array_date:array<date>,array_datev2:array<datev2>,array_ipv4:array<ipv4>,array_ipv6:array<ipv6>,array_float:array<float>,array_boolean:array<boolean>,int_:int,string_:text,decimal_:decimalv3(27,9),datetime_:datetime,datetimev2_:datetimev2(6),date_:date,datev2_:datev2,ipv4_:ipv4,ipv6_:ipv6,float_:float,boolean_:boolean,varchar_:varchar(65533)>	Yes	false	\N	NONE
+v1	variant<MATCH_NAME_GLOB array_int:array<int>,MATCH_NAME_GLOB array_string:array<text>,MATCH_NAME_GLOB array_decimal:array<decimalv3(27,9)>,MATCH_NAME_GLOB array_datetime:array<datetime>,MATCH_NAME_GLOB array_datetimev2:array<datetimev2(0)>,MATCH_NAME_GLOB array_date:array<date>,MATCH_NAME_GLOB array_datev2:array<datev2>,MATCH_NAME_GLOB array_ipv4:array<ipv4>,MATCH_NAME_GLOB array_ipv6:array<ipv6>,MATCH_NAME_GLOB array_float:array<float>,MATCH_NAME_GLOB array_boolean:array<boolean>,MATCH_NAME_GLOB int_:int,MATCH_NAME_GLOB string_:text,MATCH_NAME_GLOB decimal_:decimalv3(27,9),MATCH_NAME_GLOB datetime_:datetime,MATCH_NAME_GLOB datetimev2_:datetimev2(6),MATCH_NAME_GLOB date_:date,MATCH_NAME_GLOB datev2_:datev2,MATCH_NAME_GLOB ipv4_:ipv4,MATCH_NAME_GLOB ipv6_:ipv6,MATCH_NAME_GLOB float_:float,MATCH_NAME_GLOB boolean_:boolean,MATCH_NAME_GLOB varchar_:varchar(65533)>	Yes	false	\N	NONE
 v1.array_boolean	array<boolean>	Yes	false	\N	NONE
 v1.array_date	array<date>	Yes	false	\N	NONE
 v1.array_datetime	array<datetime>	Yes	false	\N	NONE

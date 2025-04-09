@@ -21,7 +21,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
         CREATE TABLE `test_predefine` (
             `id` bigint NOT NULL,
             `type` varchar(30) NULL,
-            `v1` variant<a.b.c:int,ss:string,dcm:decimal,dt:datetime,ip:ipv4,a.b.d:double> NULL,
+            `v1` variant<'a.b.c':int,'ss':string,'dcm':decimal,'dt':datetime,'ip':ipv4,'a.b.d':double> NULL,
             INDEX idx_var_sub(`v1`) USING INVERTED PROPERTIES("parser" = "english") )
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 3
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_max_subcolumns_count" = "0");
@@ -80,29 +80,29 @@ suite("regression_test_variant_predefine_schema", "p0"){
         CREATE TABLE `test_predefine2` (
             `id` bigint NOT NULL,
             `v1` variant<
-                array_int:array<int>,
-                array_string:array<string>,
-                array_decimal:array<decimalv3(27,9)>,
-                array_datetime:array<datetime>,
-                array_datetimev2:array<datetimev2>,
-                array_date:array<date>,
-                array_datev2:array<datev2>,
-                array_ipv4:array<ipv4>,
-                array_ipv6:array<ipv6>,
-                array_float:array<float>,
-                array_boolean:array<boolean>,
-                int_:int, 
-                string_:string, 
-                decimal_:decimalv3(27,9), 
-                datetime_:datetime,
-                datetimev2_:datetimev2(6),
-                date_:date,
-                datev2_:datev2,
-                ipv4_:ipv4,
-                ipv6_:ipv6,
-                float_:float,
-                boolean_:boolean,
-                varchar_:varchar
+                'array_int':array<int>,
+                'array_string':array<string>,
+                'array_decimal':array<decimalv3(27,9)>,
+                'array_datetime':array<datetime>,
+                'array_datetimev2':array<datetimev2>,
+                'array_date':array<date>,
+                'array_datev2':array<datev2>,
+                'array_ipv4':array<ipv4>,
+                'array_ipv6':array<ipv6>,
+                'array_float':array<float>,
+                'array_boolean':array<boolean>,
+                'int_':int, 
+                'string_':string, 
+                'decimal_':decimalv3(27,9), 
+                'datetime_':datetime,
+                'datetimev2_':datetimev2(6),
+                'date_':date,
+                'datev2_':datev2,
+                'ipv4_':ipv4,
+                'ipv6_':ipv6,
+                'float_':float,
+                'boolean_':boolean,
+                'varchar_':varchar
             > NULL
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_max_subcolumns_count" = "0");
@@ -201,9 +201,9 @@ suite("regression_test_variant_predefine_schema", "p0"){
 
     // // schema change
     // // 1. add column
-    sql "alter table test_predefine1 add column v2 variant<dcm:decimal,dt:datetime> default null"
+    sql "alter table test_predefine1 add column v2 variant<'dcm':decimal,'dt':datetime> default null"
     sql """insert into test_predefine1 values(101, '{"a" :1}', '{"dcm": 1111111}')""" 
-    sql "alter table test_predefine1 add column v3 variant<dcm:decimal,dt:datetime,ip:ipv6> default null"
+    sql "alter table test_predefine1 add column v3 variant<'dcm':decimal,'dt':datetime,'ip':ipv6> default null"
     sql """insert into test_predefine1 values(102, '{"a" :1}', '{"dcm": 1111111}', '{"dcm": 1111111}');"""
     // 2. todo support alter column type
     // sql "alter table test_predefine1 modify column v3 variant<dcm:decimal,dt:datetime,ip:ipv6>"
@@ -216,7 +216,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql "DROP TABLE IF EXISTS test_predefine3"
     sql """CREATE TABLE `test_predefine3` (
             `id` bigint NOT NULL,
-            `v` variant<`nested.a`: string> NULL)
+            `v` variant<'nested.a':string> NULL)
         ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "variant_enable_flatten_nested" = "true", "variant_max_subcolumns_count" = "0");"""
 
@@ -251,7 +251,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """
     CREATE TABLE `region_insert` (
       `k` bigint NULL,
-      `var` variant<c_acctbal:text,c_address:text,c_comment:text,c_custkey:text,c_mktsegment:text,c_name:text,c_nationkey:text,c_phone:text,p_brand:float,p_comment:text,p_container:text,p_mfgr:text,p_name:text,p_partkey:text,p_retailprice:text,p_size:text,p_type:text,r_comment:text,r_name:text,r_regionkey:text,ps_availqty:text,ps_comment:text,ps_none:text,ps_partkey:text,ps_suppkey:text,ps_supplycost:text,s_acctbal:text,s_address:text,s_comment:text,s_name:text,s_nationkey:text,s_phone:text,s_suppkey:text,l_comment:text,l_commitdate:text,l_discount:text,l_extendedprice:text,l_linenumber:text,l_linestatus:text,l_orderkey:text,l_partkey:text,l_quantity:text,l_receiptdate:text,l_returnflag:text,l_shipdate:text,l_shipinstruct:text,l_shipmode:text,l_suppkey:text,l_tax:text,n_comment:text,n_name:text,n_nationkey:text,n_regionkey:text,key_1:text,key_10:text,key_100:text,key_11:text,key_12:text,key_13:text,key_14:text,key_15:text,key_17:text,key_18:text,key_2:text,key_20:text,key_21:text,key_22:text,key_23:text,key_24:text,key_25:text,key_27:text,key_28:text,key_29:text,key_3:text,key_31:text,key_32:text,key_33:text,key_34:text,key_35:text,key_36:text,key_38:text,key_39:text,key_41:text,key_43:text,key_45:text,key_46:text,key_47:text,key_48:text,o_clerk:text,o_comment:text,o_custkey:text,o_orderdate:text,o_orderkey:text,o_orderpriority:text,o_orderstatus:text,o_shippriority:text,o_totalprice:text,key_80:array<boolean>> NULL,
+      `var` variant<'c_acctbal':text,'c_address':text,'c_comment':text,'c_custkey':text,'c_mktsegment':text,'c_name':text,'c_nationkey':text,'c_phone':text,'p_brand':float,'p_comment':text,'p_container':text,'p_mfgr':text,'p_name':text,'p_partkey':text,'p_retailprice':text,'p_size':text,'p_type':text,'r_comment':text,'r_name':text,'r_regionkey':text,'ps_availqty':text,'ps_comment':text,'ps_none':text,'ps_partkey':text,'ps_suppkey':text,'ps_supplycost':text,'key_46':text,'key_47':text,'key_48':text,'o_clerk':text,'o_comment':text,'o_custkey':text,'o_orderdate':text,'o_orderkey':text,'o_orderpriority':text,'o_orderstatus':text,'o_shippriority':text,'o_totalprice':text,'key_80':array<boolean>> NULL,
       `OfvZr` variant NULL
     ) ENGINE=OLAP
     DUPLICATE KEY(`k`)
@@ -281,7 +281,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """
         CREATE TABLE `test_bf_with_bool` (
       `k` bigint NULL,
-      `var` variant<c_bool:boolean>
+      `var` variant<'c_bool':boolean>
     ) ENGINE=OLAP
     DUPLICATE KEY(`k`)
     DISTRIBUTED BY HASH(`k`) BUCKETS 5
@@ -300,7 +300,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql """
         CREATE TABLE `test_array_with_nulls` (
       `k` bigint NULL,
-      `var` variant<array_decimal:array<decimalv3(27,9)>>
+      `var` variant<match_name 'array_decimal':array<decimalv3(27,9)>>
     ) ENGINE=OLAP
     DUPLICATE KEY(`k`)
     DISTRIBUTED BY HASH(`k`) BUCKETS 1
