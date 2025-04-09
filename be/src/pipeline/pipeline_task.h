@@ -202,7 +202,6 @@ public:
     }
 
 private:
-    friend class RuntimeFilterDependency;
     // Whether this task is blocked before execution (FE 2-phase commit trigger, runtime filters)
     bool _wait_to_start();
     // Whether this task is blocked during execution (read dependency, write dependency)
