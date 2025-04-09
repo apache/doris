@@ -664,12 +664,12 @@ std::string PipelineTask::debug_string() {
                    (void*)this, _index, _opened, _eos, _to_string(_exec_state), _dry_run,
                    _wake_up_early.load(), _state_change_watcher.elapsed_time() / NANOS_PER_SEC,
                    _spilling, is_running());
-    if (is_finalized() || !fragment) {
-        return fmt::to_string(debug_string_buffer);
-    }
     std::unique_lock<std::mutex> lc(_dependency_lock);
     auto* cur_blocked_dep = _blocked_dep;
     auto fragment = _fragment_context.lock();
+    if (is_finalized() || !fragment) {
+        return fmt::to_string(debug_string_buffer);
+    }
     auto elapsed = fragment->elapsed_time() / NANOS_PER_SEC;
     fmt::format_to(debug_string_buffer,
                    " elapse time = {}s, block dependency = [{}]\noperators: ", elapsed,
