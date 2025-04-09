@@ -1216,11 +1216,6 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                 }
                 new_recorded_job.clear_schema_change();
                 new_tablet_job_val = new_recorded_job.SerializeAsString();
-                if (new_tablet_meta.enable_unique_key_merge_on_write()) {
-                    remove_delete_bitmap_update_lock(txn, instance_id, new_table_id, new_tablet_id,
-                                                     COMPACTION_DELETE_BITMAP_LOCK_ID,
-                                                     schema_change.delete_bitmap_lock_initiator());
-                }
                 txn->put(new_tablet_job_key, new_tablet_job_val);
             }
             INSTANCE_LOG(INFO) << "remove schema_change job tablet_id=" << tablet_id
