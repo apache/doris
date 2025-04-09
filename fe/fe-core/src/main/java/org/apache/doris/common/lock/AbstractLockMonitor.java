@@ -29,9 +29,9 @@ import org.slf4j.LoggerFactory;
  * are held longer than a specified timeout or fail to be acquired within
  * a specified timeout.
  */
-public abstract class AbstractMonitoredLock {
+public abstract class AbstractLockMonitor {
 
-    private static final Logger LOG = LoggerFactory.getLogger(AbstractMonitoredLock.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AbstractLockMonitor.class);
 
     // Thread-local variable to store the lock start time
     private final ThreadLocal<Long> lockStartTime = new ThreadLocal<>();
@@ -45,11 +45,15 @@ public abstract class AbstractMonitoredLock {
         lockStartTime.set(System.nanoTime());
     }
 
+    protected void afterUnlock() {
+        afterUnlock(null);
+    }
+
     /**
      * Method to be called after releasing the lock.
      * Calculates the lock hold time and logs a warning if it exceeds the hold timeout.
      */
-    protected void afterUnlock() {
+    protected void afterUnlock(String lockType)  {
         Long startTime = lockStartTime.get();
         if (startTime != null) {
             long lockHoldTimeNanos = System.nanoTime() - startTime;
@@ -57,9 +61,9 @@ public abstract class AbstractMonitoredLock {
             if (lockHoldTimeMs > Config.max_lock_hold_threshold_seconds * 1000) {
                 Thread currentThread = Thread.currentThread();
                 String stackTrace = getThreadStackTrace(currentThread.getStackTrace());
-                LOG.warn("Thread ID: {}, Thread Name: {} - Lock held for {} ms, exceeding hold timeout of {} ms "
-                                + "Thread stack trace:{}",
-                        currentThread.getId(), currentThread.getName(), lockHoldTimeMs, lockHoldTimeMs, stackTrace);
+                LOG.warn("Thread ID: {}, Thread Name: {}, Lock Type: {} - Lock held for {} ms, exceeding {} ms "
+                                + "Thread stack trace:{}", currentThread.getId(), currentThread.getName(), lockType,
+                        lockHoldTimeMs, lockHoldTimeMs, stackTrace);
             }
             lockStartTime.remove();
         }
