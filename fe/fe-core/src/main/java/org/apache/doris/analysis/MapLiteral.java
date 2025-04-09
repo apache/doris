@@ -193,7 +193,7 @@ public class MapLiteral extends LiteralExpr {
             list.add(getStringLiteralForComplexType(children.get(i), options)
                     + options.getMapKeyDelim() + getStringLiteralForComplexType(children.get(i + 1), options));
         }
-        return "{" + StringUtils.join(list, ", ") + "}";
+        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
 
     @Override

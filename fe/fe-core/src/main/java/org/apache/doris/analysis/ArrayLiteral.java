@@ -152,7 +152,7 @@ public class ArrayLiteral extends LiteralExpr {
             // we should use type to decide we output array is suitable for json format
             list.add(stringLiteral);
         });
-        return "[" + StringUtils.join(list, ", ") + "]";
+        return "[" + StringUtils.join(list, options.getCollectionDelim()) + "]";
     }
 
     @Override
