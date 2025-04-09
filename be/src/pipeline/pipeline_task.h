@@ -190,6 +190,7 @@ public:
 
     // TODO: Maybe we do not need this safe code anymore
     void stop_if_finished() {
+        std::unique_lock<std::mutex> lc(_dependency_lock);
         if (!is_finalized()) {
             if (_sink->is_finished(_state)) {
                 set_wake_up_early();

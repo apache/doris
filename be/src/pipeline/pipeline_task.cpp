@@ -645,6 +645,9 @@ Status PipelineTask::finalize() {
     _op_shared_states.clear();
     _shared_state_map.clear();
     _block.reset();
+    _operators.clear();
+    _sink.reset();
+    _pipeline.reset();
     return Status::OK();
 }
 
