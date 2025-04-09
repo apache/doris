@@ -31,6 +31,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTrinoConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -410,6 +412,16 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 // insertCtx is not useful for dictionary. so keep it empty is ok.
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
                         () -> new DictionaryInsertExecutor(ctx, dictionary, label, planner, insertCtx, emptyInsert));
+            } else if (physicalSink instanceof PhysicalTrinoConnectorTableSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                TrinoConnectorExternalTable trinoConnectorExternalTable = (TrinoConnectorExternalTable) targetTableIf;
+                return ExecutorFactory.from(
+                        planner,
+                        dataSink,
+                        physicalSink,
+                        () -> new TrinoConnectorInsertExecutor(ctx, trinoConnectorExternalTable, label, planner,
+                                Optional.of(insertCtx.orElse((new TrinoConnectorInsertCommandContext()))), emptyInsert)
+                );
             } else {
                 // TODO: support other table types
                 throw new AnalysisException(
