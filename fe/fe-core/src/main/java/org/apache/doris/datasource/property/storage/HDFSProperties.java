@@ -76,13 +76,23 @@ public class HDFSProperties extends StorageProperties {
         loadFinalHdfsConfig(origProps);
     }
 
+    public static boolean guessIsMe(Map<String, String> props){
+        if(MapUtils.isEmpty(props)){
+            return false;
+        }
+        if(props.containsKey("hadoop.config.resources")|| props.containsKey("hadoop.security.authentication")){
+            return true;
+        }
+        return false;
+    }
+
     private void loadFinalHdfsConfig(Map<String, String> origProps) {
         if (MapUtils.isEmpty(origProps)) {
             return;
         }
         finalHdfsConfig = new HashMap<>();
         origProps.forEach((key, value) -> {
-            if (key.startsWith("hadoop.") || key.startsWith("dfs.")) {
+            if (key.startsWith("hadoop.") || key.startsWith("dfs.")||key.equals("fs.defaultFS")) {
                 finalHdfsConfig.put(key, value);
             }
         });
@@ -131,20 +141,20 @@ public class HDFSProperties extends StorageProperties {
     }
 
     public Configuration getHadoopConfiguration() {
-        Configuration conf = new Configuration(false);
+        Configuration conf = new Configuration(true);
         Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         allProps.forEach(conf::set);
         if (MapUtils.isNotEmpty(finalHdfsConfig)) {
             finalHdfsConfig.forEach(conf::set);
         }
-        conf.set("hdfs.security.authentication", hdfsAuthenticationType);
+       /* conf.set("hadoop.kerberos.authentication", hdfsAuthenticationType);
         if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
             conf.set("hadoop.kerberos.principal", hdfsKerberosPrincipal);
             conf.set("hadoop.kerberos.keytab", hdfsKerberosKeytab);
         }
         if (!Strings.isNullOrEmpty(hadoopUsername)) {
             conf.set("hadoop.username", hadoopUsername);
-        }
+        }*/
 
         return conf;
     }
@@ -163,7 +173,7 @@ public class HDFSProperties extends StorageProperties {
 
     @Override
     public String convertUrlToFilePath(String url) throws UserException {
-        throw new NotImplementedException("Support HDFS is not implemented");
+        return url;
     }
 
     @Override
