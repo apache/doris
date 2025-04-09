@@ -1146,7 +1146,12 @@ Status OrcReader::set_fill_columns(
     if (_lazy_read_ctx.conjuncts.empty()) {
         _lazy_read_ctx.can_lazy_read = false;
     } else {
-        _init_search_argument(_lazy_read_ctx.conjuncts);
+        auto res = _init_search_argument(_lazy_read_ctx.conjuncts);
+        if (_state->query_options().check_orc_init_sargs_success && !res) {
+            return Status::InternalError(
+                    "Session variable check_orc_init_sargs_success is set, but "
+                    "_init_search_argument returns false");
+        }
     }
     try {
         _row_reader_options.range(_range_start_offset, _range_size);
