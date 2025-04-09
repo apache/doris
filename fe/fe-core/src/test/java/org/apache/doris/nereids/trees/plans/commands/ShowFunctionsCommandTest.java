@@ -30,10 +30,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Like;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -127,8 +123,7 @@ public class ShowFunctionsCommandTest extends TestWithFeService {
         Assertions.assertEquals("", re4.get(0).get(4));
 
         // test for full not builtin functions with where condition
-        Expression where = new Like(new UnboundSlot(Lists.newArrayList("empty key")),
-                new StringLiteral("test_for_create_function%"));
+        String where = "test_for_create_function%";
         sf = new ShowFunctionsCommand("test", false, true, where);
         List<String> func5 = sf.getFunctions(connectContext);
         List<List<String>> re5 = sf.getResultRowSetByFunctions(func5);

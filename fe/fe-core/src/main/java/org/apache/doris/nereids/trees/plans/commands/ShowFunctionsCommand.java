@@ -33,10 +33,7 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -72,25 +69,18 @@ public class ShowFunctionsCommand extends ShowCommand {
     private String dbName;
     private boolean isBuiltin;
     private boolean isVerbose;
-    private Expression where;
     private String likeCondition;
     private SetType type = SetType.DEFAULT;
 
     /**
      * constructor
      */
-    public ShowFunctionsCommand(String dbName, boolean isBuiltin, boolean isVerbose, Expression where) {
+    public ShowFunctionsCommand(String dbName, boolean isBuiltin, boolean isVerbose, String likeCondition) {
         super(PlanType.SHOW_FUNCTIONS_COMMAND);
         this.dbName = dbName;
         this.isBuiltin = isBuiltin;
         this.isVerbose = isVerbose;
-        this.where = where;
-        if (where instanceof Like) {
-            Expression val = where.child(1);
-            if (val instanceof StringLikeLiteral) {
-                likeCondition = ((StringLikeLiteral) val).getStringValue();
-            }
-        }
+        this.likeCondition = likeCondition;
     }
 
     /***
@@ -132,7 +122,7 @@ public class ShowFunctionsCommand extends ShowCommand {
         for (String function : functions) {
             List<Comparable> row = getInfo(isVerbose, function);
             // like predicate
-            if (where == null || like(function, likeCondition)) {
+            if (likeCondition == null || like(function, likeCondition)) {
                 rowSet.add(row);
             }
         }
@@ -225,10 +215,6 @@ public class ShowFunctionsCommand extends ShowCommand {
                 .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                     ConnectContext.get().getQualifiedUser(), dbName);
-        }
-
-        if (where != null && !(where instanceof Like)) {
-            throw new AnalysisException("Only support like 'function_pattern' syntax.");
         }
 
         List<List<String>> resultRowSet = getResultRowSet(ctx);
