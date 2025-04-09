@@ -2173,13 +2173,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetPartialUpdate() && !request.isPartialUpdate()) {
             ctx.getSessionVariable().setEnableUniqueKeyPartialUpdate(false);
         }
-        String sql = request.getLoadSql();
-        if (sql.contains("doris_internal_table_id") && sql.contains("select * from group_commit")) {
+        String token = request.getToken();
+        if (!Strings.isNullOrEmpty(token) && token.equals("group_commit")) {
             Pattern pattern = Pattern.compile(
                     "group_commit\\(\\s*\"table_id\"\\s*=\\s*\"(\\d+)\"\\s*\\)",
                     Pattern.CASE_INSENSITIVE
             );
-            Matcher matcher = pattern.matcher(sql);
+            Matcher matcher = pattern.matcher(request.getLoadSql());
             if (matcher.find()) {
                 long tableId = -1;
                 tableId = Long.parseLong(matcher.group(1));
