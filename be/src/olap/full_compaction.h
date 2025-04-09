@@ -47,11 +47,8 @@ protected:
 
 private:
     Status _check_all_version(const std::vector<RowsetSharedPtr>& rowsets);
-    Status _full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowset,
-                                                 RowsetWriter* rowset_writer);
     Status _full_compaction_calc_delete_bitmap(const RowsetSharedPtr& published_rowset,
-                                               const RowsetSharedPtr& rowset,
-                                               const int64_t& cur_version,
+                                               const RowsetSharedPtr& rowset, int64_t cur_version,
                                                RowsetWriter* rowset_writer);
 
     DISALLOW_COPY_AND_ASSIGN(FullCompaction);
