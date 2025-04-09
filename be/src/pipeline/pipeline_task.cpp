@@ -517,7 +517,8 @@ Status PipelineTask::execute(bool* done) {
             Status status = Status::OK();
             DEFER_RELEASE_RESERVED();
             COUNTER_UPDATE(_memory_reserve_times, 1);
-            if (_state->get_query_ctx()->enable_reserve_memory() && workload_group) {
+            if (_state->get_query_ctx()->enable_reserve_memory() && workload_group &&
+                !(_wake_up_early || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
                 status = sink_reserve_size != 0
                                  ? thread_context()->thread_mem_tracker_mgr->try_reserve(
@@ -609,6 +610,9 @@ Status PipelineTask::finalize() {
     _op_shared_states.clear();
     _shared_state_map.clear();
     _block.reset();
+    _operators.clear();
+    _sink.reset();
+    _pipeline.reset();
     return Status::OK();
 }
 
@@ -660,6 +664,9 @@ std::string PipelineTask::debug_string() {
                    (void*)this, _index, _opened, _eos, _to_string(_exec_state), _dry_run,
                    _wake_up_early.load(), _state_change_watcher.elapsed_time() / NANOS_PER_SEC,
                    _spilling, is_running());
+    if (is_finalized() || !fragment) {
+        return fmt::to_string(debug_string_buffer);
+    }
     std::unique_lock<std::mutex> lc(_dependency_lock);
     auto* cur_blocked_dep = _blocked_dep;
     auto fragment = _fragment_context.lock();
@@ -677,9 +684,6 @@ std::string PipelineTask::debug_string() {
                    _opened && !is_finalized() ? _sink->debug_string(_state, _operators.size())
                                               : _sink->debug_string(_operators.size()));
 
-    if (is_finalized() || !fragment) {
-        return fmt::to_string(debug_string_buffer);
-    }
     fmt::format_to(debug_string_buffer, "\nRead Dependency Information: \n");
 
     size_t i = 0;
