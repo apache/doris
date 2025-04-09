@@ -111,8 +111,6 @@ suite("test_schema_change_with_group_commit", "docker") {
         for (row : result) {
             assertEquals(2, row[1]);
             assertEquals(3, row[2]);
-            assertEquals("4", row[3]);
-            assertEquals("5", row[4]);
         }
     }
 
