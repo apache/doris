@@ -275,9 +275,9 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
 
     _spill_dependency->block();
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-            std::make_shared<SpillSinkRunnable>(state, spill_context, _spill_dependency, operator_profile(),
-                                                _shared_state->shared_from_this(),
-                                                exception_catch_func));
+            std::make_shared<SpillSinkRunnable>(
+                    state, spill_context, _spill_dependency, operator_profile(),
+                    _shared_state->shared_from_this(), exception_catch_func));
 }
 
 } // namespace doris::pipeline
