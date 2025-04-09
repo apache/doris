@@ -84,7 +84,6 @@ struct FieldInfo {
     int precision = 0;
 };
 
-void get_field_info(const Field& field, FieldInfo* info);
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
  *  a trie-like structure. ColumnObject is not suitable for writing into tables
