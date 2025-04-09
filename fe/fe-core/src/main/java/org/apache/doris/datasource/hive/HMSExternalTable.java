@@ -1084,6 +1084,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
     }
 
+    public boolean firstColumnIsString() {
+        List<Column> columns = getColumns();
+        if (columns == null || columns.isEmpty()) {
+            return false;
+        }
+        return columns.get(0).getType().isScalarType(PrimitiveType.STRING);
+    }
+
     public HoodieTableMetaClient getHudiClient() {
         return Env.getCurrentEnv()
             .getExtMetaCacheMgr()

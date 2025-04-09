@@ -207,6 +207,7 @@ import org.apache.doris.nereids.DorisParser.Is_not_null_predContext;
 import org.apache.doris.nereids.DorisParser.IsnullContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
+import org.apache.doris.nereids.DorisParser.KillQueryContext;
 import org.apache.doris.nereids.DorisParser.LambdaExpressionContext;
 import org.apache.doris.nereids.DorisParser.LateralViewContext;
 import org.apache.doris.nereids.DorisParser.LessThanPartitionDefContext;
@@ -302,6 +303,7 @@ import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackupContext;
 import org.apache.doris.nereids.DorisParser.ShowBrokerContext;
 import org.apache.doris.nereids.DorisParser.ShowCharsetContext;
+import org.apache.doris.nereids.DorisParser.ShowClustersContext;
 import org.apache.doris.nereids.DorisParser.ShowCollationContext;
 import org.apache.doris.nereids.DorisParser.ShowColumnHistogramStatsContext;
 import org.apache.doris.nereids.DorisParser.ShowConfigContext;
@@ -598,6 +600,8 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
@@ -619,6 +623,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowClustersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowColumnHistogramStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
@@ -686,6 +691,9 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountComman
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
@@ -797,6 +805,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnDesc;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadDeleteOnClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadPartitionNames;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadPrecedingFilterClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
@@ -1790,14 +1799,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ((ImportPartitionsContext) ctx).partitionSpec());
             loadProperty = new LoadPartitionNames(partitionSpec.first, partitionSpec.second);
         } else if (ctx instanceof ImportPrecedingFilterContext) {
-            loadProperty = new LoadWhereClause(getExpression(((ImportPrecedingFilterContext) ctx)
-                    .importPrecedingFilterStatement().booleanExpression()), true);
+            loadProperty = new LoadPrecedingFilterClause(getExpression(((ImportPrecedingFilterContext) ctx)
+                    .importPrecedingFilterStatement().booleanExpression()));
         } else if (ctx instanceof ImportSequenceContext) {
             loadProperty = new LoadSequenceClause(((ImportSequenceContext) ctx)
                     .importSequenceStatement().identifier().getText());
         } else if (ctx instanceof ImportWhereContext) {
             loadProperty = new LoadWhereClause(getExpression(((ImportWhereContext) ctx)
-                    .importWhereStatement().booleanExpression()), false);
+                    .importWhereStatement().booleanExpression()));
         }
         return loadProperty;
     }
@@ -1814,11 +1823,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (labelParts.size() == 2) {
             labelDbName = labelParts.get(0);
             labelName = labelParts.get(1);
-        } else if (labelParts.size() == 3) {
-            labelDbName = labelParts.get(1);
-            labelName = labelParts.get(2);
         } else {
-            throw new AnalysisException("labelParts in load should be [ctl.][db.]label");
+            throw new AnalysisException("labelParts in load should be [db.]label");
         }
         LabelNameInfo jobLabelInfo = new LabelNameInfo(labelDbName, labelName);
         String tableName = null;
@@ -5884,6 +5890,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitKillQuery(KillQueryContext ctx) {
+        String queryId;
+        TerminalNode integerValue = ctx.INTEGER_VALUE();
+        if (integerValue != null) {
+            queryId = integerValue.getText();
+        } else {
+            queryId = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+        return new KillQueryCommand(queryId);
+    }
+
+    @Override
+    public LogicalPlan visitKillConnection(DorisParser.KillConnectionContext ctx) {
+        int connectionId = Integer.parseInt(ctx.INTEGER_VALUE().getText());
+        return new KillConnectionCommand(connectionId);
+    }
+
+    @Override
     public Object visitAlterDatabaseSetQuota(AlterDatabaseSetQuotaContext ctx) {
         String databaseName = Optional.ofNullable(ctx.name)
                 .map(ParseTree::getText).filter(s -> !s.isEmpty())
@@ -6377,6 +6401,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowClusters(ShowClustersContext ctx) {
+        boolean showComputeGroups = ctx.COMPUTE() != null;
+        return new ShowClustersCommand(showComputeGroups);
+    }
+
+    @Override
     public LogicalPlan visitAlterTableStats(DorisParser.AlterTableStatsContext ctx) {
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.name));
         PartitionNamesInfo partitionNamesInfo = null;
@@ -6408,6 +6438,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitTransactionBegin(DorisParser.TransactionBeginContext ctx) {
+        if (ctx.LABEL() != null) {
+            return new TransactionBeginCommand(ctx.identifier().getText());
+        } else {
+            return new TransactionBeginCommand();
+        }
+    }
+
+    @Override
+    public LogicalPlan visitTranscationCommit(DorisParser.TranscationCommitContext ctx) {
+        return new TransactionCommitCommand();
+    }
+
+    @Override
+    public LogicalPlan visitTransactionRollback(DorisParser.TransactionRollbackContext ctx) {
+        return new TransactionRollbackCommand();
+    }
+
     public LogicalPlan visitDropAnalyzeJob(DorisParser.DropAnalyzeJobContext ctx) {
         long jobId = Long.parseLong(ctx.INTEGER_VALUE().getText());
         return new DropAnalyzeJobCommand(jobId);

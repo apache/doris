@@ -844,9 +844,19 @@ public:
     }
 };
 
-static constexpr int MAX_STACK_CIPHER_LEN = 1024 * 64;
-struct UnHexImpl {
+struct UnHexImplEmpty {
     static constexpr auto name = "unhex";
+};
+
+struct UnHexImplNull {
+    static constexpr auto name = "unhex_null";
+};
+
+static constexpr int MAX_STACK_CIPHER_LEN = 1024 * 64;
+
+template <typename Name>
+struct UnHexImpl {
+    static constexpr auto name = Name::name;
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
 
@@ -922,6 +932,42 @@ struct UnHexImpl {
             }
 
             int outlen = hex_decode(source, srclen, dst);
+            StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
+        }
+
+        return Status::OK();
+    }
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets,
+                         ColumnUInt8::Container* null_map_data) {
+        auto rows_count = offsets.size();
+        dst_offsets.resize(rows_count);
+
+        for (int i = 0; i < rows_count; ++i) {
+            const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
+
+            if (srclen == 0) {
+                StringOP::push_null_string(i, dst_data, dst_offsets, *null_map_data);
+                continue;
+            }
+
+            char dst_array[MAX_STACK_CIPHER_LEN];
+            char* dst = dst_array;
+
+            int cipher_len = srclen / 2;
+            std::unique_ptr<char[]> dst_uptr;
+            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+                dst_uptr.reset(new char[cipher_len]);
+                dst = dst_uptr.get();
+            }
+
+            int outlen = hex_decode(source, srclen, dst);
+            if (outlen == 0) {
+                StringOP::push_null_string(i, dst_data, dst_offsets, *null_map_data);
+                continue;
+            }
 
             StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
@@ -1195,8 +1241,9 @@ using FunctionToUpper = FunctionStringToString<TransferImpl<NameToUpper>, NameTo
 
 using FunctionToInitcap = FunctionStringToString<InitcapImpl, NameToInitcap>;
 
-using FunctionUnHex = FunctionStringEncode<UnHexImpl>;
-using FunctionToBase64 = FunctionStringEncode<ToBase64Impl>;
+using FunctionUnHex = FunctionStringEncode<UnHexImpl<UnHexImplEmpty>, false>;
+using FunctionUnHexNullable = FunctionStringEncode<UnHexImpl<UnHexImplNull>, true>;
+using FunctionToBase64 = FunctionStringEncode<ToBase64Impl, false>;
 using FunctionFromBase64 = FunctionStringOperateToNullType<FromBase64Impl>;
 
 using FunctionStringAppendTrailingCharIfAbsent =
@@ -1221,6 +1268,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAutoPartitionName>();
     factory.register_function<FunctionReverseCommon>();
     factory.register_function<FunctionUnHex>();
+    factory.register_function<FunctionUnHexNullable>();
     factory.register_function<FunctionToLower>();
     factory.register_function<FunctionToUpper>();
     factory.register_function<FunctionToInitcap>();
@@ -1266,6 +1314,10 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt128Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundDoubleImpl>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundInt64Impl>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundInt128Impl>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl>>();
     factory.register_function<FunctionStringDigestOneArg<SM3Sum>>();
     factory.register_function<FunctionStringDigestOneArg<MD5Sum>>();
     factory.register_function<FunctionStringDigestSHA1>();
@@ -1281,6 +1333,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionOverlay>();
     factory.register_function<FunctionStrcmp>();
     factory.register_function<FunctionNgramSearch>();
+    factory.register_function<FunctionXPathString>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");

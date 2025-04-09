@@ -91,6 +91,8 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
@@ -112,6 +114,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowClustersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowColumnHistogramStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
@@ -179,6 +182,9 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountComman
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
@@ -824,6 +830,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showConvertLSCCommand, context);
     }
 
+    default R visitShowClustersCommand(ShowClustersCommand showClustersCommand, C context) {
+        return visitCommand(showClustersCommand, context);
+    }
+
     default R visitSwitchCommand(SwitchCommand switchCommand, C context) {
         return visitCommand(switchCommand, context);
     }
@@ -834,6 +844,14 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterDatabaseRenameCommand(AlterDatabaseRenameCommand alterDatabaseRenameCommand, C context) {
         return visitCommand(alterDatabaseRenameCommand, context);
+    }
+
+    default R visitKillQueryCommand(KillQueryCommand killQueryCommand, C context) {
+        return visitCommand(killQueryCommand, context);
+    }
+
+    default R visitKillConnectionCommand(KillConnectionCommand killConnectionCommand, C context) {
+        return visitCommand(killConnectionCommand, context);
     }
 
     default R visitAlterDatabaseSetQuotaCommand(AlterDatabaseSetQuotaCommand alterDatabaseSetQuotaCommand, C context) {
@@ -920,6 +938,18 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterColumnStatsCommand(AlterColumnStatsCommand alterColumnStatsCommand, C context) {
         return visitCommand(alterColumnStatsCommand, context);
+    }
+
+    default R visitTransactionBeginCommand(TransactionBeginCommand transactionBeginCommand, C context) {
+        return visitCommand(transactionBeginCommand, context);
+    }
+
+    default R visitTransactionCommitCommand(TransactionCommitCommand transactionCommitCommand, C context) {
+        return visitCommand(transactionCommitCommand, context);
+    }
+
+    default R visitTransactionRollbackCommand(TransactionRollbackCommand transactionRollbackCommand, C context) {
+        return visitCommand(transactionRollbackCommand, context);
     }
 
     default R visitKillAnalyzeJobCommand(KillAnalyzeJobCommand killAnalyzeJobCommand, C context) {
