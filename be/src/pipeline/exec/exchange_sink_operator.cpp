@@ -296,7 +296,9 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
         _output_tuple_id = sink.output_tuple_id;
     }
 
-    if (_part_type != TPartitionType::UNPARTITIONED) {
+    // Bucket shuffle may contain some same bucket so no need change the BUCKET_SHFFULE_HASH_PARTITIONED
+    if (_part_type != TPartitionType::UNPARTITIONED &&
+        _part_type != TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         // if the destinations only one dest, we need to use broadcast
         std::unordered_set<UniqueId> dest_fragment_ids_set;
         for (auto& dest : _dests) {
