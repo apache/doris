@@ -53,6 +53,7 @@ template <typename T>
 struct TypeName;
 } // namespace vectorized
 struct PackedInt128;
+class VariantField;
 } // namespace doris
 
 namespace doris::vectorized {
@@ -180,11 +181,6 @@ public:
             throw Exception(Status::FatalError("new data buffer failed, size: {}", size));
         }
         memcpy(data, x.data, size);
-    }
-
-    JsonbField(JsonbField&& x) : data(x.data), size(x.size) {
-        x.data = nullptr;
-        x.size = 0;
     }
 
     JsonbField& operator=(const JsonbField& x) {
@@ -333,6 +329,28 @@ private:
   * Used to represent a single value of one of several types in memory.
   * Warning! Prefer to use chunks of columns instead of single values. See Column.h
   */
+
+class VariantField {
+public:
+    explicit VariantField(Field&& f, TypeIndex type_index, int p = -1, int s = -1);
+    ~VariantField() = default;
+    VariantField(const VariantField&);
+    VariantField(VariantField&&) = default;
+    VariantField& operator=(const VariantField&);
+    TypeIndex get_type_id() const { return type; }
+    int get_precision() const { return precision; }
+    int get_scale() const { return scale; }
+    const Field& get_field() const { return *f; }
+
+private:
+    std::unique_ptr<Field> f = nullptr;
+    //type is used to store the real type of the field, for example, the real type of a Int64 is DateTimeV2
+    // or real type of a Decimal32 is Decimal(27, 9)
+    TypeIndex type = TypeIndex::Nothing;
+    int precision = -1;
+    int scale = -1;
+};
+
 class Field {
 public:
     struct Types {
@@ -364,7 +382,8 @@ public:
             HyperLogLog = 28,
             QuantileState = 29,
             Int256 = 30,
-            Decimal256 = 31
+            Decimal256 = 31,
+            Variant = 32
         };
 
         static const int MIN_NON_POD = 16;
@@ -387,6 +406,8 @@ public:
                 return "String";
             case JSONB:
                 return "JSONB";
+            case Variant:
+                return "Variant";
             case Array:
                 return "Array";
             case Tuple:
@@ -468,6 +489,8 @@ public:
         return which == Types::Array || which == Types::Map || which == Types::Tuple ||
                which == Types::VariantMap;
     }
+
+    bool is_variant_field() const { return which == Types::Variant; }
 
     Field& operator=(Field&& rhs) {
         if (this != &rhs) {
@@ -633,6 +656,9 @@ public:
         case Types::JSONB:
             f(field.template get<JsonbField>());
             return;
+        case Types::Variant:
+            f(field.template get<VariantField>());
+            return;
         case Types::Array:
             f(field.template get<Array>());
             return;
@@ -676,11 +702,11 @@ public:
     }
 
 private:
-    std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
-                         Int128, IPv6, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
-                         DecimalField<Decimal32>, DecimalField<Decimal64>,
-                         DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
-                         DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState>
+    std::aligned_union_t<
+            DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64, Int128, IPv6,
+            Float64, String, JsonbField, Array, Tuple, Map, VariantMap, DecimalField<Decimal32>,
+            DecimalField<Decimal64>, DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
+            DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState, VariantField>
             storage;
 
     Types::Which which;
@@ -736,6 +762,9 @@ private:
             break;
         case Types::JSONB:
             destroy<JsonbField>();
+            break;
+        case Types::Variant:
+            destroy<VariantField>();
             break;
         case Types::Array:
             destroy<Array>();
@@ -1104,6 +1133,11 @@ struct NearestFieldTypeImpl<std::string_view> {
 template <>
 struct Field::TypeToEnum<PackedInt128> {
     static const Types::Which value = Types::Int128;
+};
+
+template <>
+struct Field::TypeToEnum<VariantField> {
+    static constexpr Types::Which value = Types::Which::Variant;
 };
 
 template <>

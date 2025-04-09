@@ -245,4 +245,9 @@ MutableColumnPtr DataTypeObject::create_column() const {
     return ColumnObject::create(_max_subcolumns_count);
 }
 
+Field DataTypeObject::get_type_field(const IColumn& column, size_t row) const {
+    const auto& column_object = assert_cast<const ColumnObject&>(column);
+    return column_object[row];
+}
+
 } // namespace doris::vectorized

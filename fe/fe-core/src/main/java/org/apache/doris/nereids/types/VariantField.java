@@ -19,80 +19,59 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.nereids.util.Utils;
 
-import java.util.Locale;
 import java.util.Objects;
 
 /**
  * A field inside a StructType.
  */
-public class StructField {
+public class VariantField {
 
-    private final String name;
+    private final String pattern;
     private final DataType dataType;
-    private final boolean nullable;
     private final String comment;
-
-    private final boolean nameCaseSensitive;
 
     /**
      * StructField Constructor
-     *  @param name The name of this field
+     *  @param pattern of this field
      *  @param dataType The data type of this field
-     *  @param nullable Indicates if values of this field can be `null` values
-     *  @param nameCaseSensitive Indicates if name is case-sensitive
+     *  @param comment The comment of this field
      */
-    public StructField(String name, DataType dataType, boolean nullable, String comment, boolean nameCaseSensitive) {
-        this.nameCaseSensitive = nameCaseSensitive;
-        this.name = nameCaseSensitive ? Objects.requireNonNull(name, "name should not be null")
-                    : Objects.requireNonNull(name, "name should not be null").toLowerCase(Locale.ROOT);
+    public VariantField(String pattern, DataType dataType, String comment) {
+        this.pattern = Objects.requireNonNull(pattern, "pattern should not be null");
         this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
-        this.nullable = nullable;
         this.comment = Objects.requireNonNull(comment, "comment should not be null");
     }
 
-    public StructField(String name, DataType dataType, boolean nullable, String comment) {
-        this(name, dataType, nullable, comment, false);
-    }
-
-    public String getName() {
-        return name;
+    public String getPattern() {
+        return pattern;
     }
 
     public DataType getDataType() {
         return dataType;
     }
 
-    public boolean isNullable() {
-        return nullable;
-    }
-
     public String getComment() {
         return comment;
     }
 
-    public StructField conversion() {
+    public VariantField conversion() {
         if (this.dataType.equals(dataType.conversion())) {
             return this;
         }
         return withDataType(dataType.conversion());
     }
 
-    public StructField withDataType(DataType dataType) {
-        return new StructField(name, dataType, nullable, comment, nameCaseSensitive);
+    public VariantField withDataType(DataType dataType) {
+        return new VariantField(pattern, dataType, comment);
     }
 
-    public StructField withDataTypeAndNullable(DataType dataType, boolean nullable) {
-        return new StructField(name, dataType, nullable, comment, nameCaseSensitive);
-    }
-
-    public org.apache.doris.catalog.StructField toCatalogDataType() {
-        return new org.apache.doris.catalog.StructField(
-                name, dataType.toCatalogDataType(), comment, nullable);
+    public org.apache.doris.catalog.VariantField toCatalogDataType() {
+        return new org.apache.doris.catalog.VariantField(
+                pattern, dataType.toCatalogDataType(), comment);
     }
 
     public String toSql() {
-        return name + ":" + dataType.toSql()
-                + (nullable ? "" : " NOT NULL")
+        return pattern + ":" + dataType.toSql()
                 + (comment.isEmpty() ? "" : " COMMENT " + comment);
     }
 
@@ -104,22 +83,21 @@ public class StructField {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        StructField that = (StructField) o;
-        return nullable == that.nullable && Objects.equals(name, that.name) && Objects.equals(dataType,
+        VariantField that = (VariantField) o;
+        return Objects.equals(pattern, that.pattern) && Objects.equals(dataType,
                 that.dataType);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, dataType, nullable);
+        return Objects.hash(pattern, dataType);
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("StructField",
-                "name", name,
+        return Utils.toSqlString("VariantField",
+                "pattern", pattern,
                 "dataType", dataType,
-                "nullable", nullable,
                 "comment", comment);
     }
 }

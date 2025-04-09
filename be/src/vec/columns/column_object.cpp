@@ -46,6 +46,7 @@
 #include "exprs/json_functions.h"
 #include "olap/olap_common.h"
 #include "util/defer_op.h"
+#include "util/jsonb_utils.h"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/helpers.h"
@@ -68,6 +69,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/get_least_supertype.h"
+#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/json/path_in_data.h"
 
 #ifdef __AVX2__
@@ -80,7 +82,8 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 namespace {
 
-DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable) {
+DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable,
+                                 int precision = -1, int scale = -1) {
     if (type == TypeIndex::Nothing) {
         return std::make_shared<DataTypeNothing>();
     }
@@ -90,7 +93,8 @@ DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_
         return is_nullable ? make_nullable(std::make_shared<ColumnObject::MostCommonType>())
                            : std::make_shared<ColumnObject::MostCommonType>();
     }
-    DataTypePtr result = DataTypeFactory::instance().create_data_type(type, is_nullable);
+    DataTypePtr result =
+            DataTypeFactory::instance().create_data_type(type, is_nullable, precision, scale);
     for (size_t i = 0; i < num_dimensions; ++i) {
         result = std::make_shared<DataTypeArray>(result);
         if (is_nullable) {
@@ -147,6 +151,7 @@ public:
         }
         return 1 + dimensions;
     }
+    size_t operator()(const VariantField& x) { return apply_visitor(*this, x.get_field()); }
     template <typename T>
     size_t operator()(const T&) const {
         return 0;
@@ -199,17 +204,32 @@ public:
         type = TypeIndex::VARIANT;
         return 1;
     }
+    size_t operator()(const VariantField& x) {
+        typed_field_info =
+                FieldInfo {x.get_type_id(), true, false, 0, x.get_scale(), x.get_precision()};
+        return 1;
+    }
     template <typename T>
     size_t operator()(const T&) {
         type = TypeId<NearestFieldType<T>>::value;
         return 1;
     }
-    void get_scalar_type(TypeIndex* data_type) const { *data_type = type; }
+    void get_scalar_type(TypeIndex* data_type, int* precision, int* scale) const {
+        if (typed_field_info.has_value()) {
+            *data_type = typed_field_info->scalar_type_id;
+            *precision = typed_field_info->precision;
+            *scale = typed_field_info->scale;
+            return;
+        }
+        *data_type = type;
+    }
     bool contain_nulls() const { return have_nulls; }
 
     bool need_convert_field() const { return false; }
 
 private:
+    // initialized when operator()(const VariantField& x)
+    std::optional<FieldInfo> typed_field_info;
     TypeIndex type = TypeIndex::Nothing;
     bool have_nulls = false;
 };
@@ -267,6 +287,15 @@ public:
         type_indexes.insert(TypeIndex::VARIANT);
         return 0;
     }
+    size_t operator()(const VariantField& x) {
+        if (x.get_type_id() == TypeIndex::Array) {
+            apply_visitor(*this, x.get_field());
+        } else {
+            typed_field_info =
+                    FieldInfo {x.get_type_id(), true, false, 0, x.get_scale(), x.get_precision()};
+        }
+        return 0;
+    }
     size_t operator()(const Null&) {
         have_nulls = true;
         return 0;
@@ -278,7 +307,14 @@ public:
         type_indexes.insert(TypeId<NearestFieldType<T>>::value);
         return 0;
     }
-    void get_scalar_type(TypeIndex* type) const {
+    void get_scalar_type(TypeIndex* type, int* precision, int* scale) const {
+        if (typed_field_info.has_value()) {
+            // fast path
+            *type = typed_field_info->scalar_type_id;
+            *precision = typed_field_info->precision;
+            *scale = typed_field_info->scale;
+            return;
+        }
         DataTypePtr data_type;
         get_least_supertype_jsonb(type_indexes, &data_type);
         *type = data_type->get_type_id();
@@ -287,6 +323,8 @@ public:
     bool need_convert_field() const { return field_types.size() > 1; }
 
 private:
+    // initialized when operator()(const VariantField& x)
+    std::optional<FieldInfo> typed_field_info;
     phmap::flat_hash_set<TypeIndex> type_indexes;
     phmap::flat_hash_set<FieldType> field_types;
     bool have_nulls = false;
@@ -330,18 +368,28 @@ void get_field_info_impl(const Field& field, FieldInfo* info) {
     Visitor to_scalar_type_visitor;
     apply_visitor(to_scalar_type_visitor, field);
     TypeIndex type_id;
-    to_scalar_type_visitor.get_scalar_type(&type_id);
+    int precision = 0;
+    int scale = 0;
+    to_scalar_type_visitor.get_scalar_type(&type_id, &precision, &scale);
     // array item's dimension may missmatch, eg. [1, 2, [1, 2, 3]]
     *info = {
             type_id,
             to_scalar_type_visitor.contain_nulls(),
             to_scalar_type_visitor.need_convert_field(),
             apply_visitor(FieldVisitorToNumberOfDimensions(), field),
+            scale,
+            precision,
     };
 }
 
+bool is_complex_field(const Field& field) {
+    return field.is_complex_field() ||
+           (field.is_variant_field() &&
+            field.get<const VariantField&>().get_field().is_complex_field());
+}
+
 void get_field_info(const Field& field, FieldInfo* info) {
-    if (field.is_complex_field()) {
+    if (is_complex_field(field)) {
         get_field_info_impl<FieldVisitorToScalarType>(field, info);
     } else {
         get_field_info_impl<SimpleFieldVisitorToScalarType>(field, info);
@@ -406,9 +454,26 @@ size_t ColumnObject::Subcolumn::Subcolumn::allocatedBytes() const {
     return res;
 }
 
+Field get_field_from_variant_field(const Field& field) {
+    if (field.is_variant_field()) {
+        const auto& variant_field = field.get<const VariantField&>();
+        const auto& wrapped_field = variant_field.get_field();
+        if (wrapped_field.get_type() == Field::Types::Array) {
+            Array res;
+            for (const auto& item : wrapped_field.get<Array>()) {
+                res.push_back(get_field_from_variant_field(item));
+            }
+            return res;
+        }
+        return wrapped_field;
+    }
+    return field;
+}
+
 void ColumnObject::Subcolumn::insert(Field field) {
     FieldInfo info;
     get_field_info(field, &info);
+    field = get_field_from_variant_field(field);
     insert(std::move(field), std::move(info));
 }
 
@@ -422,6 +487,7 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
 }
 
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
+    DCHECK(!field.is_variant_field());
     auto base_type = WhichDataType(info.scalar_type_id);
     ++num_rows;
     if (base_type.is_nothing() && info.num_dimensions == 0) {
@@ -448,7 +514,11 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
         type_changed = true;
     }
     if (data.empty()) {
-        add_new_column_part(create_array_of_type(base_type.idx, value_dim, is_nullable));
+        // Currently we support specify predefined schema for other types include decimal, datetime ...etc
+        // so we should set specified info to create correct types, and those predefined types are static and
+        // no conflict, so we can set them directly.
+        add_new_column_part(create_array_of_type(base_type.idx, value_dim, is_nullable,
+                                                 info.precision, info.scale));
     } else if (least_common_type.get_base_type_id() != base_type.idx && !base_type.is_nothing()) {
         if (schema_util::is_conversion_required_between_integers(
                     base_type.idx, least_common_type.get_base_type_id())) {
@@ -1042,14 +1112,9 @@ void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
         return;
     }
     if (is_finalized()) {
-        if (least_common_type.get_base_type_id() == TypeIndex::JSONB) {
-            // JsonbFiled is special case
-            res = JsonbField();
-        }
-        get_finalized_column().get(n, res);
+        res = get_least_common_type()->get_type_field(get_finalized_column(), n);
         return;
     }
-
     size_t ind = n;
     if (ind < num_of_defaults_in_prefix) {
         res = least_common_type.get()->get_default();
@@ -1806,9 +1871,7 @@ bool ColumnObject::is_visible_root_value(size_t nrow) const {
         }
 
         // If any non-root subcolumn is NOT null, set serialize_root to false and exit early
-        if (!assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                     *subcolumn->data.get_finalized_column_ptr())
-                     .is_null_at(nrow)) {
+        if (!subcolumn->data.is_null_at(nrow)) {
             return false;
         }
     }

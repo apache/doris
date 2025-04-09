@@ -50,9 +50,6 @@ enum class TypeIndex;
 namespace doris::vectorized {
 
 class DataTypeFactory {
-    using DataTypeMap = std::unordered_map<std::string, DataTypePtr>;
-    using InvertedDataTypeMap = std::vector<std::pair<DataTypePtr, std::string>>;
-
 public:
     static DataTypeFactory& instance() {
         static DataTypeFactory instance;
@@ -60,7 +57,8 @@ public:
     }
 
     DataTypePtr create_data_type(const doris::Field& col_desc);
-    DataTypePtr create_data_type(const TypeIndex& type_index, bool is_nullable = false);
+    DataTypePtr create_data_type(const TypeIndex& type_index, bool is_nullable = false,
+                                 int precision = -1, int scale = -1);
     DataTypePtr create_data_type(const TabletColumn& col_desc, bool is_nullable = false);
 
     DataTypePtr create_data_type(const TypeDescriptor& col_desc, bool is_nullable = true);
