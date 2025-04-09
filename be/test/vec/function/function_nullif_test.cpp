@@ -53,8 +53,7 @@ TEST(NullIfTest, String_Int_Test) {
             {{std::string("2021-10-24 12:32:31"), std::string("2021-10-24 13:00:01")},
              std::string("2021-10-24 12:32:31")},
             {{std::string("2021-10-24 13:00:01"), std::string("2021-10-24 13:00:01")}, Null()},
-            {{std::string("2021-10-24 13:00:01"), Null()},
-             std::string("2021-10-24 13:00:01")}};
+            {{std::string("2021-10-24 13:00:01"), Null()}, std::string("2021-10-24 13:00:01")}};
 
     static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
 }

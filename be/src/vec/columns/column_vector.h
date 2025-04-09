@@ -21,13 +21,13 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <cstdint>
-#include <cstring>
 #include <sys/types.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <initializer_list>
 #include <string>
 #include <type_traits>

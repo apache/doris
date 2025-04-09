@@ -21,9 +21,9 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <cstddef>
 
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>

@@ -1496,7 +1496,7 @@ TEST(FunctionJsonbTEST, JsonbCastFromOtherTest) {
             {{{TINYINT(100), STRING()}, STRING("100")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::Int16}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{SMALLINT(10000), STRING()}, STRING( "10000")}}));
+            {{{SMALLINT(10000), STRING()}, STRING("10000")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::Int32}, ConstedNotnull {TypeIndex::JSONB}},
             {{{INT(1000000000), STRING()}, STRING("1000000000")}}));

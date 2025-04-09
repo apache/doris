@@ -123,8 +123,7 @@ TEST(function_array_index_test, array_contains) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::DateTime};
 
-        TestArray vec = {std::string("2022-01-02 00:00:00"),
-                     std::string("2022-07-08 00:00:00")};
+        TestArray vec = {std::string("2022-01-02 00:00:00"), std::string("2022-07-08 00:00:00")};
         DataSet data_set = {{{vec, std::string("2022-01-02 00:00:00")}, UInt8(1)},
                             {{vec, std::string("2022-01-03 00:00:00")}, UInt8(0)},
                             {{Null(), std::string("2022-01-04 00:00:00")}, Null()},
@@ -139,7 +138,7 @@ TEST(function_array_index_test, array_contains) {
                                     TypeIndex::Decimal128V2};
 
         TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
-                     ut_type::DECIMALV2(0.0)};
+                         ut_type::DECIMALV2(0.0)};
         DataSet data_set = {{{vec, ut_type::DECIMALV2(-17014116.67)}, UInt8(1)},
                             {{vec, ut_type::DECIMALV2(0)}, UInt8(1)},
                             {{Null(), ut_type::DECIMALV2(0)}, Null()},
@@ -223,8 +222,7 @@ TEST(function_array_index_test, array_position) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::DateTime};
 
-        TestArray vec = {std::string("2022-01-02 00:00:00"),
-                     std::string("2022-07-08 00:00:00")};
+        TestArray vec = {std::string("2022-01-02 00:00:00"), std::string("2022-07-08 00:00:00")};
         DataSet data_set = {{{vec, std::string("2022-01-02 00:00:00")}, Int64(1)},
                             {{vec, std::string("2022-01-03 00:00:00")}, Int64(0)},
                             {{Null(), std::string("2022-01-04 00:00:00")}, Null()},
@@ -239,7 +237,7 @@ TEST(function_array_index_test, array_position) {
                                     TypeIndex::Decimal128V2};
 
         TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
-                     ut_type::DECIMALV2(0)};
+                         ut_type::DECIMALV2(0)};
         DataSet data_set = {{{vec, ut_type::DECIMALV2(-17014116.67)}, Int64(2)},
                             {{vec, ut_type::DECIMALV2(0)}, Int64(3)},
                             {{Null(), ut_type::DECIMALV2(0)}, Null()},

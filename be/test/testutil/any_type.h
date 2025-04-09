@@ -59,9 +59,7 @@ struct AnyType : public std::variant<std::any, __int128_t> {
 
     int _scale = -1;
     int _precision = -1;
-    int scale_or(int default_value) const {
-        return _scale == -1 ? default_value : _scale;
-    }
+    int scale_or(int default_value) const { return _scale == -1 ? default_value : _scale; }
     int precision_or(int default_value) const {
         return _precision == -1 ? default_value : _precision;
     }

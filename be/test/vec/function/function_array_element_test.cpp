@@ -90,7 +90,7 @@ TEST(function_array_element_test, element_at) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::Int64};
 
         TestArray vec = {std::string("2022-01-02 01:00:00"), std::string(""),
-                     std::string("2022-07-08 03:00:00")};
+                         std::string("2022-07-08 03:00:00")};
         DataSet data_set = {{{vec, Int64(0)}, Null()},
                             {{vec, Int64(1)}, std::string("2022-01-02 01:00:00")},
                             {{vec, Int64(4)}, Null()},
@@ -108,17 +108,13 @@ TEST(function_array_element_test, element_at) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Int64};
 
-        TestArray vec = {std::string("2022-01-02"), std::string(""),
-                     std::string("2022-07-08")};
-        DataSet data_set = {{{vec, Int64(0)}, Null()},
-                            {{vec, Int64(1)}, std::string("2022-01-02")},
-                            {{vec, Int64(4)}, Null()},
-                            {{vec, Int64(-1)}, std::string("2022-07-08")},
-                            {{vec, Int64(-2)}, std::string("")},
-                            {{vec, Int64(-4)}, Null()},
-                            {{Null(), Int64(1)}, Null()},
-                            {{empty_arr, Int64(0)}, Null()},
-                            {{empty_arr, Int64(1)}, Null()}};
+        TestArray vec = {std::string("2022-01-02"), std::string(""), std::string("2022-07-08")};
+        DataSet data_set = {
+                {{vec, Int64(0)}, Null()},           {{vec, Int64(1)}, std::string("2022-01-02")},
+                {{vec, Int64(4)}, Null()},           {{vec, Int64(-1)}, std::string("2022-07-08")},
+                {{vec, Int64(-2)}, std::string("")}, {{vec, Int64(-4)}, Null()},
+                {{Null(), Int64(1)}, Null()},        {{empty_arr, Int64(0)}, Null()},
+                {{empty_arr, Int64(1)}, Null()}};
 
         static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
     }
@@ -128,7 +124,7 @@ TEST(function_array_element_test, element_at) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2, TypeIndex::Int64};
 
         TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
-                     ut_type::DECIMALV2(0.0)};
+                         ut_type::DECIMALV2(0.0)};
         DataSet data_set = {{{vec, Int64(0)}, Null()},
                             {{vec, Int64(1)}, ut_type::DECIMALV2(17014116.67)},
                             {{vec, Int64(4)}, Null()},
