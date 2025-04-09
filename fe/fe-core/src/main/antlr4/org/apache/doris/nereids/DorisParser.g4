@@ -1731,9 +1731,11 @@ variantSubColTypeList
     : variantSubColType (COMMA variantSubColType)*
     ;
 variantSubColType
-    : qualifiedName COLON dataType commentSpec?
+    : variantSubColMatchType? STRING_LITERAL COLON dataType commentSpec?
     ;
-
+variantSubColMatchType
+    : (MATCH_NAME | MATCH_NAME_GLOB)
+    ;
 commentSpec
     : COMMENT STRING_LITERAL
     ;

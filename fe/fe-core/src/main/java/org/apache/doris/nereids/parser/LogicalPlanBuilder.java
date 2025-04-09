@@ -4096,7 +4096,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             comment = "";
         }
-        return new VariantField(ctx.qualifiedName().getText(), typedVisit(ctx.dataType()), comment);
+        String pattern = ctx.STRING_LITERAL().getText();
+        pattern = pattern.substring(1, pattern.length() - 1);
+        if (ctx.variantSubColMatchType() != null) {
+            return new VariantField(pattern, typedVisit(ctx.dataType()), comment,
+                    ctx.variantSubColMatchType().getText());
+        }
+        return new VariantField(pattern, typedVisit(ctx.dataType()), comment);
     }
 
     @Override
