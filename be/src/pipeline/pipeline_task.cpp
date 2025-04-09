@@ -581,6 +581,28 @@ Status PipelineTask::execute(bool* done) {
                 }
             });
 
+            DBUG_EXECUTE_IF("PipelineTask::execute.terminate", {
+                if (_eos) {
+                    auto required_pipeline_id =
+                            DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                    "PipelineTask::execute.terminate", "pipeline_id", -1);
+                    auto required_task_id =
+                            DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                    "PipelineTask::execute.terminate", "task_id", -1);
+                    auto required_fragment_id =
+                            DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                    "PipelineTask::execute.terminate", "fragment_id", -1);
+                    if (required_pipeline_id == pipeline_id() && required_task_id == task_id() &&
+                        fragment_context->get_fragment_id() == required_fragment_id) {
+                        _wake_up_early = true;
+                        terminate();
+                    } else if (required_pipeline_id == pipeline_id() &&
+                               fragment_context->get_fragment_id() == required_fragment_id) {
+                        LOG(WARNING) << "PipelineTask::execute.terminate sleep 5s";
+                        sleep(5);
+                    }
+                }
+            });
             status = _sink->sink(_state, block, _eos);
 
             if (status.is<ErrorCode::END_OF_FILE>()) {
@@ -598,6 +620,21 @@ Status PipelineTask::execute(bool* done) {
 
     RETURN_IF_ERROR(get_task_queue()->push_back(shared_from_this()));
     return Status::OK();
+}
+
+void PipelineTask::stop_if_finished() {
+    auto fragment = _fragment_context.lock();
+    if (!fragment) {
+        return;
+    }
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
+    auto sink = _sink;
+    if (!is_finalized() && sink) {
+        if (sink->is_finished(_state)) {
+            set_wake_up_early();
+            terminate();
+        }
+    }
 }
 
 Status PipelineTask::finalize() {

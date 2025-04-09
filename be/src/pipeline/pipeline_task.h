@@ -189,15 +189,7 @@ public:
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
     // TODO: Maybe we do not need this safe code anymore
-    void stop_if_finished() {
-        std::unique_lock<std::mutex> lc(_dependency_lock);
-        if (!is_finalized()) {
-            if (_sink->is_finished(_state)) {
-                set_wake_up_early();
-                terminate();
-            }
-        }
-    }
+    void stop_if_finished();
 
     PipelineId pipeline_id() const { return _pipeline->id(); }
     [[nodiscard]] size_t get_revocable_size() const;
