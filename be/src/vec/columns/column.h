@@ -176,6 +176,11 @@ public:
         return res;
     }
 
+    virtual void remove_first_n_values(size_t count) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method remove_first_n_values is not supported for " + get_name());
+    }
+
     /// cut or expand inplace. `this` would be moved, only the return value is avaliable.
     virtual Ptr shrink(size_t length) const final {
         // NOLINTBEGIN(performance-move-const-arg)
