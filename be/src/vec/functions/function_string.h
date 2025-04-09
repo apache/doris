@@ -24,6 +24,7 @@
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/locale.hpp>
+#include <boost/multiprecision/cpp_dec_float.hpp>
 #include <climits>
 #include <cmath>
 #include <cstddef>
@@ -1779,6 +1780,44 @@ public:
     }
 };
 
+template <typename Impl>
+class FunctionStringFormatRound : public IFunction {
+public:
+    static constexpr auto name = "format_round";
+    static FunctionPtr create() { return std::make_shared<FunctionStringFormatRound>(); }
+    String get_name() const override { return name; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments.size() != 2) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Function {} requires exactly 2 argument", name);
+        }
+        return std::make_shared<DataTypeString>();
+    }
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
+    size_t get_number_of_arguments() const override { return 2; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto res_column = ColumnString::create();
+        ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
+        ColumnPtr argument_column_2;
+        bool is_const;
+        std::tie(argument_column_2, is_const) =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        auto result_column = assert_cast<ColumnString*>(res_column.get());
+
+        RETURN_IF_ERROR(Impl::execute(context, result_column, argument_column, argument_column_2,
+                                      input_rows_count));
+
+        block.replace_by_position(result, std::move(res_column));
+        return Status::OK();
+    }
+};
+
 class FunctionSplitPart : public IFunction {
 public:
     static constexpr auto name = "split_part";
@@ -3127,6 +3166,146 @@ static StringRef do_money_format(FunctionContext* context, const string& value) 
 };
 
 } // namespace MoneyFormat
+
+namespace FormatRound {
+
+constexpr size_t MAX_FORMAT_LEN_DEC32() {
+    // Decimal(9, 0)
+    // Double the size to avoid some unexpected bug.
+    return 2 * (1 + 9 + (9 / 3) + 3);
+}
+
+constexpr size_t MAX_FORMAT_LEN_DEC64() {
+    // Decimal(18, 0)
+    // Double the size to avoid some unexpected bug.
+    return 2 * (1 + 18 + (18 / 3) + 3);
+}
+
+constexpr size_t MAX_FORMAT_LEN_DEC128V2() {
+    // DecimalV2 has at most 27 digits
+    // Double the size to avoid some unexpected bug.
+    return 2 * (1 + 27 + (27 / 3) + 3);
+}
+
+constexpr size_t MAX_FORMAT_LEN_DEC128V3() {
+    // Decimal(38, 0)
+    // Double the size to avoid some unexpected bug.
+    return 2 * (1 + 39 + (39 / 3) + 3);
+}
+
+constexpr size_t MAX_FORMAT_LEN_INT64() {
+    // INT_MIN = -9223372036854775807
+    // Double the size to avoid some unexpected bug.
+    return 2 * (1 + 20 + (20 / 3) + 3);
+}
+
+constexpr size_t MAX_FORMAT_LEN_INT128() {
+    // INT128_MIN = -170141183460469231731687303715884105728
+    return 2 * (1 + 39 + (39 / 3) + 3);
+}
+
+template <typename T, size_t N>
+StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T frac_value,
+                          Int32 decimal_places) {
+    static_assert(std::is_integral<T>::value);
+    const bool is_negative = int_value < 0 || frac_value < 0;
+
+    // do round to frac_part based on decimal_places
+    if (scale > decimal_places && decimal_places > 0) {
+        DCHECK(scale <= 38);
+        // do rounding, so we need to reserve decimal_places + 1 digits
+        auto multiplier =
+                common::exp10_i128(std::abs(static_cast<int>(scale - (decimal_places + 1))));
+        // do divide first to avoid overflow
+        // after round frac_value will be positive by design
+        frac_value = std::abs(static_cast<int>(frac_value / multiplier)) + 5;
+        frac_value /= 10;
+    } else if (scale < decimal_places && decimal_places > 0) {
+        // since scale <= decimal_places, overflow is impossible
+        frac_value = frac_value * common::exp10_i32(decimal_places - scale);
+    }
+
+    // Calculate power of 10 for decimal_places
+    T decimal_power = common::exp10_i32(decimal_places);
+    if (frac_value == decimal_power) {
+        if (is_negative) {
+            int_value -= 1;
+        } else {
+            int_value += 1;
+        }
+        frac_value = 0;
+    }
+
+    bool append_sign_manually = false;
+    if (is_negative && int_value == 0) {
+        append_sign_manually = true;
+    }
+
+    char local[N];
+    char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
+    const Int32 integer_str_len = N - (p - local);
+    const Int32 frac_str_len = decimal_places;
+    const Int32 whole_decimal_str_len = (append_sign_manually ? 1 : 0) + integer_str_len +
+                                        (decimal_places > 0 ? 1 : 0) + frac_str_len;
+
+    StringRef result = context->create_temp_string_val(whole_decimal_str_len);
+    char* result_data = const_cast<char*>(result.data);
+
+    if (append_sign_manually) {
+        memset(result_data, '-', 1);
+    }
+
+    memcpy(result_data + (append_sign_manually ? 1 : 0), p, integer_str_len);
+    if (decimal_places > 0) {
+        *(result_data + whole_decimal_str_len - (frac_str_len + 1)) = '.';
+    }
+
+    // Convert fractional part to string with proper padding
+    T remaining_frac = std::abs(static_cast<int>(frac_value));
+    for (int i = 0; i <= decimal_places - 1; ++i) {
+        *(result_data + whole_decimal_str_len - 1 - i) = '0' + (remaining_frac % 10);
+        remaining_frac /= 10;
+    }
+    return result;
+}
+
+// Note string value must be valid decimal string which contains two digits after the decimal point
+static StringRef do_format_round(FunctionContext* context, const string& value,
+                                 Int32 decimal_places) {
+    bool is_positive = (value[0] != '-');
+    int32_t result_len =
+            value.size() +
+            (value.size() - (is_positive ? (decimal_places + 2) : (decimal_places + 3))) / 3;
+    StringRef result = context->create_temp_string_val(result_len);
+    char* result_data = const_cast<char*>(result.data);
+    if (!is_positive) {
+        *result_data = '-';
+    }
+    for (int i = value.size() - (decimal_places + 2), j = result_len - (decimal_places + 2); i >= 0;
+         i = i - 3) {
+        *(result_data + j) = *(value.data() + i);
+        if (i - 1 < 0) {
+            break;
+        }
+        *(result_data + j - 1) = *(value.data() + i - 1);
+        if (i - 2 < 0) {
+            break;
+        }
+        *(result_data + j - 2) = *(value.data() + i - 2);
+        if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
+            *(result_data + j - 3) = ',';
+            j -= 4;
+        } else {
+            j -= 3;
+        }
+    }
+    memcpy(result_data + result_len - (decimal_places + 1),
+           value.data() + value.size() - (decimal_places + 1), (decimal_places + 1));
+    return result;
+};
+
+} // namespace FormatRound
+
 struct MoneyFormatDoubleImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeFloat64>()}; }
 
@@ -3264,6 +3443,187 @@ struct MoneyFormatDecimalImpl {
                 result_column->insert_data(str.data, str.size);
             }
         }*/
+    }
+};
+
+struct FormatRoundDoubleImpl {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeFloat64>(), std::make_shared<vectorized::DataTypeInt32>()};
+    }
+
+    static Status execute(FunctionContext* context, ColumnString* result_column,
+                          const ColumnPtr col_ptr, ColumnPtr decimal_places_col_ptr,
+                          size_t input_rows_count) {
+        const auto& arg_column_data_2 =
+                assert_cast<const ColumnInt32*>(decimal_places_col_ptr.get())->get_data();
+        const auto* data_column = assert_cast<const ColumnFloat64*>(col_ptr.get());
+        // when scale is above 38, we will go here
+        for (size_t i = 0; i < input_rows_count; i++) {
+            int32_t decimal_places = arg_column_data_2[i];
+            if (decimal_places < 0) {
+                return Status::InvalidArgument(
+                        "The second argument is {}, it can not be less than 0.", decimal_places);
+            }
+            // round to `decimal_places` decimal places
+            double value = MathFunctions::my_double_round(data_column->get_element(i),
+                                                          decimal_places, false, false);
+            StringRef str = FormatRound::do_format_round(
+                    context, fmt::format("{:.{}f}", value, decimal_places), decimal_places);
+            result_column->insert_data(str.data, str.size);
+        }
+        return Status::OK();
+    }
+};
+
+struct FormatRoundInt64Impl {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeInt64>(), std::make_shared<vectorized::DataTypeInt32>()};
+    }
+
+    static Status execute(FunctionContext* context, ColumnString* result_column,
+                          const ColumnPtr col_ptr, ColumnPtr decimal_places_col_ptr,
+                          size_t input_rows_count) {
+        const auto* data_column = assert_cast<const ColumnVector<Int64>*>(col_ptr.get());
+        const auto& arg_column_data_2 =
+                assert_cast<const ColumnInt32*>(decimal_places_col_ptr.get())->get_data();
+        for (size_t i = 0; i < input_rows_count; i++) {
+            int32_t decimal_places = arg_column_data_2[i];
+            if (decimal_places < 0) {
+                return Status::InvalidArgument(
+                        "The second argument is {}, it can not be less than 0.", decimal_places);
+            }
+            Int64 value = data_column->get_element(i);
+            StringRef str =
+                    FormatRound::do_format_round<Int64, FormatRound::MAX_FORMAT_LEN_INT64()>(
+                            context, 0, value, 0, decimal_places);
+            result_column->insert_data(str.data, str.size);
+        }
+        return Status::OK();
+    }
+};
+
+struct FormatRoundInt128Impl {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeInt128>(), std::make_shared<vectorized::DataTypeInt32>()};
+    }
+
+    static Status execute(FunctionContext* context, ColumnString* result_column,
+                          const ColumnPtr col_ptr, ColumnPtr decimal_places_col_ptr,
+                          size_t input_rows_count) {
+        const auto* data_column = assert_cast<const ColumnVector<Int128>*>(col_ptr.get());
+        const auto& arg_column_data_2 =
+                assert_cast<const ColumnInt32*>(decimal_places_col_ptr.get())->get_data();
+        // SELECT money_format(170141183460469231731687303715884105728/*INT128_MAX + 1*/) will
+        // get "170,141,183,460,469,231,731,687,303,715,884,105,727.00" in doris,
+        // see https://github.com/apache/doris/blob/788abf2d7c3c7c2d57487a9608e889e7662d5fb2/be/src/vec/data_types/data_type_number_base.cpp#L124
+        for (size_t i = 0; i < input_rows_count; i++) {
+            int32_t decimal_places = arg_column_data_2[i];
+            if (decimal_places < 0) {
+                return Status::InvalidArgument(
+                        "The second argument is {}, it can not be less than 0.", decimal_places);
+            }
+            Int128 value = data_column->get_element(i);
+            StringRef str =
+                    FormatRound::do_format_round<Int128, FormatRound::MAX_FORMAT_LEN_INT128()>(
+                            context, 0, value, 0, decimal_places);
+            result_column->insert_data(str.data, str.size);
+        }
+        return Status::OK();
+    }
+};
+
+struct FormatRoundDecimalImpl {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeDecimal<Decimal128V2>>(27, 9),
+                std::make_shared<vectorized::DataTypeInt32>()};
+    }
+
+    static Status execute(FunctionContext* context, ColumnString* result_column, ColumnPtr col_ptr,
+                          ColumnPtr decimal_places_col_ptr, size_t input_rows_count) {
+        const auto& arg_column_data_2 =
+                assert_cast<const ColumnInt32*>(decimal_places_col_ptr.get())->get_data();
+        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128V2>>(*col_ptr)) {
+            for (size_t i = 0; i < input_rows_count; i++) {
+                int32_t decimal_places = arg_column_data_2[i];
+                if (decimal_places < 0) {
+                    return Status::InvalidArgument(
+                            "The second argument is {}, it can not be less than 0.",
+                            decimal_places);
+                }
+                const Decimal128V2& dec128 = decimalv2_column->get_element(i);
+                DecimalV2Value value = DecimalV2Value(dec128.value);
+                // unified_frac_value has 3 digits
+                auto unified_frac_value = value.frac_value() / 1000000;
+                StringRef str =
+                        FormatRound::do_format_round<Int128,
+                                                     FormatRound::MAX_FORMAT_LEN_DEC128V2()>(
+                                context, 3, value.int_value(), unified_frac_value, decimal_places);
+
+                result_column->insert_data(str.data, str.size);
+            }
+        } else if (auto* decimal32_column =
+                           check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
+            const UInt32 scale = decimal32_column->get_scale();
+            for (size_t i = 0; i < input_rows_count; i++) {
+                int32_t decimal_places = arg_column_data_2[i];
+                if (decimal_places < 0) {
+                    return Status::InvalidArgument(
+                            "The second argument is {}, it can not be less than 0.",
+                            decimal_places);
+                }
+                const Decimal32& frac_part = decimal32_column->get_fractional_part(i);
+                const Decimal32& whole_part = decimal32_column->get_whole_part(i);
+                StringRef str =
+                        FormatRound::do_format_round<Int64, FormatRound::MAX_FORMAT_LEN_DEC32()>(
+                                context, scale, static_cast<Int64>(whole_part.value),
+                                static_cast<Int64>(frac_part.value), decimal_places);
+
+                result_column->insert_data(str.data, str.size);
+            }
+        } else if (auto* decimal64_column =
+                           check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
+            const UInt32 scale = decimal64_column->get_scale();
+            for (size_t i = 0; i < input_rows_count; i++) {
+                int32_t decimal_places = arg_column_data_2[i];
+                if (decimal_places < 0) {
+                    return Status::InvalidArgument(
+                            "The second argument is {}, it can not be less than 0.",
+                            decimal_places);
+                }
+                const Decimal64& frac_part = decimal64_column->get_fractional_part(i);
+                const Decimal64& whole_part = decimal64_column->get_whole_part(i);
+
+                StringRef str =
+                        FormatRound::do_format_round<Int64, FormatRound::MAX_FORMAT_LEN_DEC64()>(
+                                context, scale, whole_part.value, frac_part.value, decimal_places);
+
+                result_column->insert_data(str.data, str.size);
+            }
+        } else if (auto* decimal128_column =
+                           check_and_get_column<ColumnDecimal<Decimal128V3>>(*col_ptr)) {
+            const UInt32 scale = decimal128_column->get_scale();
+            for (size_t i = 0; i < input_rows_count; i++) {
+                int32_t decimal_places = arg_column_data_2[i];
+                if (decimal_places < 0) {
+                    return Status::InvalidArgument(
+                            "The second argument is {}, it can not be less than 0.",
+                            decimal_places);
+                }
+                const Decimal128V3& frac_part = decimal128_column->get_fractional_part(i);
+                const Decimal128V3& whole_part = decimal128_column->get_whole_part(i);
+
+                StringRef str =
+                        FormatRound::do_format_round<Int128,
+                                                     FormatRound::MAX_FORMAT_LEN_DEC128V3()>(
+                                context, scale, whole_part.value, frac_part.value, decimal_places);
+
+                result_column->insert_data(str.data, str.size);
+            }
+        } else {
+            return Status::InternalError("Not supported input argument type {}",
+                                         col_ptr->get_name());
+        }
+        return Status::OK();
     }
 };
 

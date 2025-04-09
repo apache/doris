@@ -108,14 +108,7 @@ protected:
 
     std::string _debug_string() const;
 
-    void _check_wrapper_state(std::vector<RuntimeFilterWrapper::State> assumed_states) {
-        try {
-            _wrapper->check_state(assumed_states);
-        } catch (const Exception& e) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "rf wrapper meet invalid state, {}, {}",
-                            e.what(), debug_string());
-        }
-    }
+    void _check_wrapper_state(std::vector<RuntimeFilterWrapper::State> assumed_states);
 
     RuntimeFilterParamsContext* _state = nullptr;
     // _wrapper is a runtime filter function wrapper
