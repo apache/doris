@@ -136,7 +136,7 @@ protected:
         callback(ColumnString(), column_str32_json->get_ptr());
         if (!only_str32) {
             callback(ColumnString64(), column_str64->get_ptr());
-            a callback(ColumnString64(), column_str64_json->get_ptr());
+            callback(ColumnString64(), column_str64_json->get_ptr());
         }
     }
     void hash_common_test(

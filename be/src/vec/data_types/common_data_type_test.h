@@ -141,7 +141,6 @@ public:
             is_ip(data_type)) {
             ASSERT_EQ(data_type->get_size_of_value_in_memory(), meta_info.size_of_value_in_memory);
         } else {
-            std::cout << "get_size_of_value_in_memory: " << data_type->get_name() << std::endl;
             EXPECT_ANY_THROW(EXPECT_FALSE(data_type->get_size_of_value_in_memory()));
         }
         if (is_decimal(data_type)) {
