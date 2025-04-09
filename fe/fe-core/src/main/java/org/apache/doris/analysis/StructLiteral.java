@@ -125,7 +125,7 @@ public class StructLiteral extends LiteralExpr {
                     + options.getMapKeyDelim()
                     + getStringLiteralForComplexType(child, options));
         }
-        return "{" + StringUtils.join(list, ", ") + "}";
+        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
 
     @Override
