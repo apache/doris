@@ -87,6 +87,7 @@ suite("hbo_rf_safe_test") {
         contains("stats=1, aggPhase=GLOBAL")
     }
 
+    sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "2000"); """
 }
 
 

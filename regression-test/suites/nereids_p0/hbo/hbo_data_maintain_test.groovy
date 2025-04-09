@@ -144,6 +144,7 @@ suite("hbo_data_maintain_test") {
         contains("stats=(hbo)0, aggPhase=LOCAL")
         contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
+    sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "2000"); """
 }
 
 

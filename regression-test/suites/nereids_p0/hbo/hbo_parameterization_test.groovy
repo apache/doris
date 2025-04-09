@@ -279,4 +279,5 @@ suite("hbo_parameterization_test") {
         contains("stats=(hbo)0, aggPhase=GLOBAL")
     }
 
+    sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "2000"); """
 }
