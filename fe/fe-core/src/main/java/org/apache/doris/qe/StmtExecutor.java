@@ -877,6 +877,10 @@ public class StmtExecutor {
     // IOException: talk with client failed.
     public void executeByLegacy(TUniqueId queryId) throws Exception {
         context.setStartTime();
+        SessionVariable sessionVariable = context.getSessionVariable();
+        if (sessionVariable.isEnableNereidsPlanner()) {
+            sessionVariable.setVarOnce(SessionVariable.ENABLE_NEREIDS_PLANNER, "false");
+        }
 
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
@@ -899,7 +903,7 @@ public class StmtExecutor {
 
             if (!context.isTxnModel()) {
                 // analyze this query
-                analyze(context.getSessionVariable().toThrift());
+                analyze(sessionVariable.toThrift());
 
                 if (isForwardToMaster()) {
                     // before forward to master, we also need to set profileType in this node
