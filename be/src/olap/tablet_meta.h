@@ -444,6 +444,7 @@ public:
      * Clears bitmaps in range [lower_key, upper_key)
      */
     void remove(const BitmapKey& lower_key, const BitmapKey& upper_key);
+    void remove(const std::vector<std::tuple<BitmapKey, BitmapKey>>& key_ranges);
 
     /**
      * Checks if the given row is marked deleted
@@ -545,7 +546,8 @@ public:
      * @return shared_ptr to a bitmap, which may be empty
      */
     std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
-    std::shared_ptr<roaring::Roaring> get_agg_without_cache(const BitmapKey& bmk) const;
+    std::shared_ptr<roaring::Roaring> get_agg_without_cache(const BitmapKey& bmk,
+                                                            const int64_t start_version = 0) const;
 
     void remove_sentinel_marks();
 

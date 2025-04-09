@@ -240,10 +240,15 @@ void CloudTabletMgr::erase_tablet(int64_t tablet_id) {
 void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
     LOG_INFO("begin to vacuum stale rowsets");
     std::vector<std::shared_ptr<CloudTablet>> tablets_to_vacuum;
+    std::vector<std::shared_ptr<CloudTablet>> tablets_to_remove_delete_bitmap;
     tablets_to_vacuum.reserve(_tablet_map->size());
-    _tablet_map->traverse([&tablets_to_vacuum](auto&& t) {
+    tablets_to_remove_delete_bitmap.reserve(_tablet_map->size());
+    _tablet_map->traverse([&tablets_to_vacuum, &tablets_to_remove_delete_bitmap](auto&& t) {
         if (t->has_stale_rowsets()) {
             tablets_to_vacuum.push_back(t);
+        }
+        if (t->need_remove_pre_rowset_delete_bitmap()) {
+            tablets_to_remove_delete_bitmap.push_back(t);
         }
     });
     int num_vacuumed = 0;
@@ -257,6 +262,13 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
     LOG_INFO("finish vacuum stale rowsets")
             .tag("num_vacuumed", num_vacuumed)
             .tag("num_tablets", tablets_to_vacuum.size());
+
+    LOG_INFO("begin to remove pre rowsets delete bitmap");
+    for (auto& t : tablets_to_remove_delete_bitmap) {
+        t->remove_pre_rowset_delete_bitmap();
+    }
+    LOG_INFO("finish remove pre rowsets delete bitmap")
+            .tag("num_tablets", tablets_to_remove_delete_bitmap.size());
 }
 
 std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {

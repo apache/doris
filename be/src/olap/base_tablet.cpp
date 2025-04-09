@@ -1768,6 +1768,53 @@ Status BaseTablet::update_delete_bitmap_without_lock(
     return Status::OK();
 }
 
+void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
+        const std::vector<TimestampedVersionSharedPtr>& to_delete_version,
+        DeleteBitmapKeyRanges& remove_delete_bitmap_key_ranges) {
+    if (!tablet_meta()->enable_unique_key_merge_on_write()) {
+        return;
+    }
+    int64_t start_version = -1;
+    int64_t end_version = -1;
+    for (auto& timestampedVersion : to_delete_version) {
+        if (start_version < 0) {
+            start_version = timestampedVersion->version().first;
+        }
+        end_version = timestampedVersion->version().second;
+    }
+    DCHECK(start_version < end_version)
+            << ". start_version: " << start_version << ", end_version: " << end_version;
+    // get pre rowsets
+    std::vector<RowsetSharedPtr> pre_rowsets {};
+    for (const auto& it2 : _rs_version_map) {
+        if (it2.first.second < start_version) {
+            pre_rowsets.emplace_back(it2.second);
+        }
+    }
+    std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
+    // do agg for pre rowsets
+    DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
+    for (auto& rowset : pre_rowsets) {
+        for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
+            auto d = tablet_meta()->delete_bitmap().get_agg_without_cache(
+                    {rowset->rowset_id(), seg_id, end_version}, start_version);
+            if (d->isEmpty()) {
+                continue;
+            }
+            VLOG_DEBUG << "agg for table_id=" << tablet_id()
+                       << ", rowset_id=" << rowset->rowset_id() << ", seg_id=" << seg_id
+                       << ", rowset_version=" << rowset->version().to_string()
+                       << ". compaction start_version=" << start_version
+                       << ", end_version=" << end_version << ", delete_bitmap=" << d->cardinality();
+            DeleteBitmap::BitmapKey start_key {rowset->rowset_id(), seg_id, start_version};
+            DeleteBitmap::BitmapKey end_key {rowset->rowset_id(), seg_id, end_version};
+            new_delete_bitmap->set(end_key, *d);
+            remove_delete_bitmap_key_ranges.emplace_back(start_key, end_key);
+        }
+    }
+    tablet_meta()->delete_bitmap().merge(*new_delete_bitmap);
+}
+
 RowsetSharedPtr BaseTablet::get_rowset(const RowsetId& rowset_id) {
     std::shared_lock rdlock(_meta_lock);
     for (auto& version_rowset : _rs_version_map) {
