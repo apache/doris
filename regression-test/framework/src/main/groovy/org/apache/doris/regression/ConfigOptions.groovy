@@ -59,6 +59,7 @@ class ConfigOptions {
     static Option runModeOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
+    static Option clustersToCompareResultsOpt
     static Option groupsOpt
     static Option excludeGroupsOpt
     static Option directoriesOpt
@@ -244,6 +245,15 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("excludeSuite")
                 .desc("the suite name wildcard will not be tested")
+                .build()
+        clustersToCompareResultsOpt = Option.builder("clustersToCompareResults")
+                .argName("clustersToCompareResults")
+                .required(false)
+                .hasArg(true)
+                .optionalArg(true)
+                .type(String.class)
+                .longOpt("clustersToCompareResults")
+                .desc("compare cluster data after regression")
                 .build()
         groupsOpt = Option.builder("g")
                 .argName("groups")

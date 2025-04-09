@@ -349,4 +349,7 @@ suite("check_before_quit", "nonConcurrent,p0") {
     }
 
     assertTrue(clear)
+
+    // check multi-cluster have same data.
+    check_multi_cluster_result(context.config.clustersToCompareResults)
 }
