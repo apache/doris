@@ -30,6 +30,7 @@
 #include <memory>
 #include <ostream>
 
+#include "common/logging.h"
 #include "exec/decompressor.h"
 #include "io/fs/file_reader.h"
 #include "util/slice.h"
