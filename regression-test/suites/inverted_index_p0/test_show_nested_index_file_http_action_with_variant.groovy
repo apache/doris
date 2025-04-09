@@ -64,18 +64,18 @@ suite("test_show_nested_index_file_http_action_with_variant", "nonConcurrent,p0"
         def tableName = "test_show_nested_index_file_http_action_with_variant_" + format
 
         sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """ set disable_inverted_index_v1_for_variant = false """
-        sql """
-            CREATE TABLE IF NOT EXISTS ${tableName} (
-                k bigint,
-                v variant,
-                INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
-            )
-            DUPLICATE KEY(`k`)
-            DISTRIBUTED BY HASH(k) BUCKETS 1
-            properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "${format}");
-        """
-        sql """ set disable_inverted_index_v1_for_variant = true """
+        setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
+            sql """
+                CREATE TABLE IF NOT EXISTS ${tableName} (
+                    k bigint,
+                    v variant,
+                    INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
+                )
+                DUPLICATE KEY(`k`)
+                DISTRIBUTED BY HASH(k) BUCKETS 1
+                properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "${format}");
+            """
+        }
         load_json_data.call(tableName, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
         load_json_data.call(tableName, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")
 
@@ -125,8 +125,13 @@ suite("test_show_nested_index_file_http_action_with_variant", "nonConcurrent,p0"
         qt_sql """select count() from ${tableName} where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core'"""
     }
 
-    run_test("V1")
-    run_test("V2")
+    if (isCloudMode()) {
+        run_test("V2")
+    } else {
+        run_test("V1")
+        run_test("V2")
+    }
+    
 
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "2147483648")
 }

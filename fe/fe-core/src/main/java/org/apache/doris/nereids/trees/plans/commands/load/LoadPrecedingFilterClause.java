@@ -15,8 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer.ranger.doris;
+package org.apache.doris.nereids.trees.plans.commands.load;
 
-public enum DorisObjectType {
-    NONE, CATALOG, DATABASE, TABLE, COLUMN, RESOURCE, WORKLOAD_GROUP, GLOBAL, COMPUTE_GROUP, STORAGE_VAULT
+import org.apache.doris.nereids.trees.expressions.Expression;
+
+/**
+ * load LoadPrecedingFilterClause for nereids
+ */
+public class LoadPrecedingFilterClause implements LoadProperty {
+    private final Expression expression;
+
+    public LoadPrecedingFilterClause(Expression expression) {
+        this.expression = expression;
+    }
+
+    public Expression getExpression() {
+        return expression;
+    }
 }
