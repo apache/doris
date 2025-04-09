@@ -17,6 +17,8 @@
 1	\N	1	\N
 3	\N	1	\N
 
+-- !predicate_full_acid_push_down --
+
 -- !predicate_fixed_char1 --
 1	a
 
@@ -34,4 +36,7 @@
 -- !predicate_null_aware_equal_in_rt --
 1	\N	1	\N
 3	\N	1	\N
+
+-- !predicate_full_acid_push_down --
+2	BB	20230101
 
