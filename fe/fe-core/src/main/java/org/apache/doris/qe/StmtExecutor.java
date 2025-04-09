@@ -877,9 +877,6 @@ public class StmtExecutor {
     // IOException: talk with client failed.
     public void executeByLegacy(TUniqueId queryId) throws Exception {
         context.setStartTime();
-        SessionVariable sessionVariable = context.getSessionVariable();
-        sessionVariable.disableNereidsPlannerOnce();
-
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
@@ -896,6 +893,11 @@ public class StmtExecutor {
                     && !(parsedStmt instanceof TransactionStmt)) {
                 throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
             }
+            SessionVariable sessionVariable = context.getSessionVariable();
+            if (!(parsedStmt instanceof SetStmt)) {
+                sessionVariable.disableNereidsPlannerOnce();
+            }
+
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
             analyzeVariablesInStmt();
 
