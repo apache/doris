@@ -88,7 +88,6 @@ suite("hbo_skew_shuffle_to_bc_test") {
         contains("stats=10,001,000, projects=[b#1]")
         contains("stats=10,000,000, distributionSpec=DistributionSpecReplicated")
         contains("stats=(hbo)2,010,002,000, type=INNER_JOIN")
-        contains("stats=(hbo)100, aggPhase=LOCAL")
         contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
 

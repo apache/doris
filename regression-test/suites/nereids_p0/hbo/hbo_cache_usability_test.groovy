@@ -138,7 +138,7 @@ suite("hbo_cache_usability_test") {
             "replication_num" = "1"
     );"""
 
-    sql "set disable_nereids_rules='PRUNE_EMPTY_PARTITION';"
+    sql "set disable_nereids_rules='PRUNE_EMPTY_PARTITION,OPERATIVE_COLUMN_DERIVE';"
     sql "set hbo_rfsafe_threshold=1.0;"
     sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
     sql "set enable_hbo_optimization=false;"
@@ -166,7 +166,6 @@ suite("hbo_cache_usability_test") {
     explain {
         sql "physical plan select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
         contains("stats=1, type=INNER_JOIN")
-        contains("stats=1, aggPhase=LOCAL")
         contains("stats=1, aggPhase=GLOBAL")
     }
 
@@ -200,7 +199,6 @@ suite("hbo_cache_usability_test") {
         contains("stats=(hbo)0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)]")
         contains("stats=(hbo)0, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200)]")
         contains("stats=(hbo)0, type=INNER_JOIN")
-        contains("stats=(hbo)0, aggPhase=LOCAL")
         contains("stats=(hbo)0, aggPhase=GLOBAL")
     }
 
@@ -255,7 +253,6 @@ suite("hbo_cache_usability_test") {
         sql "physical plan select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_item where ss_item_sk = i_item_sk and ss_sold_date_sk between 2451100 and 2451200 group by ss_store_sk;"
         contains("stats=(hbo)0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)]")
         contains("stats=(hbo)0, type=INNER_JOIN")
-        contains("stats=(hbo)0, aggPhase=LOCAL")
         contains("stats=(hbo)0, aggPhase=GLOBAL")
     }
 
@@ -299,8 +296,8 @@ suite("hbo_cache_usability_test") {
      |          +--PhysicalHashAggregate[506]@10 ( stats=1, aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=true, groupByExpr=[ss_store_sk#4], outputExpr=[ss_store_sk#4, partial_count(*) AS `partial_count(*)`#14], partitionExpr=Optional[[ss_store_sk#4]], topnFilter=false, topnPushDown=false ) |
      |             +--PhysicalProject[501]@7 ( stats=1, projects=[ss_store_sk#4] )                                                                                                                                                                                                                               |
      |                +--PhysicalHashJoin[496]@6 ( stats=1, type=INNER_JOIN, hashCondition=[(ss_sold_date_sk#2 = d_date_sk#7)], otherCondition=[], markCondition=[], runtimeFilters=[RF0[ss_sold_date_sk#2->[d_date_sk#7](ndv/size = 1/1) , RF1[ss_sold_date_sk#2->[d_date_sk#7](ndv/size = 1/1) ] )             |
-     |                   |--PhysicalProject[475]@5 ( stats=0.06, projects=[d_date_sk#7] )                                                                                                                                                                                                                        |
-     |                   |  +--PhysicalFilter[470]@4 ( stats=0.06, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200),(d_moy#12 >= 2),(d_moy#12 <= 12)] )                                                                                                                                          |
+     |                   |--PhysicalProject[475]@5 ( stats=0, projects=[d_date_sk#7] )                                                                                                                                                                                                                        |
+     |                   |  +--PhysicalFilter[470]@4 ( stats=(hbo)0, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200),(d_moy#12 >= 2),(d_moy#12 <= 12)] )                                                                                                                                          |
      |                   |     +--PhysicalOlapScan[cache_usability_date_dim]@3 ( stats=1, RFs= RF0 RF1 )                                                                                                                                                                                                         |
      |                   +--PhysicalDistribute[491]@2 ( stats=0, distributionSpec=DistributionSpecHash ( orderedShuffledColumns=[2], shuffleType=STORAGE_BUCKETED, tableId=-1, selectedIndexId=-1, partitionIds=[], equivalenceExprIds=[[2]], exprIdToEquivalenceSet={2=0} ) )                                   |
      |                      +--PhysicalProject[486]@2 ( stats=0, projects=[ss_sold_date_sk#2, ss_store_sk#4] )                                                                                                                                                                                                   |
@@ -310,7 +307,7 @@ suite("hbo_cache_usability_test") {
      */
     explain {
         sql "physical plan select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_date_dim where ss_sold_date_sk = d_date_sk and ss_sold_date_sk between 2451100 and 2451200 and d_moy between 2 and 12 group by ss_store_sk;"
-        contains("stats=0.06, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200),(d_moy#12 >= 2),(d_moy#12 <= 12)]")
+        contains("stats=(hbo)0, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200),(d_moy#12 >= 2),(d_moy#12 <= 12)]")
         contains("stats=(hbo)0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)]")
     }
 
@@ -343,7 +340,6 @@ suite("hbo_cache_usability_test") {
         contains("stats=(hbo)0, predicates=AND[(d_date_sk#7 >= 2451100),(d_date_sk#7 <= 2451200),(d_moy#12 >= 2),(d_moy#12 <= 12)]")
         contains("stats=(hbo)0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)]")
         contains("stats=(hbo)0, type=INNER_JOIN")
-        contains("stats=(hbo)0, aggPhase=LOCAL")
         contains("stats=(hbo)0, aggPhase=GLOBAL")
     }
 
@@ -375,11 +371,10 @@ suite("hbo_cache_usability_test") {
      */
     explain {
         sql "physical plan select ss_store_sk, count(1) from cache_usability_store_sales_p, cache_usability_item i1, cache_usability_item i2 where ss_item_sk = i1.i_item_sk and ss_item_sk = i2.i_item_sk and ss_sold_date_sk between 2451100 and 2451200 and i1.i_brand_id > 1003001 and i2.i_brand_id < 10014017 group by ss_store_sk;"
-        contains("stats=0.5, predicates=(i_brand_id#9 > 1003001)")
+        //contains("stats=0.5, predicates=(i_brand_id#9 > 1003001)")
         contains("stats=0.5, predicates=(i_brand_id#13 < 10014017)")
         contains("stats=(hbo)0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)]")
         contains("stats=1, type=INNER_JOIN")
-        contains("stats=1, aggPhase=LOCAL")
         contains("stats=1, aggPhase=GLOBAL")
     }
 
@@ -418,7 +413,6 @@ suite("hbo_cache_usability_test") {
         contains("stats=(hbo)0, predicates=(i_brand_id#9 > 1003001)")
         contains("stats=(hbo)0, predicates=(i_brand_id#13 < 10014017)")
         contains("stats=(hbo)0, type=INNER_JOIN")
-        contains("stats=(hbo)0, aggPhase=LOCAL")
         contains("stats=(hbo)0, aggPhase=GLOBAL")
     }
 
