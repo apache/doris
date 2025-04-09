@@ -17,45 +17,58 @@
 
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
+import org.apache.doris.regression.suite.ClusterOptions
 
-suite("test_schema_change_with_group_commit", "p0") {
-    if (!isGroupCommitMode()) {
-        return
-    }
-    def tableName3 = "test_schema_change_with_group_commit"
+suite("test_schema_change_with_group_commit", "docker") {
+    def options = new ClusterOptions()
+    options.feConfigs += [
+            'wait_internal_group_commit_finish=true',
+            'group_commit_interval_ms_default_value=2'
+    ]
+    options.beConfigs += [
+            'group_commit_replay_wal_retry_num=2',
+            'group_commit_replay_wal_retry_interval_seconds=1',
+            'group_commit_wait_replay_wal_finish=true',
+            'wait_internal_group_commit_finish=true'
+    ]
+    options.setFeNum(1)
+    options.setBeNum(1)
+    options.cloudMode = true
+    docker(options) {
+        def tableName3 = "test_schema_change_with_group_commit"
 
-    def getJobState = { tableName ->
-        def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-        return jobStateResult[0][9]
-    }
-    def execStreamLoad = {
-        streamLoad {
-            table "${tableName3}"
+        def getJobState = { tableName ->
+            def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+            return jobStateResult[0][9]
+        }
+        def execStreamLoad = {
+            streamLoad {
+                table "${tableName3}"
 
-            set 'column_separator', ','
+                set 'column_separator', ','
 
-            file 'all_types.csv'
-            time 10000 // limit inflight 10s
+                file 'all_types.csv'
+                time 10000 // limit inflight 10s
 
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                if (json.Status.toLowerCase() == "success") {
-                    assertEquals(2500, json.NumberTotalRows)
-                    assertEquals(0, json.NumberFilteredRows)
-                } else {
-                    assertTrue(json.Message.contains("blocked on schema change"))
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    if (json.Status.toLowerCase() == "success") {
+                        assertEquals(2500, json.NumberTotalRows)
+                        assertEquals(0, json.NumberFilteredRows)
+                    } else {
+                        assertTrue(json.Message.contains("blocked on schema change"))
+                    }
                 }
             }
         }
-    }
 
-    sql """ DROP TABLE IF EXISTS ${tableName3} """
+        sql """ DROP TABLE IF EXISTS ${tableName3} """
 
-    sql """
+        sql """
     CREATE TABLE IF NOT EXISTS ${tableName3} (
       `k1` int(11) NULL,
       `k2` tinyint(4) NULL,
@@ -79,26 +92,28 @@ suite("test_schema_change_with_group_commit", "p0") {
     );
     """
 
-    execStreamLoad()
+        execStreamLoad()
 
-    sql """ alter table ${tableName3} modify column k4 string NULL"""
+        sql """ alter table ${tableName3} modify column k4 string NULL"""
 
-    Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
-            {
-                String res = getJobState(tableName3)
-                if (res == "FINISHED" || res == "CANCELLED") {
-                    assertEquals("FINISHED", res)
-                    return true
+        Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
+                {
+                    String res = getJobState(tableName3)
+                    if (res == "FINISHED" || res == "CANCELLED") {
+                        assertEquals("FINISHED", res)
+                        return true
+                    }
+                    execStreamLoad()
+                    return false
                 }
-                execStreamLoad()
-                return false
-            }
-    )
-    List<List<Object>> result = sql """ select * from ${tableName3} """
-    for (row : result) {
-        assertEquals(2, row[1]);
-        assertEquals(3, row[2]);
-        assertEquals("4", row[3]);
-        assertEquals("5", row[4]);
+        )
+        List<List<Object>> result = sql """ select * from ${tableName3} """
+        for (row : result) {
+            assertEquals(2, row[1]);
+            assertEquals(3, row[2]);
+            assertEquals("4", row[3]);
+            assertEquals("5", row[4]);
+        }
     }
+
 }

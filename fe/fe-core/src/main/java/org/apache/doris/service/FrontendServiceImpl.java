@@ -2173,23 +2173,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetPartialUpdate() && !request.isPartialUpdate()) {
             ctx.getSessionVariable().setEnableUniqueKeyPartialUpdate(false);
         }
-        String token = request.getToken();
-        if (!Strings.isNullOrEmpty(token) && token.equals("group_commit")) {
-            Pattern pattern = Pattern.compile(
-                    "group_commit\\(\\s*\"table_id\"\\s*=\\s*\"(\\d+)\"\\s*\\)",
-                    Pattern.CASE_INSENSITIVE
-            );
-            Matcher matcher = pattern.matcher(request.getLoadSql());
-            if (matcher.find()) {
-                long tableId = -1;
-                tableId = Long.parseLong(matcher.group(1));
-                if (Env.getCurrentEnv().getGroupCommitManager().isBlock(tableId)) {
-                    String msg = "insert table " + tableId + GroupCommitPlanner.SCHEMA_CHANGE;
-                    LOG.info(msg);
-                    throw new AnalysisException(msg);
-                }
-            }
-        }
         try {
             HttpStreamParams httpStreamParams = initHttpStreamPlan(request, ctx);
             int loadStreamPerNode = 2;
