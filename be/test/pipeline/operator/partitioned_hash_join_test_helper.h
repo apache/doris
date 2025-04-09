@@ -77,7 +77,7 @@ public:
     // DataSinkOperatorXBase* parent, RuntimeState* state
     MockHashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : HashJoinBuildSinkLocalState(parent, state) {
-        _runtime_filter_producer_helper = std::make_shared<MockRuntimeFilterProducerHelper>();        
+        _runtime_filter_producer_helper = std::make_shared<MockRuntimeFilterProducerHelper>();
         _operator_profile = state->obj_pool()->add(new RuntimeProfile("OperatorProfile"));
         _common_profile = state->obj_pool()->add(new RuntimeProfile("CustomCounters"));
         _memory_used_counter =

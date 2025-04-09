@@ -58,8 +58,10 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     if (p._use_shared_hash_table) {
         _should_build_hash_table = info.task_idx == 0;
     }
-    custom_profile()->add_info_string("BuildShareHashTable", std::to_string(_should_build_hash_table));
-    custom_profile()->add_info_string("ShareHashTableEnabled", std::to_string(p._use_shared_hash_table));
+    custom_profile()->add_info_string("BuildShareHashTable",
+                                      std::to_string(_should_build_hash_table));
+    custom_profile()->add_info_string("ShareHashTableEnabled",
+                                      std::to_string(p._use_shared_hash_table));
     if (!_should_build_hash_table) {
         _dependency->block();
         _finish_dependency->block();
