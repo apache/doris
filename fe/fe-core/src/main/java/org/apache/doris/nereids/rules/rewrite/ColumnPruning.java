@@ -55,10 +55,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
+import org.apache.doris.nereids.trees.plans.logical.ProjectMergeable;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -216,10 +218,24 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, PruneContext context) {
         Plan child = filter.child();
         if (child instanceof LeafPlan && !(child instanceof OutputPrunable)) {
+            // just traverse to check privilege
+            if (!alreadyCheckedPrivileges) {
+                child.accept(this, context);
+            }
             return filter;
         } else {
             return super.visitLogicalFilter(filter, context);
         }
+    }
+
+    @Override
+    public Plan visitLogicalProject(LogicalProject<? extends Plan> project, PruneContext context) {
+        if (context.needPrune) {
+            project = (LogicalProject) pruneOutput(project, project.getOutputs(), project::pruneOutputs, context);
+        }
+        Plan plan = ProjectMergeable.mergeContinuedProjects(project.getProjects(), project.child())
+                .orElse(project);
+        return pruneChildren(plan, new BitSet());
     }
 
     @Override
@@ -363,11 +379,10 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     private Plan pruneAggregate(Aggregate<?> agg, PruneContext context) {
-        // first try to prune group by and aggregate functions
         Aggregate<? extends Plan> prunedOutputAgg = pruneOutput(agg, agg.getOutputs(), agg::pruneOutputs, context);
         Aggregate<?> fillUpAggregate = prunedOutputAgg == agg
                 ? prunedOutputAgg
-                : fillUpGroupByAndOutput(prunedOutputAgg);
+                : fillUpGroupByKeysToOutput(prunedOutputAgg); // we will not prune the group by keys in the output
         return pruneChildren(fillUpAggregate, new BitSet());
     }
 
@@ -375,7 +390,16 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return pruneChildren(plan, plan.getChildrenOutputExprIdBitSet());
     }
 
-    private static Aggregate<? extends Plan> fillUpGroupByAndOutput(Aggregate<? extends Plan> prunedOutputAgg) {
+    // some rules want to match the aggregate which contains all the group by keys and aggregate functions
+    // in the output of LogicalAggregate, so here we not to prune the group by keys in the output of aggregate,
+    // for example:
+    //  PushDownAggThroughJoinOnPkFk:
+    //      logicalAggregate(logicalJoin()) -> logicalAggregate(logicalJoin(logicalAggregate(), any())
+    // the transform condition of PushDownAggThroughJoinOnPkFk contains: the bottom LogicalAggregate should output
+    // all the slots used in the LogicalJoin, if we prune the group by keys in the output of the top LogicalAggregate,
+    // the LogicalJoin can not see the join keys which provided by group by keys in the LogicalAggregate and
+    // give up to optimize this case
+    private static Aggregate<? extends Plan> fillUpGroupByKeysToOutput(Aggregate<? extends Plan> prunedOutputAgg) {
         List<Expression> groupBy = prunedOutputAgg.getGroupByExpressions();
         List<NamedExpression> output = prunedOutputAgg.getOutputExpressions();
 
@@ -461,8 +485,17 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             regularChildrenOutputs = Lists.newArrayListWithCapacity(regularChildrenOutputs.size());
             children = Lists.newArrayListWithCapacity(children.size());
             for (int i = 0; i < union.getArity(); i++) {
-                LogicalProject<?> project = new LogicalProject<>(
-                        ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1))), union.child(i));
+                Plan child = union.child(i);
+                List<NamedExpression> newProjectOutput = ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)));
+                LogicalProject<?> project;
+                if (child instanceof LogicalProject) {
+                    LogicalProject<Plan> childProject = (LogicalProject<Plan>) child;
+                    List<NamedExpression> mergeProjections = PlanUtils.mergeProjections(
+                            childProject.getProjects(), newProjectOutput);
+                    project = new LogicalProject<>(mergeProjections, childProject.child());
+                } else {
+                    project = new LogicalProject<>(newProjectOutput, child);
+                }
                 regularChildrenOutputs.add((List) project.getOutput());
                 children.add(project);
             }
@@ -533,11 +566,12 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     private Plan doPruneChild(Plan plan, Plan child, BitSet childRequiredSlotIds,
             List<? extends Slot> childRequiredSlots, boolean needPrune) {
-        boolean shouldAddProject = !(plan instanceof Project) && !(child instanceof OutputPrunable);
         Plan prunedChild = child.accept(this,
                 new PruneContext(plan, childRequiredSlotIds, childRequiredSlots, needPrune));
-        // the case 2 in the class comment, prune child's output failed
-        if (shouldAddProject) {
+        // the case 2 in the class comment, prune child's output failed, whatever the child is a OutputPrunable,
+        // because some OutputPrunable may not prune outputs, for example, LogicalAggregate will not prune the
+        // group by keys in the output
+        if (!(plan instanceof Project)) {
             prunedChild = newProjectIfNotPruned(prunedChild, childRequiredSlotIds, childRequiredSlots);
         }
         return prunedChild;

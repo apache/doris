@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -45,6 +46,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -94,6 +96,11 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
 
     public List<NamedExpression> getProjects() {
         return projects;
+    }
+
+    @Override
+    public PhysicalProject<Plan> withProjects(List<NamedExpression> projects) {
+        return withProjectionsAndChild(projects, child());
     }
 
     @Override
@@ -346,5 +353,23 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
                 builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
             }
         }
+    }
+
+    @Override
+    public List<NamedExpression> getOutputs() {
+        return projects;
+    }
+
+    @Override
+    public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
+        List<NamedExpression> allProjects = new ArrayList<>(prunedOutputs);
+        for (NamedExpression expression : projects) {
+            if (expression.containsType(NoneMovableFunction.class)) {
+                if (!prunedOutputs.contains(expression)) {
+                    allProjects.add(expression);
+                }
+            }
+        }
+        return withProjects(allProjects);
     }
 }

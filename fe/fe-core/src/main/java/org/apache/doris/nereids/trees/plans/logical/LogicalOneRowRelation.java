@@ -43,7 +43,7 @@ import java.util.Optional;
  * A relation that contains only one row consist of some constant expressions.
  * e.g. select 100, 'value'
  */
-public class LogicalOneRowRelation extends LogicalRelation implements OneRowRelation, OutputPrunable {
+public class LogicalOneRowRelation extends LogicalRelation implements OneRowRelation, OutputPrunable, ProjectMergeable {
 
     private final List<NamedExpression> projects;
 
@@ -60,6 +60,11 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalOneRowRelation(this, context);
+    }
+
+    @Override
+    public boolean canMergeParentProjections(List<NamedExpression> parentProject) {
+        return true;
     }
 
     @Override

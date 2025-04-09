@@ -58,7 +58,7 @@ import java.util.Set;
  * Logical project plan.
  */
 public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
-        implements Project, OutputPrunable {
+        implements Project, OutputPrunable, ProjectMergeable {
 
     private final List<NamedExpression> projects;
     private final Supplier<Set<NamedExpression>> projectsSet;
