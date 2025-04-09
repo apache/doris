@@ -28,7 +28,22 @@ suite("test_mow_time_series_compaction") {
                     "enable_unique_key_merge_on_write"="true",
                     "compaction_policy" = "time_series");
             """
-        exception "Time series compaction policy is not supported for unique key merge-on-write table"
+        exception "Time series compaction policy is not supported for unique key table"
+    }
+
+    tableName = "test_mor_time_series_compaction"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    test {
+        sql """ CREATE TABLE ${tableName}
+                (k int, v1 int, v2 int )
+                UNIQUE KEY(k)
+                DISTRIBUTED BY HASH (k) 
+                BUCKETS 1  PROPERTIES(
+                    "replication_num" = "1",
+                    "enable_unique_key_merge_on_write"="false",
+                    "compaction_policy" = "time_series");
+            """
+        exception "Time series compaction policy is not supported for unique key table"
     }
 
     tableName = "test_mow_time_series_compaction_2"
@@ -44,6 +59,23 @@ suite("test_mow_time_series_compaction") {
     sql "insert into ${tableName} values (1, 1, 1),(2,2,2),(3,3,3);"
     test {
         sql "alter table ${tableName} set (\"compaction_policy\" = \"time_series\");"
-        exception "Time series compaction policy is not supported for unique key merge-on-write table"
+        exception "Time series compaction policy is not supported for unique key table"
     }
+
+    tableName = "test_mor_time_series_compaction_2"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ CREATE TABLE ${tableName}
+            (k int, v1 int, v2 int )
+            UNIQUE KEY(k)
+            DISTRIBUTED BY HASH (k) 
+            BUCKETS 1  PROPERTIES(
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write"="false");
+        """
+    sql "insert into ${tableName} values (1, 1, 1),(2,2,2),(3,3,3);"
+    test {
+        sql "alter table ${tableName} set (\"compaction_policy\" = \"time_series\");"
+        exception "Time series compaction policy is not supported for unique key table"
+    }
+
 }

@@ -2380,9 +2380,8 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         if (compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
-                && olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new UserException("Time series compaction policy is not supported for"
-                    + " unique key merge-on-write table");
+                && olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+            throw new UserException("Time series compaction policy is not supported for unique key table");
         }
 
         Map<String, Long> timeSeriesCompactionConfig = new HashMap<>();
