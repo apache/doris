@@ -5753,7 +5753,8 @@ public class Env {
 
                 ModifyTableDefaultDistributionBucketNumOperationLog info
                         = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), olapTable.getId(),
-                                distributionInfo.getType(), distributionInfo.getAutoBucket(), bucketNum, defaultDistributionInfo.getColumnsName());
+                                distributionInfo.getType(), distributionInfo.getAutoBucket(), bucketNum,
+                                defaultDistributionInfo.getColumnsName());
                 editLog.logModifyDefaultDistributionBucketNum(info);
                 LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), bucketNum);
             }
