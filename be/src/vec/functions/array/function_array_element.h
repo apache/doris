@@ -90,8 +90,10 @@ public:
             return make_nullable(
                     check_and_get_data_type<DataTypeMap>(arg_0.get())->get_value_type());
         } else {
-            LOG(ERROR) << "element_at only support array and map so far.";
-            return nullptr;
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    fmt::format("element_at only support array and map so far, but got {}",
+                                arg_0->get_name()));
         }
     }
 
