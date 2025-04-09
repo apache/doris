@@ -81,7 +81,6 @@ suite("test_fallback_to_legacy_planner") {
             [[100L]]
     )
 
-    sql "set enable_nereids_planner=true"
     assertResult(
             "select count(*) from test_fallback_to_legacy_planner",
             "Explain String(Nereids Planner)",
