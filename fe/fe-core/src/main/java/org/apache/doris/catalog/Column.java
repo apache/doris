@@ -161,6 +161,7 @@ public class Column implements GsonPostProcessable {
     // used for variant sub-field pattern type
     @SerializedName(value = "fpt")
     private TPatternType fieldPatternType;
+
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -687,7 +688,7 @@ public class Column implements GsonPostProcessable {
         childrenTColumn.setColumnType(childrenTColumnType);
         childrenTColumn.setIsAllowNull(children.isAllowNull());
         if (children.fieldPatternType != null) {
-            childrenTColumn.setPatternType(children.fieldPatternType );
+            childrenTColumn.setPatternType(children.fieldPatternType);
         }
         // TODO: If we don't set the aggregate type for children, the type will be
         //  considered as TAggregationType::SUM after deserializing in BE.
