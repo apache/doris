@@ -226,11 +226,7 @@ Status PipelineTask::_open() {
     SCOPED_TIMER(_open_timer);
     _dry_run = _sink->should_dry_run(_state);
     for (auto& o : _operators) {
-        auto* local_state = _state->get_local_state(o->operator_id());
-        auto st = local_state->open(_state);
-        DCHECK(st.is<ErrorCode::PIP_WAIT_FOR_RF>() ? !_filter_dependencies.empty() : true)
-                << debug_string();
-        RETURN_IF_ERROR(st);
+        RETURN_IF_ERROR(_state->get_local_state(o->operator_id())->open(_state));
     }
     RETURN_IF_ERROR(_state->get_sink_local_state()->open(_state));
     RETURN_IF_ERROR(_extract_dependencies());
@@ -334,8 +330,10 @@ void PipelineTask::terminate() {
  * @return
  */
 Status PipelineTask::execute(bool* done) {
-    DCHECK(_exec_state == State::RUNNABLE) << debug_string();
-    DCHECK(_blocked_dep == nullptr) << debug_string();
+    if (_exec_state != State::RUNNABLE || _blocked_dep != nullptr) [[unlikely]] {
+        return Status::InternalError("Pipeline task is not runnable! Task info: {}",
+                                     debug_string());
+    }
     auto fragment_context = _fragment_context.lock();
     DCHECK(fragment_context);
     int64_t time_spent = 0;
@@ -581,6 +579,28 @@ Status PipelineTask::execute(bool* done) {
                 }
             });
 
+            DBUG_EXECUTE_IF("PipelineTask::execute.terminate", {
+                if (_eos) {
+                    auto required_pipeline_id =
+                            DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                    "PipelineTask::execute.terminate", "pipeline_id", -1);
+                    auto required_task_id =
+                            DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                    "PipelineTask::execute.terminate", "task_id", -1);
+                    auto required_fragment_id =
+                            DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                                    "PipelineTask::execute.terminate", "fragment_id", -1);
+                    if (required_pipeline_id == pipeline_id() && required_task_id == task_id() &&
+                        fragment_context->get_fragment_id() == required_fragment_id) {
+                        _wake_up_early = true;
+                        terminate();
+                    } else if (required_pipeline_id == pipeline_id() &&
+                               fragment_context->get_fragment_id() == required_fragment_id) {
+                        LOG(WARNING) << "PipelineTask::execute.terminate sleep 5s";
+                        sleep(5);
+                    }
+                }
+            });
             status = _sink->sink(_state, block, _eos);
 
             if (status.is<ErrorCode::END_OF_FILE>()) {
@@ -598,6 +618,21 @@ Status PipelineTask::execute(bool* done) {
 
     RETURN_IF_ERROR(get_task_queue()->push_back(shared_from_this()));
     return Status::OK();
+}
+
+void PipelineTask::stop_if_finished() {
+    auto fragment = _fragment_context.lock();
+    if (!fragment) {
+        return;
+    }
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
+    auto sink = _sink;
+    if (!is_finalized() && sink) {
+        if (sink->is_finished(_state)) {
+            set_wake_up_early();
+            terminate();
+        }
+    }
 }
 
 Status PipelineTask::finalize() {
