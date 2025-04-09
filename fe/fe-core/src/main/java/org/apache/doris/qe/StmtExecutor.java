@@ -878,9 +878,7 @@ public class StmtExecutor {
     public void executeByLegacy(TUniqueId queryId) throws Exception {
         context.setStartTime();
         SessionVariable sessionVariable = context.getSessionVariable();
-        if (sessionVariable.isEnableNereidsPlanner()) {
-            sessionVariable.setVarOnce(SessionVariable.ENABLE_NEREIDS_PLANNER, "false");
-        }
+        sessionVariable.disableNereidsPlannerOnce();
 
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
