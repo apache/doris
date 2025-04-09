@@ -108,14 +108,14 @@ inline bool equals_case_insensitive(char a, char b) {
     return a == b || (is_alpha_ascii(a) && alternate_case_if_alpha_ascii(a) == b);
 }
 
-// trim leading and trailing ascii whitespaces
+// trim leading and trailing ascii whitespaces and null chars
 template <typename T>
 inline const char* trim_ascii_whitespaces(const char* s, T& len) {
-    while (len > 0 && is_whitespace_ascii(*s)) {
+    while (len > 0 && (*s == 0 || is_whitespace_ascii(*s))) {
         ++s;
         --len;
     }
-    while (len > 0 && is_whitespace_ascii(s[len - 1])) {
+    while (len > 0 && (s[len - 1] == 0 || is_whitespace_ascii(s[len - 1]))) {
         --len;
     }
     return s;

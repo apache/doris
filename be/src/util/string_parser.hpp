@@ -304,7 +304,8 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
             }
             val = val * 10 + digit;
         } else {
-            if ((UNLIKELY(i == first || !is_float_suffix(s + i, len - i)))) {
+            if ((UNLIKELY(i == first || (!is_all_whitespace(s + i, len - i) &&
+                                         !is_float_suffix(s + i, len - i))))) {
                 // Reject the string because either the first char was not a digit,
                 // or the remaining chars are not all whitespace
                 *result = PARSE_FAILURE;
@@ -352,7 +353,8 @@ T StringParser::string_to_unsigned_int_internal(const char* __restrict s, int le
             }
             val = val * 10 + digit;
         } else {
-            if ((UNLIKELY(i == first || !is_float_suffix(s + i, len - i)))) {
+            if ((UNLIKELY(i == first || (!is_all_whitespace(s + i, len - i) &&
+                                         !is_float_suffix(s + i, len - i))))) {
                 // Reject the string because either the first char was not a digit,
                 // or the remaining chars are not all whitespace
                 *result = PARSE_FAILURE;
@@ -401,7 +403,7 @@ T StringParser::string_to_int_internal(const char* __restrict s, int64_t len, in
         } else if (s[i] >= 'A' && s[i] <= 'Z') {
             digit = (s[i] - 'A' + 10);
         } else {
-            if ((UNLIKELY(i == first))) {
+            if ((UNLIKELY(i == first || !is_all_whitespace(s + i, len - i)))) {
                 // Reject the string because either the first char was not an alpha/digit,
                 // or the remaining chars are not all whitespace
                 *result = PARSE_FAILURE;

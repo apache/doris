@@ -208,7 +208,7 @@ static constexpr uint32_t MAX_MONTH = 12;
 static constexpr uint32_t MAX_HOUR = 23;
 static constexpr uint32_t MAX_MINUTE = 59;
 static constexpr uint32_t MAX_SECOND = 59;
-static constexpr uint32_t MAX_MICROSECOND_DIGIT_COUNT = 6;
+static constexpr int32_t MAX_MICROSECOND_DIGIT_COUNT = 6;
 static constexpr uint32_t MAX_MICROSECOND = 999999;
 
 static constexpr uint32_t DATEV2_YEAR_WIDTH = 23;
