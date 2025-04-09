@@ -898,7 +898,8 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
-    public static String analyzeCompactionPolicy(Map<String, String> properties) throws AnalysisException {
+    public static String analyzeCompactionPolicy(Map<String, String> properties, boolean enableUniqueKeyMergeOnWrite)
+            throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return SIZE_BASED_COMPACTION_POLICY;
         }
@@ -913,6 +914,10 @@ public class PropertyAnalyzer {
             }
         }
 
+        if (enableUniqueKeyMergeOnWrite && compactionPolicy.equals(TIME_SERIES_COMPACTION_POLICY)) {
+            throw new AnalysisException("Time series compaction policy is not supported for"
+                    + " unique key merge-on-write table");
+        }
         return compactionPolicy;
     }
 

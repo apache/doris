@@ -2589,10 +2589,25 @@ public class InternalCatalog implements CatalogIf<Database> {
         // use light schema change optimization
         olapTable.setDisableAutoCompaction(disableAutoCompaction);
 
+        boolean enableUniqueKeyMergeOnWrite = false;
+        if (keysType == KeysType.UNIQUE_KEYS) {
+            try {
+                enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+            if (enableUniqueKeyMergeOnWrite && !enableLightSchemaChange && !CollectionUtils.isEmpty(
+                    keysDesc.getClusterKeysColumnNames())) {
+                throw new DdlException(
+                        "Unique merge-on-write tables with cluster keys require light schema change to be enabled.");
+            }
+        }
+        olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
+
         // set compaction policy
         String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
         try {
-            compactionPolicy = PropertyAnalyzer.analyzeCompactionPolicy(properties);
+            compactionPolicy = PropertyAnalyzer.analyzeCompactionPolicy(properties, enableUniqueKeyMergeOnWrite);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
@@ -2723,21 +2738,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         DataSortInfo dataSortInfo = PropertyAnalyzer.analyzeDataSortInfo(properties, keysType,
                 keyColumnSize, storageFormat);
         olapTable.setDataSortInfo(dataSortInfo);
-
-        boolean enableUniqueKeyMergeOnWrite = false;
-        if (keysType == KeysType.UNIQUE_KEYS) {
-            try {
-                enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
-            } catch (AnalysisException e) {
-                throw new DdlException(e.getMessage());
-            }
-            if (enableUniqueKeyMergeOnWrite && !enableLightSchemaChange && !CollectionUtils.isEmpty(
-                    keysDesc.getClusterKeysColumnNames())) {
-                throw new DdlException(
-                        "Unique merge-on-write tables with cluster keys require light schema change to be enabled.");
-            }
-        }
-        olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 
         if (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
             try {

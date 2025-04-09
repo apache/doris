@@ -2379,6 +2379,12 @@ public class SchemaChangeHandler extends AlterHandler {
                                                 + " or " + PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
         }
 
+        if (compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
+                && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            throw new UserException("Time series compaction policy is not supported for"
+                    + " unique key merge-on-write table");
+        }
+
         Map<String, Long> timeSeriesCompactionConfig = new HashMap<>();
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
             timeSeriesCompactionConfig

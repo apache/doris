@@ -179,6 +179,11 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                         + PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY
                         + " or " + PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
             }
+            if (compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
+                    && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                throw new UserException("Time series compaction policy is not supported for"
+                        + " unique key merge-on-write table");
+            }
             olapTable.readLock();
             try {
                 if (compactionPolicy == olapTable.getCompactionPolicy()) {
