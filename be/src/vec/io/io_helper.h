@@ -253,7 +253,7 @@ bool read_float_text_fast_impl(T& x, ReadBuffer& in) {
     StringParser::ParseResult result;
     x = StringParser::string_to_float<T>(in.position(), in.count(), &result);
 
-    if (UNLIKELY(result != StringParser::PARSE_SUCCESS || std::isnan(x) || std::isinf(x))) {
+    if (UNLIKELY(result == StringParser::PARSE_FAILURE)) {
         return false;
     }
 
