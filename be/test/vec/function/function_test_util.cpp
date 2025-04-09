@@ -241,7 +241,7 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         type = std::make_shared<DataTypeStruct>(sub_types);
         return ret + 1;
     }
-    case TypeIndex::Nullable: {
+    case TypeIndex::Nullable: { //TODO: use Nullable(T) to replace (Nullable, T)
         ++index;
         size_t ret = type_index_to_data_type(input_types, index, ut_desc, type);
         if (ret <= 0) {
