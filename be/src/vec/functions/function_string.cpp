@@ -1314,6 +1314,10 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt128Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundDoubleImpl>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundInt64Impl>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundInt128Impl>>();
+    factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl>>();
     factory.register_function<FunctionStringDigestOneArg<SM3Sum>>();
     factory.register_function<FunctionStringDigestOneArg<MD5Sum>>();
     factory.register_function<FunctionStringDigestSHA1>();
