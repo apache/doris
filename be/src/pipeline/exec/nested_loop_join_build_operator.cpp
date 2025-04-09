@@ -40,7 +40,6 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._filter_src_expr_ctxs[i]->clone(state, _filter_src_expr_ctxs[i]));
     }
-
     _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelperCross>();
     RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, _filter_src_expr_ctxs,
                                                           p._runtime_filter_descs));
