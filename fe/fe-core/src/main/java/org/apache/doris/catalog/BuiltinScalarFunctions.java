@@ -188,6 +188,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FirstSignificantSubdomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FormatRound;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fpow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
@@ -872,6 +873,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Right.class, "right", "strright"),
             scalar(Round.class, "round"),
             scalar(RoundBankers.class, "round_bankers"),
+            scalar(FormatRound.class, "format_round"),
             scalar(Rpad.class, "rpad"),
             scalar(Rtrim.class, "rtrim"),
             scalar(RtrimIn.class, "rtrim_in"),
