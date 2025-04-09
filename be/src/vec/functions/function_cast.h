@@ -986,7 +986,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionCon
         auto len = rb.count();
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
-        auto ret = TimeValue::try_parse_time(s, len, x);
+        auto ret = TimeValue::try_parse_time(s, len, x, context->state()->timezone_obj());
         return ret;
     }
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {

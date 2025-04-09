@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
+
 #include <string>
 
 #include "runtime/define_primitive_type.h"
@@ -92,12 +94,13 @@ public:
     // Some examples of conversions.
     // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24
     template <typename T>
-    static bool try_parse_time(char* s, size_t len, T& x) {
+    static bool try_parse_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone) {
         if (try_as_time(s, len, x)) {
             return true;
         } else {
             // For example, "2013-01-01 01:02:03" can be parsed as datetime
-            if (DateV2Value<doris::DateTimeV2ValueType> dv {}; dv.from_date_str(s, (int)len)) {
+            if (DateV2Value<doris::DateTimeV2ValueType> dv {};
+                dv.from_date_str(s, (int)len, local_time_zone)) {
                 // can be parse as a datetime
                 x = TimeValue::make_time(dv.hour(), dv.minute(), dv.second());
                 return true;

@@ -181,72 +181,72 @@ TEST(TimeValueTest, try_parse_time_from_string) {
     {
         char s[] = "01:02:03";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_TRUE(result);
         EXPECT_EQ(x, 3723000000);
     }
     {
         char s[] = "10203";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_TRUE(result);
         EXPECT_EQ(x, 3723000000);
     }
     {
         char s[] = "-10203";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_TRUE(result);
         EXPECT_EQ(x, -3723000000);
     }
     {
         char s[] = "1abab0203";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_FALSE(result);
     }
     {
         char s[] = "01:66:03";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_FALSE(result);
     }
     {
         char s[] = "-1:02:03";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_TRUE(result);
         EXPECT_EQ(x, -3723000000);
     }
     {
         char s[] = "01:-20:03";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_FALSE(result);
     }
     {
         char s[] = "ab:02:03";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_FALSE(result);
     }
     {
         char s[] = "01:ab:03";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_FALSE(result);
     }
     {
         char s[] = "01:02:ab";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_FALSE(result);
     }
 
     {
         char s[] = "01:02";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_TRUE(result);
         EXPECT_EQ(x, 3720000000);
     }
@@ -254,21 +254,21 @@ TEST(TimeValueTest, try_parse_time_from_string) {
     {
         char s[] = "ab:02";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_FALSE(result);
     }
 
     {
         char s[] = "01:ab";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_FALSE(result);
     }
 
     {
         char s[] = "2013-01-01 01:02:03";
         size_t len = std::strlen(s);
-        bool result = TimeValue::try_parse_time(s, len, x);
+        bool result = TimeValue::try_parse_time(s, len, x, local_time_zone);
         EXPECT_TRUE(result);
         EXPECT_EQ(x, 3723000000);
     }
