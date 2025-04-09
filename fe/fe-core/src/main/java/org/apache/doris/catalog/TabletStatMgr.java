@@ -117,6 +117,16 @@ public class TabletStatMgr extends MasterDaemon {
 
         // after update replica in all backends, update index row num
         start = System.currentTimeMillis();
+        Long maxTabletSize = 0L;
+        Long maxPartitionSize = 0L;
+        Long maxTableSize = 0L;
+        Long minTabletSize = Long.MAX_VALUE;
+        Long minPartitionSize = Long.MAX_VALUE;
+        Long minTableSize = Long.MAX_VALUE;
+        Long totalTableSize = 0L;
+        Long tabletCount = 0L;
+        Long partitionCount = 0L;
+        Long tableCount = 0L;
         List<Long> dbIds = Env.getCurrentInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -124,6 +134,7 @@ public class TabletStatMgr extends MasterDaemon {
                 continue;
             }
             List<Table> tableList = db.getTables();
+            tableCount += tableList.size();
             for (Table table : tableList) {
                 // Will process OlapTable and MTMV
                 if (!table.isManagedTable()) {
@@ -149,12 +160,17 @@ public class TabletStatMgr extends MasterDaemon {
                     continue;
                 }
                 try {
-                    for (Partition partition : olapTable.getAllPartitions()) {
+                    List<Partition> allPartitions = olapTable.getAllPartitions();
+                    partitionCount += allPartitions.size();
+                    for (Partition partition : allPartitions) {
+                        Long partitionDataSize = 0L;
                         long version = partition.getVisibleVersion();
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             long indexRowCount = 0L;
                             boolean indexReported = true;
-                            for (Tablet tablet : index.getTablets()) {
+                            List<Tablet> tablets = index.getTablets();
+                            tabletCount += tablets.size();
+                            for (Tablet tablet : tablets) {
 
                                 Long tabletDataSize = 0L;
                                 Long tabletRemoteDataSize = 0L;
@@ -203,7 +219,10 @@ public class TabletStatMgr extends MasterDaemon {
                                 }
 
                                 tableDataSize += tabletDataSize;
+                                partitionDataSize += tabletDataSize;
                                 tableRemoteDataSize += tabletRemoteDataSize;
+                                maxTabletSize = Math.max(maxTabletSize, tabletDataSize);
+                                minTabletSize = Math.min(minTabletSize, tabletDataSize);
 
                                 // When all BEs are down, avoid set Long.MAX_VALUE to index and table row count. Use 0.
                                 if (tabletRowCount == Long.MAX_VALUE) {
@@ -220,7 +239,11 @@ public class TabletStatMgr extends MasterDaemon {
                                     olapTable.getName(), olapTable.getIndexNameById(index.getId()),
                                     indexReported, indexRowCount);
                         } // end for indices
+                        maxPartitionSize = Math.max(maxPartitionSize, partitionDataSize);
+                        minPartitionSize = Math.min(minPartitionSize, partitionDataSize);
                     } // end for partitions
+                    maxTableSize = Math.max(maxTableSize, tableDataSize);
+                    minTableSize = Math.min(minTableSize, tableDataSize);
 
                     // this is only one thread to update table statistics, readLock is enough
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(), table.getName(),
@@ -236,8 +259,18 @@ public class TabletStatMgr extends MasterDaemon {
                 } finally {
                     table.readUnlock();
                 }
+                totalTableSize += tableDataSize;
             }
         }
+        MetricRepo.GAUGE_MAX_TABLE_SIZE_BYTES.setValue(maxTableSize);
+        MetricRepo.GAUGE_MAX_PARTITION_SIZE_BYTES.setValue(maxPartitionSize);
+        MetricRepo.GAUGE_MAX_TABLET_SIZE_BYTES.setValue(maxTabletSize);
+        MetricRepo.GAUGE_MIN_TABLE_SIZE_BYTES.setValue(minTableSize);
+        MetricRepo.GAUGE_MIN_PARTITION_SIZE_BYTES.setValue(minPartitionSize);
+        MetricRepo.GAUGE_MIN_TABLET_SIZE_BYTES.setValue(minTabletSize);
+        MetricRepo.GAUGE_AVG_TABLE_SIZE_BYTES.setValue(totalTableSize / tableCount);
+        MetricRepo.GAUGE_AVG_PARTITION_SIZE_BYTES.setValue(totalTableSize / partitionCount);
+        MetricRepo.GAUGE_AVG_TABLET_SIZE_BYTES.setValue(totalTableSize / tabletCount);
         LOG.info("finished to update index row num of all databases. cost: {} ms",
                 (System.currentTimeMillis() - start));
     }
