@@ -154,8 +154,14 @@ Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
         const auto* column = block.get_by_position(result_col_id).column.get();
 
         if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
-            DCHECK(build_not_ignore_null[i])
-                    << "If the column is nullable, the build_not_ignore_null should be true";
+            if (!build_not_ignore_null[i]) {
+                return Status::InternalError(
+                        "SET operator expects a nullable : {} column in column {}, but the "
+                        "computed "
+                        "output is a nullable : {} column",
+                        build_not_ignore_null[i], i,
+                        nullable->get_nested_column_ptr()->is_nullable());
+            }
             raw_ptrs[i] = nullable;
         } else {
             if (build_not_ignore_null[i]) {
