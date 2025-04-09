@@ -176,7 +176,14 @@ public:
         return res;
     }
 
-    virtual void remove_first_n_values(size_t count) {
+    /**
+    * Removes the first 'n' elements from the column.
+    * @param n The number of elements to remove from the beginning of the column
+    * @throws doris::Exception with NOT_IMPLEMENTED_ERROR if the operation is not supported
+    *         for this column type
+    * eg: remove_first_n_values(2) means remove the idx 0 and 1 elements
+    */
+    virtual void remove_first_n_values(size_t n) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method remove_first_n_values is not supported for " + get_name());
     }
