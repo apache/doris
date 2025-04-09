@@ -260,12 +260,16 @@ private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
     // store data in non-broadcast shuffle
-    phmap::flat_hash_map<InstanceLoId, std::queue<TransmitInfo, std::list<TransmitInfo>>>
+    phmap::flat_hash_map<InstanceLoId,
+                         std::unordered_map<vectorized::Channel*,
+                                            std::queue<TransmitInfo, std::list<TransmitInfo>>>>
             _instance_to_package_queue;
     std::atomic<size_t> _queue_capacity;
     // store data in broadcast shuffle
-    phmap::flat_hash_map<InstanceLoId,
-                         std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
+    phmap::flat_hash_map<
+            InstanceLoId,
+            std::unordered_map<vectorized::Channel*,
+                               std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>>
             _instance_to_broadcast_package_queue;
     using PackageSeq = int64_t;
     // must init zero
@@ -331,6 +335,8 @@ private:
     // The ExchangeSinkLocalState in _parents is only used in _turn_off_channel.
     phmap::flat_hash_map<InstanceLoId, ExchangeSinkLocalState*> _parents;
     const int64_t _exchange_sink_num;
+    bool _send_multi_blocks = false;
+    int _send_multi_blocks_byte_size = 256 * 1024;
 };
 
 } // namespace pipeline
