@@ -84,7 +84,7 @@ Status MultiCastDataStreamSourceLocalState::close(RuntimeState* state) {
         rf_time += dep->watcher_elapse_time();
     }
     COUNTER_SET(_wait_for_rf_timer, rf_time);
-    _helper.collect_realtime_profile(profile());
+    _helper.collect_realtime_profile(custom_profile());
     return Base::close(state);
 }
 

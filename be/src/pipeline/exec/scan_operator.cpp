@@ -1269,7 +1269,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> {}.swap(_scanners);
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, rf_time);
-    _helper.collect_realtime_profile(profile());
+    _helper.collect_realtime_profile(custom_profile());
     return PipelineXLocalState<>::close(state);
 }
 
