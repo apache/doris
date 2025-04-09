@@ -74,15 +74,6 @@ public class EliminateGroupByKey implements RewriteRuleFactory {
                                     }
                                     return proj.withChildren(proj.child().withChildren(newAgg));
                                 })
-                ),
-                RuleType.ELIMINATE_FILTER_GROUP_BY_KEY.build(
-                        logicalAggregate()
-                                .when(agg -> !agg.getSourceRepeat().isPresent())
-                                .then(agg -> {
-                                    Set<Slot> inputSlots = ExpressionUtils.collect(
-                                            agg.getOutputExpressions(), Slot.class::isInstance);
-                                    return eliminateGroupByKey(agg, inputSlots);
-                                })
                 )
         );
     }
