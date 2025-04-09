@@ -65,8 +65,9 @@ namespace doris {
 
 using namespace std::literals;
 
-bvar::Adder<uint64_t> g_base_compaction_threads_num("base_compaction", "threads_num");
-bvar::Adder<uint64_t> g_cumu_compaction_threads_num("cumu_compaction", "threads_num");
+bvar::Adder<uint64_t> g_base_compaction_running_task_count("base_compaction_running_task_count");
+bvar::Adder<uint64_t> g_cumu_compaction_running_task_count(
+        "cumulative_compaction_running_task_count");
 
 int get_cumu_thread_num() {
     if (config::max_cumu_compaction_threads > 0) {
@@ -663,9 +664,9 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         }
     }
     auto st = _base_compaction_thread_pool->submit_func([=, this]() {
-        g_base_compaction_threads_num << 1;
+        g_base_compaction_running_task_count << 1;
         signal::tablet_id = tablet->tablet_id();
-        Defer defer {[&]() { g_base_compaction_threads_num << -1; }};
+        Defer defer {[&]() { g_base_compaction_running_task_count << -1; }};
         auto compaction = std::make_shared<CloudBaseCompaction>(*this, tablet);
         auto st = _prepare_tablet_compaction_job(ReaderType::READER_BASE_COMPACTION, tablet,
                                                  compaction);
@@ -721,8 +722,10 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         }
     };
     auto st = _cumu_compaction_thread_pool->submit_func([=, this]() {
+        DBUG_EXECUTE_IF("CloudStorageEngine._submit_cumulative_compaction_task.wait_in_line",
+                        { sleep(5); })
         signal::tablet_id = tablet->tablet_id();
-        g_cumu_compaction_threads_num << 1;
+        g_cumu_compaction_running_task_count << 1;
         bool is_large_task = true;
         Defer defer {[&]() {
             DBUG_EXECUTE_IF("CloudStorageEngine._submit_cumulative_compaction_task.sleep",
@@ -732,7 +735,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
             if (!is_large_task) {
                 _cumu_compaction_thread_pool_small_tasks_running--;
             }
-            g_cumu_compaction_threads_num << -1;
+            g_cumu_compaction_running_task_count << -1;
         }};
         auto st = _prepare_tablet_compaction_job(ReaderType::READER_CUMULATIVE_COMPACTION, tablet,
                                                  compaction);
