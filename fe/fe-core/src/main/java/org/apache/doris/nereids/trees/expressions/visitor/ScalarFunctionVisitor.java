@@ -245,6 +245,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNoQuotes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
@@ -458,6 +459,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uncompress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UnhexNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
@@ -1422,6 +1424,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonExtract, context);
     }
 
+    default R visitJsonExtractNoQuotes(JsonExtractNoQuotes jsonExtract, C context) {
+        return visitScalarFunction(jsonExtract, context);
+    }
+
     default R visitJsonKeys(JsonKeys jsonKeys, C context) {
         return visitScalarFunction(jsonKeys, context);
     }
@@ -2208,6 +2214,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitUnhex(Unhex unhex, C context) {
         return visitScalarFunction(unhex, context);
+    }
+
+    default R visitUnhexNull(UnhexNull unhexNull, C context) {
+        return visitScalarFunction(unhexNull, context);
     }
 
     default R visitUnixTimestamp(UnixTimestamp unixTimestamp, C context) {

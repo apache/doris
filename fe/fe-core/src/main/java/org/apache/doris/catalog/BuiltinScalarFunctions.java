@@ -242,6 +242,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNoQuotes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
@@ -461,6 +462,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uncompress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UnhexNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
@@ -725,6 +727,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonQuote.class, "json_quote"),
             scalar(JsonUnQuote.class, "json_unquote"),
             scalar(JsonExtract.class, "json_extract"),
+            scalar(JsonExtractNoQuotes.class, "json_extract_no_quotes"),
             scalar(JsonInsert.class, "json_insert"),
             scalar(JsonReplace.class, "json_replace"),
             scalar(JsonSet.class, "json_set"),
@@ -964,6 +967,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(TrimIn.class, "trim_in"),
             scalar(Truncate.class, "truncate"),
             scalar(Unhex.class, "unhex"),
+            scalar(UnhexNull.class, "unhex_null"),
             scalar(UnixTimestamp.class, "unix_timestamp"),
             scalar(Upper.class, "ucase", "upper"),
             scalar(Quote.class, "quote"),
