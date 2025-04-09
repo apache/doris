@@ -80,7 +80,7 @@ public class ShowColumnsCommand extends ShowCommand {
 
     private static Map<String, String> ALIAS_COLUMN_MAP = ImmutableMap.<String, String>builder()
             .put("field", "COLUMN_NAME")
-            .put("type", "COLUMN_TYPE")
+            .put("type", "DATA_TYPE")
             .put("collation", "COLLATION_NAME")
             .put("null", "IS_NULLABLE")
             .put("key", "COLUMN_KEY")
