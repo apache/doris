@@ -27,6 +27,7 @@
 #include "cloud/schema_cloud_dictionary_cache.h"
 #include "cloud_txn_delete_bitmap_cache.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "olap/compaction.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "util/threadpool.h"
@@ -163,6 +164,8 @@ private:
     Status _submit_base_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
+    Status _prepare_tablet_compaction_job(ReaderType compaction_type, const CloudTabletSPtr& tablet,
+                                          std::shared_ptr<CloudCompactionMixin> compaction);
     void _lease_compaction_thread_callback();
     void _check_tablet_delete_bitmap_score_callback();
 
