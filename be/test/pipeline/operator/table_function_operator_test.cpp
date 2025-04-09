@@ -173,6 +173,54 @@ TEST_F(TableFunctionOperatorTest, single_fn_test) {
     }
 }
 
+TEST_F(TableFunctionOperatorTest, single_fn_test2) {
+    {
+        op->_vfn_ctxs =
+                MockSlotRef::create_mock_contexts(DataTypes {std::make_shared<DataTypeInt32>()});
+        auto fn = std::make_shared<MockTableFunction>();
+        fns.push_back(fn);
+        op->_fns.push_back(fn.get());
+        op->_output_slot_ids.push_back(true);
+        child_op->_mock_row_desc.reset(
+                new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt32>()}, &pool});
+        op->_mock_row_descriptor.reset(
+                new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt32>(),
+                                        std::make_shared<vectorized::DataTypeInt32>()},
+                                       &pool});
+        op->_fn_num = 1;
+        EXPECT_TRUE(op->prepare(state.get()));
+
+        local_state_uptr = std::make_unique<MockTableFunctionLocalState>(state.get(), op.get());
+        local_state = local_state_uptr.get();
+        LocalStateInfo info {.parent_profile = &profile,
+                             .scan_ranges = {},
+                             .shared_state = nullptr,
+                             .shared_state_map = {},
+                             .task_idx = 0};
+        EXPECT_TRUE(local_state->init(state.get(), info));
+        state->resize_op_id_to_local_state(-100);
+        state->emplace_local_state(op->operator_id(), std::move(local_state_uptr));
+        EXPECT_TRUE(local_state->open(state.get()));
+    }
+
+    {
+        Block block = ColumnHelper::create_block<DataTypeInt32>({1});
+        *local_state->_child_block = ColumnHelper::create_block<DataTypeInt32>({1});
+        auto st = op->push(state.get(), local_state->_child_block.get(), true);
+        EXPECT_TRUE(st) << st.msg();
+    }
+    {
+        Block block;
+        bool eos = false;
+        auto st = op->pull(state.get(), &block, &eos);
+        EXPECT_TRUE(st) << st.msg();
+        std::cout << block.dump_data() << std::endl;
+        std::cout << eos << std::endl;
+        EXPECT_TRUE(ColumnHelper::block_equal(block, ColumnHelper::create_block<DataTypeInt32>(
+                                                             {1, 1, 1, 1, 1}, {0, 0, 0, 0, 0})));
+    }
+}
+
 TEST_F(TableFunctionOperatorTest, single_two_test) {
     {
         op->_vfn_ctxs = MockSlotRef::create_mock_contexts(
