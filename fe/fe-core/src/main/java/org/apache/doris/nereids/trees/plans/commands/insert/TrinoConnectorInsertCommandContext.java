@@ -15,26 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.transaction;
+package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
-import org.apache.doris.fs.FileSystemProvider;
+import java.util.Map;
 
-import java.util.concurrent.Executor;
+/**
+ * Insert command context for Trino connector table.
+ */
+public class TrinoConnectorInsertCommandContext extends BaseExternalTableInsertCommandContext {
+    private Map<String, String> trinoConnectorOptions;
 
-public class TransactionManagerFactory {
-
-    public static TransactionManager createHiveTransactionManager(HiveMetadataOps ops,
-            FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
-        return new HiveTransactionManager(ops, fileSystemProvider, fileSystemExecutor);
+    public TrinoConnectorInsertCommandContext() {
+        super();
     }
 
-    public static TransactionManager createIcebergTransactionManager(IcebergMetadataOps ops) {
-        return new IcebergTransactionManager(ops);
+    public TrinoConnectorInsertCommandContext(Map<String, String> trinoConnectorOptions) {
+        super();
+        this.trinoConnectorOptions = trinoConnectorOptions;
     }
 
-    public static TransactionManager createTrinoConnectorTransactionManager() {
-        return new TrinoConnectorTransactionManager();
+    public Map<String, String> getTrinoConnectorOptions() {
+        return trinoConnectorOptions;
+    }
+
+    public void setTrinoConnectorOptions(Map<String, String> trinoConnectorOptions) {
+        this.trinoConnectorOptions = trinoConnectorOptions;
     }
 }

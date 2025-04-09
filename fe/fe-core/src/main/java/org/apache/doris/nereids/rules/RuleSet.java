@@ -85,6 +85,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalSchemaScanToPhysical
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysicalTVFRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
+import org.apache.doris.nereids.rules.implementation.LogicalTrinoConnectorTableSinkToPhysicalTrinoConnectorTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
 import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
@@ -207,6 +208,7 @@ public class RuleSet {
             .add(new LogicalHiveTableSinkToPhysicalHiveTableSink())
             .add(new LogicalIcebergTableSinkToPhysicalIcebergTableSink())
             .add(new LogicalJdbcTableSinkToPhysicalJdbcTableSink())
+            .add(new LogicalTrinoConnectorTableSinkToPhysicalTrinoConnectorTableSink())
             .add(new LogicalFileSinkToPhysicalFileSink())
             .add(new LogicalResultSinkToPhysicalResultSink())
             .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())

@@ -25,27 +25,15 @@ import org.apache.doris.trinoconnector.TrinoConnectorCache.TrinoConnectorCacheVa
 
 import com.fasterxml.jackson.databind.Module;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import io.airlift.json.ObjectMapperProvider;
 import io.trino.Session;
-import io.trino.SystemSessionProperties;
-import io.trino.SystemSessionPropertiesProvider;
 import io.trino.block.BlockJsonSerde;
-import io.trino.client.ClientCapabilities;
-import io.trino.connector.CatalogServiceProviderModule;
-import io.trino.execution.DynamicFilterConfig;
 import io.trino.execution.QueryIdGenerator;
-import io.trino.execution.QueryManagerConfig;
-import io.trino.execution.TaskManagerConfig;
-import io.trino.execution.scheduler.NodeSchedulerConfig;
-import io.trino.memory.MemoryManagerConfig;
-import io.trino.memory.NodeMemoryConfig;
 import io.trino.metadata.BlockEncodingManager;
 import io.trino.metadata.HandleJsonModule;
 import io.trino.metadata.HandleResolver;
 import io.trino.metadata.InternalBlockEncodingSerde;
-import io.trino.metadata.SessionPropertyManager;
 import io.trino.plugin.base.TypeDeserializer;
 import io.trino.spi.Page;
 import io.trino.spi.block.Block;
@@ -59,12 +47,9 @@ import io.trino.spi.connector.ConnectorSplit;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.DynamicFilter;
-import io.trino.spi.security.Identity;
-import io.trino.spi.type.TimeZoneKey;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
 import io.trino.split.RecordPageSourceProvider;
-import io.trino.sql.planner.OptimizerConfig;
 import io.trino.type.InternalTypeManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,12 +57,9 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.time.ZoneId;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -314,7 +296,7 @@ public class TrinoConnectorJniScanner extends JniScanner {
         this.handleResolver = connectorCacheValue.getHandleResolver();
 
         // create session
-        this.session = createSession(connectorCacheValue.getTrinoConnectorServicesProvider());
+        this.session = TrinoConnectorUtils.createSession(connectorCacheValue.getTrinoConnectorServicesProvider());
     }
 
     private void initTrinoTableMetadata() {
@@ -354,39 +336,6 @@ public class TrinoConnectorJniScanner extends JniScanner {
             }
             trinoTypeList.add(columnMetadataList.get(index).getType());
         }
-    }
-
-    private Session createSession(TrinoConnectorServicesProvider trinoConnectorServicesProvider) {
-        // create trino session
-        Set<SystemSessionPropertiesProvider> systemSessionProperties =
-                ImmutableSet.<SystemSessionPropertiesProvider>builder()
-                        .add(new SystemSessionProperties(
-                                new QueryManagerConfig(),
-                                new TaskManagerConfig().setTaskConcurrency(4),
-                                new MemoryManagerConfig(),
-                                TrinoConnectorPluginLoader.getFeaturesConfig(),
-                                new OptimizerConfig(),
-                                new NodeMemoryConfig(),
-                                new DynamicFilterConfig(),
-                                new NodeSchedulerConfig()))
-                        .build();
-        SessionPropertyManager sessionPropertyManager = CatalogServiceProviderModule.createSessionPropertyManager(
-                systemSessionProperties, trinoConnectorServicesProvider);
-
-        return Session.builder(sessionPropertyManager)
-                .setQueryId(queryIdGenerator.createNextQueryId())
-                .setIdentity(Identity.ofUser("user"))
-                .setOriginalIdentity(Identity.ofUser("user"))
-                .setSource("test")
-                .setCatalog("catalog")
-                .setSchema("schema")
-                .setTimeZoneKey(TimeZoneKey.getTimeZoneKey(ZoneId.systemDefault().toString()))
-                .setLocale(Locale.ENGLISH)
-                .setClientCapabilities(Arrays.stream(ClientCapabilities.values()).map(Enum::name)
-                        .collect(ImmutableSet.toImmutableSet()))
-                .setRemoteUserAddress("address")
-                .setUserAgent("agent")
-                .build();
     }
 
     private void printException(Exception e) {
