@@ -82,8 +82,4 @@ suite("map_agg_nested_insert_doris", "p0") {
     sql """ insert into `${tb_doris}` select id, map_agg(label_name, a) from `${tb_base}` group by id; """
 
     qt_sql """ select * from `${tb_doris}` order by id;"""
-
-    sql """ drop table `${tb_base}`; """
-    sql """ drop table `${tb_doris}`; """
-
  }

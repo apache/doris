@@ -76,7 +76,4 @@ suite("test_duplicate_table_without_keys") {
     qt_desc_dup_table "desc ${tbName3}"
     res = sql "show create table ${tbName3}"    
     assertTrue(res.size() != 0)
-
-    sql "DROP TABLE ${tbName2}"
-    sql "DROP TABLE ${tbName3}"
 }

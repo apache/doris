@@ -65,5 +65,4 @@ suite("test_default_current_timestamp") {
     }
     sql """sync"""
     qt_sql """ SELECT COUNT(*) FROM ${tbName} WHERE date(compute_time) = curdate() """
-    sql "DROP TABLE ${tbName}"
 }

@@ -270,6 +270,4 @@ suite("test_date_or_datetime_computation_negative") {
                 assertTrue (exception != null)}
     }
     qt_select_nullable_15 """SELECT hours_add(date_null, 24), hours_add(dateV2_null, 24), hours_add(datetime_null, 24) FROM test_date_or_datetime_computation_negative ORDER BY row_id;"""
-
-    sql "DROP TABLE test_date_or_datetime_computation_negative"
 }
