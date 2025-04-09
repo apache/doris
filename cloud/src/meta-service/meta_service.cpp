@@ -2447,12 +2447,6 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                     return;
                 }
             } else {
-                // initiator may remain in initiators when upgrade ms, need to clear it
-                if (lock_info.initiators_size() > 0) {
-                    lock_info.clear_initiators();
-                    LOG(INFO) << "clear initiators for key=" << hex(lock_key)
-                              << " table_id=" << table_id;
-                }
                 if (request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID) {
                     std::string current_lock_msg = "locked by lock_id=-1";
                     if (!put_mow_tablet_compaction_key(code, msg, txn, instance_id, table_id,
