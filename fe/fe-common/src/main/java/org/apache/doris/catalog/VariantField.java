@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.thrift.TPatternType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 
@@ -24,19 +25,29 @@ import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
 public class VariantField {
+
     @SerializedName(value = "fp")
     protected final String pattern;
 
-    @SerializedName(value = "type")
+    @SerializedName(value = "ft")
     protected final Type type;
 
-    @SerializedName(value = "c")
+    @SerializedName(value = "fc")
     protected final String comment;
 
-    public VariantField(String pattern, Type type, String comment) {
+    @SerializedName(value = "fpt")
+    protected final TPatternType patternType;
+
+    public VariantField(String pattern, Type type, String comment, TPatternType patternType) {
         this.pattern = pattern;
         this.type = type;
         this.comment = comment;
+        this.patternType = patternType;
+    }
+
+    // default MATCH_GLOB
+    public VariantField(String pattern, Type type, String comment) {
+        this(pattern, type, comment, TPatternType.MATCH_NAME_GLOB);
     }
 
     public Type getType() {
@@ -51,6 +62,10 @@ public class VariantField {
         return comment;
     }
 
+    public TPatternType getPatternType() {
+        return patternType;
+    }
+
     public String toSql(int depth) {
         String typeSql;
         if (depth < Type.MAX_NESTING_DEPTH) {
@@ -58,9 +73,9 @@ public class VariantField {
         } else {
             typeSql = "...";
         }
-        StringBuilder sb = new StringBuilder(pattern);
+        StringBuilder sb = new StringBuilder(patternType.toString() + " ");
         if (type != null) {
-            sb.append(":").append(typeSql);
+            sb.append(pattern).append(":").append(typeSql);
         }
         return sb.toString();
     }
