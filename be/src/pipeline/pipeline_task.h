@@ -305,6 +305,12 @@ private:
         FINISHED,
         FINALIZED,
     };
+    const std::vector<std::set<State>> LEGAL_STATE_TRANSITION = {
+            {},                                               // Target state is INITED
+            {State::INITED, State::RUNNABLE, State::BLOCKED}, // Target state is RUNNABLE
+            {State::RUNNABLE, State::FINISHED},               // Target state is BLOCKED
+            {State::RUNNABLE},                                // Target state is FINISHED
+            {State::INITED, State::FINISHED}};                // Target state is FINALIZED
 
     std::string _to_string(State state) const {
         switch (state) {
@@ -330,6 +336,5 @@ private:
 };
 
 using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;
-using PipelineTaskWPtr = std::weak_ptr<PipelineTask>;
 
 } // namespace doris::pipeline
