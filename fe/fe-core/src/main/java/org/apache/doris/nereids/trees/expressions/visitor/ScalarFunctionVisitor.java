@@ -196,6 +196,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FirstSignificantSubdomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FormatRound;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fpow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
@@ -1874,6 +1875,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitRoundBankers(RoundBankers roundBankers, C context) {
         return visitScalarFunction(roundBankers, context);
+    }
+
+    default R visitFormatRound(FormatRound formatRound, C context) {
+        return visitScalarFunction(formatRound, context);
     }
 
     default R visitRpad(Rpad rpad, C context) {
