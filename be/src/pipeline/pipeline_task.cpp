@@ -633,6 +633,21 @@ Status PipelineTask::execute(bool* done) {
     return Status::OK();
 }
 
+void PipelineTask::stop_if_finished() {
+    auto fragment = _fragment_context.lock();
+    if (!fragment) {
+        return;
+    }
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
+    auto sink = _sink;
+    if (!is_finalized() && sink) {
+        if (sink->is_finished(_state)) {
+            set_wake_up_early();
+            terminate();
+        }
+    }
+}
+
 Status PipelineTask::finalize() {
     auto fragment = _fragment_context.lock();
     if (!fragment) {
