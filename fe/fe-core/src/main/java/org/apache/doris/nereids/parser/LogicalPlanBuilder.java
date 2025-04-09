@@ -5392,12 +5392,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean isVerbose = ctx.FULL() != null;
         boolean isBuiltin = ctx.BUILTIN() != null;
 
-        Expression wildWhere = null;
-        if (ctx.wildWhere() != null) {
-            wildWhere = getWildWhere(ctx.wildWhere());
+        String wild = null;
+        if (ctx.STRING_LITERAL() != null) {
+            wild = stripQuotes(ctx.STRING_LITERAL().getText());
         }
-
-        return new ShowFunctionsCommand(dbName, isBuiltin, isVerbose, wildWhere);
+        return new ShowFunctionsCommand(dbName, isBuiltin, isVerbose, wild);
     }
 
     @Override
