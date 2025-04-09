@@ -663,7 +663,9 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         }
     }
     auto st = _base_compaction_thread_pool->submit_func([=, this]() {
+        g_base_compaction_threads_num << 1;
         signal::tablet_id = tablet->tablet_id();
+        Defer defer {[&]() { g_base_compaction_threads_num << -1; }};
         auto compaction = std::make_shared<CloudBaseCompaction>(*this, tablet);
         auto st = _prepare_tablet_compaction_job(ReaderType::READER_BASE_COMPACTION, tablet,
                                                  compaction);
