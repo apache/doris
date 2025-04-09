@@ -527,10 +527,10 @@ ICU_SOURCE=icu-release-69-1
 ICU_MD5SUM="135125f633864285d637db5c01e0388b"
 
 # jindofs
-JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.3.4-libs-0.2.tar.gz"
-JINDOFS_NAME=jindofs-6.3.4-libs-0.2.tar.gz
-JINDOFS_SOURCE=jindofs-6.3.4-libs-0.2
-JINDOFS_MD5SUM="35aa0f6ddf4bf03716f3c88560229cd2"
+JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.8.2-libs-0.1.tar.gz"
+JINDOFS_NAME=jindofs-6.8.2-libs-0.1.tar.gz
+JINDOFS_SOURCE=jindofs-6.8.2-libs-0.1
+JINDOFS_MD5SUM="0e5b0f71e636b8ed3f09e0bf16208fd1"
 
 # pugixml
 PUGIXML_DOWNLOAD="https://github.com/zeux/pugixml/releases/download/v1.15/pugixml-1.15.tar.gz"
