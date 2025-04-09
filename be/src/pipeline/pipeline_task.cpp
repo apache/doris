@@ -226,11 +226,7 @@ Status PipelineTask::_open() {
     SCOPED_TIMER(_open_timer);
     _dry_run = _sink->should_dry_run(_state);
     for (auto& o : _operators) {
-        auto* local_state = _state->get_local_state(o->operator_id());
-        auto st = local_state->open(_state);
-        DCHECK(st.is<ErrorCode::PIP_WAIT_FOR_RF>() ? !_filter_dependencies.empty() : true)
-                << debug_string();
-        RETURN_IF_ERROR(st);
+        RETURN_IF_ERROR(_state->get_local_state(o->operator_id())->open(_state));
     }
     RETURN_IF_ERROR(_state->get_sink_local_state()->open(_state));
     RETURN_IF_ERROR(_extract_dependencies());
@@ -334,8 +330,10 @@ void PipelineTask::terminate() {
  * @return
  */
 Status PipelineTask::execute(bool* done) {
-    DCHECK(_exec_state == State::RUNNABLE) << debug_string();
-    DCHECK(_blocked_dep == nullptr) << debug_string();
+    if (_exec_state != State::RUNNABLE || _blocked_dep != nullptr) [[unlikely]] {
+        return Status::InternalError("Pipeline task is not runnable! Task info: {}",
+                                     debug_string());
+    }
     auto fragment_context = _fragment_context.lock();
     DCHECK(fragment_context);
     int64_t time_spent = 0;
