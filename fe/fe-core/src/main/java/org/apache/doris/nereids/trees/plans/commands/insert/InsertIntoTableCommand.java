@@ -415,7 +415,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
 
         // step 4
-        return executorFactoryRef.get().build();
+        BuildInsertExecutorResult build = executorFactoryRef.get().build();
+        LOG.info("insert plan: \n" + build.physicalSink.treeString());
+        return build;
     }
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
@@ -424,6 +426,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         if (insertExecutor.isEmptyInsert()) {
             return;
         }
+        insertExecutor.
         insertExecutor.executeSingleInsert(executor, jobId);
     }
 
