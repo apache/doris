@@ -84,6 +84,12 @@ struct FieldInfo {
     int precision = 0;
 };
 
+#ifdef NDEBUG
+#define ENABLE_CHECK_CONSISTENCY (void)/* Nothing */
+#else
+#define ENABLE_CHECK_CONSISTENCY(this) (this)->check_consistency()
+#endif
+
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
  *  a trie-like structure. ColumnObject is not suitable for writing into tables
