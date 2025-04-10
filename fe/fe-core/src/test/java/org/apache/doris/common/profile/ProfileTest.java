@@ -17,15 +17,15 @@
 
 package org.apache.doris.common.profile;
 
-import mockit.Expectations;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TUniqueId;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+
+import mockit.Expectations;
+import org.junit.jupiter.api.After;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Before;
+import org.junit.jupiter.api.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
