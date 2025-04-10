@@ -438,6 +438,11 @@ public:
 
     void finalize() override { get_nested_column().finalize(); }
 
+    void remove_first_n_values(size_t n) override {
+        get_nested_column().remove_first_n_values(n);
+        get_null_map_column().remove_first_n_values(n);
+    }
+
 private:
     void _update_has_null();
 

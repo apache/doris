@@ -2587,7 +2587,7 @@ public class SessionVariable implements Serializable, Writable {
                 this.batchSize = 4064;
                 this.enableFoldConstantByBe = true;
             } else {
-                this.batchSize = 1024;
+                this.batchSize = 100;
                 this.enableFoldConstantByBe = false;
             }
 

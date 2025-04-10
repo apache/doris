@@ -250,6 +250,13 @@ public:
     T get_whole_part(size_t n) const { return data[n] / get_scale_multiplier(); }
     T get_fractional_part(size_t n) const { return data[n] % get_scale_multiplier(); }
 
+    void remove_first_n_values(size_t n) override {
+        DCHECK_GE(data.size(), n);
+        size_t remain_size = data.size() - n;
+        memmove(data.data(), data.data() + n, remain_size * sizeof(T));
+        data.resize(remain_size);
+    }
+
 protected:
     Container data;
     UInt32 scale;

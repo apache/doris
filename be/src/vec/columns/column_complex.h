@@ -236,6 +236,13 @@ public:
         data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];
     }
 
+    void remove_first_n_values(size_t n) override {
+        DCHECK_GE(data.size(), n);
+        size_t remain_size = data.size() - n;
+        std::copy(data.data() + n, data.data() + size(), data.data());
+        data.resize(remain_size);
+    }
+
 private:
     Container data;
 };
