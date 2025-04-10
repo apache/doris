@@ -106,8 +106,13 @@ std::shared_ptr<QueryContext> QueryContext::create(TUniqueId query_id, ExecEnv* 
                                                    TNetworkAddress coord_addr, bool is_nereids,
                                                    TNetworkAddress current_connect_fe,
                                                    QuerySource query_type) {
-    auto ctx = QueryContext::create_shared(query_id, exec_env, query_options, coord_addr,
-                                           is_nereids, current_connect_fe, query_type);
+    auto ctx = std::shared_ptr<QueryContext>(
+            new QueryContext(query_id, exec_env, query_options, coord_addr, is_nereids,
+                             current_connect_fe, query_type),
+            [&](QueryContext* ctx) {
+                ExecEnv::GetInstance()->fragment_mgr()->release_query(query_id);
+                delete ctx;
+            });
     ctx->init_query_task_controller();
     return ctx;
 }

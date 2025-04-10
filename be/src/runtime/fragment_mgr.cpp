@@ -911,9 +911,21 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
         }
     }
     query_ctx->cancel(reason);
-    _query_ctx_map.erase(query_id);
+    release_query(query_id);
     LOG(INFO) << "Query " << print_id(query_id)
               << " is cancelled and removed. Reason: " << reason.to_string();
+}
+
+void FragmentMgr::release_query(const TUniqueId query_id) {
+    std::shared_ptr<QueryContext> query_ctx = nullptr;
+    {
+        if (auto q_ctx = get_query_ctx(query_id)) {
+            query_ctx = q_ctx;
+        } else {
+            return;
+        }
+    }
+    _query_ctx_map.erase(query_id);
 }
 
 void FragmentMgr::cancel_worker() {

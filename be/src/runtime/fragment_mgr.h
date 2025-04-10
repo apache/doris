@@ -141,6 +141,7 @@ public:
 
     // Can be used in both version.
     MOCK_FUNCTION void cancel_query(const TUniqueId query_id, const Status reason);
+    void release_query(const TUniqueId query_id);
 
     void cancel_worker();
 
