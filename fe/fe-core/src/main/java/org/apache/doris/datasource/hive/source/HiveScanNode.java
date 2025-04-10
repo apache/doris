@@ -425,6 +425,9 @@ public class HiveScanNode extends FileQueryScanNode {
     protected TFileAttributes getFileAttributes() throws UserException {
         TFileAttributes fileAttributes = new TFileAttributes();
         Table table = hmsTable.getRemoteTable();
+        // set skip header count
+        // TODO: support skip footer count
+        fileAttributes.setSkipLines(HiveProperties.getSkipHeaderCount(table));
         // TODO: separate hive text table and OpenCsv table
         String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
         if (serDeLib.equals("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe")) {
