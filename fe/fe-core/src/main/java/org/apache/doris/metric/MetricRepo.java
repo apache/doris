@@ -655,7 +655,7 @@ public final class MetricRepo {
                 MetricUnit.BYTES, "average local data size of all (internal) tables' partitions", 0L);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_AVG_PARTITION_SIZE_BYTES);
 
-        GAUGE_AVG_TABLET_SIZE_BYTES = new GaugeMetricImpl<>("avg_table_size_bytes",
+        GAUGE_AVG_TABLET_SIZE_BYTES = new GaugeMetricImpl<>("avg_tablet_size_bytes",
                 MetricUnit.BYTES, "average local data size of all (internal) tables' tablets", 0L);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_AVG_TABLET_SIZE_BYTES);
 

@@ -307,4 +307,13 @@ public interface DatabaseIf<T extends TableIf> {
     default long getLastUpdateTime() {
         return -1L;
     }
+
+    /**
+     * The system's internal databases include information_schema and mysql, which are protected.
+     * @return true if database is information_schema or mysql
+     */
+    default boolean isProtected() {
+        final long id = getId();
+        return id == InfoSchemaDb.DATABASE_ID || id == MysqlDb.DATABASE_ID;
+    }
 }

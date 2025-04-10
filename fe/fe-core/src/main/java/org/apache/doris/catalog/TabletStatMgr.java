@@ -134,7 +134,8 @@ public class TabletStatMgr extends MasterDaemon {
                 continue;
             }
             List<Table> tableList = db.getTables();
-            tableCount += tableList.size();
+            // don't include system db
+            tableCount += db.isProtected() ? 0 : tableList.size();
             for (Table table : tableList) {
                 // Will process OlapTable and MTMV
                 if (!table.isManagedTable()) {
@@ -161,7 +162,8 @@ public class TabletStatMgr extends MasterDaemon {
                 }
                 try {
                     List<Partition> allPartitions = olapTable.getAllPartitions();
-                    partitionCount += allPartitions.size();
+                    // don't include system db
+                    partitionCount += db.isProtected() ? 0 : allPartitions.size();
                     for (Partition partition : allPartitions) {
                         Long partitionDataSize = 0L;
                         long version = partition.getVisibleVersion();
@@ -169,7 +171,8 @@ public class TabletStatMgr extends MasterDaemon {
                             long indexRowCount = 0L;
                             boolean indexReported = true;
                             List<Tablet> tablets = index.getTablets();
-                            tabletCount += tablets.size();
+                            // don't include system db
+                            tabletCount += db.isProtected() ? 0 : tablets.size();
                             for (Tablet tablet : tablets) {
 
                                 Long tabletDataSize = 0L;
@@ -265,12 +268,15 @@ public class TabletStatMgr extends MasterDaemon {
         MetricRepo.GAUGE_MAX_TABLE_SIZE_BYTES.setValue(maxTableSize);
         MetricRepo.GAUGE_MAX_PARTITION_SIZE_BYTES.setValue(maxPartitionSize);
         MetricRepo.GAUGE_MAX_TABLET_SIZE_BYTES.setValue(maxTabletSize);
-        MetricRepo.GAUGE_MIN_TABLE_SIZE_BYTES.setValue(minTableSize);
-        MetricRepo.GAUGE_MIN_PARTITION_SIZE_BYTES.setValue(minPartitionSize);
-        MetricRepo.GAUGE_MIN_TABLET_SIZE_BYTES.setValue(minTabletSize);
-        MetricRepo.GAUGE_AVG_TABLE_SIZE_BYTES.setValue(totalTableSize / tableCount);
-        MetricRepo.GAUGE_AVG_PARTITION_SIZE_BYTES.setValue(totalTableSize / partitionCount);
-        MetricRepo.GAUGE_AVG_TABLET_SIZE_BYTES.setValue(totalTableSize / tabletCount);
+        MetricRepo.GAUGE_MIN_TABLE_SIZE_BYTES.setValue(minTableSize == Long.MAX_VALUE ? 0 : minTableSize);
+        MetricRepo.GAUGE_MIN_PARTITION_SIZE_BYTES.setValue(minPartitionSize == Long.MAX_VALUE ? 0 : minPartitionSize);
+        MetricRepo.GAUGE_MIN_TABLET_SIZE_BYTES.setValue(minTabletSize == Long.MAX_VALUE ? 0 : minTabletSize);
+        MetricRepo.GAUGE_AVG_TABLE_SIZE_BYTES.setValue(
+                totalTableSize / Math.max(1, tableCount)); // avoid ArithmeticException: / by zero
+        MetricRepo.GAUGE_AVG_PARTITION_SIZE_BYTES.setValue(
+                totalTableSize / Math.max(1, partitionCount)); // avoid ArithmeticException: / by zero
+        MetricRepo.GAUGE_AVG_TABLET_SIZE_BYTES.setValue(
+                totalTableSize / Math.max(1, tabletCount)); // avoid ArithmeticException: / by zero
         LOG.info("finished to update index row num of all databases. cost: {} ms",
                 (System.currentTimeMillis() - start));
     }
