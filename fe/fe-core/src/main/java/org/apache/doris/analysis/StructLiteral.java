@@ -107,7 +107,7 @@ public class StructLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
         // same with be default field index start with 1
         for (int i = 0; i < children.size(); i++) {
@@ -116,7 +116,7 @@ public class StructLiteral extends LiteralExpr {
                     + ((StructType) type).getFields().get(i).getName()
                     + options.getNestedStringWrapper()
                     + options.getMapKeyDelim()
-                    + child.getStringValueForComplexType(options));
+                    + child.getStringValueInComplexTypeForQuery(options));
         }
         return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
@@ -124,8 +124,12 @@ public class StructLiteral extends LiteralExpr {
     @Override
     public String getStringValueForStreamLoad(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> v.getStringValueForComplexType(options));
-        return "{" + StringUtils.join(list, ", ") + "}";
+        // same with be default field index start with 1
+        for (int i = 0; i < children.size(); i++) {
+            Expr child = children.get(i);
+            list.add(child.getStringValueInComplexTypeForStreamLoad(options));
+        }
+        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
 
     @Override

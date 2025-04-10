@@ -171,7 +171,7 @@ public class MapLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
         for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
             // we should use type to decide we output array is suitable for json format
@@ -179,8 +179,23 @@ public class MapLiteral extends LiteralExpr {
                 // map key type do not support complex type
                 throw new UnsupportedOperationException("Unsupported key type for MAP: " + children.get(i).getType());
             }
-            list.add(children.get(i).getStringValueForComplexType(options)
-                    + options.getMapKeyDelim() + children.get(i + 1).getStringValueForComplexType(options));
+            list.add(children.get(i).getStringValueInComplexTypeForQuery(options)
+                    + options.getMapKeyDelim() + children.get(i + 1).getStringValueInComplexTypeForQuery(options));
+        }
+        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
+    }
+
+    @Override
+    public String getStringValueForStreamLoad(FormatOptions options) {
+        List<String> list = new ArrayList<>(children.size());
+        for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
+            // we should use type to decide we output array is suitable for json format
+            if (children.get(i).getType().isComplexType()) {
+                // map key type do not support complex type
+                throw new UnsupportedOperationException("Unsupported key type for MAP: " + children.get(i).getType());
+            }
+            list.add(children.get(i).getStringValueInComplexTypeForStreamLoad(options)
+                    + options.getMapKeyDelim() + children.get(i + 1).getStringValueInComplexTypeForStreamLoad(options));
         }
         return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }

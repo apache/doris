@@ -133,17 +133,10 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> {
-            String stringLiteral;
-            if (v instanceof NullLiteral) {
-                stringLiteral = options.getNullFormat();
-            } else {
-                stringLiteral = v.getStringValueForComplexType(options);
-            }
-            // we should use type to decide we output array is suitable for json format
-            list.add(stringLiteral);
+            list.add(v.getStringValueInComplexTypeForQuery(options));
         });
         return "[" + StringUtils.join(list, options.getCollectionDelim()) + "]";
     }
@@ -152,16 +145,9 @@ public class ArrayLiteral extends LiteralExpr {
     public String getStringValueForStreamLoad(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> {
-            String stringLiteral;
-            if (v instanceof NullLiteral) {
-                stringLiteral = "null";
-            } else {
-                stringLiteral = getStringLiteralForStreamLoad(v, options);
-            }
-            // we should use type to decide we output array is suitable for json format
-            list.add(stringLiteral);
+            list.add(v.getStringValueInComplexTypeForStreamLoad(options));
         });
-        return "[" + StringUtils.join(list, ", ") + "]";
+        return "[" + StringUtils.join(list, options.getCollectionDelim()) + "]";
     }
 
     @Override

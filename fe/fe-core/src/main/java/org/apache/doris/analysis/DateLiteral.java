@@ -765,8 +765,8 @@ public class DateLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForComplexType(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValueInFe(options) + options.getNestedStringWrapper();
+    public String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
     }
 
     public void roundCeiling(int newScale) {

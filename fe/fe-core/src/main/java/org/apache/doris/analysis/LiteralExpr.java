@@ -114,19 +114,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return literalExpr;
     }
 
-    public static String getStringLiteralForStreamLoad(Expr v, FormatOptions options) {
-        if (!(v instanceof NullLiteral) && v.getType().isScalarType()
-                && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
-                || v.getType() == Type.BOOLEAN)) {
-            return v.getStringValueInFe(options);
-        } else if (v.getType().isComplexType()) {
-            // these type should also call getStringValueInFe which should handle special case for itself
-            return v.getStringValueForStreamLoad(options);
-        } else {
-            return v.getStringValueForComplexType(options);
-        }
-    }
-
     /**
      * Init LiteralExpr's Type information
      * only use in rewrite alias function
@@ -252,13 +239,13 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     @Override
     public abstract String getStringValue();
 
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         return getStringValue();
     }
 
     @Override
-    public String getStringValueForComplexType(FormatOptions options) {
-        return getStringValueInFe(options);
+    public String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return getStringValueForQuery(options);
     }
 
     public long getLongValue() {

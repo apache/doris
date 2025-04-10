@@ -27,6 +27,7 @@ public class FormatOptions {
 
     private String nestedStringWrapper;
     private String mapKeyDelim;
+    // the string format of null value in complex type
     private String nullFormat;
     private String collectionDelim;
     // isBoolValue = true means the boolean column in collection type(array, map, ...) will print as 0 or 1.

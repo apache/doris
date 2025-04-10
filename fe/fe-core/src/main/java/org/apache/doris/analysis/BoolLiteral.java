@@ -113,7 +113,7 @@ public class BoolLiteral extends LiteralExpr {
 
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         String val = options.isBoolValueNum() ? getStringValue() : (value ? "true" : "false");
         return val;
     }

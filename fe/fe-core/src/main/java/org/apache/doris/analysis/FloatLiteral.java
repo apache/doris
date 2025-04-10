@@ -155,7 +155,7 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         if (type == Type.TIME || type == Type.TIMEV2) {
             // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
             // for example '11:22:33' -> 11:22:33
@@ -170,8 +170,17 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueForComplexType(FormatOptions options) {
-        String ret = getStringValueInFe(options);
+    public String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        String ret = this.getStringValueForQuery(options);
+        if (type == Type.TIME || type == Type.TIMEV2) {
+            ret = options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
+        }
+        return ret;
+    }
+
+    @Override
+    public String getStringValueForStreamLoad(FormatOptions options) {
+        String ret = this.getStringValueForQuery(options);
         if (type == Type.TIME || type == Type.TIMEV2) {
             ret = options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
         }

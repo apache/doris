@@ -266,7 +266,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         return value.toPlainString();
     }
 

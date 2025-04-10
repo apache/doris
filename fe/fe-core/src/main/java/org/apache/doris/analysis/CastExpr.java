@@ -577,8 +577,13 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public String getStringValueForComplexType(FormatOptions options) {
-        return children.get(0).getStringValueForComplexType(options);
+    public String getStringValueForStreamLoad(FormatOptions options) {
+        return children.get(0).getStringValueForStreamLoad(options);
+    }
+
+    @Override
+    public String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return children.get(0).getStringValueInComplexTypeForQuery(options);
     }
 
     public void setNotFold(boolean notFold) {
