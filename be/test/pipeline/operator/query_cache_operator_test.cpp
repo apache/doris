@@ -59,6 +59,13 @@ struct QueryCacheOperatorTest : public ::testing::Test {
         child_op = std::make_unique<QueryCacheMockChildOperator>();
         query_cache_uptr.reset(QueryCache::create_global_cache(1024 * 1024 * 1024));
         query_cache = query_cache_uptr.get();
+        scan_ranges.clear();
+        TScanRangeParams scan_range;
+        TPaloScanRange palp_scan_range;
+        palp_scan_range.__set_tablet_id(42);
+        palp_scan_range.__set_version("114514");
+        scan_range.scan_range.__set_palo_scan_range(palp_scan_range);
+        scan_ranges.push_back(scan_range);
     }
     void create_local_state() {
         shared_state = sink->create_shared_state();
@@ -76,13 +83,6 @@ struct QueryCacheOperatorTest : public ::testing::Test {
         }
 
         {
-            std::vector<TScanRangeParams> scan_ranges;
-            TScanRangeParams scan_range;
-            TPaloScanRange palp_scan_range;
-            palp_scan_range.__set_tablet_id(42);
-            palp_scan_range.__set_version("114514");
-            scan_range.scan_range.__set_palo_scan_range(palp_scan_range);
-            scan_ranges.push_back(scan_range);
             source_local_state_uptr =
                     CacheSourceLocalState::create_unique(state.get(), source.get());
             source_local_state = source_local_state_uptr.get();
@@ -124,6 +124,8 @@ struct QueryCacheOperatorTest : public ::testing::Test {
 
     std::unique_ptr<QueryCache> query_cache_uptr;
     QueryCache* query_cache;
+
+    std::vector<TScanRangeParams> scan_ranges;
 };
 
 TEST_F(QueryCacheOperatorTest, test_no_hit_cache1) {
@@ -204,6 +206,68 @@ TEST_F(QueryCacheOperatorTest, test_no_hit_cache2) {
         EXPECT_EQ(query_cache->get_element_count(), 0);
     }
     EXPECT_FALSE(source_local_state->_need_insert_cache);
+}
+
+TEST_F(QueryCacheOperatorTest, test_hit_cache) {
+    sink = std::make_unique<CacheSinkOperatorX>();
+    source = std::make_unique<CacheSourceOperatorX>();
+    EXPECT_TRUE(source->set_child(child_op));
+    child_op->_mock_row_desc.reset(
+            new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &pool});
+    TQueryCacheParam cache_param;
+    cache_param.node_id = 0;
+    cache_param.output_slot_mapping[0] = 0;
+    cache_param.tablet_to_range.insert({42, "test"});
+    cache_param.force_refresh_query_cache = false;
+    cache_param.entry_max_bytes = 1024 * 1024;
+    cache_param.entry_max_rows = 3;
+
+    {
+        int64_t version = 0;
+        std::string cache_key;
+        EXPECT_TRUE(QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version));
+        CacheResult result;
+        result.push_back(std::make_unique<Block>());
+        *result.back() = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5});
+        query_cache->insert(cache_key, version, result, {0, 2, 3}, 1);
+    }
+
+    source->_cache_param = cache_param;
+    create_local_state();
+
+    std::cout << query_cache->get_element_count() << std::endl;
+    EXPECT_EQ(source_local_state->_slot_orders.size(), 1);
+    EXPECT_EQ(source_local_state->_slot_orders[0], 0);
+
+    {
+        auto block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5});
+        auto st = sink->sink(state.get(), &block, true);
+        EXPECT_TRUE(st.ok()) << st.msg();
+    }
+
+    {
+        Block block;
+        bool eos = false;
+        auto st = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_FALSE(eos);
+        std::cout << block.dump_data() << std::endl;
+        std::cout << query_cache->get_element_count() << std::endl;
+        EXPECT_EQ(block.rows(), 5);
+        EXPECT_TRUE(ColumnHelper::block_equal(
+                block, ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5})));
+    }
+
+    {
+        Block block;
+        bool eos = false;
+        auto st = source->get_block(state.get(), &block, &eos);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_TRUE(eos);
+        EXPECT_TRUE(block.empty());
+    }
+
+    query_cache_uptr.release();
 }
 
 } // namespace doris::pipeline
