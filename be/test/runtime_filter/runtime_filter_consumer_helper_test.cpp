@@ -76,10 +76,10 @@ TEST_F(RuntimeFilterConsumerHelperTest, basic) {
     RowDescriptor row_desc;
     _tbl._slot_desc_map[0] = &slot_desc;
     const_cast<std::vector<TupleDescriptor*>&>(row_desc._tuple_desc_map).push_back(&tuple_desc);
-    auto helper = RuntimeFilterConsumerHelper(0, runtime_filter_descs);
+    auto helper = RuntimeFilterConsumerHelper(runtime_filter_descs);
 
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.init(_runtime_states[0].get(), true, runtime_filter_dependencies, 0, ""));
+            helper.init(_runtime_states[0].get(), true, 0, 0, runtime_filter_dependencies, ""));
 
     vectorized::VExprContextSPtrs conjuncts;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
