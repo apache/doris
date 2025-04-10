@@ -775,16 +775,12 @@ Status RowGroupReader::_get_current_batch_row_id(size_t read_rows, std::vector<r
 }
 
 Status RowGroupReader::_fill_row_id_columns(Block* block,size_t read_rows) {
-    if (_row_id_column_iterator != nullptr) {
+    if (_row_id_column_iterator_pair.first != nullptr) {
         vector<rowid_t> row_ids;
         RETURN_IF_ERROR(_get_current_batch_row_id(read_rows, row_ids));
+        auto col = block->get_by_position(_row_id_column_iterator_pair.second).column->assume_mutable();
+        RETURN_IF_ERROR(_row_id_column_iterator_pair.first->read_by_rowids(row_ids.data(), row_ids.size(), col));
 
-        for (auto& col :  *block ){
-            if (col.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
-                auto x  = col.column->assume_mutable();
-                RETURN_IF_ERROR(_row_id_column_iterator->read_by_rowids(row_ids.data(), row_ids.size(), x));
-            }
-        }
     }
 
     return Status::OK();

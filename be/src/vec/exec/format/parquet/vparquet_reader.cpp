@@ -450,6 +450,14 @@ Status ParquetReader::set_fill_columns(
             }
         }
     }
+    if (_row_id_column_iterator_pair.first != nullptr) {
+        // 在 lazy read中， 将rowid 列也作为第一次读取时填充的列，然后与谓词列一起filter
+        // 因为 我需要先根据row range 来拿到当前parquet reader 要读取的列的 row id => vector
+        // 然后将vector 填充到 column 中，如果我不一起filter 的话 ，我需要让 vector 额外做一次filter 再插入到column 中
+        _lazy_read_ctx.all_predicate_col_ids.emplace_back(_row_id_column_iterator_pair.second);
+    }
+
+
 
     for (auto& kv : partition_columns) {
         auto iter = predicate_columns.find(kv.first);
@@ -559,6 +567,8 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
         return Status::OK();
     }
+    std::cout <<"_column_names = " << (*_column_names)<<"\n";
+
     std::vector<std::string> original_block_column_name = block->get_names();
     if (!_hive_use_column_names) {
         for (auto i = 0; i < block->get_names().size(); i++) {
@@ -667,7 +677,7 @@ Status ParquetReader::_next_row_group_reader() {
             _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
     _row_group_eof = false;
     _current_group_reader->set_current_row_group_idx(row_group_index);
-    _current_group_reader->set_row_id_column_iterator(_row_id_column_iterator);
+    _current_group_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges, _col_offsets,
                                        _tuple_descriptor, _row_descriptor, _colname_to_slot_id,
                                        _not_single_slot_filter_conjuncts,

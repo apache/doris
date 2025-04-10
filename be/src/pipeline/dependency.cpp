@@ -593,6 +593,7 @@ Status MaterializationSharedState::create_muiltget_result(const vectorized::Colu
 
 Status MaterializationSharedState::init_multi_requests(
         const TMaterializationNode& materialization_node, RuntimeState* state) {
+    rpc_struct_inited = true;
     PMultiGetRequestV2 multi_get_request;
     // Initialize the base struct of PMultiGetRequestV2
     multi_get_request.set_be_exec_version(state->be_exec_version());
@@ -643,6 +644,11 @@ Status MaterializationSharedState::init_multi_requests(
                                                              .callback = nullptr});
     }
     // add be_num ad count finish counter for source dependency
+
+    //阻塞source
+    std::cout <<"MaterializationSharedState = " << ((CountedFinishDependency*)source_deps.back().get())->debug_string() <<"\n";
+    std::cout <<"MaterializationSharedState rpc_struct_map.size() = " << (int)rpc_struct_map.size()<<"\n";
+
     ((CountedFinishDependency*)source_deps.back().get())->add((int)rpc_struct_map.size());
 
     return Status::OK();

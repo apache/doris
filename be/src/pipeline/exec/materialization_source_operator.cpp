@@ -46,6 +46,9 @@ Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized
 
     if (!*eos) {
         local_state._shared_state->sink_deps.back()->set_ready();
+        std::cout <<"MaterializationSourceOperatorX = " << ((CountedFinishDependency*)(local_state._shared_state->source_deps.back().get()))->debug_string() <<"\n";
+        std::cout << "local_state._shared_state->rpc_struct_map.size() = " << local_state._shared_state->rpc_struct_map.size() << "\n";
+
         ((CountedFinishDependency*)(local_state._shared_state->source_deps.back().get()))
                 ->add(local_state._shared_state->rpc_struct_map.size());
     } else {

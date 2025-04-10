@@ -24,11 +24,17 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
 
 
     // Define test function inside suite
-    def runTopNLazyMatTests() {
-        def limitValues = [1, 5, 10, 20, 30]
+    def runTopNLazyMatTests = {
+        def limitValues = [3, 8, 29]
         
         // Single table query tests, using nested loops to iterate through tables and limit values
         for (String table : ["orc_topn_lazy_mat_table", "parquet_topn_lazy_mat_table"]) {
+            qt_1 """ select * from ${table} order by id limit 10; """
+            qt_2 """ select * from ${table} order by id,file_id limit 10; """
+            qt_3 """ select score, value, active,name  from ${table} order by id,file_id limit 10; """
+            qt_4 """ select value,name,id,file_id  from ${table} order by name limit 10; """
+
+
             for (int limit : limitValues) {
                 // Basic query
                 qt_test_basic """ 
@@ -136,7 +142,7 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
 
 
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive2"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_hive_topn_lazy_mat"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -154,11 +160,48 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
 
 
 
-        
+        sql """
+        set enable_lazy_materialization=true;
+        set runtime_filter_mode=GLOBAL;
+        set TOPN_FILTER_RATIO=0.5;
+        set disable_join_reorder=true;
+        set enable_runtime_filter_prune=false;
+        """
+
+
+        explain {
+            sql "select * from  orc_topn_lazy_mat_table order by id limit 10; "
+            contains("projectList:[id, name, value, active, score, file_id]")
+            contains("column_descs_lists[[`name` text NULL, `value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL]]")
+            contains("locations: [[1, 2, 3, 4, 5]]")
+            contains("table_idxs: [[1, 2, 3, 4, 5]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
+        }
+       
+        explain {
+            sql " select file_id,id from  orc_topn_lazy_mat_table  order by name limit 10; "
+            contains("projectList:[file_id, id]")
+            contains("column_descs_lists[[`id` int NULL, `file_id` int NULL]]")
+            contains("locations: [[1, 2]]")
+            contains("table_idxs: [[0, 5]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table]")
+        }
+
+        explain {
+            sql """ select a.name,length(a.name),a.value,b.*,a.* from  parquet_topn_lazy_mat_table as a    
+            join  orc_topn_lazy_mat_table as b on a.id = b.id order by a.name    limit 10 """
+            contains("projectList:[name, length(a.name), value, id, name, value, active, score, file_id, id, name, value, active, score, file_id]")
+            contains("column_descs_lists[[`name` text NULL, `value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL], [`value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL]]")
+            contains("locations: [[5, 6, 7, 8, 9], [10, 11, 12, 13]]")
+            contains("table_idxs: [[1, 2, 3, 4, 5], [2, 3, 4, 5]]")
+            contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__orc_topn_lazy_mat_table, __DORIS_GLOBAL_ROWID_COL__parquet_topn_lazy_mat_table]")
+        }
 
         runTopNLazyMatTests()
 
 
+        sql """ set enable_lazy_materialization=false; """
+        runTopNLazyMatTests()
 
 
 

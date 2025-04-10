@@ -215,9 +215,9 @@ public:
         _seek_to_row_number = row_number;
     }
 
-
-    void set_row_id_column_iterator(std::shared_ptr<segment_v2::RowIdColumnIteratorV2> ptr) {
-        _row_id_column_iterator = ptr;
+    void set_row_id_column_iterator(
+            const std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>& iterator_pair) {
+        _row_id_column_iterator_pair = iterator_pair;
     }
 
 
@@ -687,7 +687,8 @@ private:
 
     bool _read_on_line_mode = false;
     uint64_t _seek_to_row_number = 0;
-    std::shared_ptr<segment_v2::RowIdColumnIteratorV2> _row_id_column_iterator = nullptr;
+
+    std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr, -1};
 };
 
 class StripeStreamInputStream : public orc::InputStream, public ProfileCollector {

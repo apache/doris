@@ -158,8 +158,8 @@ public:
         _read_lines = read_lines;
     }
 
-    void set_row_id_column_iterator(std::shared_ptr<RowIdColumnIteratorV2> ptr) {
-        _row_id_column_iterator = ptr;
+    void set_row_id_column_iterator(std::pair<std::shared_ptr<RowIdColumnIteratorV2>, SlotId> iterator_pair) {
+        _row_id_column_iterator_pair = iterator_pair;
     }
 
 protected:
@@ -301,8 +301,7 @@ private:
     bool _read_line_mode = false;
     std::list<int64_t> _read_lines;
     std::vector<std::vector<RowRange>> _read_line_mode_row_ranges;
-
-    std::shared_ptr<RowIdColumnIteratorV2> _row_id_column_iterator = nullptr;
+    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr, -1};
 };
 #include "common/compile_check_end.h"
 

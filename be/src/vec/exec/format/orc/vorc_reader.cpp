@@ -1303,16 +1303,12 @@ Status OrcReader::_fill_missing_columns(
 }
 
 Status OrcReader::_fill_row_id_columns(Block* block) {
-    if (_row_id_column_iterator != nullptr) {
-        RETURN_IF_ERROR(_row_id_column_iterator->seek_to_ordinal(_row_reader->getRowNumber()));
+    if (_row_id_column_iterator_pair.first != nullptr) {
+        RETURN_IF_ERROR(_row_id_column_iterator_pair.first->seek_to_ordinal(_row_reader->getRowNumber()));
         size_t fill_size = _batch->numElements;
 
-        for (auto & col : *block) {
-            if (col.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
-                auto x  = col.column->assume_mutable();
-                RETURN_IF_ERROR(_row_id_column_iterator->next_batch(&fill_size, x));
-            }
-        }
+        auto col = block->get_by_position(_row_id_column_iterator_pair.second).column->assume_mutable();
+        RETURN_IF_ERROR(_row_id_column_iterator_pair.first->next_batch(&fill_size, col));
     }
 
     return Status::OK();

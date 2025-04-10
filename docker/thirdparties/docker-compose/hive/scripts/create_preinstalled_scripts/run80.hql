@@ -22,7 +22,7 @@ CREATE TABLE `parquet_topn_lazy_mat_table`(
   `score` double)
 PARTITIONED BY ( 
   `file_id` int)
-STORED AS ORC 
+STORED AS PARQUET
 LOCATION
  '/user/doris/preinstalled_data/parquet_table/parquet_global_lazy_mat_table/';
 

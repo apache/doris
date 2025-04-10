@@ -858,13 +858,13 @@ void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int l
     Block::erase_useless_column(block, num_columns_without_result);
 }
 
-Status VFileScanner::_create_row_id_column_iterator() {
+Status VFileScanner::_create_row_id_column_iterator(const int column_id) {
     auto &id_file_map = _state->get_id_file_map();
     auto file_id = id_file_map->get_file_mapping_id(
             std::make_shared<FileMapping>(((pipeline::FileScanLocalState*)_local_state)->parent_id(),
                                           _current_range, _should_enable_file_meta_cache()));
-    _row_id_column_iterator_ptr = std::make_shared<RowIdColumnIteratorV2>(
-            IdManager::ID_VERSION, BackendOptions::get_backend_id(), file_id);
+    _row_id_column_iterator_pair = std::make_pair(std::make_shared<RowIdColumnIteratorV2>(
+            IdManager::ID_VERSION, BackendOptions::get_backend_id(), file_id), column_id);
     return Status::OK();
 }
 
@@ -991,7 +991,7 @@ Status VFileScanner::_get_next_reader() {
                     _should_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
                                                      : nullptr,
                     _state->query_options().enable_parquet_lazy_mat);
-            parquet_reader->set_row_id_column_iterator(_row_id_column_iterator_ptr);
+            parquet_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
 
             // ATTN: the push down agg type may be set back to NONE,
             // see IcebergTableReader::init_row_filters for example.
@@ -1011,7 +1011,7 @@ Status VFileScanner::_get_next_reader() {
             std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
                     _profile, _state, *_params, range, _state->query_options().batch_size,
                     _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
-            orc_reader->set_row_id_column_iterator(_row_id_column_iterator_ptr);
+            orc_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
             orc_reader->set_push_down_agg_type(_get_push_down_agg_type());
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
@@ -1378,7 +1378,8 @@ Status VFileScanner::_init_expr_ctxes() {
                     fmt::format("Unknown source slot descriptor, slot_id={}", slot_id));
         }
         if (it->second->col_name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
-            RETURN_IF_ERROR(_create_row_id_column_iterator());
+            RETURN_IF_ERROR(_create_row_id_column_iterator(
+                    _default_val_row_desc->get_column_id(slot_id)));
             continue;
         }
         if (slot_info.is_file_slot) {

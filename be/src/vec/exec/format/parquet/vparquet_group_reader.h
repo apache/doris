@@ -165,8 +165,9 @@ public:
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
     int64_t get_remaining_rows() { return _remaining_rows; }
 
-    void set_row_id_column_iterator(std::shared_ptr<RowIdColumnIteratorV2> ptr) {
-        _row_id_column_iterator = ptr;
+
+    void set_row_id_column_iterator(const std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int>& iterator_pair) {
+        _row_id_column_iterator_pair = iterator_pair;
     }
 
     void set_current_row_group_idx(RowGroupIndex row_group_idx) {
@@ -244,7 +245,7 @@ private:
     bool _is_row_group_filtered = false;
 
     RowGroupIndex _current_row_group_idx{0,0,0};
-    std::shared_ptr<RowIdColumnIteratorV2> _row_id_column_iterator = nullptr;
+    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr, -1};
 };
 #include "common/compile_check_end.h"
 
