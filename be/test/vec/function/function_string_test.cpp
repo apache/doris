@@ -1410,7 +1410,7 @@ TEST(function_string_test, function_concat_ws_test) {
 
     {
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+                                    TypeIndex::String};
 
         DataSet data_set = {
                 {{std::string("-"), std::string(""), std::string(""), std::string("")},
@@ -1973,7 +1973,7 @@ TEST(function_string_test, function_aes_encrypt_test) {
     }
     {
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+                                    TypeIndex::String};
         const char* iv = "0123456789abcdef";
         const char* mode = "AES_256_ECB";
         const char* key = "vectorized";
@@ -2040,7 +2040,7 @@ TEST(function_string_test, function_aes_decrypt_test) {
     }
     {
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+                                    TypeIndex::String};
         const char* key = "vectorized";
         const char* iv = "0123456789abcdef";
         const char* mode = "AES_128_OFB";
@@ -2077,7 +2077,7 @@ TEST(function_string_test, function_sm4_encrypt_test) {
     std::string func_name = "sm4_encrypt";
     {
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+                                    TypeIndex::String};
 
         const char* key = "doris";
         const char* iv = "0123456789abcdef";
@@ -2115,7 +2115,7 @@ TEST(function_string_test, function_sm4_encrypt_test) {
 
     {
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+                                    TypeIndex::String};
 
         const char* key = "vectorized";
         const char* iv = "0123456789abcdef";
@@ -2156,7 +2156,7 @@ TEST(function_string_test, function_sm4_decrypt_test) {
     std::string func_name = "sm4_decrypt";
     {
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+                                    TypeIndex::String};
 
         const char* key = "doris";
         const char* iv = "0123456789abcdef";
@@ -2192,7 +2192,7 @@ TEST(function_string_test, function_sm4_decrypt_test) {
 
     {
         InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+                                    TypeIndex::String};
 
         const char* key = "vectorized";
         const char* iv = "0123456789abcdef";

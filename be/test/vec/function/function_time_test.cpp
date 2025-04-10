@@ -219,7 +219,7 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
                               std::string {"+08:00"}},
                              std::string("0000-01-01 00:00:00")}};
         static_cast<void>(
-                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, false));
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
     }
 
     {
@@ -236,7 +236,7 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
                               std::string {"america/Los_angeles"}},
                              std::string("2019-07-31 11:18:27")}};
         static_cast<void>(
-                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, false));
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set));
     }
 }
 
@@ -1162,14 +1162,18 @@ TEST(VTimestampFunctionsTest, months_add_v2_test) {
         static_cast<void>(
                 check_function<DataTypeDateTimeV2, true, 4>(func_name, input_types, data_set));
     }
-    // ne
+    // negative case
     {
         InputTypeSet input_types = {{TypeIndex::DateTimeV2, 2}, TypeIndex::Int32};
 
-        DataSet data_set = {{{std::string("2020-10-23 00:00:11.1234"), -4},
-                             std::string("2020-06-23 00:00:11.1234")},
-                            {{std::string("2020-05-23 00:00:11.12"), 4},
-                             std::string("2020-09-23 00:00:11.1234")}};
+        DataSet data_set = {
+                // input truncated to 2 decimal so output should be .12
+                {{std::string("2020-10-23 00:00:11.1234"), -4},
+                 std::string("2020-06-23 00:00:11.1234")},
+                // output should be .12
+                {{std::string("2020-05-23 00:00:11.12"), 4},
+                 std::string("2020-09-23 00:00:11.1234")},
+        };
 
         static_cast<void>(check_function<DataTypeDateTimeV2, true, 4>(func_name, input_types,
                                                                       data_set, false, true));

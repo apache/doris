@@ -630,7 +630,7 @@ TEST_F(ColumnArrayTest, CreateArrayTest) {
     //
     //  so actually according to the semantics of the function, it should not impl in array,
     //  but we should make sure in creation of array, the nested_column && offsets_column should not be const
-    for (auto & array_column : array_columns) {
+    for (auto& array_column : array_columns) {
         const auto* column = check_and_get_column<ColumnArray>(
                 remove_nullable(array_column->assume_mutable()).get());
         auto column_size = column->size();

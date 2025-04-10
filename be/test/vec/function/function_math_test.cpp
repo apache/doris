@@ -21,7 +21,9 @@
 #include <string>
 
 #include "function_test_util.h"
+#include "testutil/any_type.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -370,6 +372,41 @@ TEST(MathFunctionTest, positive_test) {
 
         static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
+
+    {
+        InputTypeSet input_types = {AnyType {Notnull {TypeIndex::Decimal64}, 5, 11}};
+
+        DataSet data_set = {
+                {{DECIMAL64(12345, 123, 5)}, {DECIMAL64(12345, 123, 5)}},
+                {{DECIMAL64(12345, 12345, 5)}, {DECIMAL64(12345, 12345, 5)}},
+        };
+
+        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, false, 5, 11>(
+                func_name, input_types, data_set));
+    }
+    // negative case
+    {
+        InputTypeSet input_types = {AnyType {Notnull {TypeIndex::Decimal64}, 5, 11}};
+
+        DataSet data_set = {
+                // column's data should keep all the same scale. will be reinterpreted as the same scale.
+                {{DECIMAL64(12345, 123, 3)}, {DECIMAL64(12345, 12300, 5)}},
+        };
+
+        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, false, 5, 11>(
+                func_name, input_types, data_set, false, true));
+    }
+    // negative case
+    {
+        InputTypeSet input_types = {AnyType {Notnull {TypeIndex::Decimal64}, 5, 11}};
+
+        DataSet data_set = {
+                {{DECIMAL64(12345, 12345, 5)}, {DECIMAL64(12345, 12345, 5)}},
+        };
+
+        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, false, 6, 12>(
+                func_name, input_types, data_set, false, true));
+    }
 }
 
 TEST(MathFunctionTest, negative_test) {
@@ -635,13 +672,24 @@ TEST(MathFunctionTest, format_round_test) {
     }
     {
         InputTypeSet input_types = {{TypeIndex::Decimal64, 5, 18}, TypeIndex::Int32};
-        DataSet data_set = {
-                {{Null(), INT(2)}, Null()},
-                {{DECIMAL64(17014116, 670000000, 9), INT(2)}, VARCHAR("17,014,116.67")},
-                {{DECIMAL64(-17014116, -670000000, 9), INT(2)}, VARCHAR("-17,014,116.67")},
-                {{DECIMAL64(-17014116, -67000, 5), INT(2)}, VARCHAR("-17,014,116.67")}};
+        DataSet data_set = {{{Null(), INT(2)}, Null()},
+                            {{DECIMAL64(17014116, 67000, 5), INT(2)}, VARCHAR("17,014,116.67")},
+                            {{DECIMAL64(-17014116, -67000, 5), INT(2)}, VARCHAR("-17,014,116.67")}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+    // negative case
+    {
+        InputTypeSet input_types = {{TypeIndex::Decimal64, 5, 18}, TypeIndex::Int32};
+        DataSet data_set = {
+                // oob
+                {{DECIMAL64(12345678901234, 67000, 5), INT(2)}, VARCHAR("12,345,678,901,234.67")},
+                // different scale
+                {{DECIMAL64(-17014116, -671, 3), INT(2)}, VARCHAR("-17,014,116.67")},
+        };
+
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set,
+                                                               false, true));
     }
 }
 

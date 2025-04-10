@@ -187,6 +187,8 @@ template <typename ResultType, bool ResultNullable = false, int ResultScale = -1
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
                       const DataSet& data_set, bool expect_execute_fail = false,
                       bool expect_result_ne = false) {
+    TestCaseInfo::arg_size = static_cast<int>(input_types.size());
+    TestCaseInfo::func_call_index++;
     // 1.0 create data type
     ut_type::UTDataTypeDescs descs;
     // desc get type's precision and scale here. FIXME: replace by DataTypePtr inputs directly.
@@ -297,7 +299,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     }
 
     for (int i = 0; i < row_size; ++i) {
-        TestCaseInfo::cur_cast_line = i; // for failure report
+        TestCaseInfo::error_line_number = i; // for failure report
 
         if (expect_result_ne) {
             EXPECT_NE(0, column->compare_at(i, i, *expected_col_ptr, 1))
@@ -323,8 +325,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 template <typename ReturnType, bool nullable = false>
 void check_function_all_arg_comb(const std::string& func_name, const InputTypeSet& base_types,
                                  const DataSet& data_set) {
+    TestCaseInfo::func_call_index++;
     size_t arg_cnt = base_types.size();
-    TestCaseInfo::arg_size = static_cast<int>(arg_cnt);
     // Consider each parameter as a bit, if the j-th bit is 1, the j-th parameter is const; otherwise, it is not.
     for (int i = 0; i < (1 << arg_cnt); i++) {
         InputTypeSet input_types {};
@@ -333,24 +335,30 @@ void check_function_all_arg_comb(const std::string& func_name, const InputTypeSe
             auto base_type_idx = any_cast<TypeIndex>(base_types[j]);
             if (is_const) { // wrap in consted
                 if (base_types[j].type() == &typeid(Notnull)) {
-                    input_types.emplace_back(ConstedNotnull {base_type_idx}, base_types[j].scale_or(-1), base_types[j].precision_or(-1));
+                    input_types.emplace_back(ConstedNotnull {base_type_idx},
+                                             base_types[j].scale_or(-1),
+                                             base_types[j].precision_or(-1));
                 } else {
-                    input_types.emplace_back(Consted {base_type_idx}, base_types[j].scale_or(-1), base_types[j].precision_or(-1));
+                    input_types.emplace_back(Consted {base_type_idx}, base_types[j].scale_or(-1),
+                                             base_types[j].precision_or(-1));
                 }
             } else {
                 input_types.emplace_back(base_types[j]);
             }
         }
 
-        TestCaseInfo::arg_const_info = i, TestCaseInfo::cur_cast_line = -1;
+        TestCaseInfo::arg_const_info = i, TestCaseInfo::error_line_number = -1;
         // exists parameter are const
         if (i != 0) {
             for (const auto& line : data_set) {
                 DataSet tmp_set {line};
+                // check_function_all_arg_comb is ONE call. adding here and minuing in check_function to make it consistent.
+                TestCaseInfo::func_call_index--;
                 static_cast<void>(check_function<ReturnType, nullable>(func_name, input_types,
                                                                        tmp_set, false));
             }
         } else {
+            TestCaseInfo::func_call_index--;
             static_cast<void>(
                     check_function<ReturnType, nullable>(func_name, input_types, data_set));
         }
