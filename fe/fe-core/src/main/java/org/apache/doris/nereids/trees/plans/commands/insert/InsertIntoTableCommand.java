@@ -426,7 +426,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         if (insertExecutor.isEmptyInsert()) {
             return;
         }
-        insertExecutor.
         insertExecutor.executeSingleInsert(executor, jobId);
     }
 
