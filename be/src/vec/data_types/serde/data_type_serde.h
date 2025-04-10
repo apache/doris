@@ -195,6 +195,12 @@ public:
          */
         bool is_bool_value_num = true;
 
+        /**
+         * indicate the nested level of column.
+         * it is used to control some behavior of serde 
+         */ 
+        mutable int level = 0;
+
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {
             CHECK(0 <= hive_text_complex_type_delimiter_level &&
