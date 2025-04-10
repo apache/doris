@@ -32,7 +32,6 @@
 #include "common/status.h"
 #include "util/bitmap.h"
 #include "util/runtime_profile.h"
-#include "util/spinlock.h"
 #include "util/uid_util.h"
 
 namespace google::protobuf {
@@ -173,7 +172,7 @@ protected:
     // tablet_id -> TabletChannel. it will only be changed in open() or inc_open()
     std::unordered_map<int64_t, std::unique_ptr<BaseDeltaWriter>> _tablet_writers;
     // protect _tablet_writers
-    SpinLock _tablet_writers_lock;
+    std::mutex _tablet_writers_lock;
     // broken tablet ids.
     // If a tablet write fails, it's id will be added to this set.
     // So that following batch will not handle this tablet anymore.
