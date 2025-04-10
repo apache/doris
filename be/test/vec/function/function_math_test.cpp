@@ -46,7 +46,7 @@ TEST(MathFunctionTest, acos_test) {
 TEST(MathFunctionTest, acosh_test) {
     std::string func_name = "acosh"; // acosh(x) = ln(x + sqrt(x^2 - 1)), x ∈ [1, +∞)
 
-    std::vector input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{1.0}, 0.0},
                         {{2.0}, 1.3169578969248166},
@@ -72,7 +72,7 @@ TEST(MathFunctionTest, asin_test) {
 TEST(MathFunctionTest, asinh_test) {
     std::string func_name = "asinh"; // asinh(x) = ln(x + sqrt(x^2 + 1)), x ∈ (-∞, +∞)
 
-    std::vector input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{0.0}, 0.0},
                         {{1.0}, 0.8813735870195430},
@@ -100,7 +100,7 @@ TEST(MathFunctionTest, atan_test) {
 TEST(MathFunctionTest, atanh_test) {
     std::string func_name = "atanh"; // atanh(x) = 0.5 * ln((1 + x) / (1 - x)), x ∈ (-1, 1)
 
-    std::vector input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{0.0}, 0.0},
                         {{0.5}, 0.5493061443340548},
@@ -143,7 +143,7 @@ TEST(MathFunctionTest, sin_test) {
 TEST(MathFunctionTest, sinh_test) {
     std::string func_name = "sinh"; // sinh(x) = (e^x - e^(-x)) / 2, x ∈ (-∞, +∞)
 
-    std::vector input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{0.0}, 0.0},
                         {{1.0}, 1.1752011936438014},
@@ -576,7 +576,7 @@ TEST(MathFunctionTest, money_format_test) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
-        BaseInputTypeSet input_types = {TypeIndex::Decimal64};
+        InputTypeSet input_types = {TypeIndex::Decimal64};
         DataSet data_set = {{{Null()}, Null()},
                             {{DECIMAL64(17014116, 670000000, 9)}, VARCHAR("17,014,116.67")},
                             {{DECIMAL64(-17014116, -670000000, 9)}, VARCHAR("-17,014,116.67")}};
@@ -634,11 +634,12 @@ TEST(MathFunctionTest, format_round_test) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
-        BaseInputTypeSet input_types = {TypeIndex::Decimal64, TypeIndex::Int32};
+        InputTypeSet input_types = {{TypeIndex::Decimal64, 5, 18}, TypeIndex::Int32};
         DataSet data_set = {
                 {{Null(), INT(2)}, Null()},
-                {{DECIMAL64(17014116, 670000000,9), INT(2)}, VARCHAR("17,014,116.67")},
-                {{DECIMAL64(-17014116, -670000000,9), INT(2)}, VARCHAR("-17,014,116.67")}};
+                {{DECIMAL64(17014116, 670000000, 9), INT(2)}, VARCHAR("17,014,116.67")},
+                {{DECIMAL64(-17014116, -670000000, 9), INT(2)}, VARCHAR("-17,014,116.67")},
+                {{DECIMAL64(-17014116, -67000, 5), INT(2)}, VARCHAR("-17,014,116.67")}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }

@@ -317,24 +317,28 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
 
-using BaseInputTypeSet = std::vector<TypeIndex>;
-
 // Each parameter may be decorated with 'const', but each invocation of 'check_function' can only handle one state of the parameters.
 // If there are 'n' parameters, it would require manually calling 'check_function' 2^n times, whereas through this function, only one
 // invocation is needed.
 template <typename ReturnType, bool nullable = false>
-void check_function_all_arg_comb(const std::string& func_name, const BaseInputTypeSet& base_set,
+void check_function_all_arg_comb(const std::string& func_name, const InputTypeSet& base_types,
                                  const DataSet& data_set) {
-    size_t arg_cnt = base_set.size();
+    size_t arg_cnt = base_types.size();
     TestCaseInfo::arg_size = static_cast<int>(arg_cnt);
     // Consider each parameter as a bit, if the j-th bit is 1, the j-th parameter is const; otherwise, it is not.
     for (int i = 0; i < (1 << arg_cnt); i++) {
         InputTypeSet input_types {};
         for (int j = 0; j < arg_cnt; j++) {
-            if ((1 << j) & i) {
-                input_types.emplace_back(Consted {static_cast<TypeIndex>(base_set[j])});
+            bool is_const = (1 << j) & i;
+            auto base_type_idx = any_cast<TypeIndex>(base_types[j]);
+            if (is_const) { // wrap in consted
+                if (base_types[j].type() == &typeid(Notnull)) {
+                    input_types.emplace_back(ConstedNotnull {base_type_idx}, base_types[j].scale_or(-1), base_types[j].precision_or(-1));
+                } else {
+                    input_types.emplace_back(Consted {base_type_idx}, base_types[j].scale_or(-1), base_types[j].precision_or(-1));
+                }
             } else {
-                input_types.emplace_back(static_cast<TypeIndex>(base_set[j]));
+                input_types.emplace_back(base_types[j]);
             }
         }
 
