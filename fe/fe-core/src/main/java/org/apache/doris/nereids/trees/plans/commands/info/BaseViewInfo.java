@@ -168,7 +168,8 @@ public class BaseViewInfo {
             for (Slot output : outputs) {
                 DataType dataType = TypeCoercionUtils.replaceSpecifiedType(output.getDataType(), NullType.class,
                         TinyIntType.INSTANCE);
-                Column column = new Column(output.getName(), dataType.toCatalogDataType(), output.nullable());
+                Column column = new Column(output.getName(), dataType.toCatalogDataType(),
+                        !output.isColumnFromTable() || output.nullable());
                 finalCols.add(column);
             }
         } else {
@@ -176,10 +177,11 @@ public class BaseViewInfo {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_VIEW_WRONG_LIST);
             }
             for (int i = 0; i < simpleColumnDefinitions.size(); ++i) {
-                DataType dataType = TypeCoercionUtils.replaceSpecifiedType(outputs.get(i).getDataType(), NullType.class,
+                Slot output = outputs.get(i);
+                DataType dataType = TypeCoercionUtils.replaceSpecifiedType(output.getDataType(), NullType.class,
                         TinyIntType.INSTANCE);
                 Column column = new Column(simpleColumnDefinitions.get(i).getName(),
-                        dataType.toCatalogDataType(), outputs.get(i).nullable());
+                        dataType.toCatalogDataType(), !output.isColumnFromTable() || output.nullable());
                 column.setComment(simpleColumnDefinitions.get(i).getComment());
                 finalCols.add(column);
             }
