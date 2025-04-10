@@ -118,12 +118,12 @@ public class TabletStatMgr extends MasterDaemon {
 
         // after update replica in all backends, update index row num
         start = System.currentTimeMillis();
-        Pair<String, Long> maxTabletSize = Pair.of(null, 0L);
-        Pair<String, Long> maxPartitionSize = Pair.of(null, 0L);
-        Pair<String, Long> maxTableSize = Pair.of(null, 0L);
-        Pair<String, Long> minTabletSize = Pair.of(null, Long.MAX_VALUE);
-        Pair<String, Long> minPartitionSize = Pair.of(null, Long.MAX_VALUE);
-        Pair<String, Long> minTableSize = Pair.of(null, Long.MAX_VALUE);
+        Pair<String, Long> maxTabletSize = Pair.of(/* tablet id= */null, /* byte size= */0L);
+        Pair<String, Long> maxPartitionSize = Pair.of(/* partition id= */null, /* byte size= */0L);
+        Pair<String, Long> maxTableSize = Pair.of(/* table id= */null, /* byte size= */0L);
+        Pair<String, Long> minTabletSize = Pair.of(/* tablet id= */null, /* byte size= */Long.MAX_VALUE);
+        Pair<String, Long> minPartitionSize = Pair.of(/* partition id= */null, /* byte size= */Long.MAX_VALUE);
+        Pair<String, Long> minTableSize = Pair.of(/* tablet id= */null, /* byte size= */Long.MAX_VALUE);
         Long totalTableSize = 0L;
         Long tabletCount = 0L;
         Long partitionCount = 0L;
