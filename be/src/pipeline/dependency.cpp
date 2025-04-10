@@ -603,9 +603,9 @@ Status MaterializationSharedState::init_multi_requests(
     DCHECK_EQ(materialization_node.column_descs_lists.size(),
               materialization_node.slot_locs_lists.size());
 
-    const auto& slots = state->desc_tbl()
-                                .get_tuple_descriptor(materialization_node.intermediate_tuple_id)
-                                ->slots();
+    const auto& tuple_desc = state->desc_tbl()
+            .get_tuple_descriptor(materialization_node.intermediate_tuple_id);
+    const auto& slots = tuple_desc->slots();
     for (int i = 0; i < materialization_node.column_descs_lists.size(); ++i) {
         auto request_block_desc = multi_get_request.add_request_block_descs();
         request_block_desc->set_fetch_row_store(materialization_node.fetch_row_stores[i]);
@@ -616,6 +616,13 @@ Status MaterializationSharedState::init_multi_requests(
         }
 
         auto& slot_locs = materialization_node.slot_locs_lists[i];
+        tuple_desc->to_protobuf(request_block_desc->mutable_desc());
+
+        auto& column_idxs =materialization_node.column_idxs_lists[i];
+        for (auto idx: column_idxs) {
+            request_block_desc->add_column_idxs(idx);
+        }
+
         for (auto& slot_loc_item : slot_locs) {
             slots[slot_loc_item]->to_protobuf(request_block_desc->add_slots());
         }

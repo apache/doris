@@ -108,9 +108,12 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
                 local_state._shared_state->init_multi_requests(_materialization_node, state));
     }
 
+    std::cout << "in_block->rows() = " << in_block->rows() <<"\n";
+    std::cout  << in_block->dump_data() <<"\n";
+
     if (in_block->rows() > 0 || eos) {
         // block the pipeline wait the rpc response
-        if (!eos) {
+        if (in_block->rows() > 0) {
             local_state._shared_state->sink_deps.back()->block();
         }
         // execute the rowid exprs

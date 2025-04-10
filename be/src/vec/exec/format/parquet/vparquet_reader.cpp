@@ -559,7 +559,7 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
         return Status::OK();
     }
-
+    std::vector<std::string> original_block_column_name = block->get_names();
     if (!_hive_use_column_names) {
         for (auto i = 0; i < block->get_names().size(); i++) {
             auto& col = block->get_by_position(i);
@@ -583,7 +583,7 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
     if (!_hive_use_column_names) {
         for (auto i = 0; i < block->columns(); i++) {
-            block->get_by_position(i).name = (*_column_names)[i];
+            block->get_by_position(i).name = original_block_column_name[i];
         }
         block->initialize_index_by_name();
     }
@@ -638,7 +638,12 @@ Status ParquetReader::_next_row_group_reader() {
     // process page index and generate the ranges to read
     auto& row_group = _t_metadata->row_groups[row_group_index.row_group_id];
     std::vector<RowRange> candidate_row_ranges;
-    RETURN_IF_ERROR(_process_page_index(row_group, candidate_row_ranges));
+
+    if (_read_line_mode) {
+        candidate_row_ranges = _read_line_mode_row_ranges[row_group_index.row_group_id];
+    } else {
+        RETURN_IF_ERROR(_process_page_index(row_group, candidate_row_ranges));
+    }
 
     RowGroupReader::PositionDeleteContext position_delete_ctx =
             _get_position_delete_ctx(row_group, row_group_index);
@@ -661,6 +666,8 @@ Status ParquetReader::_next_row_group_reader() {
             group_file_reader, _read_columns, row_group_index.row_group_id, row_group, _ctz,
             _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
     _row_group_eof = false;
+    _current_group_reader->set_current_row_group_idx(row_group_index);
+    _current_group_reader->set_row_id_column_iterator(_row_id_column_iterator);
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges, _col_offsets,
                                        _tuple_descriptor, _row_descriptor, _colname_to_slot_id,
                                        _not_single_slot_filter_conjuncts,
@@ -673,6 +680,7 @@ Status ParquetReader::_init_row_groups(const bool& is_filter_groups) {
         return Status::EndOfFile("No row group to read");
     }
     int64_t row_index = 0;
+    _read_line_mode_row_ranges.resize(_total_groups);
     for (int32_t row_group_idx = 0; row_group_idx < _total_groups; row_group_idx++) {
         const tparquet::RowGroup& row_group = _t_metadata->row_groups[row_group_idx];
         if (is_filter_groups && _is_misaligned_range_group(row_group)) {
@@ -681,8 +689,29 @@ Status ParquetReader::_init_row_groups(const bool& is_filter_groups) {
         }
         bool filter_group = false;
         if (is_filter_groups) {
-            RETURN_IF_ERROR(_process_row_group_filter(row_group, &filter_group));
+            if (_read_line_mode) {
+                auto group_start = row_index;
+                auto group_end = row_index + row_group.num_rows;
+                auto group_id = row_group_idx;
+
+                while (!_read_lines.empty() ) {
+                    auto v = _read_lines.front();
+                    if (v >= group_start &&  v < group_end) {
+                        _read_line_mode_row_ranges[group_id].emplace_back(RowRange{v- group_start, v-group_start+1});
+                        _read_lines.pop_front();
+                    } else {
+                        break;
+                    }
+                }
+
+                if (_read_line_mode_row_ranges[group_id].empty()) {
+                    filter_group = true;
+                }
+            } else {
+                RETURN_IF_ERROR(_process_row_group_filter(row_group, &filter_group));
+            }
         }
+
         int64_t group_size = 0; // only calculate the needed columns
         std::function<int64_t(const FieldSchema*)> column_compressed_size =
                 [&row_group, &column_compressed_size](const FieldSchema* field) -> int64_t {

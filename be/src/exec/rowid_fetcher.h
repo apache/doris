@@ -99,6 +99,16 @@ private:
             int64_t* lookup_row_data_ms,
             std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
             vectorized::Block& result_block);
+
+    static Status read_batch_doris_format_row(const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
+                                       const TUniqueId& query_id, vectorized::Block& result_block,OlapReaderStatistics& stats,
+                                       int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
+                                       int64_t* lookup_row_data_ms);
+
+    static Status read_batch_external_row(const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
+                                          std::shared_ptr<FileMapping> first_file_mapping,
+                                          const TUniqueId& query_id,vectorized::Block& result_block);
+
 };
 
 } // namespace doris

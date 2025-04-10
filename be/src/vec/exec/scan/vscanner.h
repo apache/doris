@@ -57,6 +57,11 @@ public:
     VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
              RuntimeProfile* profile);
 
+    //only used for VFileScanner read one line.
+    VScanner(RuntimeState* state) : _state(state) ,_limit(1), _profile(nullptr),_total_rf_num(0) {
+        DorisMetrics::instance()->scanner_cnt->increment(1);
+    };
+
     virtual ~VScanner() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_state->query_mem_tracker());
         _input_block.clear();

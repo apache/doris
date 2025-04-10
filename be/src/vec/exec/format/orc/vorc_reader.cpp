@@ -82,6 +82,8 @@
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "olap/id_manager.h"
+#include "olap/utils.h"
 
 namespace doris {
 class RuntimeState;
@@ -1176,6 +1178,9 @@ Status OrcReader::set_fill_columns(
         }
         _row_reader = _reader->createRowReader(_row_reader_options, _orc_filter.get(),
                                                _string_dict_filter.get());
+        if (_read_on_line_mode) {
+            _seek_to_read_one_line();
+        }
         _batch = _row_reader->createRowBatch(_batch_size);
         const auto& selected_type = _row_reader->getSelectedType();
         int idx = 0;
@@ -1294,6 +1299,22 @@ Status OrcReader::_fill_missing_columns(
             }
         }
     }
+    return Status::OK();
+}
+
+Status OrcReader::_fill_row_id_columns(Block* block) {
+    if (_row_id_column_iterator != nullptr) {
+        RETURN_IF_ERROR(_row_id_column_iterator->seek_to_ordinal(_row_reader->getRowNumber()));
+        size_t fill_size = _batch->numElements;
+
+        for (auto & col : *block) {
+            if (col.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+                auto x  = col.column->assume_mutable();
+                RETURN_IF_ERROR(_row_id_column_iterator->next_batch(&fill_size, x));
+            }
+        }
+    }
+
     return Status::OK();
 }
 
@@ -1864,7 +1885,7 @@ std::string OrcReader::get_field_name_lower_case(const orc::Type* orc_type, int 
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     RETURN_IF_ERROR(get_next_block_impl(block, read_rows, eof));
-    if (*eof) {
+    if (*eof && _profile != nullptr) {
         COUNTER_UPDATE(_orc_profile.selected_row_group_count,
                        _reader_metrics.SelectedRowGroupCount);
         COUNTER_UPDATE(_orc_profile.evaluated_row_group_count,
@@ -1953,6 +1974,8 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
                                                 _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(
                 _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
+
+        RETURN_IF_ERROR(_fill_row_id_columns(block));
 
         if (block->rows() == 0) {
             RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
@@ -2045,6 +2068,8 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
                                                 _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(
                 _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
+
+        RETURN_IF_ERROR(_fill_row_id_columns(block));
 
         if (block->rows() == 0) {
             RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));

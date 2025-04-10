@@ -54,11 +54,15 @@
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 
 namespace doris {
 class RuntimeState;
 class TFileRangeDesc;
 class TFileScanRangeParams;
+namespace segment_v2{
+class RowIdColumnIteratorV2;
+}
 namespace io {
 class FileSystem;
 struct IOContext;
@@ -205,6 +209,17 @@ public:
 
     static TypeDescriptor convert_to_doris_type(const orc::Type* orc_type);
     static std::string get_field_name_lower_case(const orc::Type* orc_type, int pos);
+
+    void set_read_one_line(uint64_t row_number) {
+        _read_on_line_mode = true;
+        _seek_to_row_number = row_number;
+    }
+
+
+    void set_row_id_column_iterator(std::shared_ptr<segment_v2::RowIdColumnIteratorV2> ptr) {
+        _row_id_column_iterator = ptr;
+    }
+
 
 protected:
     void _collect_profile_before_close() override;
@@ -570,7 +585,12 @@ private:
         }
         return true;
     }
-
+    // 填充 global row id 列。
+    Status _fill_row_id_columns(Block* block);
+    void _seek_to_read_one_line() {
+        _row_reader->seekToRow(_seek_to_row_number);
+        _batch_size = 1;
+    }
 private:
     // This is only for count(*) short circuit read.
     // save the total number of rows in range
@@ -664,6 +684,10 @@ private:
     int64_t _orc_tiny_stripe_threshold_bytes = 8L * 1024L * 1024L;
     int64_t _orc_once_max_read_bytes = 8L * 1024L * 1024L;
     int64_t _orc_max_merge_distance_bytes = 1L * 1024L * 1024L;
+
+    bool _read_on_line_mode = false;
+    uint64_t _seek_to_row_number = 0;
+    std::shared_ptr<segment_v2::RowIdColumnIteratorV2> _row_id_column_iterator = nullptr;
 };
 
 class StripeStreamInputStream : public orc::InputStream, public ProfileCollector {

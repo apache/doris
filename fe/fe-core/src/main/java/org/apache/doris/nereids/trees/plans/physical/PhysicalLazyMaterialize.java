@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.materialize.MaterializeSource;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
@@ -60,6 +61,8 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
     private final List<Slot> rowIdList;
     private List<List<Column>> lazyColumns = new ArrayList<>();
     private List<List<Integer>> lazySlotLocations = new ArrayList<>();
+    private List<List<Integer>> lazyTableIdxs = new ArrayList<>();
+
     private final List<CatalogRelation> relations;
 
     /**
@@ -95,6 +98,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
         this.materializeMap = materializeMap;
 
         lazySlotLocations = new ArrayList<>();
+        lazyTableIdxs = new ArrayList<>();
         lazyColumns = new ArrayList<>();
 
         ImmutableList.Builder<Slot> outputBuilder = ImmutableList.builder();
@@ -106,13 +110,19 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
             Slot rowId = materializeInput.get(idx);
             rowIdListBuilder.add(rowId);
             CatalogRelation rel = relationToRowId.inverse().get(rowId);
+            TableIf relationTable = rel.getTable();
+
             List<Column> lazyColumnForRel = new ArrayList<>();
             lazyColumns.add(lazyColumnForRel);
+            List<Integer> lazyIdxForRel = new ArrayList<>();
+            lazyTableIdxs.add(lazyIdxForRel);
+
             List<Integer> lazySlotLocationForRel = new ArrayList<>();
             lazySlotLocations.add(lazySlotLocationForRel);
             for (Slot lazySlot : relationToLazySlotMap.get(rel)) {
                 outputBuilder.add(lazySlot);
                 lazyColumnForRel.add(((SlotReference) lazySlot).getColumn().get());
+                lazyIdxForRel.add(relationTable.getBaseColumnIdxByName(lazySlot.getName()));
                 lazySlotLocationForRel.add(loc);
                 loc++;
             }
@@ -216,6 +226,10 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
 
     public List<List<Integer>> getLazySlotLocations() {
         return lazySlotLocations;
+    }
+
+    public List<List<Integer>> getlazyTableIdxs() {
+        return lazyTableIdxs;
     }
 
     public List<Slot> getRowIds() {

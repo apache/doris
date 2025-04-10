@@ -19,6 +19,8 @@ package org.apache.doris.nereids.processor.post.materialize;
 
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.processor.post.materialize.MaterializeProbeVisitor.ProbeContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -44,7 +46,8 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     private static Set<Class> SUPPORT_RELATION_TYPES = ImmutableSet.of(
             OlapTable.class,
             HiveTable.class,
-            IcebergExternalTable.class
+            IcebergExternalTable.class,
+            HMSExternalTable.class
     );
 
     /**
@@ -81,10 +84,22 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         }
     }
 
+    boolean checkRelationTableSupportedType(PhysicalCatalogRelation relation) {
+        if (!SUPPORT_RELATION_TYPES.contains(relation.getTable().getClass())) {
+            return false;
+        }
+
+        if (relation.getTable() instanceof HMSExternalTable) {
+            HMSExternalTable hmsExternalTable = (HMSExternalTable) relation.getTable();
+            return hmsExternalTable.getDlaType() == DLAType.HIVE || hmsExternalTable.getDlaType() == DLAType.ICEBERG;
+        }
+        return true;
+    }
+
     @Override
     public Optional<MaterializeSource> visitPhysicalCatalogRelation(
             PhysicalCatalogRelation relation, ProbeContext context) {
-        if (SUPPORT_RELATION_TYPES.contains(relation.getTable().getClass())
+        if (checkRelationTableSupportedType(relation)
                     && relation.getOutput().contains(context.slot)
                     && !relation.getOperativeSlots().contains(context.slot)) {
             // lazy materialize slot must be a passive slot
