@@ -114,12 +114,12 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return literalExpr;
     }
 
-     /**
-      * 1. For numeric/complex type, no need to wrap with quota, call "getStringValueInFe".
-      * 2. For other type, call "getStringValueForArray()":
-      * 2.1. for null/boolean, getStringValueForArray() will return format value in FormatOptions.
-      * 2.2. for others, getStringValueForArray() will return value wrapped with quota.
-      */
+    /**
+     * 1. For numeric/complex type, no need to wrap with quota, call "getStringValueInFe".
+     * 2. For other type, call "getStringValueForArray()":
+     * 2.1. for null/boolean, getStringValueForArray() will return format value in FormatOptions.
+     * 2.2. for others, getStringValueForArray() will return value wrapped with quota.
+     */
     public static String getStringLiteralForComplexType(Expr v, FormatOptions options) {
         if (!(v instanceof NullLiteral) && v.getType().isScalarType()
                 && Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))) {
