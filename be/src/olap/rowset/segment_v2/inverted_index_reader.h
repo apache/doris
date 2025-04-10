@@ -295,6 +295,7 @@ public:
 template <InvertedIndexQueryType QT>
 class InvertedIndexVisitor : public lucene::util::bkd::bkd_reader::intersect_visitor {
 private:
+    const void* _io_ctx = nullptr;
     roaring::Roaring* _hits = nullptr;
     uint32_t _num_hits;
     bool _only_count;
@@ -305,8 +306,8 @@ public:
     std::string query_max;
 
 public:
-    InvertedIndexVisitor(lucene::util::bkd::bkd_reader* r, roaring::Roaring* hits,
-                         bool only_count = false);
+    InvertedIndexVisitor(const void* io_ctx, lucene::util::bkd::bkd_reader* r,
+                         roaring::Roaring* hits, bool only_count = false);
     ~InvertedIndexVisitor() override = default;
 
     void set_reader(lucene::util::bkd::bkd_reader* r) { _reader = r; }
@@ -325,6 +326,7 @@ public:
                                         std::vector<uint8_t>& max_packed) override;
     lucene::util::bkd::relation compare_prefix(std::vector<uint8_t>& prefix) override;
     uint32_t get_num_hits() const { return _num_hits; }
+    const void* get_io_context() override { return _io_ctx; }
 };
 
 class BkdIndexReader : public InvertedIndexReader {
@@ -348,9 +350,11 @@ public:
                      RuntimeState* runtime_state, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
                      uint32_t* count) override;
-    Status invoke_bkd_try_query(const void* query_value, InvertedIndexQueryType query_type,
+    Status invoke_bkd_try_query(const io::IOContext* io_ctx, const void* query_value,
+                                InvertedIndexQueryType query_type,
                                 std::shared_ptr<lucene::util::bkd::bkd_reader> r, uint32_t* count);
-    Status invoke_bkd_query(const void* query_value, InvertedIndexQueryType query_type,
+    Status invoke_bkd_query(const io::IOContext* io_ctx, const void* query_value,
+                            InvertedIndexQueryType query_type,
                             std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                             std::shared_ptr<roaring::Roaring>& bit_map);
     template <InvertedIndexQueryType QT>

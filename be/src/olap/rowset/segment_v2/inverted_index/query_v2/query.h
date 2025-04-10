@@ -20,8 +20,6 @@
 #include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/index/IndexReader.h>
 #include <CLucene/index/Term.h>
-#include <CLucene/search/query/TermIterator.h>
-#include <CLucene/search/query/TermPositionIterator.h>
 #include <gen_cpp/PaloInternalService_types.h>
 
 #include <memory>
@@ -29,6 +27,8 @@
 #include <variant>
 
 #include "common/status.h"
+#include "olap/rowset/segment_v2/inverted_index/util/term_iterator.h"
+#include "olap/rowset/segment_v2/inverted_index/util/term_position_iterator.h"
 
 namespace doris::segment_v2::idx_query_v2 {
 

@@ -558,7 +558,7 @@ Status BkdIndexReader::construct_bkd_query_value(const void* query_value,
     return Status::OK();
 }
 
-Status BkdIndexReader::invoke_bkd_try_query(const void* query_value,
+Status BkdIndexReader::invoke_bkd_try_query(const io::IOContext* io_ctx, const void* query_value,
                                             InvertedIndexQueryType query_type,
                                             std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                             uint32_t* count) {
@@ -566,7 +566,7 @@ Status BkdIndexReader::invoke_bkd_try_query(const void* query_value,
     case InvertedIndexQueryType::LESS_THAN_QUERY: {
         auto visitor =
                 std::make_unique<InvertedIndexVisitor<InvertedIndexQueryType::LESS_THAN_QUERY>>(
-                        r.get(), nullptr, true);
+                        io_ctx, r.get(), nullptr, true);
         RETURN_IF_ERROR(construct_bkd_query_value(query_value, r, visitor.get()));
         *count = r->estimate_point_count(visitor.get());
         break;
@@ -574,7 +574,7 @@ Status BkdIndexReader::invoke_bkd_try_query(const void* query_value,
     case InvertedIndexQueryType::LESS_EQUAL_QUERY: {
         auto visitor =
                 std::make_unique<InvertedIndexVisitor<InvertedIndexQueryType::LESS_EQUAL_QUERY>>(
-                        r.get(), nullptr, true);
+                        io_ctx, r.get(), nullptr, true);
         RETURN_IF_ERROR(construct_bkd_query_value(query_value, r, visitor.get()));
         *count = r->estimate_point_count(visitor.get());
         break;
@@ -582,7 +582,7 @@ Status BkdIndexReader::invoke_bkd_try_query(const void* query_value,
     case InvertedIndexQueryType::GREATER_THAN_QUERY: {
         auto visitor =
                 std::make_unique<InvertedIndexVisitor<InvertedIndexQueryType::GREATER_THAN_QUERY>>(
-                        r.get(), nullptr, true);
+                        io_ctx, r.get(), nullptr, true);
         RETURN_IF_ERROR(construct_bkd_query_value(query_value, r, visitor.get()));
         *count = r->estimate_point_count(visitor.get());
         break;
@@ -590,14 +590,14 @@ Status BkdIndexReader::invoke_bkd_try_query(const void* query_value,
     case InvertedIndexQueryType::GREATER_EQUAL_QUERY: {
         auto visitor =
                 std::make_unique<InvertedIndexVisitor<InvertedIndexQueryType::GREATER_EQUAL_QUERY>>(
-                        r.get(), nullptr, true);
+                        io_ctx, r.get(), nullptr, true);
         RETURN_IF_ERROR(construct_bkd_query_value(query_value, r, visitor.get()));
         *count = r->estimate_point_count(visitor.get());
         break;
     }
     case InvertedIndexQueryType::EQUAL_QUERY: {
         auto visitor = std::make_unique<InvertedIndexVisitor<InvertedIndexQueryType::EQUAL_QUERY>>(
-                r.get(), nullptr, true);
+                io_ctx, r.get(), nullptr, true);
         RETURN_IF_ERROR(construct_bkd_query_value(query_value, r, visitor.get()));
         *count = r->estimate_point_count(visitor.get());
         break;
@@ -608,14 +608,15 @@ Status BkdIndexReader::invoke_bkd_try_query(const void* query_value,
     return Status::OK();
 }
 
-Status BkdIndexReader::invoke_bkd_query(const void* query_value, InvertedIndexQueryType query_type,
+Status BkdIndexReader::invoke_bkd_query(const io::IOContext* io_ctx, const void* query_value,
+                                        InvertedIndexQueryType query_type,
                                         std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                         std::shared_ptr<roaring::Roaring>& bit_map) {
     switch (query_type) {
     case InvertedIndexQueryType::LESS_THAN_QUERY: {
         auto visitor =
                 std::make_unique<InvertedIndexVisitor<InvertedIndexQueryType::LESS_THAN_QUERY>>(
-                        r.get(), bit_map.get());
+                        io_ctx, r.get(), bit_map.get());
         RETURN_IF_ERROR(construct_bkd_query_value(query_value, r, visitor.get()));
         r->intersect(visitor.get());
         break;
@@ -623,7 +624,7 @@ Status BkdIndexReader::invoke_bkd_query(const void* query_value, InvertedIndexQu
     case InvertedIndexQueryType::LESS_EQUAL_QUERY: {
         auto visitor =
                 std::make_unique<InvertedIndexVisitor<InvertedIndexQueryType::LESS_EQUAL_QUERY>>(
-                        r.get(), bit_map.get());
+                        io_ctx, r.get(), bit_map.get());
         RETURN_IF_ERROR(construct_bkd_query_value(query_value, r, visitor.get()));
         r->intersect(visitor.get());
         break;
@@ -631,7 +632,7 @@ Status BkdIndexReader::invoke_bkd_query(const void* query_value, InvertedIndexQu
     case InvertedIndexQueryType::GREATER_THAN_QUERY: {
         auto visitor =
                 std::make_unique<InvertedIndexVisitor<InvertedIndexQueryType::GREATER_THAN_QUERY>>(
-                        r.get(), bit_map.get());
+                        io_ctx, r.get(), bit_map.get());
         RETURN_IF_ERROR(construct_bkd_query_value(query_value, r, visitor.get()));
         r->intersect(visitor.get());
         break;
@@ -639,14 +640,14 @@ Status BkdIndexReader::invoke_bkd_query(const void* query_value, InvertedIndexQu
     case InvertedIndexQueryType::GREATER_EQUAL_QUERY: {
         auto visitor =
                 std::make_unique<InvertedIndexVisitor<InvertedIndexQueryType::GREATER_EQUAL_QUERY>>(
-                        r.get(), bit_map.get());
+                        io_ctx, r.get(), bit_map.get());
         RETURN_IF_ERROR(construct_bkd_query_value(query_value, r, visitor.get()));
         r->intersect(visitor.get());
         break;
     }
     case InvertedIndexQueryType::EQUAL_QUERY: {
         auto visitor = std::make_unique<InvertedIndexVisitor<InvertedIndexQueryType::EQUAL_QUERY>>(
-                r.get(), bit_map.get());
+                io_ctx, r.get(), bit_map.get());
         RETURN_IF_ERROR(construct_bkd_query_value(query_value, r, visitor.get()));
         r->intersect(visitor.get());
         break;
@@ -686,7 +687,7 @@ Status BkdIndexReader::try_query(const io::IOContext* io_ctx, OlapReaderStatisti
             return Status::OK();
         }
 
-        return invoke_bkd_try_query(query_value, query_type, r, count);
+        return invoke_bkd_try_query(io_ctx, query_value, query_type, r, count);
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "BKD Query CLuceneError Occurred, error msg: {}", e.what());
@@ -725,7 +726,7 @@ Status BkdIndexReader::query(const io::IOContext* io_ctx, OlapReaderStatistics* 
             return Status::OK();
         }
 
-        RETURN_IF_ERROR(invoke_bkd_query(query_value, query_type, r, bit_map));
+        RETURN_IF_ERROR(invoke_bkd_query(io_ctx, query_value, query_type, r, bit_map));
         bit_map->runOptimize();
         cache->insert(cache_key, bit_map, &cache_handler);
 
@@ -771,9 +772,9 @@ InvertedIndexReaderType BkdIndexReader::type() {
 }
 
 template <InvertedIndexQueryType QT>
-InvertedIndexVisitor<QT>::InvertedIndexVisitor(lucene::util::bkd::bkd_reader* r,
+InvertedIndexVisitor<QT>::InvertedIndexVisitor(const void* io_ctx, lucene::util::bkd::bkd_reader* r,
                                                roaring::Roaring* h, bool only_count)
-        : _hits(h), _num_hits(0), _only_count(only_count), _reader(r) {}
+        : _io_ctx(io_ctx), _hits(h), _num_hits(0), _only_count(only_count), _reader(r) {}
 
 template <InvertedIndexQueryType QT>
 int InvertedIndexVisitor<QT>::matches(uint8_t* packed_value) {
