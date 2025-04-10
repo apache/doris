@@ -425,6 +425,9 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 newNormalizedGroupExprs.add(normalizedGroupExpr);
             }
         }
+        if (newNormalizedGroupExprs.size() == normalizedGroupExprs.size()) {
+            return new LogicalProject<>(upperProjects, newAggregate);
+        }
         if (newNormalizedGroupExprs.isEmpty()) {
             Alias tinyInt = new Alias(new TinyIntLiteral((byte) 1));
             bottomProjects = new HashSet<>(bottomProjects);
@@ -433,9 +436,6 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             Slot tinyIntSlot = tinyInt.toSlot();
             normalizedAggOutput.add(tinyIntSlot);
             newNormalizedGroupExprs.add(tinyIntSlot);
-        }
-        if (slotToLiteral.isEmpty() || newNormalizedGroupExprs.size() == normalizedGroupExprs.size()) {
-            return new LogicalProject<>(upperProjects, newAggregate);
         }
         // 3. Replace the agg output expression and delete the constant group by key in the output
         ImmutableList.Builder<NamedExpression> nonConstAggOutput = ImmutableList.builder();
@@ -452,7 +452,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             nonConstAggOutput.add(ne);
         }
 
-        // The constant expression calculation in bottom projects needs to be deleted
+        // 4. The constant expression calculation in bottom projects needs to be deleted
         // and put into upperProjects for calculation
         Plan bottomPlan;
         if (!bottomProjects.isEmpty()) {
@@ -468,7 +468,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         }
         LogicalAggregate<Plan> newAggAfterEliminate = aggregate.withNormalized(newNormalizedGroupExprs,
                 nonConstAggOutput.build(), bottomPlan);
-        // This upperProjects needs to add the constant key that was deleted in the group by key
+        // 5. This upperProjects needs to add the constant key that was deleted in the group by key
         // and change the reference to the constant key to a constant expression
         ImmutableList.Builder<NamedExpression> newUpperProjects = ImmutableList.builder();
         for (NamedExpression upperProject : upperProjects) {
