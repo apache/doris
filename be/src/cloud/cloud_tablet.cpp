@@ -164,7 +164,7 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data,
         }
     }
 
-    auto st = _engine.meta_mgr().sync_tablet_rowsets(this, warmup_delta_data, stats);
+    auto st = _engine.meta_mgr().sync_tablet_rowsets(this, warmup_delta_data, true, false, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
