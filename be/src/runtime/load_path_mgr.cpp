@@ -214,20 +214,50 @@ void LoadPathMgr::clean_files_in_path_vec(const std::string& path){
 }
 
 void LoadPathMgr::clean_one_path(const std::string& path) {
-    bool exists = false;
-    // 检查路径是否存在
-    Status status = io::global_local_filesystem()->exists(path, &exists);
-    if (!status.ok()) {
-        LOG(WARNING) << "Failed to check if path exists: " << path << ", error: " << status;
+    bool exists = true;
+    std::vector<io::FileInfo> dbs;
+    Status st = io::global_local_filesystem()->list(path, false, &dbs, &exists);
+    if (!st) {
         return;
     }
-    if (exists) {
-        // 若路径存在，则删除该路径对应的文件或目录
-        status = io::global_local_filesystem()->delete_directory_or_file(path);
-        if (status.ok()) {
-            LOG(INFO) << "Delete path success: " << path;
-        } else {
-            LOG(WARNING) << "Delete path failed: " << path << ", error: " << status;
+
+    Status status;
+    time_t now = time(nullptr);
+    for (auto& db : dbs) {
+        if (db.is_file) {
+            continue;
+        }
+        std::string db_dir = path + "/" + db.file_name;
+        std::vector<io::FileInfo> sub_dirs;
+        status = io::global_local_filesystem()->list(db_dir, false, &sub_dirs, &exists);
+        if (!status.ok()) {
+            LOG(WARNING) << "scan db of trash dir failed: " << status;
+            continue;
+        }
+        // delete this file
+        for (auto& sub_dir : sub_dirs) {
+            if (sub_dir.is_file) {
+                continue;
+            }
+            std::string sub_path = db_dir + "/" + sub_dir.file_name;
+            // for compatible
+            if (sub_dir.file_name.find(SHARD_PREFIX) == 0) {
+                // sub_dir starts with SHARD_PREFIX
+                // process shard sub dir
+                std::vector<io::FileInfo> labels;
+                status = io::global_local_filesystem()->list(sub_path, false, &labels, &exists);
+                if (!status.ok()) {
+                    LOG(WARNING) << "scan one path to delete directory failed: " << status;
+                    continue;
+                }
+                for (auto& label : labels) {
+                    std::string label_dir = sub_path + "/" + label.file_name;
+                    process_path(now, label_dir, config::load_data_reserve_hours);
+                }
+            } else {
+                // process label dir
+                process_path(now, sub_path, config::load_data_reserve_hours);
+            }
         }
     }
 }
