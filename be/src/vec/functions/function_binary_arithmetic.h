@@ -237,6 +237,9 @@ struct DecimalBinaryOperation {
     using OpTraits = OperationTraits<Operation, A, B>;
 
     using NativeResultType = typename NativeType<ResultType>::Type;
+    using NativeAType = typename NativeType<A>::Type;
+    using NativeBType = typename NativeType<B>::Type;
+
     using Op = Operation<NativeResultType, NativeResultType>;
 
     using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
@@ -263,9 +266,16 @@ private:
             std::visit(
                     [&](auto need_adjust_scale) {
                         for (size_t i = 0; i < size; i++) {
-                            c[i] = typename ArrayC::value_type(apply<need_adjust_scale>(
-                                    a[i], b[i], type_left, type_right, type_result,
-                                    max_result_number, scale_diff_multiplier));
+                            if constexpr (!check_overflow && OpTraits::is_multiply &&
+                                          !IsDecimalV2<A> && !IsDecimalV2<B>) {
+                                c[i] = typename ArrayC::value_type(
+                                        apply_for_opt_mul<need_adjust_scale>(
+                                                a[i], b[i], scale_diff_multiplier));
+                            } else {
+                                c[i] = typename ArrayC::value_type(apply<need_adjust_scale>(
+                                        a[i], b[i], type_left, type_right, type_result,
+                                        max_result_number, scale_diff_multiplier));
+                            }
                         }
                     },
                     make_bool_variant(need_adjust_scale && check_overflow));
@@ -654,6 +664,21 @@ private:
                 return res;
             }
         }
+    }
+
+    template <bool need_adjust_scale>
+    static ALWAYS_INLINE NativeResultType
+    apply_for_opt_mul(NativeAType a, NativeBType b, const ResultType& scale_diff_multiplier) {
+        NativeResultType res;
+        res = static_cast<NativeResultType>(a) * static_cast<NativeResultType>(b);
+        if constexpr (OpTraits::is_multiply && need_adjust_scale) {
+            if (res >= 0) {
+                res = (res + scale_diff_multiplier.value / 2) / scale_diff_multiplier.value;
+            } else {
+                res = (res - scale_diff_multiplier.value / 2) / scale_diff_multiplier.value;
+            }
+        }
+        return res;
     }
 
     /// null_map for divide and mod
