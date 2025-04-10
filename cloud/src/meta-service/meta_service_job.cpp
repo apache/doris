@@ -650,11 +650,12 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
                          << " table_id=" << table_id << " initiator=" << lock_initiator
                          << " key=" << hex(tablet_compaction_key) << " err=" << err;
             return;
+        } else {
+            txn->remove(tablet_compaction_key);
+            INSTANCE_LOG(INFO) << "remove tablet compaction key, table_id=" << table_id
+                               << ", key=" << hex(tablet_compaction_key)
+                               << " initiator=" << lock_initiator;
         }
-        txn->remove(tablet_compaction_key);
-        INSTANCE_LOG(INFO) << "remove tablet compaction key, table_id=" << table_id
-                           << ", key=" << hex(tablet_compaction_key)
-                           << " initiator=" << lock_initiator;
     } else {
         remove_delete_bitmap_update_lock_v1(txn, instance_id, table_id, tablet_id, lock_id,
                                             lock_initiator);
