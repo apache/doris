@@ -632,7 +632,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     }
 
     if (eos) {
-        local_state._eos = true;
         // If a shared hash table is used, states are shared by all tasks.
         // Sink and source has n-n relationship If a shared hash table is used otherwise 1-1 relationship.
         // So we should notify the `_task_idx` source task if a shared hash table is used.
