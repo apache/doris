@@ -1770,15 +1770,6 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             // return OK if OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
-            if (res.msg() == "_last_delete_version.first not equal to -1") {
-                LOG_INFO(
-                        "cumulative compaction meet delete rowset, increase cumu point without "
-                        "other "
-                        "operation.")
-                        .tag("tablet id:", tablet->tablet_id())
-                        .tag("after cumulative compaction, cumu point:",
-                             tablet->cumulative_layer_point());
-            }
             return Status::OK();
         }
     } else if (compaction_type == CompactionType::BASE_COMPACTION) {
