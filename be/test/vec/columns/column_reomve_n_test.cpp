@@ -17,19 +17,18 @@
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 
 #include <cstdint>
 #include <iostream>
 
-#include "gtest/gtest_pred_impl.h"
-#include "util/runtime_profile.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/columns_number.h"
-#include "vec/common/schema_util.h"
-#include "vec/core/field.h"
+#include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
@@ -194,51 +193,139 @@ TEST_F(RemoveNTest, ArrayTypeTest) {
     }
 
     column_res->insert_range_from(*column_array, 0, offset.size());
-    column_array->remove_first_n_values(1);
+    column_array->remove_first_n_values(2);
     EXPECT_EQ(column_array->size(), 3);
-    Block tmp;
-    tmp.insert({std::move(c), datetype_array, "asd"});
-    std::cout << tmp.dump_data(0, tmp.rows());
+    // Block tmp;
+    // tmp.insert({std::move(c), datetype_array, "asd"});
+    // std::cout << tmp.dump_data(0, tmp.rows());
 
-    Block tmp2;
-    tmp2.insert({std::move(column_res), datetype_array, "asd2"});
-    std::cout << tmp2.dump_data(0, tmp2.rows());
-    // auto* column_result = assert_cast<ColumnArray*>(column_res.get());
-    // auto& column_offsets_res = column_result->get_offsets_column();
-    // // auto& column_data_res = column_result->get_data();
-    // for (int i = 0; i < column_array->size(); ++i) {
-    //     // EXPECT_EQ(column_data.get_data_at(i), column_data_res.get_data_at(i + 2));
-    //     EXPECT_EQ(column_offsets.get_data_at(i), column_offsets_res.get_data_at(i + 1));
-    // }
+    // Block tmp2;
+    // tmp2.insert({std::move(column_res), datetype_array, "asd2"});
+    // std::cout << tmp2.dump_data(0, tmp2.rows());
+    auto* column_result = assert_cast<ColumnArray*>(column_res.get());
+    auto& column_offsets_res = column_result->get_offsets_column();
+    auto& offset_data_res = assert_cast<ColumnUInt64&>(column_offsets_res);
+    auto& offset_data = assert_cast<ColumnUInt64&>(column_offsets);
+    auto& column_data_res = assert_cast<ColumnInt32&>(
+            assert_cast<ColumnNullable&>(column_result->get_data()).get_nested_column());
+    auto& column_data_origin = assert_cast<ColumnInt32&>(
+            assert_cast<ColumnNullable&>(column_data).get_nested_column());
+    for (int i = 0; i < column_array->size(); ++i) {
+        std::cout << datetype_array->to_string(*column_array, i) << std::endl;
+        std::cout << datetype_array->to_string(*column_res, i + 2) << std::endl;
+        EXPECT_EQ(column_data_origin.get_element(i), column_data_res.get_element(i + 7));
+        EXPECT_EQ(offset_data.get_element(i), offset_data_res.get_element(i + 2) - 7);
+    }
 }
 
-// TEST_F(RemoveNTest, MapTypeTest) {
-//     DataTypes dataTypes = _create_scala_data_types2();
+TEST_F(RemoveNTest, MapTypeTest) {
+    DataTypePtr key_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    DataTypePtr value_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
+    DataTypePtr map_type = std::make_shared<DataTypeMap>(key_type, value_type);
+    auto column = map_type->create_column();
+    auto* column_map = assert_cast<ColumnMap*>(column.get());
+    auto column_res = column_map->clone_empty();
+    auto& column_offsets = column_map->get_offsets_column();
+    auto& column_data_key = column_map->get_keys();
+    auto& column_data_value = column_map->get_values();
 
-//     // data_type_map
-//     for (int i = 0; i < dataTypes.size() - 1; ++i) {
-//         DataTypePtr a = std::make_shared<DataTypeMap>(dataTypes[i], dataTypes[i + 1]);
-//         auto col_a = a->create_column();
-//         col_a->resize(10);
-//         MutableColumnPtr b = a->create_column();
-//         b->insert_range_from(*col_a, 0, 10);
-//         EXPECT_EQ(b->size(), 10);
-//         ColumnMap* col_map = reinterpret_cast<ColumnMap*>(b.get());
-//         for (int i = 0; i < col_map->get_offsets().size(); ++i) {
-//             EXPECT_EQ(0, col_map->get_offsets()[i]);
-//         }
-//     }
-// }
+    std::vector<StringRef> k1 = {StringRef("kasd"), StringRef("k1234567"), StringRef("k3"),
+                                 StringRef("k4"), StringRef("k5")};
+    std::vector<int64_t> v1 = {1, 2, 3, 4, 5};
+    std::vector<String> k2 = {"k11", "k22"};
+    std::vector<int64_t> v2 = {33, 44};
+    std::vector<String> k4 = {"k66"};
+    std::vector<int64_t> v4 = {66};
+    std::vector<UInt64> offset = {5, 7, 8, 9};
+    for (auto d : k1) {
+        column_data_key.insert_data(d.data, d.size);
+    }
+    for (auto d : v1) {
+        column_data_value.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    for (auto d : k2) {
+        column_data_key.insert_data(d.data(), d.size());
+    }
+    for (auto d : v2) {
+        column_data_value.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    column_data_key.insert_default();
+    column_data_value.insert_default();
+    for (auto d : k4) {
+        column_data_key.insert_data(d.data(), d.size());
+    }
+    for (auto d : v4) {
+        column_data_value.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    for (auto d : offset) {
+        column_offsets.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    column_res->insert_range_from(*column_map, 0, offset.size());
+    column_map->remove_first_n_values(2);
 
-// TEST_F(RemoveNTest, StructTypeTest) {
-//     DataTypes dataTypes = _create_scala_data_types2();
+    // Block tmp;
+    // tmp.insert({std::move(column), map_type, "asd"});
+    // std::cout << tmp.dump_data(0, tmp.rows());
+    // Block tmp2;
+    // tmp2.insert({std::move(column_res), map_type, "asd2"});
+    // std::cout << tmp2.dump_data(0, tmp2.rows());
 
-//     DataTypePtr a = std::make_shared<DataTypeStruct>(dataTypes);
-//     auto col_a = a->create_column();
-//     col_a->resize(10);
-//     MutableColumnPtr b = a->create_column();
-//     b->insert_range_from(*col_a, 0, 10);
-//     EXPECT_EQ(b->size(), 10);
-// }
+    EXPECT_EQ(column_map->size(), 2);
+    auto* column_result = assert_cast<ColumnMap*>(column_res.get());
+    auto& column_offsets_res = column_result->get_offsets_column();
+    auto& offset_data_res = assert_cast<ColumnUInt64&>(column_offsets_res);
+    auto& offset_data = assert_cast<ColumnUInt64&>(column_offsets);
+
+    auto& column_data_res = assert_cast<ColumnInt64&>(
+            assert_cast<ColumnNullable&>(assert_cast<ColumnMap&>(*column_res).get_values())
+                    .get_nested_column());
+    auto& column_data_origin = assert_cast<ColumnInt64&>(
+            assert_cast<ColumnNullable&>(column_data_value).get_nested_column());
+
+    auto& column_data_res_key = assert_cast<ColumnString&>(
+            assert_cast<ColumnNullable&>(assert_cast<ColumnMap&>(*column_res).get_keys())
+                    .get_nested_column());
+    auto& column_data_origin_key = assert_cast<ColumnString&>(
+            assert_cast<ColumnNullable&>(column_data_key).get_nested_column());
+
+    for (int i = 0; i < column_map->size(); ++i) {
+        std::cout << map_type->to_string(*column_map, i) << std::endl;
+        std::cout << map_type->to_string(*column_res, i + 2) << std::endl;
+        EXPECT_EQ(column_data_origin.get_element(i), column_data_res.get_element(i + 7));
+        EXPECT_EQ(column_data_origin_key.get_data_at(i), column_data_res_key.get_data_at(i + 7));
+        EXPECT_EQ(offset_data.get_element(i), offset_data_res.get_element(i + 2) - 7);
+    }
+}
+
+TEST_F(RemoveNTest, StructTypeTest) {
+    DataTypePtr key_type = (std::make_shared<DataTypeString>());
+    DataTypePtr value_type = (std::make_shared<DataTypeInt32>());
+    DataTypePtr struct_type = std::make_shared<DataTypeStruct>(DataTypes {key_type, value_type});
+    auto column = struct_type->create_column();
+    auto* column_struct = assert_cast<ColumnStruct*>(column.get());
+    auto column_res = column_struct->clone_empty();
+    auto& column_string = assert_cast<ColumnString&>(column_struct->get_column(0));
+    auto& column_int = assert_cast<ColumnInt32&>(column_struct->get_column(1));
+
+    std::vector<String> data_string = {"asd", "1234567", "3", "4", "5"};
+    std::vector<int32_t> data_int = {1, 2, 3, 4, 5};
+
+    for (auto d : data_string) {
+        column_string.insert_data(d.data(), d.size());
+    }
+    for (auto d : data_int) {
+        column_int.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    // Block tmp;
+    // tmp.insert({std::move(column), struct_type, "asd"});
+    // std::cout << tmp.dump_data(0, tmp.rows());
+
+    column_struct->remove_first_n_values(2);
+    EXPECT_EQ(column_struct->size(), 3);
+    for (int i = 0; i < column_struct->size(); ++i) {
+        EXPECT_EQ(column_string.get_data_at(i).to_string(), data_string[i + 2]);
+        EXPECT_EQ(column_int.get_element(i), data_int[i + 2]);
+    }
+}
 
 } // namespace doris::vectorized
