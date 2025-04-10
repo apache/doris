@@ -75,6 +75,10 @@ public class LeadingHint extends Hint {
 
     private Long totalBitmap = 0L;
 
+    private static String shuffleString = "[shuffle]";
+
+    private static String broadcastString = "[broadcast]";
+
     public LeadingHint(String hintName) {
         super(hintName);
     }
@@ -100,7 +104,7 @@ public class LeadingHint extends Hint {
         List<String> output = new ArrayList<>();
 
         for (String item : list) {
-            if (item.equals("shuffle") || item.equals("broadcast")) {
+            if (item.equals(shuffleString) || item.equals(broadcastString)) {
                 output.remove(output.size() - 1);
                 output.add(item);
                 continue;
@@ -127,9 +131,10 @@ public class LeadingHint extends Hint {
     public List<String> parseIntoReversePolishNotation(List<String> list) {
         Stack<String> s1 = new Stack<>();
         List<String> s2 = new ArrayList<>();
+        int distributeHintIndex = 1;
 
         for (String item : list) {
-            if (!(item.equals("shuffle") || item.equals("broadcast") || item.equals("{")
+            if (!(item.equals(shuffleString) || item.equals(broadcastString) || item.equals("{")
                     || item.equals("}") || item.equals("join"))) {
                 tablelist.add(item);
                 s2.add(item);
@@ -142,10 +147,10 @@ public class LeadingHint extends Hint {
                 }
                 s1.pop();
             } else {
-                if (item.equals("shuffle")) {
-                    distributeHints.put(item.hashCode(), new DistributeHint(DistributeType.SHUFFLE_RIGHT));
-                } else if (item.equals("broadcast")) {
-                    distributeHints.put(item.hashCode(), new DistributeHint(DistributeType.BROADCAST_RIGHT));
+                if (item.equals(shuffleString)) {
+                    distributeHints.put((item + distributeHintIndex).hashCode(), new DistributeHint(DistributeType.SHUFFLE_RIGHT));
+                } else if (item.equals(broadcastString)) {
+                    distributeHints.put((item + distributeHintIndex).hashCode(), new DistributeHint(DistributeType.BROADCAST_RIGHT));
                 }
 
                 while (s1.size() != 0 && !s1.peek().equals("{")) {
@@ -177,7 +182,7 @@ public class LeadingHint extends Hint {
         for (String parameter : addJoinParameters) {
             if (parameter.equals("{") || parameter.equals("}") || parameter.equals("[") || parameter.equals("]")) {
                 out.append(parameter + " ");
-            } else if (parameter.equals("shuffle") || parameter.equals("broadcast")) {
+            } else if (parameter.equals(shuffleString) || parameter.equals(broadcastString)) {
                 DistributeHint distributeHint = distributeHints.get(parameter.hashCode());
                 if (distributeHint.isSuccess()) {
                     out.append(parameter + " ");
@@ -510,7 +515,7 @@ public class LeadingHint extends Hint {
         DistributeHint distributeHint = null;
         if (distributeJoinType.equals("join")) {
             distributeHint = new DistributeHint(DistributeType.NONE);
-        } else if (distributeJoinType.equals("shuffle") || distributeJoinType.equals("broadcast")) {
+        } else if (distributeJoinType.equals(shuffleString) || distributeJoinType.equals(broadcastString)) {
             distributeHint = distributeHints.get(distributeJoinType.hashCode());
         }
         distributeHint.setSuccessInLeading(true);
@@ -559,7 +564,7 @@ public class LeadingHint extends Hint {
     public Plan generateLeadingJoinPlan() {
         Stack<LogicalPlan> stack = new Stack<>();
         for (String item : normalizedParameters) {
-            if (item.equals("join") || item.equals("shuffle") || item.equals("broadcast")) {
+            if (item.equals("join") || item.equals(shuffleString) || item.equals(broadcastString)) {
                 LogicalPlan rightChild = stack.pop();
                 LogicalPlan leftChild = stack.pop();
                 LogicalPlan joinPlan = makeJoinPlan(leftChild, rightChild, item);

@@ -3733,6 +3733,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             if (kv.key != null) {
                                 String parameterName = visitIdentifierOrText(kv.key);
                                 leadingParameters.add(parameterName);
+                            } else if (kv.distributeHintType() != null) {
+                                if (kv.distributeHintType().BROADCAST() != null) {
+                                    leadingParameters.add("[broadcast]");
+                                } else {
+                                    leadingParameters.add("[shuffle]");
+                                }
                             }
                         }
                         hints.add(new SelectHintLeading(hintName, leadingParameters));
