@@ -486,7 +486,6 @@ protected:
     // close().
     bool _closed = false;
     bool _terminated = false;
-    std::atomic<bool> _eos = false;
     //NOTICE: now add a faker profile, because sometimes the profile record is useless
     //so we want remove some counters and timers, eg: in join node, if it's broadcast_join
     //and shared hash table, some counter/timer about build hash table is useless,
@@ -1125,11 +1124,16 @@ public:
         return Status::OK();
     }
     void set_low_memory_mode(RuntimeState* state) override { _low_memory_mode = true; }
+    Status terminate(RuntimeState* state) override {
+        _terminated = true;
+        return Status::OK();
+    }
 
 private:
     friend class AssertNumRowsLocalState;
     bool _eos = false;
     bool _low_memory_mode = false;
+    bool _terminated = false;
 };
 
 class DummySinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
@@ -1145,10 +1149,12 @@ public:
 
     std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
     Dependency* finishdependency() override { return _finish_dependency.get(); }
+    bool is_finished() const override { return _is_finished; }
 
 private:
     std::shared_ptr<Dependency> _tmp_dependency;
     std::shared_ptr<Dependency> _finish_dependency;
+    std::atomic_bool _is_finished = false;
 };
 
 class DummySinkOperatorX final : public DataSinkOperatorX<DummySinkLocalState> {
@@ -1156,12 +1162,19 @@ public:
     DummySinkOperatorX(int op_id, int node_id, int dest_id)
             : DataSinkOperatorX<DummySinkLocalState>(op_id, node_id, dest_id) {}
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
-        return Status::OK();
+        return _return_eof ? Status::Error<ErrorCode::END_OF_FILE>("source have closed")
+                           : Status::OK();
     }
     void set_low_memory_mode(RuntimeState* state) override { _low_memory_mode = true; }
+    Status terminate(RuntimeState* state) override {
+        _terminated = true;
+        return Status::OK();
+    }
 
 private:
     bool _low_memory_mode = false;
+    bool _terminated = false;
+    std::atomic_bool _return_eof = false;
 };
 #endif
 
