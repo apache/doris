@@ -34,7 +34,7 @@ RuntimeFilterConsumerHelper::RuntimeFilterConsumerHelper(
 
 Status RuntimeFilterConsumerHelper::init(
         RuntimeState* state, bool need_local_merge,
-        std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>& dependencies, const int id,
+        std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies, const int id,
         const int node_id, const std::string& name) {
     _state = state;
     RETURN_IF_ERROR(_register_runtime_filter(need_local_merge));
@@ -54,16 +54,15 @@ Status RuntimeFilterConsumerHelper::_register_runtime_filter(bool need_local_mer
 }
 
 void RuntimeFilterConsumerHelper::_init_dependency(
-        std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>& dependencies, const int id,
+        std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies, const int id,
         const int node_id, const std::string& name) {
     dependencies.resize(_runtime_filter_descs.size());
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> runtime_filter_timers(
             _runtime_filter_descs.size());
-    std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>> local_dependencies;
+    std::vector<std::shared_ptr<pipeline::Dependency>> local_dependencies;
 
     for (size_t i = 0; i < _consumers.size(); ++i) {
-        dependencies[i] = std::make_shared<pipeline::RuntimeFilterDependency>(id, node_id, name,
-                                                                              _consumers[i].get());
+        dependencies[i] = std::make_shared<pipeline::Dependency>(id, node_id, name);
         runtime_filter_timers[i] = _consumers[i]->create_filter_timer(dependencies[i]);
         if (_consumers[i]->has_remote_target()) {
             // The gloabl runtime filter timer need set local runtime filter dependencies.
