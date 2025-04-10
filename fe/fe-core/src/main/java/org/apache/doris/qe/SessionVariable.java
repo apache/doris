@@ -716,6 +716,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
+    public static final String AGG_DISTINCT_SKEW_BUCKET_NUM = "agg_distinct_skew_bucket_num";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2189,6 +2191,10 @@ public class SessionVariable implements Serializable, Writable {
             description = {"使能外表的batch mode功能", "Enable the batch mode function of the external table."},
             needForward = true)
     public boolean enableExternalTableBatchMode = true;
+
+    @VariableMgr.VarAttr(name = AGG_DISTINCT_SKEW_BUCKET_NUM, needForward = true,
+            description = {"agg distinct 倾斜场景的聚合分桶数"})
+    public int aggDistinctSkewBucketNum = 1024;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();

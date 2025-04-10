@@ -2692,6 +2692,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             params.addAll(visit(ctx.expression(), Expression.class));
             List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
             params.addAll(orderKeys.stream().map(OrderExpression::new).collect(Collectors.toList()));
+            boolean isSkew = ctx.identifier() != null && ctx.identifier().getText().equalsIgnoreCase("skew");
 
             List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
             if (!unboundStars.isEmpty()) {
@@ -2717,7 +2718,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 if (ctx.functionIdentifier().dbName != null) {
                     dbName = ctx.functionIdentifier().dbName.getText();
                 }
-                UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params);
+                UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params, isSkew);
                 if (ctx.windowSpec() != null) {
                     if (isDistinct) {
                         throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
@@ -4182,7 +4183,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .<Expression>map(this::typedVisit)
                 .collect(ImmutableList.toImmutableList());
         UnboundFunction unboundFunction = new UnboundFunction(procedureName.getDbName(), procedureName.getName(),
-                true, arguments);
+                true, arguments, false);
         return new CallCommand(unboundFunction, getOriginSql(ctx));
     }
 
