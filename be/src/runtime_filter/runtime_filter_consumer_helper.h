@@ -37,8 +37,7 @@ public:
     ~RuntimeFilterConsumerHelper() = default;
 
     Status init(RuntimeState* state, bool need_local_merge,
-                std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>&
-                        runtime_filter_dependencies,
+                std::vector<std::shared_ptr<pipeline::Dependency>>& runtime_filter_dependencies,
                 const int id, const int node_id, const std::string& name);
     // Get all arrived runtime filters at Open phase which will be push down to storage.
     // Called by Operator.
@@ -61,9 +60,8 @@ private:
     Status _append_rf_into_conjuncts(const std::vector<vectorized::VRuntimeFilterPtr>& vexprs,
                                      vectorized::VExprContextSPtrs& conjuncts);
 
-    void _init_dependency(
-            std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>& dependencies,
-            const int id, const int node_id, const std::string& name);
+    void _init_dependency(std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies,
+                          const int id, const int node_id, const std::string& name);
 
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> _consumers;
     std::mutex _rf_locks;

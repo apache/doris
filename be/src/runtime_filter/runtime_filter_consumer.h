@@ -53,7 +53,7 @@ public:
     void signal(RuntimeFilter* other);
 
     std::shared_ptr<pipeline::RuntimeFilterTimer> create_filter_timer(
-            std::shared_ptr<pipeline::RuntimeFilterDependency> dependencies);
+            std::shared_ptr<pipeline::Dependency> dependencies);
 
     // Called after `State` is ready (e.g. signaled)
     Status acquire_expr(std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
