@@ -79,6 +79,8 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
     for (auto* slot : slots) {
         missing_cids.insert(slot->col_unique_id());
     }
+    // insert delete sign column id
+    missing_cids.insert(schema.columns()[schema.delete_sign_idx()]->unique_id());
     if (target_rs_column_id == -1) {
         // no row store columns
         return;

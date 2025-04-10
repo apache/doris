@@ -44,6 +44,4 @@ suite("test_to_ip_functions") {
     qt_sql "select to_ipv4(ip_v4), to_ipv6(ip_v6) from test_to_ip_functions where id in (1, 2, 3, 4) order by id"
     qt_sql "select to_ipv4_or_default(ip_v4), to_ipv6_or_default(ip_v6) from test_to_ip_functions order by id"
     qt_sql "select to_ipv4_or_null(ip_v4), to_ipv6_or_null(ip_v6) from test_to_ip_functions order by id"
-
-    sql "DROP TABLE test_to_ip_functions"
 }

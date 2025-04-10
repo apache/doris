@@ -1761,7 +1761,7 @@ public class FunctionCallExpr extends Expr {
             final String constParam = ((StringLiteral) getChild(1)).getValue().toLowerCase();
             if (!Lists.newArrayList("year", "quarter", "month", "week", "day", "hour", "minute", "second")
                     .contains(constParam)) {
-                throw new AnalysisException("date_trunc function second param only support argument is "
+                throw new AnalysisException("date_trunc function time unit param only support argument is "
                         + "year|quarter|month|week|day|hour|minute|second");
             }
         }

@@ -59,6 +59,7 @@ import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
+import org.apache.hadoop.fs.FileSystem
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
@@ -103,6 +104,7 @@ class Suite implements GroovyInterceptable {
     static Boolean isTrinoConnectorDownloaded = false
 
     private AmazonS3 s3Client = null
+    private FileSystem fs = null
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -913,6 +915,16 @@ class Suite implements GroovyInterceptable {
     boolean enableHdfs() {
         String enableHdfs = context.config.otherConfigs.get("enableHdfs");
         return enableHdfs.equals("true");
+    }
+
+    synchronized FileSystem getHdfs() {
+        if (fs == null) {
+            String hdfsFs = context.config.otherConfigs.get("hdfsFs")
+            String hdfsUser = context.config.otherConfigs.get("hdfsUser")
+            Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, context.config.dataPath + "/")
+            fs = hdfs.fs
+        }
+        return fs
     }
 
     String uploadToHdfs(String localFile) {
@@ -2996,7 +3008,7 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def getRowsetFileCacheDirFromBe = { beHttpPort, msHttpPort, tabletId, version -> 
+    def getRowsetFileCacheDirFromBe = { beHttpPort, msHttpPort, tabletId, version, fileSuffix = "dat" -> 
         def hashValues = []
         def segmentFiles = []
         getSegmentFilesFromMs(msHttpPort, tabletId, version) {
@@ -3006,7 +3018,7 @@ class Suite implements GroovyInterceptable {
                 // {"rowset_id":"0","partition_id":"27695","tablet_id":"27700","txn_id":"7057526525952","tablet_schema_hash":0,"rowset_type":"BETA_ROWSET","rowset_state":"COMMITTED","start_version":"3","end_version":"3","version_hash":"0","num_rows":"1","total_disk_size":"895","data_disk_size":"895","index_disk_size":"0","empty":false,"load_id":{"hi":"-1646598626735601581","lo":"-6677682539881484579"},"delete_flag":false,"creation_time":"1736153402","num_segments":"1","rowset_id_v2":"0200000000000004694889e84c76391cfd52ec7db0a483ba","resource_id":"1","newest_write_timestamp":"1736153402","segments_key_bounds":[{"min_key":"AoAAAAAAAAAC","max_key":"AoAAAAAAAAAC"}],"txn_expiration":"1736167802","segments_overlap_pb":"NONOVERLAPPING","compaction_level":"0","segments_file_size":["895"],"index_id":"27697","schema_version":0,"enable_segments_file_size":true,"has_variant_type_in_schema":false,"enable_inverted_index_file_info":false}
                 def segmentNum = json.num_segments as int
                 def rowsetId = json.rowset_id_v2 as String
-                segmentFiles = (0..<segmentNum).collect { i -> "${rowsetId}_${i}.dat" }
+                segmentFiles = (0..<segmentNum).collect { i -> "${rowsetId}_${i}.${fileSuffix}" }
         }
 
         segmentFiles.each {
@@ -3020,7 +3032,7 @@ class Suite implements GroovyInterceptable {
     }
 
     // get table's tablet file cache
-    def getTabletFileCacheDirFromBe = { msHttpPort, table, version ->
+    def getTabletFileCacheDirFromBe = { msHttpPort, table, version, fileSuffix = "dat" ->
         // beHost HashFile
         def beHostToHashFile = [:]
 
@@ -3028,7 +3040,7 @@ class Suite implements GroovyInterceptable {
         getTabletsAndHostFromFe.each {
             def beHost = it.Value[1]
             def tabletId = it.Key
-            def hashRet = getRowsetFileCacheDirFromBe(beHost + ":8040", msHttpPort, tabletId, version)
+            def hashRet = getRowsetFileCacheDirFromBe(beHost + ":8040", msHttpPort, tabletId, version, fileSuffix)
             hashRet.each {
                 def hashFile = it
                 if (beHostToHashFile.containsKey(beHost)) {

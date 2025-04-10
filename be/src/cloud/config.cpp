@@ -25,6 +25,7 @@ namespace doris::config {
 DEFINE_String(deploy_mode, "");
 DEFINE_mString(cloud_unique_id, "");
 DEFINE_mString(meta_service_endpoint, "");
+DEFINE_mBool(enable_meta_service_endpoint_consistency_check, "true");
 DEFINE_Bool(meta_service_use_load_balancer, "false");
 DEFINE_mInt32(meta_service_rpc_timeout_ms, "10000");
 DEFINE_Bool(meta_service_connection_pooled, "true");
@@ -45,7 +46,6 @@ DEFINE_mInt64(cumu_compaction_interval_s, "1800");
 
 DEFINE_mInt32(compaction_timeout_seconds, "86400");
 DEFINE_mInt32(lease_compaction_interval_seconds, "20");
-DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 DEFINE_mBool(enable_parallel_cumu_compaction, "false");
 DEFINE_mDouble(base_compaction_thread_num_factor, "0.25");
 DEFINE_mDouble(cumu_compaction_thread_num_factor, "0.5");
@@ -58,7 +58,7 @@ DEFINE_mInt32(refresh_s3_info_interval_s, "60");
 DEFINE_mInt32(vacuum_stale_rowsets_interval_s, "300");
 DEFINE_mInt32(schedule_sync_tablets_interval_s, "600");
 
-DEFINE_mInt32(mow_stream_load_commit_retry_times, "10");
+DEFINE_mInt32(mow_stream_load_commit_retry_times, "5");
 
 DEFINE_mBool(save_load_error_log_to_s3, "false");
 
@@ -76,7 +76,7 @@ DEFINE_mInt32(tablet_txn_info_min_expired_seconds, "1800");
 
 DEFINE_mBool(enable_use_cloud_unique_id_from_fe, "true");
 
-DEFINE_mBool(enable_cloud_tablet_report, "false");
+DEFINE_mBool(enable_cloud_tablet_report, "true");
 
 DEFINE_mInt32(delete_bitmap_rpc_retry_times, "25");
 

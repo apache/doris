@@ -217,9 +217,9 @@ public:
     }
 
     // used for after tablet cloned to clear stale rowset
-    void clear_stale_rowset() { _stale_rs_metas.clear(); }
+    void clear_stale_rowset();
 
-    void clear_rowsets() { _rs_metas.clear(); }
+    void clear_rowsets();
 
     // MUST hold EXCLUSIVE `_meta_lock` in belonged Tablet
     // `to_add` MUST NOT have overlapped version with `_rs_metas` in tablet meta.
@@ -300,6 +300,7 @@ public:
 
 private:
     Status _save_meta(DataDir* data_dir);
+    void _check_mow_rowset_cache_version_size(size_t rowset_cache_version_size);
 
     // _del_predicates is ignored to compare.
     friend bool operator==(const TabletMeta& a, const TabletMeta& b);
@@ -559,6 +560,10 @@ public:
 
     // return the size of the map
     size_t remove_rowset_cache_version(const RowsetId& rowset_id);
+
+    void clear_rowset_cache_version();
+
+    std::set<RowsetId> get_rowset_cache_version();
 
     class AggCachePolicy : public LRUCachePolicy {
     public:

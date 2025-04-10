@@ -44,5 +44,4 @@ suite("test_query_json_array", "query") {
     sql "insert into ${tableName} values(5,1,true,'test','2022-01-01 11:11:11');"
     // Nereids does't support array function
     // order_qt_sql2 "select json_array('k0',k0,'k1',k1,'k2',k2,'k3',k3,'k4',k4,'k5', null,'k6','k6') from ${tableName};"
-    sql "DROP TABLE ${tableName};"
 }

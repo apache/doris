@@ -19,6 +19,7 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/cloud.pb.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
@@ -40,6 +41,7 @@
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "common/config.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -193,6 +195,9 @@ Status CloudStorageEngine::open() {
     _cloud_warm_up_manager = std::make_unique<CloudWarmUpManager>(*this);
 
     _tablet_hotspot = std::make_unique<TabletHotspot>();
+
+    _schema_cloud_dictionary_cache =
+            std::make_unique<SchemaCloudDictionaryCache>(config::schema_dict_cache_capacity);
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
             init_stream_load_recorder(ExecEnv::GetInstance()->store_paths()[0].path),
@@ -606,6 +611,7 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         _submitted_base_compactions[tablet->tablet_id()] = compaction;
     }
     st = _base_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
+        signal::tablet_id = tablet->tablet_id();
         auto st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
@@ -675,6 +681,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         }
     };
     st = _cumu_compaction_thread_pool->submit_func([=, compaction = std::move(compaction)]() {
+        signal::tablet_id = tablet->tablet_id();
         auto st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
@@ -718,6 +725,7 @@ Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& t
         _submitted_full_compactions[tablet->tablet_id()] = compaction;
     }
     st = _base_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
+        signal::tablet_id = tablet->tablet_id();
         auto st = compaction->execute_compact();
         if (!st.ok()) {
             // Error log has been output in `execute_compact`
@@ -898,7 +906,7 @@ Status CloudStorageEngine::register_compaction_stop_token(CloudTabletSPtr tablet
     return st;
 }
 
-Status CloudStorageEngine::unregister_compaction_stop_token(CloudTabletSPtr tablet) {
+Status CloudStorageEngine::unregister_compaction_stop_token(CloudTabletSPtr tablet, bool clear_ms) {
     std::shared_ptr<CloudCompactionStopToken> stop_token;
     {
         std::lock_guard lock(_compaction_mtx);
@@ -910,12 +918,14 @@ Status CloudStorageEngine::unregister_compaction_stop_token(CloudTabletSPtr tabl
         }
         _active_compaction_stop_tokens.erase(tablet->tablet_id());
     }
-    // stop token will be removed when SC commit or abort
-    // RETURN_IF_ERROR(stop_token->do_unregister());
-    LOG_INFO(
-            "successfully unregister compaction stop token for tablet_id={}, "
-            "delete_bitmap_lock_initiator={}",
-            tablet->tablet_id(), stop_token->initiator());
+    LOG_INFO("successfully unregister compaction stop token for tablet_id={}", tablet->tablet_id());
+    if (stop_token && clear_ms) {
+        RETURN_IF_ERROR(stop_token->do_unregister());
+        LOG_INFO(
+                "successfully remove compaction stop token from MS for tablet_id={}, "
+                "delete_bitmap_lock_initiator={}",
+                tablet->tablet_id(), stop_token->initiator());
+    }
     return Status::OK();
 }
 

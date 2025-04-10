@@ -105,5 +105,4 @@ suite("aggregate_count1", "query") {
         sql("verbose select count() from aggregate_count1 where country > 'GET' and covid > 1;")
         notContains "projections: country"
     }
-    sql "drop table aggregate_count1"
 }

@@ -77,6 +77,4 @@ suite("test_unique_table") {
     sql "commit;"
 
     qt_3 "select * from ${tbName} order by k1"
-
-    sql "DROP TABLE ${tbName}"
 }

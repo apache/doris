@@ -79,6 +79,4 @@ suite("test_bitmap_intersect", "p0") {
              tag having tag not in ("A","B")
        ) t
        """
-
-    sql """ DROP TABLE  ${tbName} """
 }

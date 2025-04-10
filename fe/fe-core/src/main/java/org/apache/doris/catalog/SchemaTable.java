@@ -575,6 +575,30 @@ public class SchemaTable extends Table {
                                     .column("METRIC_VALUE", ScalarType.createStringType())
                                     .build())
             )
+            .put("routine_load_jobs",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "routine_load_jobs", TableType.SCHEMA,
+                            builder().column("JOB_ID", ScalarType.createStringType())
+                                    .column("JOB_NAME", ScalarType.createStringType())
+                                    .column("CREATE_TIME", ScalarType.createStringType())
+                                    .column("PAUSE_TIME", ScalarType.createStringType())
+                                    .column("END_TIME", ScalarType.createStringType())
+                                    .column("DB_NAME", ScalarType.createStringType())
+                                    .column("TABLE_NAME", ScalarType.createStringType())
+                                    .column("STATE", ScalarType.createStringType())
+                                    .column("CURRENT_TASK_NUM", ScalarType.createStringType())
+                                    .column("JOB_PROPERTIES", ScalarType.createStringType())
+                                    .column("DATA_SOURCE_PROPERTIES", ScalarType.createStringType())
+                                    .column("CUSTOM_PROPERTIES", ScalarType.createStringType())
+                                    .column("STATISTIC", ScalarType.createStringType())
+                                    .column("PROGRESS", ScalarType.createStringType())
+                                    .column("LAG", ScalarType.createStringType())
+                                    .column("REASON_OF_STATE_CHANGED", ScalarType.createStringType())
+                                    .column("ERROR_LOG_URLS", ScalarType.createStringType())
+                                    .column("USER_NAME", ScalarType.createStringType())
+                                    .column("CURRENT_ABORT_TASK_NUM", ScalarType.createType(PrimitiveType.INT))
+                                    .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .build())
+            )
             .build();
 
     private boolean fetchAllFe = false;

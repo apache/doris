@@ -856,6 +856,7 @@ void TabletMeta::add_rowsets_unchecked(const std::vector<RowsetSharedPtr>& to_ad
 
 void TabletMeta::delete_rs_meta_by_version(const Version& version,
                                            std::vector<RowsetMetaSharedPtr>* deleted_rs_metas) {
+    size_t rowset_cache_version_size = 0;
     auto it = _rs_metas.begin();
     while (it != _rs_metas.end()) {
         if ((*it)->version() == version) {
@@ -863,22 +864,32 @@ void TabletMeta::delete_rs_meta_by_version(const Version& version,
                 deleted_rs_metas->push_back(*it);
             }
             _rs_metas.erase(it);
+            if (_enable_unique_key_merge_on_write) {
+                rowset_cache_version_size =
+                        _delete_bitmap->remove_rowset_cache_version((*it)->rowset_id());
+            }
             return;
         } else {
             ++it;
         }
     }
+    _check_mow_rowset_cache_version_size(rowset_cache_version_size);
 }
 
 void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
                                  const std::vector<RowsetMetaSharedPtr>& to_delete,
                                  bool same_version) {
+    size_t rowset_cache_version_size = 0;
     // Remove to_delete rowsets from _rs_metas
     for (auto rs_to_del : to_delete) {
         auto it = _rs_metas.begin();
         while (it != _rs_metas.end()) {
             if (rs_to_del->version() == (*it)->version()) {
                 _rs_metas.erase(it);
+                if (_enable_unique_key_merge_on_write) {
+                    rowset_cache_version_size =
+                            _delete_bitmap->remove_rowset_cache_version((*it)->rowset_id());
+                }
                 // there should be only one rowset match the version
                 break;
             } else {
@@ -892,6 +903,7 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
     }
     // put to_add rowsets in _rs_metas.
     _rs_metas.insert(_rs_metas.end(), to_add.begin(), to_add.end());
+    _check_mow_rowset_cache_version_size(rowset_cache_version_size);
 }
 
 // Use the passing "rs_metas" to replace the rs meta in this tablet meta
@@ -899,9 +911,14 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
 // an existing tablet before. Add after revise, only the passing "rs_metas"
 // is needed.
 void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
-    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
-    _rs_metas = std::move(rs_metas);
-    _stale_rs_metas.clear();
+    {
+        std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
+        _rs_metas = std::move(rs_metas);
+        _stale_rs_metas.clear();
+    }
+    if (_enable_unique_key_merge_on_write) {
+        _delete_bitmap->clear_rowset_cache_version();
+    }
 }
 
 // This method should call after revise_rs_metas, since new rs_metas might be a subset
@@ -942,18 +959,7 @@ void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
             it++;
         }
     }
-    if (_enable_unique_key_merge_on_write &&
-        rowset_cache_version_size > _rs_metas.size() + _stale_rs_metas.size()) {
-        std::string err_msg = fmt::format(
-                ". tablet: {}, rowset_cache_version size: {}, "
-                "_rs_metas size: {}, _stale_rs_metas size: {}",
-                _tablet_id, rowset_cache_version_size, _rs_metas.size(), _stale_rs_metas.size());
-        if (config::enable_mow_get_agg_correctness_check_core) {
-            CHECK(false) << err_msg;
-        } else {
-            DCHECK(false) << err_msg;
-        }
-    }
+    _check_mow_rowset_cache_version_size(rowset_cache_version_size);
 }
 
 RowsetMetaSharedPtr TabletMeta::acquire_rs_meta_by_version(const Version& version) const {
@@ -981,6 +987,56 @@ Status TabletMeta::set_partition_id(int64_t partition_id) {
     }
     _partition_id = partition_id;
     return Status::OK();
+}
+
+void TabletMeta::clear_stale_rowset() {
+    _stale_rs_metas.clear();
+    if (_enable_unique_key_merge_on_write) {
+        _delete_bitmap->clear_rowset_cache_version();
+    }
+}
+
+void TabletMeta::clear_rowsets() {
+    _rs_metas.clear();
+    if (_enable_unique_key_merge_on_write) {
+        _delete_bitmap->clear_rowset_cache_version();
+    }
+}
+
+void TabletMeta::_check_mow_rowset_cache_version_size(size_t rowset_cache_version_size) {
+    if (_enable_unique_key_merge_on_write && config::enable_mow_verbose_log &&
+        rowset_cache_version_size > _rs_metas.size() + _stale_rs_metas.size()) {
+        std::stringstream ss;
+        auto rowset_ids = _delete_bitmap->get_rowset_cache_version();
+        for (const auto& rowset_id : rowset_ids) {
+            bool found = false;
+            for (auto& rs_meta : _rs_metas) {
+                if (rs_meta->rowset_id() == rowset_id) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                continue;
+            }
+            for (auto& rs_meta : _stale_rs_metas) {
+                if (rs_meta->rowset_id() == rowset_id) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                ss << rowset_id.to_string() << ", ";
+            }
+        }
+        // size(rowset_cache_version) <= size(_rs_metas) + size(_stale_rs_metas) + size(_unused_rs)
+        std::string msg = fmt::format(
+                "tablet: {}, rowset_cache_version size: {}, "
+                "_rs_metas size: {}, _stale_rs_metas size: {}, delta: {}. rowset only in cache: {}",
+                _tablet_id, rowset_cache_version_size, _rs_metas.size(), _stale_rs_metas.size(),
+                rowset_cache_version_size - _rs_metas.size() - _stale_rs_metas.size(), ss.str());
+        LOG(INFO) << msg;
+    }
 }
 
 bool operator==(const TabletMeta& a, const TabletMeta& b) {
@@ -1155,6 +1211,7 @@ bool DeleteBitmap::contains_agg_without_cache(const BitmapKey& bmk, uint32_t row
 }
 
 void DeleteBitmap::remove_sentinel_marks() {
+    std::lock_guard l(lock);
     for (auto it = delete_bitmap.begin(), end = delete_bitmap.end(); it != end;) {
         if (std::get<1>(it->first) == DeleteBitmap::INVALID_SEGMENT_ID) {
             it = delete_bitmap.erase(it);
@@ -1279,7 +1336,13 @@ void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::
 
 uint64_t DeleteBitmap::get_delete_bitmap_count() {
     std::shared_lock l(lock);
-    return delete_bitmap.size();
+    uint64_t count = 0;
+    for (auto it = delete_bitmap.begin(); it != delete_bitmap.end(); it++) {
+        if (std::get<1>(it->first) != DeleteBitmap::INVALID_SEGMENT_ID) {
+            count++;
+        }
+    }
+    return count;
 }
 
 bool DeleteBitmap::has_calculated_for_multi_segments(const RowsetId& rowset_id) const {
@@ -1289,7 +1352,24 @@ bool DeleteBitmap::has_calculated_for_multi_segments(const RowsetId& rowset_id) 
 size_t DeleteBitmap::remove_rowset_cache_version(const RowsetId& rowset_id) {
     std::lock_guard l(_rowset_cache_version_lock);
     _rowset_cache_version.erase(rowset_id);
+    VLOG_DEBUG << "remove agg cache version for tablet=" << _tablet_id
+               << ", rowset=" << rowset_id.to_string();
     return _rowset_cache_version.size();
+}
+
+void DeleteBitmap::clear_rowset_cache_version() {
+    std::lock_guard l(_rowset_cache_version_lock);
+    _rowset_cache_version.clear();
+    VLOG_DEBUG << "clear agg cache version for tablet=" << _tablet_id;
+}
+
+std::set<RowsetId> DeleteBitmap::get_rowset_cache_version() {
+    std::set<RowsetId> set;
+    std::shared_lock l(_rowset_cache_version_lock);
+    for (auto& [k, _] : _rowset_cache_version) {
+        set.insert(k);
+    }
+    return set;
 }
 
 DeleteBitmap::Version DeleteBitmap::_get_rowset_cache_version(const BitmapKey& bmk) const {

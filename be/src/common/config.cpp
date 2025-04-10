@@ -1050,7 +1050,7 @@ DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
 // Whether use schema dict in backend side instead of MetaService side(cloud mode)
-DEFINE_mBool(variant_use_cloud_schema_dict, "true");
+DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
@@ -1082,6 +1082,7 @@ DEFINE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent, "78");
 DEFINE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent, "75");
 DEFINE_mInt32(file_cache_evict_in_advance_interval_ms, "1000");
 DEFINE_mInt64(file_cache_evict_in_advance_batch_bytes, "31457280"); // 30MB
+DEFINE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold, "1000");
 
 DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
@@ -1095,6 +1096,7 @@ DEFINE_mInt64(cache_lock_wait_long_tail_threshold_us, "30000000");
 DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
+DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1264,6 +1266,9 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
+
+// Ingest binlog with persistent connection
+DEFINE_Bool(enable_ingest_binlog_with_persistent_connection, "false");
 
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
@@ -1453,17 +1458,25 @@ DEFINE_Bool(enable_table_size_correctness_check, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
-DEFINE_mInt32(compaction_num_per_round, "1");
+DEFINE_mInt32(compaction_num_per_round, "4");
 
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
 DEFINE_mBool(enable_check_tablet_delete_bitmap_score, "true");
+DEFINE_mInt32(schema_dict_cache_capacity, "4096");
 
 DEFINE_mBool(enable_mow_verbose_log, "false");
 
 // whether to prune rows with delete sign = 1 in base compaction
 // ATTN: this config is only for test
 DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
+
+DEFINE_Bool(enable_root_path_of_hdfs_resource, "true");
+
+DEFINE_mInt32(tablet_sched_delay_time_ms, "5000");
+DEFINE_mInt32(load_trigger_compaction_version_percent, "66");
+DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
+DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
 // clang-format off
 #ifdef BE_TEST

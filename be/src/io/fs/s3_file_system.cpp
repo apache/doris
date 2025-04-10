@@ -105,7 +105,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         return Status::InvalidArgument("failed to init s3 client with conf {}", conf.to_string());
     }
 
-    LOG(INFO) << "reset s3 client with new conf: " << conf.to_string();
+    LOG(WARNING) << "reset s3 client with new conf: " << conf.to_string();
 
     {
         std::lock_guard lock(_mtx);

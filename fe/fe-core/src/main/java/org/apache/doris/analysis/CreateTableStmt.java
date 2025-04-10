@@ -569,9 +569,9 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         if (CollectionUtils.isNotEmpty(indexDefs)) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexType, List<String>>> distinctCol = new HashSet<>();
-            boolean disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
-                        new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1
-                            && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = PropertyAnalyzer
+                    .analyzeInvertedIndexFileStorageFormat(new HashMap<>(properties));
+
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();
                 if (!engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
@@ -581,8 +581,10 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                     boolean found = false;
                     for (Column column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexDef.checkColumn(column, getKeysDesc().getKeysType(),
-                                                    enableUniqueKeyMergeOnWrite, disableInvertedIndexV1ForVariant);
+                            indexDef.checkColumn(column,
+                                    getKeysDesc().getKeysType(),
+                                    enableUniqueKeyMergeOnWrite,
+                                    invertedIndexFileStorageFormat);
                             found = true;
                             break;
                         }
@@ -592,8 +594,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                     }
                 }
                 indexes.add(new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(), indexDef.getColumns(),
-                        indexDef.getIndexType(), indexDef.getProperties(), indexDef.getComment(),
-                        indexDef.getColumnUniqueIds()));
+                        indexDef.getIndexType(), indexDef.getProperties(), indexDef.getComment()));
                 distinct.add(indexDef.getIndexName());
                 distinctCol.add(Pair.of(indexDef.getIndexType(),
                         indexDef.getColumns().stream().map(String::toUpperCase).collect(Collectors.toList())));

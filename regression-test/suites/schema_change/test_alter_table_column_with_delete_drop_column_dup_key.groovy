@@ -225,6 +225,4 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
     sql "insert into ${tbName1} values(5,5,5,'B');"
 
     qt_sql "select * from ${tbName1} order by k1;"
-    sql "DROP TABLE ${tbName1} FORCE;"
-
 }

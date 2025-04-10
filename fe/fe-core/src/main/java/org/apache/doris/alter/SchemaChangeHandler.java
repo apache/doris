@@ -37,6 +37,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -97,7 +98,6 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
-import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTaskType;
@@ -629,6 +629,13 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
                             && modColumn.getDataType() == PrimitiveType.VARCHAR) {
                         col.checkSchemaChangeAllowed(modColumn);
+                        ColumnType.checkForTypeLengthChange(col.getType(), modColumn.getType());
+                        lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                    }
+                    if (columnPos == null && col.getDataType().isComplexType()
+                            && modColumn.getDataType().isComplexType()) {
+                        col.checkSchemaChangeAllowed(modColumn);
+                        ColumnType.checkSupportSchemaChangeForComplexType(col.getType(), modColumn.getType(), true);
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
                     if (col.isClusterKey()) {
@@ -1374,12 +1381,21 @@ public class SchemaChangeHandler extends AlterHandler {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        // check row store column has change
+
         boolean hasRowStoreChanged = false;
-        if (storeRowColumn || (rsColumns != null && !rsColumns.isEmpty())) {
+        if (storeRowColumn || rsColumns != null) {
             List<String> oriRowStoreColumns = olapTable.getTableProperty().getCopiedRowStoreColumns();
-            if ((oriRowStoreColumns != null && !oriRowStoreColumns.equals(rsColumns))
-                    || storeRowColumn != olapTable.storeRowColumn()) {
+            // correct the comparison logic for null and empty list
+            boolean columnsChanged = false;
+            if (rsColumns == null) {
+                columnsChanged = oriRowStoreColumns != null;
+            } else if (oriRowStoreColumns == null) {
+                columnsChanged = true;
+            } else {
+                columnsChanged = !oriRowStoreColumns.equals(rsColumns);
+            }
+            // partial row store columns changed, or store_row_column enabled, not supported to disable at present
+            if (columnsChanged || (!olapTable.storeRowColumn() && storeRowColumn)) {
                 // only support mow and duplicate model
                 if (!(olapTable.getKeysType() == KeysType.DUP_KEYS
                         || olapTable.getEnableUniqueKeyMergeOnWrite())) {
@@ -2101,6 +2117,19 @@ public class SchemaChangeHandler extends AlterHandler {
                                         + existedIdx.getIndexName() + " of type " + existedIdx.getIndexType()
                                         + " does not support lightweight index changes.");
                             }
+                            for (Column column : olapTable.getBaseSchema()) {
+                                if (!column.getType().isVariantType()) {
+                                    continue;
+                                }
+                                // variant type column can not support for building index
+                                for (String indexColumn : existedIdx.getColumns()) {
+                                    if (column.getName().equalsIgnoreCase(indexColumn)) {
+                                        throw new DdlException("BUILD INDEX operation failed: The "
+                                                + indexDef.getIndexName() + " index can not be built on the "
+                                                + indexColumn + " column, because it is a variant type column.");
+                                    }
+                                }
+                            }
                             index = existedIdx.clone();
                             if (indexDef.getPartitionNames().isEmpty()) {
                                 invertedIndexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
@@ -2703,16 +2732,12 @@ public class SchemaChangeHandler extends AlterHandler {
             alterIndex.setIndexId(Env.getCurrentEnv().getNextId());
         }
 
-        boolean disableInvertedIndexV1ForVariant = olapTable.getInvertedIndexFileStorageFormat()
-                        == TInvertedIndexFileStorageFormat.V1 && ConnectContext.get().getSessionVariable()
-                                                                        .getDisableInvertedIndexV1ForVaraint();
         for (String col : indexDef.getColumns()) {
             Column column = olapTable.getColumn(col);
             if (column != null) {
                 indexDef.checkColumn(column, olapTable.getKeysType(),
                         olapTable.getTableProperty().getEnableUniqueKeyMergeOnWrite(),
-                                                                        disableInvertedIndexV1ForVariant);
-                indexDef.getColumnUniqueIds().add(column.getUniqueId());
+                        olapTable.getInvertedIndexFileStorageFormat());
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
             }
@@ -2723,7 +2748,6 @@ public class SchemaChangeHandler extends AlterHandler {
         // so here update column name in CreateIndexClause after checkColumn for indexDef,
         // there will use the column name in olapTable instead of the column name in CreateIndexClause.
         alterIndex.setColumns(indexDef.getColumns());
-        alterIndex.setColumnUniqueIds(indexDef.getColumnUniqueIds());
         newIndexes.add(alterIndex);
         return false;
     }

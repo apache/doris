@@ -210,6 +210,9 @@ Status EnginePublishVersionTask::execute() {
                 }
                 if (version.first != max_version + 1) {
                     if (tablet->check_version_exist(version)) {
+                        _engine.txn_manager()->remove_txn_tablet_info(partition_id, transaction_id,
+                                                                      tablet->tablet_id(),
+                                                                      tablet->tablet_uid());
                         continue;
                     }
                     auto handle_version_not_continuous = [&]() {

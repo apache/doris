@@ -24,6 +24,7 @@
 //#include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/schema_cloud_dictionary_cache.h"
 #include "cloud_txn_delete_bitmap_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "olap/storage_engine.h"
@@ -70,6 +71,9 @@ public:
     CloudTabletMgr& tablet_mgr() const { return *_tablet_mgr; }
 
     CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() const { return *_txn_delete_bitmap_cache; }
+    SchemaCloudDictionaryCache& get_schema_cloud_dictionary_cache() {
+        return *_schema_cloud_dictionary_cache;
+    }
     ThreadPool& calc_tablet_delete_bitmap_task_thread_pool() const {
         return *_calc_tablet_delete_bitmap_task_thread_pool;
     }
@@ -146,7 +150,7 @@ public:
 
     Status register_compaction_stop_token(CloudTabletSPtr tablet, int64_t initiator);
 
-    Status unregister_compaction_stop_token(CloudTabletSPtr tablet);
+    Status unregister_compaction_stop_token(CloudTabletSPtr tablet, bool clear_ms);
 
 private:
     void _refresh_storage_vault_info_thread_callback();
@@ -168,6 +172,7 @@ private:
     std::unique_ptr<CloudTabletMgr> _tablet_mgr;
     std::unique_ptr<CloudTxnDeleteBitmapCache> _txn_delete_bitmap_cache;
     std::unique_ptr<ThreadPool> _calc_tablet_delete_bitmap_task_thread_pool;
+    std::unique_ptr<SchemaCloudDictionaryCache> _schema_cloud_dictionary_cache;
 
     // Components for cache warmup
     std::unique_ptr<io::FileCacheBlockDownloader> _file_cache_block_downloader;

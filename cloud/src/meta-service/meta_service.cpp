@@ -1691,7 +1691,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             }
         }
 
-        if (need_read_schema_dict) {
+        if (need_read_schema_dict && request->schema_op() != GetRowsetRequest::NO_DICT) {
             read_schema_dict(code, msg, instance_id, idx.index_id(), txn.get(),
                              response->mutable_rowset_meta(), response->mutable_schema_dict(),
                              request->schema_op());
@@ -1829,6 +1829,106 @@ static bool process_pending_delete_bitmap(MetaServiceCode& code, std::string& ms
     return true;
 }
 
+// When a load txn retries in publish phase with different version to publish, it will gain delete bitmap lock
+// many times. these locks are *different*, but they are the same in the current implementation because they have
+// the same lock_id and initiator and don't have version info. If some delete bitmap calculation task with version X
+// on BE lasts long and try to update delete bitmaps on MS when the txn gains the lock in later retries
+// with version Y(Y > X) to publish. It may wrongly update version X's delete bitmaps because the lock don't have version info.
+//
+// This function checks whether the partition version is correct when updating the delete bitmap
+// to avoid wrongly update an visible version's delete bitmaps.
+// 1. get the db id with txn id
+// 2. get the partition version with db id, table id and partition id
+// 3. check if the partition version matches the updating version
+static bool check_partition_version_when_update_delete_bitmap(
+        MetaServiceCode& code, std::string& msg, std::unique_ptr<Transaction>& txn,
+        std::string& instance_id, int64_t table_id, int64_t partition_id, int64_t tablet_id,
+        int64_t txn_id, int64_t next_visible_version) {
+    if (partition_id <= 0) {
+        LOG(WARNING) << fmt::format(
+                "invalid partition_id, skip to check partition version. txn={}, "
+                "table_id={}, partition_id={}, tablet_id={}",
+                txn_id, table_id, partition_id, tablet_id);
+        return true;
+    }
+    // Get db id with txn id
+    std::string index_val;
+    const std::string index_key = txn_index_key({instance_id, txn_id});
+    auto err = txn->get(index_key, &index_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get db id, txn_id={} err={}", txn_id, err);
+        LOG(WARNING) << msg;
+        return false;
+    }
+
+    TxnIndexPB index_pb;
+    if (!index_pb.ParseFromString(index_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("failed to parse txn_index_pb, txn_id={}", txn_id);
+        LOG(WARNING) << msg;
+        return false;
+    }
+
+    DCHECK(index_pb.has_tablet_index())
+            << fmt::format("txn={}, table_id={}, partition_id={}, tablet_id={}, index_pb={}",
+                           txn_id, table_id, partition_id, tablet_id, proto_to_json(index_pb));
+    DCHECK(index_pb.tablet_index().has_db_id())
+            << fmt::format("txn={}, table_id={}, partition_id={}, tablet_id={}, index_pb={}",
+                           txn_id, table_id, partition_id, tablet_id, proto_to_json(index_pb));
+    if (!index_pb.has_tablet_index() || !index_pb.tablet_index().has_db_id()) {
+        LOG(WARNING) << fmt::format(
+                "has no db_id in TxnIndexPB, skip to check partition version. txn={}, "
+                "table_id={}, partition_id={}, tablet_id={}, index_pb={}",
+                txn_id, table_id, partition_id, tablet_id, proto_to_json(index_pb));
+        return true;
+    }
+    int64_t db_id = index_pb.tablet_index().db_id();
+
+    std::string ver_key = partition_version_key({instance_id, db_id, table_id, partition_id});
+    std::string ver_val;
+    err = txn->get(ver_key, &ver_val);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get partition version, txn_id={}, tablet={}, err={}", txn_id,
+                          tablet_id, err);
+        LOG(WARNING) << msg;
+        return false;
+    }
+
+    int64_t cur_max_version {-1};
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        cur_max_version = 1;
+    } else {
+        VersionPB version_pb;
+        if (!version_pb.ParseFromString(ver_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("failed to parse version_pb, txn_id={}, tablet={}, key={}", txn_id,
+                              tablet_id, hex(ver_key));
+            LOG(WARNING) << msg;
+            return false;
+        }
+        DCHECK(version_pb.has_version());
+        cur_max_version = version_pb.version();
+
+        if (version_pb.pending_txn_ids_size() > 0) {
+            DCHECK(version_pb.pending_txn_ids_size() == 1);
+            cur_max_version += version_pb.pending_txn_ids_size();
+        }
+    }
+
+    if (cur_max_version + 1 != next_visible_version) {
+        code = MetaServiceCode::VERSION_NOT_MATCH;
+        msg = fmt::format(
+                "check version failed when update_delete_bitmap, txn={}, table_id={}, "
+                "partition_id={}, tablet_id={}, found partition's max version is {}, but "
+                "request next_visible_version is {}",
+                txn_id, table_id, partition_id, tablet_id, cur_max_version, next_visible_version);
+        return false;
+    }
+    return true;
+}
+
 void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* controller,
                                            const UpdateDeleteBitmapRequest* request,
                                            UpdateDeleteBitmapResponse* response,
@@ -1880,7 +1980,17 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         }
     }
 
-    // 3. store all pending delete bitmap for this txn
+    // 3. check if partition's version matches
+    if (request->lock_id() > 0 && request->has_txn_id() && request->has_partition_id() &&
+        request->has_next_visible_version()) {
+        if (!check_partition_version_when_update_delete_bitmap(
+                    code, msg, txn, instance_id, table_id, request->partition_id(), tablet_id,
+                    request->txn_id(), request->next_visible_version())) {
+            return;
+        }
+    }
+
+    // 4. store all pending delete bitmap for this txn
     PendingDeleteBitmapPB delete_bitmap_keys;
     for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
         MetaDeleteBitmapInfo key_info {instance_id, tablet_id, request->rowset_ids(i),
@@ -1919,7 +2029,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         }
     }
 
-    // 4. Update delete bitmap for curent txn
+    // 5. Update delete bitmap for curent txn
     size_t current_key_count = 0;
     size_t current_value_count = 0;
     size_t total_key_count = 0;
@@ -2615,6 +2725,59 @@ std::size_t get_segments_key_bounds_bytes(const doris::RowsetMetaCloudPB& rowset
         ret += key_bounds.ByteSizeLong();
     }
     return ret;
+}
+
+void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* controller,
+                                      const GetSchemaDictRequest* request,
+                                      GetSchemaDictResponse* response,
+                                      ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_schema_dict);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    if (!request->has_index_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing index_id in request";
+        return;
+    }
+
+    RPC_RATE_LIMIT(get_schema_dict)
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn";
+        return;
+    }
+
+    std::string dict_key = meta_schema_pb_dictionary_key({instance_id, request->index_id()});
+    ValueBuf dict_val;
+    err = cloud::get(txn.get(), dict_key, &dict_val);
+    LOG(INFO) << "Retrieved column pb dictionary, index_id=" << request->index_id()
+              << " key=" << hex(dict_key) << " error=" << err;
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND && err != TxnErrorCode::TXN_OK) {
+        // Handle retrieval error.
+        ss << "Failed to retrieve column pb dictionary, instance_id=" << instance_id
+           << " table_id=" << request->index_id() << " key=" << hex(dict_key) << " error=" << err;
+        msg = ss.str();
+        code = cast_as<ErrCategory::READ>(err);
+        return;
+    }
+    SchemaCloudDictionary schema_dict;
+    if (err == TxnErrorCode::TXN_OK && !dict_val.to_pb(&schema_dict)) {
+        // Handle parse error.
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("Malformed tablet dictionary value, key={}", hex(dict_key));
+        return;
+    }
+
+    response->mutable_schema_dict()->Swap(&schema_dict);
 }
 
 } // namespace doris::cloud
