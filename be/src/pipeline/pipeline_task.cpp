@@ -408,10 +408,12 @@ Status PipelineTask::execute(bool* done) {
             }
         });
 
+        SCOPED_RAW_TIMER(&time_spent);
         RETURN_IF_ERROR(_open());
     }
 
     while (!fragment_context->is_canceled()) {
+        SCOPED_RAW_TIMER(&time_spent);
         Defer defer {[&]() {
             // If this run is pended by a spilling request, the block will be output in next run.
             if (!_spilling) {
