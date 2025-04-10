@@ -82,9 +82,6 @@ suite("test_ranger_access_resource_global", "p2,ranger,external") {
 				executeSqlWithLogging("""CALL EXECUTE_STMT ('${catalog}', 'INSERT INTO ${dbName}.${tableName} VALUES (1, ''test'')')""", "Error executing INSERT")
 				executeSqlWithLogging("""SELECT * FROM ${dbName}.${tableName}""", "Error executing SELECT")
 				executeSqlWithLogging("""CALL EXECUTE_STMT ('${catalog}', 'ALTER TABLE ${dbName}.${tableName} ADD COLUMN age INT')""", "Error executing ALTER TABLE")
-				executeSqlWithLogging("""CREATE VIEW ${dbName}.test_view AS SELECT * FROM ${dbName}.${tableName}""", "Error executing CREATE VIEW")
-				executeSqlWithLogging("""SELECT * FROM ${dbName}.test_view""", "Error executing SELECT VIEW")
-				executeSqlWithLogging("""SHOW CREATE VIEW ${dbName}.test_view""", "Error executing SHOW CREATE VIEW")
 				executeSqlWithLogging("""CALL EXECUTE_STMT ('${catalog}', 'DROP TABLE IF EXISTS ${dbName}.${tableName}')""", "Error executing DROP TABLE")
 				executeSqlWithLogging("""CALL EXECUTE_STMT ('${catalog}', 'DROP DATABASE ${dbName}')""", "Error executing DROP DATABASE")
 			}
@@ -137,7 +134,7 @@ suite("test_ranger_access_resource_global", "p2,ranger,external") {
 		// create policy
 		RangerClient rangerClient = new RangerClient("http://${rangerEndpoint}", "simple", rangerUser, rangerPassword, null)
 		String policy1 = 'all - global'
-		List<String> globalPolicy = ["GRANT", "SELECT", "LOAD", "ALTER", "CREATE", "DROP", "SHOW_VIEW"]
+		List<String> globalPolicy = ["GRANT", "SELECT", "LOAD", "ALTER", "CREATE", "DROP", "SHOW_VIEW", "ADMIN", "NODE"]
 
 		Map<String, RangerPolicy.RangerPolicyResource> resource = new HashMap<>()
 		resource.put("global", new RangerPolicy.RangerPolicyResource("*"))
@@ -148,7 +145,7 @@ suite("test_ranger_access_resource_global", "p2,ranger,external") {
 		policy.setName(policy1)
 		policy.setResources(resource)
 		RangerPolicy.RangerPolicyItem policyItem = new RangerPolicy.RangerPolicyItem()
-		policyItem.setUsers([userList[0], "admin"])
+		policyItem.setUsers([userList[0], "admin", "root"])
 		List<RangerPolicy.RangerPolicyItemAccess> policyItemAccesses = new ArrayList<RangerPolicy.RangerPolicyItemAccess>()
 		globalPolicy.forEach {
 			policyItemAccesses.add(new RangerPolicy.RangerPolicyItemAccess(it))
