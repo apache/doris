@@ -7,7 +7,7 @@ PhysicalResultSink
 --------PhysicalDistribute[DistributionSpecGather]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------PhysicalIntersect
+--------------PhysicalIntersect RFV2: RF6[c_last_name->c_last_name] RF7[c_last_name->c_last_name]
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------hashAgg[LOCAL]
@@ -32,7 +32,7 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF3
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer]
+--------------------------------PhysicalOlapScan[customer] RFV2: RF6
 --------------------------PhysicalProject
 ----------------------------filter((date_dim.d_month_seq <= 1197) and (date_dim.d_month_seq >= 1186))
 ------------------------------PhysicalOlapScan[date_dim]
@@ -46,7 +46,7 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[store_sales] apply RFs: RF4 RF5
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer]
+--------------------------------PhysicalOlapScan[customer] RFV2: RF7
 --------------------------PhysicalProject
 ----------------------------filter((date_dim.d_month_seq <= 1197) and (date_dim.d_month_seq >= 1186))
 ------------------------------PhysicalOlapScan[date_dim]
