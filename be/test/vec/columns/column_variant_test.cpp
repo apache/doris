@@ -23,9 +23,11 @@
 #include <cstdint>
 
 #include "testutil/test_util.h"
+#include "testutil/variant_util.h"
 #include "vec/columns/column_object.cpp"
 #include "vec/columns/column_object.h"
 #include "vec/columns/common_column_test.h"
+#include "vec/columns/subcolumn_tree.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -236,16 +238,6 @@ TEST_F(ColumnObjectTest, is_column_string64) {
 
 TEST_F(ColumnObjectTest, is_column_string) {
     EXPECT_FALSE(column_variant->is_column_string());
-}
-
-doris::vectorized::Field construct_variant_map(
-        const std::vector<std::pair<std::string, doris::vectorized::Field>>& key_and_values) {
-    doris::vectorized::Field res = VariantMap();
-    auto& object = res.get<VariantMap&>();
-    for (const auto& [k, v] : key_and_values) {
-        object.try_emplace(k, v);
-    }
-    return res;
 }
 
 TEST_F(ColumnObjectTest, serialize_one_row_to_string) {
@@ -1260,7 +1252,7 @@ TEST_F(ColumnObjectTest, not_finalized) {
     }
 }
 
-doris::vectorized::Field get_field(std::string_view type, size_t array_element_cnt = 0) {
+doris::vectorized::Field get_field_v2(std::string_view type, size_t array_element_cnt = 0) {
     static std::unordered_map<std::string_view, doris::vectorized::Field> field_map;
     if (field_map.empty()) {
         doris::vectorized::Field int_field = 20;
@@ -1412,11 +1404,11 @@ TEST_F(ColumnObjectTest, array_field_operations) {
             std::vector<std::pair<std::string, doris::vectorized::Field>> data;
 
             // 2. subcolumn path
-            data.emplace_back("v.ai", get_field("ai", 1));
-            data.emplace_back("v.as", get_field("as", 1));
+            data.emplace_back("v.ai", get_field_v2("ai", 1));
+            data.emplace_back("v.as", get_field_v2("as", 1));
 
             for (int i = 0; i < 2; ++i) {
-                auto field = construct_variant_map(data);
+                auto field = VariantUtil::construct_variant_map(data);
                 variant->try_insert(field);
             }
             EXPECT_FALSE(variant->is_finalized());
@@ -1468,37 +1460,37 @@ TEST_F(ColumnObjectTest, assert_exception_happen) {
         std::vector<std::pair<std::string, doris::vectorized::Field>> data;
 
         // 2. subcolumn path
-        data.emplace_back("v.a", get_field("int"));
-        data.emplace_back("v.b", get_field("string"));
-        data.emplace_back("v.c", get_field("ai", 2));
-        data.emplace_back("v.f", get_field("as", 2));
-        data.emplace_back("v.e", get_field("string"));
+        data.emplace_back("v.a", get_field_v2("int"));
+        data.emplace_back("v.b", get_field_v2("string"));
+        data.emplace_back("v.c", get_field_v2("ai", 2));
+        data.emplace_back("v.f", get_field_v2("as", 2));
+        data.emplace_back("v.e", get_field_v2("string"));
 
         for (int i = 0; i < 5; ++i) {
-            auto field = construct_variant_map(data);
+            auto field = VariantUtil::construct_variant_map(data);
             variant->try_insert(field);
         }
 
         // 3. sparse column path
-        data.emplace_back("v.d.d", get_field("ai", 2));
-        data.emplace_back("v.c.d", get_field("string"));
-        data.emplace_back("v.b.d", get_field("ai", 2));
+        data.emplace_back("v.d.d", get_field_v2("ai", 2));
+        data.emplace_back("v.c.d", get_field_v2("string"));
+        data.emplace_back("v.b.d", get_field_v2("ai", 2));
         for (int i = 0; i < 5; ++i) {
-            auto field = construct_variant_map(data);
+            auto field = VariantUtil::construct_variant_map(data);
             variant->try_insert(field);
         }
 
         data.clear();
-        data.emplace_back("v.a", get_field("int"));
-        data.emplace_back("v.b", get_field("int"));
-        data.emplace_back("v.c", get_field("ai", 2));
-        data.emplace_back("v.f", get_field("as", 2));
-        data.emplace_back("v.e", get_field("string"));
-        data.emplace_back("v.d.d", get_field("as", 2));
-        data.emplace_back("v.c.d", get_field("int"));
-        data.emplace_back("v.b.d", get_field("as", 2));
+        data.emplace_back("v.a", get_field_v2("int"));
+        data.emplace_back("v.b", get_field_v2("int"));
+        data.emplace_back("v.c", get_field_v2("ai", 2));
+        data.emplace_back("v.f", get_field_v2("as", 2));
+        data.emplace_back("v.e", get_field_v2("string"));
+        data.emplace_back("v.d.d", get_field_v2("as", 2));
+        data.emplace_back("v.c.d", get_field_v2("int"));
+        data.emplace_back("v.b.d", get_field_v2("as", 2));
         for (int i = 0; i < 5; ++i) {
-            auto field = construct_variant_map(data);
+            auto field = VariantUtil::construct_variant_map(data);
             variant->try_insert(field);
         }
         EXPECT_FALSE(variant->is_finalized());
@@ -2153,6 +2145,275 @@ TEST_F(ColumnObjectTest, field_visitor) {
         EXPECT_EQ(result1.get<Array>()[0].get<Int64>(), 42);
         EXPECT_EQ(result1.get<Array>()[1].get<Int64>(), 42);
         EXPECT_EQ(result1.get<Array>()[2].get<Int64>(), 42);
+    }
+}
+
+TEST_F(ColumnObjectTest, subcolumn_operations_coverage) {
+    // Test insert_range_from
+    {
+        auto src_column = VariantUtil::construct_basic_varint_column();
+        auto dst_column = VariantUtil::construct_dst_varint_column();
+
+        // Test normal case
+        auto* dst_subcolumn = const_cast<ColumnObject::Subcolumn*>(
+                &dst_column->get_subcolumns().get_root()->data);
+        dst_subcolumn->insert_range_from(src_column->get_subcolumns().get_root()->data, 0, 2);
+
+        // Test empty range
+        dst_subcolumn->insert_range_from(src_column->get_subcolumns().get_root()->data, 0, 0);
+
+        // Test with different types
+        auto src_column2 = VariantUtil::construct_advanced_varint_column();
+        dst_subcolumn->insert_range_from(src_column2->get_subcolumns().get_root()->data, 0, 1);
+    }
+
+    // Test parse_binary_from_sparse_column
+    {
+        auto column = VariantUtil::construct_basic_varint_column();
+        vectorized::Field res;
+        FieldInfo field_info;
+
+        // Test String type
+        {
+            std::string test_str = "test_data";
+            std::vector<char> binary_data;
+            size_t str_size = test_str.size();
+            binary_data.resize(sizeof(size_t) + test_str.size());
+            memcpy(binary_data.data(), &str_size, sizeof(size_t));
+            memcpy(binary_data.data() + sizeof(size_t), test_str.data(), test_str.size());
+            const char* data = binary_data.data();
+            parse_binary_from_sparse_column(TypeIndex::String, data, res, field_info);
+            EXPECT_EQ(res.get<String>(), "test_data");
+        }
+
+        // Test integer types
+        {
+            Int8 int8_val = 42;
+            const char* data = reinterpret_cast<const char*>(&int8_val);
+            parse_binary_from_sparse_column(TypeIndex::Int8, data, res, field_info);
+            EXPECT_EQ(res.get<Int8>(), 42);
+        }
+
+        {
+            Int16 int16_val = 12345;
+            const char* data = reinterpret_cast<const char*>(&int16_val);
+            parse_binary_from_sparse_column(TypeIndex::Int16, data, res, field_info);
+            EXPECT_EQ(res.get<Int16>(), 12345);
+        }
+
+        {
+            Int32 int32_val = 123456789;
+            const char* data = reinterpret_cast<const char*>(&int32_val);
+            parse_binary_from_sparse_column(TypeIndex::Int32, data, res, field_info);
+            EXPECT_EQ(res.get<Int32>(), 123456789);
+        }
+
+        {
+            Int64 int64_val = 1234567890123456789LL;
+            const char* data = reinterpret_cast<const char*>(&int64_val);
+            parse_binary_from_sparse_column(TypeIndex::Int64, data, res, field_info);
+            EXPECT_EQ(res.get<Int64>(), 1234567890123456789LL);
+        }
+
+        // Test floating point types
+        {
+            Float32 float32_val = 3.1415901f;
+            const char* data = reinterpret_cast<const char*>(&float32_val);
+            parse_binary_from_sparse_column(TypeIndex::Float32, data, res, field_info);
+            EXPECT_FLOAT_EQ(res.get<Float32>(), 0);
+        }
+
+        {
+            Float64 float64_val = 3.141592653589793;
+            const char* data = reinterpret_cast<const char*>(&float64_val);
+            parse_binary_from_sparse_column(TypeIndex::Float64, data, res, field_info);
+            EXPECT_DOUBLE_EQ(res.get<Float64>(), 3.141592653589793);
+        }
+
+        // Test JSONB type
+        {
+            std::string json_str = "{\"key\": \"value\"}";
+            std::vector<char> binary_data;
+            size_t json_size = json_str.size();
+            binary_data.resize(sizeof(size_t) + json_str.size());
+            memcpy(binary_data.data(), &json_size, sizeof(size_t));
+            memcpy(binary_data.data() + sizeof(size_t), json_str.data(), json_str.size());
+            const char* data = binary_data.data();
+            parse_binary_from_sparse_column(TypeIndex::JSONB, data, res, field_info);
+        }
+
+        // Test Nothing type
+        {
+            const char* data = nullptr;
+            parse_binary_from_sparse_column(TypeIndex::Nothing, data, res, field_info);
+            EXPECT_TRUE(res.is_null());
+        }
+
+        // Test Array type
+        {
+            std::vector<char> binary_data;
+            size_t array_size = 2;
+            binary_data.resize(sizeof(size_t) + 2 * (sizeof(uint8_t) + sizeof(Int32)));
+            char* data_ptr = binary_data.data();
+
+            // Write array size
+            memcpy(data_ptr, &array_size, sizeof(size_t));
+            data_ptr += sizeof(size_t);
+
+            // Write first element (Int32)
+            *data_ptr++ = static_cast<uint8_t>(TypeIndex::Int32);
+            Int32 val1 = 42;
+            memcpy(data_ptr, &val1, sizeof(Int32));
+            data_ptr += sizeof(Int32);
+
+            // Write second element (Int32)
+            *data_ptr++ = static_cast<uint8_t>(TypeIndex::Int32);
+            Int32 val2 = 43;
+            memcpy(data_ptr, &val2, sizeof(Int32));
+
+            const char* data = binary_data.data();
+            parse_binary_from_sparse_column(TypeIndex::Array, data, res, field_info);
+            const Array& array = res.get<Array>();
+            EXPECT_EQ(array.size(), 2);
+            EXPECT_EQ(array[0].get<Int32>(), 42);
+            EXPECT_EQ(array[1].get<Int32>(), 43);
+        }
+
+        // Test unsupported types - these should throw exceptions
+        EXPECT_ANY_THROW(
+                parse_binary_from_sparse_column(TypeIndex::UInt8, nullptr, res, field_info));
+        EXPECT_ANY_THROW(
+                parse_binary_from_sparse_column(TypeIndex::UInt16, nullptr, res, field_info));
+        EXPECT_ANY_THROW(
+                parse_binary_from_sparse_column(TypeIndex::UInt32, nullptr, res, field_info));
+        EXPECT_ANY_THROW(
+                parse_binary_from_sparse_column(TypeIndex::UInt64, nullptr, res, field_info));
+        EXPECT_ANY_THROW(
+                parse_binary_from_sparse_column(TypeIndex::Date, nullptr, res, field_info));
+        EXPECT_ANY_THROW(
+                parse_binary_from_sparse_column(TypeIndex::DateTime, nullptr, res, field_info));
+        EXPECT_ANY_THROW(
+                parse_binary_from_sparse_column(TypeIndex::Decimal32, nullptr, res, field_info));
+        EXPECT_ANY_THROW(
+                parse_binary_from_sparse_column(TypeIndex::Decimal64, nullptr, res, field_info));
+        EXPECT_ANY_THROW(
+                parse_binary_from_sparse_column(TypeIndex::Decimal128V2, nullptr, res, field_info));
+        EXPECT_ANY_THROW(
+                parse_binary_from_sparse_column(TypeIndex::Tuple, nullptr, res, field_info));
+        EXPECT_ANY_THROW(parse_binary_from_sparse_column(TypeIndex::Map, nullptr, res, field_info));
+        EXPECT_ANY_THROW(
+                parse_binary_from_sparse_column(TypeIndex::VARIANT, nullptr, res, field_info));
+    }
+
+    // Test add_sub_column
+    {
+        auto column = VariantUtil::construct_basic_varint_column();
+        PathInData path("test.path");
+
+        // Test normal case
+        column->add_sub_column(path, 10);
+
+        // Test with existing path
+        column->add_sub_column(path, 10);
+
+        // Test with max subcolumns limit
+        for (int i = 0; i < 1000; i++) {
+            PathInData new_path("test.path." + std::to_string(i));
+            column->add_sub_column(new_path, 10);
+        }
+    }
+
+    // Test wrapp_array_nullable
+    {
+        auto column = VariantUtil::construct_advanced_varint_column();
+        EXPECT_TRUE(column->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
+        PathInData path("v.f");
+        auto* subcolumn = column->get_subcolumn(path);
+        subcolumn->wrapp_array_nullable();
+        EXPECT_TRUE(subcolumn->get_least_common_type()->is_nullable());
+    }
+
+    // Test is_empty_nested
+    {
+        vectorized::ColumnObject container_variant(1, true);
+        // v:  {"k": [1,2,3]} ==》 [{"k": 1}, {"k": 2}, {"k": 3}]
+        //     {"k": []} => [{}] vs  {"k": null} -> [null]
+        //     {"k": [4]} => [{"k": 4}]
+        auto col_arr =
+                ColumnArray::create(ColumnInt64::create(), ColumnArray::ColumnOffsets::create());
+        //        Array array1 = {1, 2, 3};
+        //        Array array2 = {4};
+        //        col_arr->insert(array1);
+        //        col_arr->insert(array2);
+        Array an;
+        an.push_back(Null());
+        col_arr->insert(an);
+        col_arr->insert(an);
+        col_arr->insert(an);
+        MutableColumnPtr nested_object = ColumnObject::create(
+                container_variant.max_subcolumns_count(), col_arr->get_data().size());
+        MutableColumnPtr offset = col_arr->get_offsets_ptr()->assume_mutable(); // [3, 3, 4]
+        auto* nested_object_ptr = assert_cast<ColumnObject*>(nested_object.get());
+        // flatten nested arrays
+        MutableColumnPtr flattend_column = col_arr->get_data_ptr()->assume_mutable();
+        DataTypePtr flattend_type = DataTypeFactory::instance().create_data_type(
+                FieldType::OLAP_FIELD_TYPE_BIGINT, 0, 0);
+        // add sub path without parent prefix
+        PathInData sub_path("k");
+        nested_object_ptr->add_sub_column(sub_path, std::move(flattend_column),
+                                          std::move(flattend_type));
+        nested_object = make_nullable(nested_object->get_ptr())->assume_mutable();
+        auto array =
+                make_nullable(ColumnArray::create(std::move(nested_object), std::move(offset)));
+        PathInData path("v.k");
+        container_variant.add_sub_column(path, array->assume_mutable(),
+                                         container_variant.NESTED_TYPE);
+        container_variant.set_num_rows(3);
+        for (auto subcolumn : container_variant.get_subcolumns()) {
+            if (subcolumn->data.is_root) {
+                // Nothing
+                EXPECT_TRUE(subcolumn->data.is_empty_nested(0));
+                continue;
+            }
+            for (int i = 0; i < 3; ++i) {
+                EXPECT_FALSE(subcolumn->data.is_empty_nested(i));
+            }
+        }
+    }
+
+    // Test is_empty_nested
+    {
+        auto v = ColumnObject::create(1);
+        auto sub_dt = make_nullable(std::make_unique<DataTypeArray>(
+                make_nullable(std::make_unique<DataTypeObject>(1))));
+        auto sub_col = sub_dt->create_column();
+
+        std::vector<std::pair<std::string, doris::vectorized::Field>> data;
+        Array an;
+        an.push_back(Null());
+        data.emplace_back("v.a", an);
+        // 2. subcolumn path
+        auto vf = VariantUtil::construct_variant_map(data);
+        v->try_insert(vf);
+
+        for (auto subcolumn : v->get_subcolumns()) {
+            for (int i = 0; i < v->size(); ++i) {
+                if (subcolumn->data.is_root) {
+                    EXPECT_TRUE(subcolumn->data.is_empty_nested(i));
+                }
+                EXPECT_TRUE(subcolumn->data.is_empty_nested(i));
+            }
+        }
+        Status st = v->finalize(ColumnObject::FinalizeMode::WRITE_MODE);
+        EXPECT_TRUE(st.ok());
+        PathInData path("v.a");
+        for (auto sub : v->get_subcolumns()) {
+            if (sub->data.is_root) {
+                continue;
+            }
+            sub->kind = SubcolumnsTree<ColumnObject::Subcolumn>::Node::NESTED;
+            EXPECT_FALSE(v->try_insert_default_from_nested(sub));
+        }
     }
 }
 }

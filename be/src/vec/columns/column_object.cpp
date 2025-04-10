@@ -1837,6 +1837,7 @@ bool ColumnObject::Subcolumn::is_empty_nested(size_t row) const {
         DCHECK(type->equals(*ColumnObject::NESTED_TYPE));
         Field field;
         get(row, field);
+        field = get_field_from_variant_field(field);
         if (field.get_type() == Field::Types::Array) {
             const auto& array = field.get<Array>();
             bool only_nulls_inside = true;

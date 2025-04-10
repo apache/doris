@@ -23,7 +23,10 @@
 #include <stdio.h>
 
 #include "runtime/jsonb_value.h"
+#include "testutil/variant_util.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 
@@ -33,63 +36,98 @@ using namespace doris;
 // #define ADD_SUB_COLUMN(key) \
 //    varaint->add_sub_column(PathInData(std::string_view(key)), 0);
 
-doris::vectorized::Field construct_variant_map(
-        const std::vector<std::pair<std::string, doris::vectorized::Field>>& key_and_values) {
-    doris::vectorized::Field res = VariantMap();
-    auto& object = res.get<VariantMap&>();
-    for (const auto& [k, v] : key_and_values) {
-        object.try_emplace(k, v);
+void convert_field_to_rapidjson(const vectorized::Field& field, rapidjson::Value& target,
+                                rapidjson::Document::AllocatorType& allocator) {
+    switch (field.get_type()) {
+    case vectorized::Field::Types::Null:
+        target.SetNull();
+        break;
+    case vectorized::Field::Types::Int64:
+        target.SetInt64(field.get<Int64>());
+        break;
+    case vectorized::Field::Types::Float64:
+        target.SetDouble(field.get<Float64>());
+        break;
+    case vectorized::Field::Types::JSONB: {
+        const auto& val = field.get<JsonbField>();
+        JsonbValue* json_val = JsonbDocument::createValue(val.get_value(), val.get_size());
+        convert_jsonb_to_rapidjson(*json_val, target, allocator);
+        break;
     }
-    return res;
+    case vectorized::Field::Types::String: {
+        const String& val = field.get<String>();
+        target.SetString(val.data(), cast_set<rapidjson::SizeType>(val.size()));
+        break;
+    }
+    case vectorized::Field::Types::Array: {
+        const vectorized::Array& array = field.get<Array>();
+        target.SetArray();
+        for (const vectorized::Field& item : array) {
+            rapidjson::Value val;
+            convert_field_to_rapidjson(item, val, allocator);
+            target.PushBack(val, allocator);
+        }
+        break;
+    }
+    case vectorized::Field::Types::VariantMap: {
+        const vectorized::VariantMap& map = field.get<VariantMap>();
+        target.SetObject();
+        for (const auto& item : map) {
+            if (item.second.is_null()) {
+                continue;
+            }
+            rapidjson::Value key;
+            key.SetString(item.first.data(), cast_set<rapidjson::SizeType>(item.first.size()));
+            rapidjson::Value val;
+            convert_field_to_rapidjson(item.second, val, allocator);
+            if (val.IsNull() && item.first.empty()) {
+                // skip null value with empty key, indicate the null json value of root in variant map,
+                // usally padding in nested arrays
+                continue;
+            }
+            target.AddMember(key, val, allocator);
+        }
+        break;
+    }
+    default:
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "unkown field type: {}",
+                               field.get_type_name());
+        break;
+    }
 }
 
-auto construct_basic_varint_column() {
-    // 1. create an empty variant column
-    auto variant = ColumnObject::create(5);
-
-    std::vector<std::pair<std::string, doris::vectorized::Field>> data;
-
-    // 2. subcolumn path
-    data.emplace_back("v.a", 20);
-    data.emplace_back("v.b", "20");
-    data.emplace_back("v.c", 20);
-    data.emplace_back("v.f", 20);
-    data.emplace_back("v.e", "50");
-    for (int i = 0; i < 5; ++i) {
-        auto field = construct_variant_map(data);
-        variant->try_insert(field);
+void convert_variant_map_to_rapidjson(const vectorized::VariantMap& map, rapidjson::Value& target,
+                                      rapidjson::Document::AllocatorType& allocator) {
+    target.SetObject();
+    for (const auto& item : map) {
+        if (item.second.is_null()) {
+            continue;
+        }
+        rapidjson::Value key;
+        key.SetString(item.first.data(), cast_set<rapidjson::SizeType>(item.first.size()));
+        rapidjson::Value val;
+        convert_field_to_rapidjson(item.second, val, allocator);
+        if (val.IsNull() && item.first.empty()) {
+            // skip null value with empty key, indicate the null json value of root in variant map,
+            // usally padding in nested arrays
+            continue;
+        }
+        target.AddMember(key, val, allocator);
     }
-
-    // 3. sparse column path
-    data.emplace_back("v.d.d", "50");
-    data.emplace_back("v.c.d", 30);
-    data.emplace_back("v.b.d", 30);
-    for (int i = 0; i < 5; ++i) {
-        auto field = construct_variant_map(data);
-        variant->try_insert(field);
-    }
-    return variant;
 }
 
-auto construct_dst_varint_column() {
-    // 1. create an empty variant column
-    vectorized::ColumnObject::Subcolumns dynamic_subcolumns;
-    dynamic_subcolumns.create_root(vectorized::ColumnObject::Subcolumn(0, true, true /*root*/));
-    dynamic_subcolumns.add(vectorized::PathInData("v.f"),
-                           vectorized::ColumnObject::Subcolumn {0, true});
-    dynamic_subcolumns.add(vectorized::PathInData("v.e"),
-                           vectorized::ColumnObject::Subcolumn {0, true});
-    dynamic_subcolumns.add(vectorized::PathInData("v.b"),
-                           vectorized::ColumnObject::Subcolumn {0, true});
-    dynamic_subcolumns.add(vectorized::PathInData("v.b.d"),
-                           vectorized::ColumnObject::Subcolumn {0, true});
-    dynamic_subcolumns.add(vectorized::PathInData("v.c.d"),
-                           vectorized::ColumnObject::Subcolumn {0, true});
-    return ColumnObject::create(5, std::move(dynamic_subcolumns));
+void convert_array_to_rapidjson(const vectorized::Array& array, rapidjson::Value& target,
+                                rapidjson::Document::AllocatorType& allocator) {
+    target.SetArray();
+    for (const vectorized::Field& item : array) {
+        rapidjson::Value val;
+        convert_field_to_rapidjson(item, val, allocator);
+        target.PushBack(val, allocator);
+    }
 }
 
 TEST(ColumnVariantTest, insert_try_insert) {
-    auto v = construct_dst_varint_column();
+    auto v = VariantUtil::construct_dst_varint_column();
     FieldInfo info;
     info.scalar_type_id = TypeIndex::Nothing;
     info.num_dimensions = 0;
@@ -106,7 +144,7 @@ TEST(ColumnVariantTest, insert_try_insert) {
 }
 
 TEST(ColumnVariantTest, basic_finalize) {
-    auto variant = construct_basic_varint_column();
+    auto variant = VariantUtil::construct_basic_varint_column();
     // 4. finalize
     EXPECT_TRUE(variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
     EXPECT_EQ(variant->size(), 10);
@@ -132,7 +170,7 @@ TEST(ColumnVariantTest, basic_finalize) {
 }
 
 TEST(ColumnVariantTest, basic_deserialize) {
-    auto variant = construct_basic_varint_column();
+    auto variant = VariantUtil::construct_basic_varint_column();
 
     // 4. finalize
     EXPECT_TRUE(variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
@@ -163,12 +201,12 @@ TEST(ColumnVariantTest, basic_deserialize) {
 }
 
 TEST(ColumnVariantTest, basic_inset_range_from) {
-    auto src = construct_basic_varint_column();
+    auto src = VariantUtil::construct_basic_varint_column();
     EXPECT_TRUE(src->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
     EXPECT_EQ(src->size(), 10);
 
     // dst is an empty column, has 5 subcolumn + 1 root
-    auto dst = construct_dst_varint_column();
+    auto dst = VariantUtil::construct_dst_varint_column();
 
     // subcolumn->subcolumn          v.b v.f v.e
     // subcolumn->sparse_column      v.a v.c
@@ -251,32 +289,6 @@ TEST(ColumnVariantTest, basic_inset_range_from) {
     }
 }
 
-doris::vectorized::Field get_field(std::string_view type) {
-    static std::unordered_map<std::string_view, doris::vectorized::Field> field_map;
-    if (field_map.empty()) {
-        doris::vectorized::Field int_field = 20;
-        doris::vectorized::Field str_field(String("str", 3));
-        doris::vectorized::Field arr_int_field = Array();
-        auto& array1 = arr_int_field.get<Array>();
-        array1.emplace_back(int_field);
-        array1.emplace_back(int_field);
-        doris::vectorized::Field arr_str_field = Array();
-        auto& array2 = arr_str_field.get<Array>();
-        array2.emplace_back(str_field);
-        array2.emplace_back(str_field);
-        field_map["int"] = int_field;
-        field_map["string"] = str_field;
-        field_map["array_int"] = arr_int_field;
-        field_map["array_str"] = arr_str_field;
-
-        // add other int value
-        field_map["int_16"] = std::numeric_limits<Int16>::max();
-        field_map["int_32"] = std::numeric_limits<Int32>::max();
-        field_map["int_64"] = Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1);
-    }
-    return field_map[type];
-}
-
 auto convert_to_jsonb_field(auto serde, auto& column) {
     vectorized::DataTypeSerDe::FormatOptions options;
     options.escape_char = '\\';
@@ -327,7 +339,7 @@ doris::vectorized::Field get_jsonb_field(std::string_view type) {
         DataTypePtr data_type_array_int =
                 std::make_shared<doris::vectorized::DataTypeArray>(data_type_int);
         auto array_column_int = data_type_array_int->create_column();
-        array_column_int->insert(get_field("array_int"));
+        array_column_int->insert(VariantUtil::get_field("array_int"));
         auto array_serde_int = data_type_array_int->get_serde();
         field_map["array_int"] = convert_to_jsonb_field(array_serde_int, *array_column_int);
 
@@ -336,63 +348,20 @@ doris::vectorized::Field get_jsonb_field(std::string_view type) {
         DataTypePtr data_type_array_str =
                 std::make_shared<doris::vectorized::DataTypeArray>(data_type_str);
         auto array_column_str = data_type_array_str->create_column();
-        array_column_str->insert(get_field("array_str"));
+        array_column_str->insert(VariantUtil::get_field("array_str"));
         auto array_serde_str = data_type_array_str->get_serde();
         field_map["array_str"] = convert_to_jsonb_field(array_serde_str, *array_column_str);
 
         auto column_int = data_type_int->create_column();
-        column_int->insert(get_field("int"));
+        column_int->insert(VariantUtil::get_field("int"));
         auto serde_int = data_type_int->get_serde();
         field_map["int"] = convert_to_jsonb_field(serde_int, *column_int);
 
         // auto column_str = data_type_str->create_column();
-        // column_str->insert(get_field("string"));
+        // column_str->insert(VariantUtil::get_field("string"));
         // field_map["string"] = convert_string_to_jsonb_field(*column_str);
     }
     return field_map[type];
-}
-
-auto construct_advanced_varint_column() {
-    // 1. create an empty variant column
-    auto variant = ColumnObject::create(5);
-
-    std::vector<std::pair<std::string, doris::vectorized::Field>> data;
-
-    // 2. subcolumn path
-    data.emplace_back("v.a", get_field("int"));
-    data.emplace_back("v.b", get_field("string"));
-    data.emplace_back("v.c", get_field("array_int"));
-    data.emplace_back("v.f", get_field("array_str"));
-    data.emplace_back("v.e", get_field("string"));
-
-    for (int i = 0; i < 5; ++i) {
-        auto field = construct_variant_map(data);
-        variant->try_insert(field);
-    }
-
-    // 3. sparse column path
-    data.emplace_back("v.d.d", get_field("array_int"));
-    data.emplace_back("v.c.d", get_field("string"));
-    data.emplace_back("v.b.d", get_field("array_int"));
-    for (int i = 0; i < 5; ++i) {
-        auto field = construct_variant_map(data);
-        variant->try_insert(field);
-    }
-
-    data.clear();
-    data.emplace_back("v.a", get_field("int"));
-    data.emplace_back("v.b", get_field("int"));
-    data.emplace_back("v.c", get_field("array_int"));
-    data.emplace_back("v.f", get_field("array_str"));
-    data.emplace_back("v.e", get_field("string"));
-    data.emplace_back("v.d.d", get_field("array_str"));
-    data.emplace_back("v.c.d", get_field("int"));
-    data.emplace_back("v.b.d", get_field("array_str"));
-    for (int i = 0; i < 5; ++i) {
-        auto field = construct_variant_map(data);
-        variant->try_insert(field);
-    }
-    return variant;
 }
 
 // std::string convert_jsonb_field_to_string(doris::vectorized::Field jsonb) {
@@ -416,7 +385,7 @@ std::string convert_field_to_string(doris::vectorized::Field array) {
     doc.SetObject();
     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
     rapidjson::Value json_value;
-    DataTypeSerDe::convert_field_to_rapidjson(array, json_value, allocator);
+    convert_field_to_rapidjson(array, json_value, allocator);
     doc.AddMember("value", json_value, allocator);
     rapidjson::StringBuffer buffer;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
@@ -425,13 +394,13 @@ std::string convert_field_to_string(doris::vectorized::Field array) {
 }
 
 TEST(ColumnVariantTest, is_null_at) {
-    auto v = construct_dst_varint_column();
+    auto v = VariantUtil::construct_dst_varint_column();
     PathInData path("v.f");
     auto sub = v->get_subcolumn(path);
     std::cout << sub->get_least_common_typeBase()->get_name() << std::endl;
     EXPECT_TRUE(sub->is_null_at(0));
 
-    auto v1 = construct_advanced_varint_column();
+    auto v1 = VariantUtil::construct_advanced_varint_column();
     PathInData path1("v.b.d");
     auto sub1 = v1->get_subcolumn(path1);
     EXPECT_TRUE(sub1->is_null_at(2));
@@ -450,7 +419,7 @@ TEST(ColumnVariantTest, is_null_at) {
 }
 
 TEST(ColumnVariantTest, advanced_finalize) {
-    auto variant = construct_advanced_varint_column();
+    auto variant = VariantUtil::construct_advanced_varint_column();
 
     // 4. finalize
     EXPECT_TRUE(variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
@@ -488,7 +457,7 @@ TEST(ColumnVariantTest, advanced_finalize) {
 }
 
 TEST(ColumnVariantTest, advanced_deserialize) {
-    auto variant = construct_advanced_varint_column();
+    auto variant = VariantUtil::construct_advanced_varint_column();
 
     // 4. finalize
     EXPECT_TRUE(variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
@@ -510,7 +479,7 @@ TEST(ColumnVariantTest, advanced_deserialize) {
         auto pair2 = variant->deserialize_from_sparse_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c.d", 5));
         EXPECT_EQ(convert_field_to_string(pair2.first),
-                  convert_field_to_string(get_field("string")));
+                  convert_field_to_string(VariantUtil::get_field("string")));
 
         auto data3 = path->get_data_at(start);
         auto pair3 = variant->deserialize_from_sparse_column(value, start++);
@@ -546,11 +515,11 @@ TEST(ColumnVariantTest, advanced_deserialize) {
 }
 
 TEST(ColumnVariantTest, advanced_insert_range_from) {
-    auto src = construct_advanced_varint_column();
+    auto src = VariantUtil::construct_advanced_varint_column();
     EXPECT_TRUE(src->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
     EXPECT_EQ(src->size(), 15);
 
-    auto dst = construct_dst_varint_column();
+    auto dst = VariantUtil::construct_dst_varint_column();
 
     // subcolumn->subcolumn          v.b v.f v.e
     // subcolumn->sparse_column      v.a v.c
@@ -613,7 +582,7 @@ TEST(ColumnVariantTest, advanced_insert_range_from) {
         EXPECT_EQ(data2, StringRef("v.c", 3));
         auto pair2 = dst->deserialize_from_sparse_column(value, start++);
         EXPECT_EQ(convert_field_to_string(pair2.first),
-                  convert_field_to_string(get_field("array_int")));
+                  convert_field_to_string(VariantUtil::get_field("array_int")));
 
         EXPECT_EQ(start, end);
     }
@@ -631,7 +600,7 @@ TEST(ColumnVariantTest, advanced_insert_range_from) {
         auto pair2 = dst->deserialize_from_sparse_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c", 3));
         EXPECT_EQ(convert_field_to_string(pair2.first),
-                  convert_field_to_string(get_field("array_int")));
+                  convert_field_to_string(VariantUtil::get_field("array_int")));
 
         auto data3 = path->get_data_at(start);
         auto pair3 = dst->deserialize_from_sparse_column(value, start++);
@@ -655,7 +624,7 @@ TEST(ColumnVariantTest, advanced_insert_range_from) {
         auto pair2 = dst->deserialize_from_sparse_column(value, start++);
         EXPECT_EQ(data2, StringRef("v.c", 3));
         EXPECT_EQ(convert_field_to_string(pair2.first),
-                  convert_field_to_string(get_field("array_int")));
+                  convert_field_to_string(VariantUtil::get_field("array_int")));
 
         auto data3 = path->get_data_at(start);
         auto pair3 = dst->deserialize_from_sparse_column(value, start++);
@@ -667,53 +636,8 @@ TEST(ColumnVariantTest, advanced_insert_range_from) {
     }
 }
 
-auto construct_varint_column_only_subcolumns() {
-    // 1. create an empty variant column
-    auto variant = ColumnObject::create(5);
-
-    std::vector<std::pair<std::string, doris::vectorized::Field>> data;
-
-    // 2. subcolumn path
-    data.emplace_back("v.a", 20);
-    data.emplace_back("v.b", "20");
-    data.emplace_back("v.c", 20);
-    data.emplace_back("v.f", 20);
-    data.emplace_back("v.e", "50");
-    for (int i = 0; i < 5; ++i) {
-        auto field = construct_variant_map(data);
-        variant->try_insert(field);
-    }
-
-    // 3. root
-    variant->try_insert(doris::vectorized::Field(20));
-    return variant;
-}
-
-auto construct_varint_column_more_subcolumns() {
-    // 1. create an empty variant column
-    auto variant = ColumnObject::create(5);
-
-    std::vector<std::pair<std::string, doris::vectorized::Field>> data;
-
-    // 2. subcolumn path
-    data.emplace_back("v.a", 20);
-    data.emplace_back("v.b", "20");
-    data.emplace_back("v.c", 20);
-    data.emplace_back("v.f", 20);
-    data.emplace_back("v.e", "50");
-    data.emplace_back("v.x", get_field("int_16"));
-    data.emplace_back("v.y", get_field("int_32"));
-    data.emplace_back("v.z", get_field("int_64"));
-    for (int i = 0; i < 5; ++i) {
-        auto field = construct_variant_map(data);
-        variant->try_insert(field);
-    }
-
-    return variant;
-}
-
 TEST(ColumnVariantTest, empty_inset_range_from) {
-    auto src = construct_varint_column_only_subcolumns();
+    auto src = VariantUtil::construct_varint_column_only_subcolumns();
     EXPECT_TRUE(src->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
     EXPECT_EQ(src->size(), 6);
 
@@ -745,14 +669,14 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
     EXPECT_EQ(offsets[4], offsets[-1]);
     EXPECT_EQ(path->size(), value->size());
 
-    auto src_contains_seven_subcolumns = construct_varint_column_more_subcolumns();
+    auto src_contains_seven_subcolumns = VariantUtil::construct_varint_column_more_subcolumns();
 
     EXPECT_TRUE(
             src_contains_seven_subcolumns->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
     EXPECT_EQ(src_contains_seven_subcolumns->size(), 5);
 
     // subcolumn->subcolumn          v.a v.b v.c v.f v.e
-    // add sprase columns            v.x v.y v.z
+    // add sprase columns            v.s v.x v.y v.z
     dst->insert_range_from(*src_contains_seven_subcolumns, 0, 5);
     EXPECT_EQ(dst->size(), 11);
 
@@ -766,10 +690,16 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
         EXPECT_EQ(start, end);
     }
 
-    // v.x v.y v.z
+    // v.s v.x v.y v.z
     for (int row = 6; row < 11; ++row) {
         size_t start = offsets[row - 1];
         size_t end = offsets[row];
+
+        auto data0 = path->get_data_at(start);
+        EXPECT_EQ(data0, StringRef("v.s", 3));
+        auto pair0 = dst->deserialize_from_sparse_column(value, start++);
+        EXPECT_EQ(convert_field_to_string(pair0.first),
+                  convert_field_to_string(VariantUtil::get_field("string")));
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.x", 3));
@@ -790,14 +720,14 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
         EXPECT_EQ(start, end);
     }
 
-    auto src_contains_subcoumns_and_sparse_columns = construct_basic_varint_column();
+    auto src_contains_subcoumns_and_sparse_columns = VariantUtil::construct_basic_varint_column();
     EXPECT_TRUE(src_contains_subcoumns_and_sparse_columns
                         ->finalize(ColumnObject::FinalizeMode::WRITE_MODE)
                         .ok());
     EXPECT_EQ(src_contains_subcoumns_and_sparse_columns->size(), 10);
 
     // subcolumn->subcolumn          v.a v.b v.c v.f v.e
-    // add sprase columns            v.x v.y v.b.d v.c.d v.d.d
+    // add sprase columns            v.s v.x v.y v.b.d v.c.d v.d.d
     dst->insert_range_from(*src_contains_subcoumns_and_sparse_columns, 0, 10);
     EXPECT_EQ(dst->size(), 21);
 
@@ -815,6 +745,12 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
     for (int row = 6; row < 11; ++row) {
         size_t start = offsets[row - 1];
         size_t end = offsets[row];
+
+        auto data0 = path->get_data_at(start);
+        EXPECT_EQ(data0, StringRef("v.s", 3));
+        auto pair0 = dst->deserialize_from_sparse_column(value, start++);
+        EXPECT_EQ(convert_field_to_string(pair0.first),
+                  convert_field_to_string(VariantUtil::get_field("string")));
 
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.x", 3));
