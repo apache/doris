@@ -1771,6 +1771,9 @@ Status BaseTablet::update_delete_bitmap_without_lock(
 void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
         const std::vector<TimestampedVersionSharedPtr>& to_delete_version,
         DeleteBitmapKeyRanges& remove_delete_bitmap_key_ranges) {
+    if (!config::enable_agg_and_remove_pre_rowsets_delete_bitmap) {
+        return;
+    }
     if (!tablet_meta()->enable_unique_key_merge_on_write()) {
         return;
     }
