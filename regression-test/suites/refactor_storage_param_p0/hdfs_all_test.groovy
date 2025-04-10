@@ -285,10 +285,12 @@ suite("refactor_params_hdfs_all_test", "p0,external,kerberos,external_docker,ext
     }
     def defaultFs = 'hdfs://172.20.32.136:8520'
     def repoName = 'hdfs_non_xml_repo';
-    //  createRepository(repoName,"${defaultFs}/test_repo",hdfsNonXmlParams);
+    // create repo
+    createRepository(repoName,"${defaultFs}/test_repo",hdfsNonXmlParams);
     def dbName1 = currentDBName + "${repoName}_1"
     createDBAndTbl(dbName1)
-/*    def backupLabel=repoName+System.currentTimeMillis()
+    def backupLabel=repoName+System.currentTimeMillis()
+    //backup and restore
     backupAndRestore(repoName,dbName1,table,backupLabel)
     def failedRepoName='failedRepo'
     shouldFail {
@@ -296,7 +298,7 @@ suite("refactor_params_hdfs_all_test", "p0,external,kerberos,external_docker,ext
     }
     shouldFail {
         createRepository(failedRepoName," ",hdfsNonXmlParams);
-    }*/
+    }
 
     //outfile 
     dbName1 = currentDBName + 'outfile_test_1'
