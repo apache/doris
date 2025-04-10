@@ -628,8 +628,7 @@ void PipelineTask::stop_if_finished() {
         return;
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
-    auto sink = _sink;
-    if (!is_finalized() && sink) {
+    if (auto sink = _sink) {
         if (sink->is_finished(_state)) {
             set_wake_up_early();
             terminate();
