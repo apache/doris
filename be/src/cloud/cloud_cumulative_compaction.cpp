@@ -379,7 +379,8 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         RETURN_IF_ERROR(process_old_version_delete_bitmap());
     }
     // agg delete bitmap for pre rowsets
-    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+    if (config::enable_agg_and_remove_pre_rowsets_delete_bitmap &&
+        _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
         std::vector<RowsetSharedPtr> pre_rowsets {};
         for (const auto& it2 : cloud_tablet()->rowset_map()) {
