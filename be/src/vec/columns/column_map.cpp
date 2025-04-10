@@ -547,7 +547,7 @@ ColumnPtr ColumnMap::convert_to_full_column_if_const() const {
 
 void ColumnMap::remove_first_n_values(size_t n) {
     DCHECK_GE(size(), n);
-    auto offset = get_offsets()[n];
+    auto offset = get_offsets()[n - 1];
     keys_column->remove_first_n_values(offset);
     values_column->remove_first_n_values(offset);
     offsets_column->remove_first_n_values(n);
