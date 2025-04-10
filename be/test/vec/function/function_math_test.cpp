@@ -637,8 +637,8 @@ TEST(MathFunctionTest, format_round_test) {
         BaseInputTypeSet input_types = {TypeIndex::Decimal64, TypeIndex::Int32};
         DataSet data_set = {
                 {{Null(), INT(2)}, Null()},
-                {{DECIMAL64(17014116, 670000000), INT(2)}, VARCHAR("17,014,116.67")},
-                {{DECIMAL64(-17014116, -670000000), INT(2)}, VARCHAR("-17,014,116.67")}};
+                {{DECIMAL64(17014116, 670000000,9), INT(2)}, VARCHAR("17,014,116.67")},
+                {{DECIMAL64(-17014116, -670000000,9), INT(2)}, VARCHAR("-17,014,116.67")}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }

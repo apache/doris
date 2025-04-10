@@ -76,7 +76,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Array,
                                     TypeIndex::Date};
 
-        TestArray vec1 = {std::string("2022-01-02"), std::string("2022-01-02"), std::string("2022-07-08")};
+        TestArray vec1 = {std::string("2022-01-02"), std::string("2022-01-02"),
+                          std::string("2022-07-08")};
         TestArray vec2 = {std::string("2022-01-02")};
         DataSet data_set = {
                 {{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)}};
