@@ -189,7 +189,7 @@ public class DataStreamSink extends DataSink {
         }
         List<String> filtersStr = new ArrayList<>();
         for (RuntimeFilter filter : runtimeFilters) {
-            filtersStr.add(filter.getExplainString(isBuildNode, isBrief, getExchNodeId()));
+            filtersStr.add(filter.getExplainString(getExchNodeId()));
         }
         return Joiner.on(", ").join(filtersStr) + "\n";
     }
