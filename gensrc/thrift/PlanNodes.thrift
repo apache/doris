@@ -790,6 +790,8 @@ struct TOlapScanNode {
   16: optional list<i32> distribute_column_ids
   17: optional i32 schema_version
   18: optional list<i32> topn_filter_source_node_ids //deprecated, move to TPlanNode.106
+  19: optional TSortInfo ann_sort_info
+  20: optional i64 ann_sort_limit
 }
 
 struct TEqJoinCondition {
