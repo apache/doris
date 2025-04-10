@@ -147,7 +147,7 @@ public class NereidsLoadingTaskPlanner {
         NereidsParamCreateContext context = loadScanProvider.createLoadContext();
         PartitionNames partitionNames = getPartitionNames();
         LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, partitionNames, context,
-                false);
+                isPartialUpdate);
         long txnTimeout = timeoutS == 0 ? ConnectContext.get().getExecTimeout() : timeoutS;
         if (txnTimeout > Integer.MAX_VALUE) {
             txnTimeout = Integer.MAX_VALUE;
