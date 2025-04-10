@@ -114,25 +114,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return literalExpr;
     }
 
-    /**
-     * 1. For numeric/complex type, no need to wrap with quota, call "getStringValueInFe".
-     * 2. For other type, call "getStringValueForArray()":
-     * 2.1. for null/boolean, getStringValueForArray() will return format value in FormatOptions.
-     * 2.2. for others, getStringValueForArray() will return value wrapped with quota.
-     */
-    public static String getStringLiteralForComplexType(Expr v, FormatOptions options) {
-        if (!(v instanceof NullLiteral) && v.getType().isScalarType()
-                && Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))) {
-            // This is a numeric type, no need to wrap with quota, so call getStringValueInFe
-            return v.getStringValueInFe(options);
-        } else if (v.getType().isComplexType()) {
-            // these type should also call getStringValueInFe which should handle special case for itself
-            return v.getStringValueInFe(options);
-        } else {
-            return v.getStringValueForArray(options);
-        }
-    }
-
     public static String getStringLiteralForStreamLoad(Expr v, FormatOptions options) {
         if (!(v instanceof NullLiteral) && v.getType().isScalarType()
                 && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
@@ -142,7 +123,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             // these type should also call getStringValueInFe which should handle special case for itself
             return v.getStringValueForStreamLoad(options);
         } else {
-            return v.getStringValueForArray(options);
+            return v.getStringValueForComplexType(options);
         }
     }
 
@@ -276,7 +257,9 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     }
 
     @Override
-    public abstract String getStringValueForArray(FormatOptions options);
+    public String getStringValueForComplexType(FormatOptions options) {
+        return getStringValueInFe(options);
+    }
 
     public long getLongValue() {
         return 0;

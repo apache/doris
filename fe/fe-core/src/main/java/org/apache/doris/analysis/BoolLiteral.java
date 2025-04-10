@@ -111,8 +111,9 @@ public class BoolLiteral extends LiteralExpr {
         return value ? "1" : "0";
     }
 
+
     @Override
-    public String getStringValueForArray(FormatOptions options) {
+    public String getStringValueInFe(FormatOptions options) {
         String val = options.isBoolValueNum() ? getStringValue() : (value ? "true" : "false");
         return val;
     }

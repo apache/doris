@@ -113,7 +113,7 @@ public class NullLiteral extends LiteralExpr {
     // the null value inside an array is represented as "null", for exampe:
     // [null, null]. Not same as other primitive type to represent as \N.
     @Override
-    public String getStringValueForArray(FormatOptions options) {
+    public String getStringValueForComplexType(FormatOptions options) {
         return options.getNullFormat();
     }
 

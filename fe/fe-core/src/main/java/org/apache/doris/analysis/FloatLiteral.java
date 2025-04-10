@@ -170,13 +170,12 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        String ret = getStringValue();
+    public String getStringValueForComplexType(FormatOptions options) {
+        String ret = getStringValueInFe(options);
         if (type == Type.TIME || type == Type.TIMEV2) {
-            // here already wrapped in ''
-            ret = ret.substring(1, ret.length() - 1);
+            ret = options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
         }
-        return options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
+        return ret;
     }
 
     public static Type getDefaultTimeType(Type type) throws AnalysisException {

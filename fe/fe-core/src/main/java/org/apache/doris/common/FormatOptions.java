@@ -73,6 +73,6 @@ public class FormatOptions {
     }
 
     public static FormatOptions getForHive() {
-        return new FormatOptions("\"", "=", "null", ",", false);
+        return new FormatOptions("\"", ":", "null", ",", false);
     }
 }

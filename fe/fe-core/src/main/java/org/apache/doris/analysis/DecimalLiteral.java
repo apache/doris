@@ -281,11 +281,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
-    }
-
-    @Override
     public long getLongValue() {
         return value.longValue();
     }

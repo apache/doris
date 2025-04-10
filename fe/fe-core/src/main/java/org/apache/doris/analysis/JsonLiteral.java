@@ -101,7 +101,7 @@ public class JsonLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
+    public String getStringValueForComplexType(FormatOptions options) {
         return null;
     }
 

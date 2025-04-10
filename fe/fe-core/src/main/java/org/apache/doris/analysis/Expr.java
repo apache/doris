@@ -2185,6 +2185,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return "";
     }
 
+    /**
+     * This method is used for constant fold in FE,
+     * for different serde dialect(hive, presto, doris).
+     *
+     * @param options
+     * @return
+     */
     public String getStringValueInFe(FormatOptions options) {
         return getStringValue();
     }
@@ -2198,7 +2205,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // ["1", "2", "3"]
     // ["a", "b", "c"]
     // [["1", "2", "3"], ["1"], ["3"]]
-    public String getStringValueForArray(FormatOptions options) {
+    // This method is to return the string value of this expr in a complex type.
+    // For most of the integer types, it is same as getStringValueInFe().
+    // But for others like StringLiteral and DateLiteral, it should be wrapped with quotations.
+    public String getStringValueForComplexType(FormatOptions options) {
         return null;
     }
 

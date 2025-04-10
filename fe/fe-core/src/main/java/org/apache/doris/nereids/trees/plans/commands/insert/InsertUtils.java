@@ -180,7 +180,7 @@ public class InsertUtils {
                 row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
             } else if (expr instanceof ArrayLiteral) {
                 row.addColBuilder().setValue(String.format("\"%s\"",
-                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForArray(options)));
+                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForComplexType(options)));
             } else {
                 row.addColBuilder().setValue(String.format("\"%s\"",
                         ((Literal) expr).toLegacyLiteral().getStringValue()));

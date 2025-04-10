@@ -154,8 +154,8 @@ public class StringLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
+    public String getStringValueForComplexType(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValueInFe(options) + options.getNestedStringWrapper();
     }
 
     @Override
