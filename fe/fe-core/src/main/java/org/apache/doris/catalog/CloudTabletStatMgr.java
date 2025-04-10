@@ -165,14 +165,12 @@ public class CloudTabletStatMgr extends MasterDaemon {
             if (db == null) {
                 continue;
             }
-
             List<Table> tableList = db.getTables();
-            // don't include system db
-            tableCount += db.isProtected() ? 0 : tableList.size();
             for (Table table : tableList) {
                 if (!table.isManagedTable()) {
                     continue;
                 }
+                tableCount++;
                 OlapTable olapTable = (OlapTable) table;
 
                 Long tableDataSize = 0L;
@@ -191,15 +189,13 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 }
                 try {
                     List<Partition> allPartitions = olapTable.getAllPartitions();
-                    // don't include system db
-                    partitionCount += db.isProtected() ? 0 : allPartitions.size();
+                    partitionCount += allPartitions.size();
                     for (Partition partition : allPartitions) {
                         Long partitionDataSize = 0L;
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             long indexRowCount = 0L;
                             List<Tablet> tablets = index.getTablets();
-                            // don't include system db
-                            tabletCount += db.isProtected() ? 0 : tablets.size();
+                            tabletCount += tablets.size();
                             for (Tablet tablet : tablets) {
                                 long tabletDataSize = 0L;
 

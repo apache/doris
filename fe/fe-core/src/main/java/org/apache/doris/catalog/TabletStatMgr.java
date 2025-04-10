@@ -135,13 +135,12 @@ public class TabletStatMgr extends MasterDaemon {
                 continue;
             }
             List<Table> tableList = db.getTables();
-            // don't include system db
-            tableCount += db.isProtected() ? 0 : tableList.size();
             for (Table table : tableList) {
                 // Will process OlapTable and MTMV
                 if (!table.isManagedTable()) {
                     continue;
                 }
+                tableCount++;
                 OlapTable olapTable = (OlapTable) table;
 
                 Long tableDataSize = 0L;
@@ -163,8 +162,7 @@ public class TabletStatMgr extends MasterDaemon {
                 }
                 try {
                     List<Partition> allPartitions = olapTable.getAllPartitions();
-                    // don't include system db
-                    partitionCount += db.isProtected() ? 0 : allPartitions.size();
+                    partitionCount += allPartitions.size();
                     for (Partition partition : allPartitions) {
                         Long partitionDataSize = 0L;
                         long version = partition.getVisibleVersion();
@@ -172,8 +170,7 @@ public class TabletStatMgr extends MasterDaemon {
                             long indexRowCount = 0L;
                             boolean indexReported = true;
                             List<Tablet> tablets = index.getTablets();
-                            // don't include system db
-                            tabletCount += db.isProtected() ? 0 : tablets.size();
+                            tabletCount += tablets.size();
                             for (Tablet tablet : tablets) {
 
                                 Long tabletDataSize = 0L;
