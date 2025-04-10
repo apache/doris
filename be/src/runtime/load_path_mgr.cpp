@@ -33,6 +33,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <sys/statvfs.h>
 
 #include "common/config.h"
 #include "io/fs/file_system.h"
@@ -86,13 +87,28 @@ Status LoadPathMgr::init() {
 }
 
 Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label,
-                                 std::string* prefix) {
+                                 std::string* prefix, int64_t file_bytes) {
     Status status = _init_once.call([this] {
         for (auto& store_path : _exec_env->store_paths()) {
+            // 检查磁盘空间
+            struct statvfs vfs;
+            if (statvfs(store_path.path.c_str(), &vfs) == 0) {
+                double free_ratio = static_cast<double>(vfs.f_bavail) / vfs.f_blocks;
+                double used_ratio = 1.0 - free_ratio;
+                if (used_ratio >= config::storage_flood_stage_usage_percent / 100.0 &&
+                        free_ratio <= config::storage_flood_stage_left_capacity_bytes) {  // 剩余空间少于10%
+                    LOG(WARNING) << "Store path " << store_path.path
+                                 << " has less than 10% free space, skip it";
+                    continue;
+                }
+            }
             _path_vec.push_back(store_path.path + "/" + MINI_PREFIX);
         }
         return Status::OK();
     });
+    if (_path_vec.empty()) {
+        return Status::BufferAllocFailed("Store path has less than 10% free space");
+    }
     std::string path;
     auto size = _path_vec.size();
     auto retry = size;
@@ -178,51 +194,40 @@ void LoadPathMgr::process_path(time_t now, const std::string& path, int64_t rese
     }
 }
 
-void LoadPathMgr::clean_one_path(const std::string& path) {
-    bool exists = true;
-    std::vector<io::FileInfo> dbs;
-    Status st = io::global_local_filesystem()->list(path, false, &dbs, &exists);
-    if (!st) {
+void LoadPathMgr::clean_files_in_path_vec(const std::string& path){
+    bool exists = false;
+    // 检查路径是否存在
+    Status status = io::global_local_filesystem()->exists(path, &exists);
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to check if path exists: " << path << ", error: " << status;
         return;
     }
+    if (exists) {
+        // 若路径存在，则删除该路径对应的文件或目录
+        status = io::global_local_filesystem()->delete_directory_or_file(path);
+        if (status.ok()) {
+            LOG(INFO) << "Delete path success: " << path;
+        } else {
+            LOG(WARNING) << "Delete path failed: " << path << ", error: " << status;
+        }
+    }
+}
 
-    Status status;
-    time_t now = time(nullptr);
-    for (auto& db : dbs) {
-        if (db.is_file) {
-            continue;
-        }
-        std::string db_dir = path + "/" + db.file_name;
-        std::vector<io::FileInfo> sub_dirs;
-        status = io::global_local_filesystem()->list(db_dir, false, &sub_dirs, &exists);
-        if (!status.ok()) {
-            LOG(WARNING) << "scan db of trash dir failed: " << status;
-            continue;
-        }
-        // delete this file
-        for (auto& sub_dir : sub_dirs) {
-            if (sub_dir.is_file) {
-                continue;
-            }
-            std::string sub_path = db_dir + "/" + sub_dir.file_name;
-            // for compatible
-            if (sub_dir.file_name.find(SHARD_PREFIX) == 0) {
-                // sub_dir starts with SHARD_PREFIX
-                // process shard sub dir
-                std::vector<io::FileInfo> labels;
-                status = io::global_local_filesystem()->list(sub_path, false, &labels, &exists);
-                if (!status.ok()) {
-                    LOG(WARNING) << "scan one path to delete directory failed: " << status;
-                    continue;
-                }
-                for (auto& label : labels) {
-                    std::string label_dir = sub_path + "/" + label.file_name;
-                    process_path(now, label_dir, config::load_data_reserve_hours);
-                }
-            } else {
-                // process label dir
-                process_path(now, sub_path, config::load_data_reserve_hours);
-            }
+void LoadPathMgr::clean_one_path(const std::string& path) {
+    bool exists = false;
+    // 检查路径是否存在
+    Status status = io::global_local_filesystem()->exists(path, &exists);
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to check if path exists: " << path << ", error: " << status;
+        return;
+    }
+    if (exists) {
+        // 若路径存在，则删除该路径对应的文件或目录
+        status = io::global_local_filesystem()->delete_directory_or_file(path);
+        if (status.ok()) {
+            LOG(INFO) << "Delete path success: " << path;
+        } else {
+            LOG(WARNING) << "Delete path failed: " << path << ", error: " << status;
         }
     }
 }
