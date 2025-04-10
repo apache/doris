@@ -299,7 +299,8 @@ public class TabletStatMgr extends MasterDaemon {
                 + ", max tablet byte size=" + maxTabletSize.second + "(tablet_id=" + maxTableSize.first + ")"
                 + ", min tablet byte size=" + minTabletSizeTmp + "(tablet_id=" + minTabletSize.first + ")"
                 + ", avg tablet byte size=" + avgTabletSize
-                + ", max partition byte size=" + maxPartitionSize.second + "(partition_id=" + maxPartitionSize.first + ")"
+                + ", max partition byte size=" + maxPartitionSize.second + "(partition_id=" + maxPartitionSize.first
+                + ")"
                 + ", min partition byte size=" + minPartitionSizeTmp + "(partition_id=" + minPartitionSize.first + ")"
                 + ", avg partition byte size=" + avgPartitionSize
                 + ", max table byte size=" + maxTableSize.second + "(table_id=" + maxTableSize.first + ")"
