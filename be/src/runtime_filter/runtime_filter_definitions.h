@@ -17,9 +17,6 @@
 
 #pragma once
 
-#include <butil/iobuf.h>
-#include <gen_cpp/internal_service.pb.h>
-
 #include "runtime/define_primitive_type.h"
 
 namespace doris {
@@ -72,9 +69,5 @@ class MinMaxFuncBase;
 class HybridSetBase;
 class BloomFilterFuncBase;
 class BitmapFilterFuncBase;
-
-class RuntimeState;
-class QueryContext;
-class RuntimeFilterMgr;
 #include "common/compile_check_end.h"
 } // namespace doris

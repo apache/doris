@@ -17,10 +17,12 @@
 
 #pragma once
 
+#include <butil/iobuf.h>
+
 #include "common/status.h"
-#include "runtime/runtime_state.h"
 #include "runtime_filter/runtime_filter_definitions.h"
 #include "runtime_filter/utils.h"
+#include "vec/columns/column.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {

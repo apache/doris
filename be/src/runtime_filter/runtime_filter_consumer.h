@@ -64,7 +64,7 @@ public:
                            _reached_timeout ? "true" : "false", std::to_string(_rf_wait_time_ms));
     }
 
-    bool is_applied() { return _rf_state == State::APPLIED; }
+    bool is_applied() const { return _rf_state == State::APPLIED; }
 
     // Called by RuntimeFilterConsumerHelper
     void collect_realtime_profile(RuntimeProfile* parent_operator_profile);
@@ -90,8 +90,7 @@ private:
             : RuntimeFilter(desc),
               _probe_expr(desc->planId_to_target_expr.find(node_id)->second),
               _registration_time(MonotonicMillis()),
-              _rf_state(State::NOT_READY),
-              _filter_id(desc->filter_id) {
+              _rf_state(State::NOT_READY) {
         // If bitmap filter is not applied, it will cause the query result to be incorrect
         bool wait_infinitely = query_ctx->runtime_filter_wait_infinitely() ||
                                _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER;
@@ -162,7 +161,6 @@ private:
     bool _reached_timeout = false;
 
     friend class RuntimeFilterProducer;
-    int _filter_id = -1;
 };
 #include "common/compile_check_end.h"
 } // namespace doris

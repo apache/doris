@@ -212,31 +212,32 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
 
 void RuntimeFilterConsumer::collect_realtime_profile(RuntimeProfile* parent_operator_profile) {
     DCHECK(parent_operator_profile != nullptr);
-
-    // Counter* is owned by RuntimeProfile, so no need to free.
-    RuntimeProfile::Counter* c = parent_operator_profile->add_counter(
-            fmt::format("RF{} InputRows", _filter_id), TUnit::UNIT, "RuntimeFilterInfo", 1);
-    c->update(_rf_input->value());
-
-    c = parent_operator_profile->add_counter(fmt::format("RF{} FilterRows", _filter_id),
-                                             TUnit::UNIT, "RuntimeFilterInfo", 1);
-    c->update(_rf_filter->value());
-    c = parent_operator_profile->add_counter(fmt::format("RF{} WaitTime", _filter_id),
-                                             TUnit::TIME_NS, "RuntimeFilterInfo", 2);
-    c->update(_wait_timer->value());
-
-    c = parent_operator_profile->add_counter(fmt::format("RF{} AlwaysTrueFilterRows", _filter_id),
-                                             TUnit::UNIT, "RuntimeFilterInfo", 2);
-    c->update(_always_true_counter->value());
-
+    int filter_id = -1;
     {
         // since debug_string will read from  RuntimeFilter::_wrapper
         // and it is a shared_ptr, instead of a atomic_shared_ptr
         // so it is not thread safe
         std::unique_lock<std::mutex> l(_mtx);
-        parent_operator_profile->add_description(fmt::format("RF{} Info", _filter_id),
+        filter_id = _wrapper->filter_id();
+        parent_operator_profile->add_description(fmt::format("RF{} Info", filter_id),
                                                  debug_string(), "RuntimeFilterInfo");
     }
+
+    // Counter* is owned by RuntimeProfile, so no need to free.
+    RuntimeProfile::Counter* c = parent_operator_profile->add_counter(
+            fmt::format("RF{} InputRows", filter_id), TUnit::UNIT, "RuntimeFilterInfo", 1);
+    c->update(_rf_input->value());
+
+    c = parent_operator_profile->add_counter(fmt::format("RF{} FilterRows", filter_id), TUnit::UNIT,
+                                             "RuntimeFilterInfo", 1);
+    c->update(_rf_filter->value());
+    c = parent_operator_profile->add_counter(fmt::format("RF{} WaitTime", filter_id),
+                                             TUnit::TIME_NS, "RuntimeFilterInfo", 2);
+    c->update(_wait_timer->value());
+
+    c = parent_operator_profile->add_counter(fmt::format("RF{} AlwaysTrueFilterRows", filter_id),
+                                             TUnit::UNIT, "RuntimeFilterInfo", 2);
+    c->update(_always_true_counter->value());
 }
 
 } // namespace doris

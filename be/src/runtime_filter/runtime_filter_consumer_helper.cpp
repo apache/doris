@@ -23,48 +23,37 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 RuntimeFilterConsumerHelper::RuntimeFilterConsumerHelper(
-        int32_t _node_id, const std::vector<TRuntimeFilterDesc>& runtime_filters)
-        : _node_id(_node_id), _runtime_filter_descs(runtime_filters) {}
+        const std::vector<TRuntimeFilterDesc>& runtime_filters)
+        : _runtime_filter_descs(runtime_filters) {}
 
 Status RuntimeFilterConsumerHelper::init(
-        RuntimeState* state, bool need_local_merge,
-        std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies, int id,
-        const std::string& name) {
-    RETURN_IF_ERROR(_register_runtime_filter(state, need_local_merge));
-    _init_dependency(dependencies, id, name);
-    return Status::OK();
-}
-
-Status RuntimeFilterConsumerHelper::_register_runtime_filter(RuntimeState* state,
-                                                             bool need_local_merge) {
-    size_t filter_size = _runtime_filter_descs.size();
-    for (size_t i = 0; i < filter_size; ++i) {
+        RuntimeState* state, bool need_local_merge, int32_t node_id, int32_t operator_id,
+        std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies, const std::string& name) {
+    for (const auto& desc : _runtime_filter_descs) {
         std::shared_ptr<RuntimeFilterConsumer> filter;
-        RETURN_IF_ERROR(state->register_consumer_runtime_filter(
-                _runtime_filter_descs[i], need_local_merge, _node_id, &filter));
+        RETURN_IF_ERROR(
+                state->register_consumer_runtime_filter(desc, need_local_merge, node_id, &filter));
         _consumers.emplace_back(filter);
     }
-    return Status::OK();
-}
 
-void RuntimeFilterConsumerHelper::_init_dependency(
-        std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies, int id,
-        const std::string& name) {
     dependencies.resize(_runtime_filter_descs.size());
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> runtime_filter_timers(
             _runtime_filter_descs.size());
     std::vector<std::shared_ptr<pipeline::Dependency>> local_dependencies;
-
     for (size_t i = 0; i < _consumers.size(); ++i) {
-        dependencies[i] =
-                std::make_shared<pipeline::Dependency>(id, _node_id, name, _consumers[i].get());
+        dependencies[i] = std::make_shared<pipeline::Dependency>(operator_id, node_id, name,
+                                                                 _consumers[i].get());
         runtime_filter_timers[i] = _consumers[i]->create_filter_timer(dependencies[i]);
-        if (_consumers[i]->has_remote_target()) {
-            // The gloabl runtime filter timer need set local runtime filter dependencies.
-            // start to wait before the local runtime filter ready
-            runtime_filter_timers[i]->set_local_runtime_filter_dependencies(local_dependencies);
-        } else {
+        if (!_consumers[i]->has_remote_target()) {
             local_dependencies.emplace_back(dependencies[i]);
+        }
+    }
+
+    // The gloabl runtime filter timer need set local runtime filter dependencies.
+    // start to wait before the local runtime filter ready
+    for (size_t i = 0; i < _consumers.size(); ++i) {
+        if (_consumers[i]->has_remote_target()) {
+            runtime_filter_timers[i]->set_local_runtime_filter_dependencies(local_dependencies);
         }
     }
 
@@ -72,6 +61,7 @@ void RuntimeFilterConsumerHelper::_init_dependency(
         ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer(
                 std::move(runtime_filter_timers));
     }
+    return Status::OK();
 }
 
 Status RuntimeFilterConsumerHelper::acquire_runtime_filter(RuntimeState* state,
@@ -79,10 +69,9 @@ Status RuntimeFilterConsumerHelper::acquire_runtime_filter(RuntimeState* state,
                                                            const RowDescriptor& row_descriptor) {
     SCOPED_TIMER(_acquire_runtime_filter_timer.get());
     std::vector<vectorized::VRuntimeFilterPtr> vexprs;
-    for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
-        RETURN_IF_ERROR(_consumers[i]->acquire_expr(vexprs));
-
-        if (!_consumers[i]->is_applied()) {
+    for (const auto& consumer : _consumers) {
+        RETURN_IF_ERROR(consumer->acquire_expr(vexprs));
+        if (!consumer->is_applied()) {
             _is_all_rf_applied = false;
         }
     }
@@ -126,9 +115,9 @@ Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
     // 1. Check if are runtime filter ready but not applied.
     std::vector<vectorized::VRuntimeFilterPtr> exprs;
     int current_arrived_rf_num = 0;
-    for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
-        RETURN_IF_ERROR(_consumers[i]->acquire_expr(exprs));
-        current_arrived_rf_num += _consumers[i]->is_applied();
+    for (const auto& consumer : _consumers) {
+        RETURN_IF_ERROR(consumer->acquire_expr(exprs));
+        current_arrived_rf_num += consumer->is_applied();
     }
     // 2. Append unapplied runtime filters to _conjuncts
     if (!exprs.empty()) {
@@ -150,7 +139,7 @@ void RuntimeFilterConsumerHelper::collect_realtime_profile(
             "AcquireRuntimeFilter", TUnit::TIME_NS, "RuntimeFilterInfo", 2);
     c->update(_acquire_runtime_filter_timer->value());
 
-    for (auto& consumer : _consumers) {
+    for (const auto& consumer : _consumers) {
         consumer->collect_realtime_profile(parent_operator_profile);
     }
 }

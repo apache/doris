@@ -27,9 +27,7 @@ namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(RuntimeState* state,
                                                                          OperatorXBase* parent)
-        : Base(state, parent),
-          _helper(static_cast<Parent*>(parent)->dest_id_from_sink(),
-                  parent->runtime_filter_descs()) {}
+        : Base(state, parent), _helper(parent->runtime_filter_descs()) {}
 
 Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -43,7 +41,7 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
     _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
     _get_data_timer = ADD_TIMER(_runtime_profile, "GetDataTime");
     _materialize_data_timer = ADD_TIMER(_runtime_profile, "MaterializeDataTime");
-    RETURN_IF_ERROR(_helper.init(state, false, _filter_dependencies, p.operator_id(),
+    RETURN_IF_ERROR(_helper.init(state, false, p.node_id(), p.operator_id(), _filter_dependencies,
                                  p.get_name() + "_FILTER_DEPENDENCY"));
     return Status::OK();
 }

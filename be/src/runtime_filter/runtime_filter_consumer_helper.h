@@ -31,12 +31,11 @@ namespace doris {
  */
 class RuntimeFilterConsumerHelper {
 public:
-    RuntimeFilterConsumerHelper(int32_t node_id,
-                                const std::vector<TRuntimeFilterDesc>& runtime_filters);
+    RuntimeFilterConsumerHelper(const std::vector<TRuntimeFilterDesc>& runtime_filters);
     ~RuntimeFilterConsumerHelper() = default;
 
-    Status init(RuntimeState* state, bool need_local_merge,
-                std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies, int id,
+    Status init(RuntimeState* state, bool need_local_merge, int32_t node_id, int32_t operator_id,
+                std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies,
                 const std::string& name);
     // Get all arrived runtime filters at Open phase which will be push down to storage.
     // Called by Operator.
@@ -54,22 +53,15 @@ public:
     void collect_realtime_profile(RuntimeProfile* parent_operator_profile);
 
 private:
-    // Register and get all runtime filters at Init phase.
-    Status _register_runtime_filter(RuntimeState* state, bool need_local_merge);
-
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(RuntimeState* state,
                                      const std::vector<vectorized::VRuntimeFilterPtr>& vexprs,
                                      vectorized::VExprContextSPtrs& conjuncts,
                                      const RowDescriptor& row_descriptor);
 
-    void _init_dependency(std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies, int id,
-                          const std::string& name);
-
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> _consumers;
     std::mutex _rf_locks;
 
-    int32_t _node_id;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 
     // True means all runtime filters are applied to scanners
