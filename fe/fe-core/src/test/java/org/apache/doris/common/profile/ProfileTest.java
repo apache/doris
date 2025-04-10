@@ -22,46 +22,47 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TUniqueId;
 
 import mockit.Expectations;
-import org.junit.jupiter.api.After;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Before;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 public class ProfileTest {
-
-    @Rule
     public TemporaryFolder tempFolder = new TemporaryFolder();
 
     private Profile profile;
+    private File tempDir;
     private ExecutionProfile executionProfile;
-    private String testProfileStorageDir;
+    private String testProfileStoragePath;
 
-    @Before
+    @BeforeEach
     public void setUp() throws IOException {
         profile = ProfilePersistentTest.constructRandomProfile(1);
         // Setup a temporary directory for profile storage
-        testProfileStorageDir = tempFolder.newFolder("profiles").getAbsolutePath();
+        tempDir = Files.createTempDirectory("profile_test_").toFile();
+        testProfileStoragePath = tempDir.getAbsolutePath();
         executionProfile = profile.getExecutionProfiles().get(0);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         ProfileManager.getInstance().removeProfile(profile.getId());
     }
 
     @Test
     public void testBasicProfileCreation() {
-        Assert.assertNotNull(profile);
-        Assert.assertFalse(profile.isQueryFinished);
-        Assert.assertEquals(1, profile.getExecutionProfiles().size());
+        Assertions.assertNotNull(profile);
+        Assertions.assertFalse(profile.isQueryFinished);
+        Assertions.assertEquals(1, profile.getExecutionProfiles().size());
     }
 
     @Test
@@ -71,27 +72,27 @@ public class ProfileTest {
 
         profile.updateSummary(summaryInfo, false, null);
 
-        Assert.assertFalse(profile.isQueryFinished);
+        Assertions.assertFalse(profile.isQueryFinished);
 
         profile.updateSummary(summaryInfo, true, null);
-        Assert.assertTrue(profile.isQueryFinished);
-        Assert.assertNotEquals(Long.MAX_VALUE, profile.getQueryFinishTimestamp());
+        Assertions.assertTrue(profile.isQueryFinished);
+        Assertions.assertTrue(Long.MAX_VALUE != profile.getQueryFinishTimestamp());
     }
 
     @Test
     public void testShouldStoreToStorage() {
         // Initially not finished, should not store
-        Assert.assertFalse(profile.shouldStoreToStorage());
+        Assertions.assertFalse(profile.shouldStoreToStorage());
 
         // Mark as finished
         profile.markQueryFinished();
 
         // Execution profile is not completed yet
-        Assert.assertFalse(executionProfile.isCompleted());
+        Assertions.assertFalse(executionProfile.isCompleted());
 
         // Should still not store because execution profile isn't complete
         // and time hasn't passed the threshold
-        Assert.assertFalse(profile.shouldStoreToStorage());
+        Assertions.assertFalse(profile.shouldStoreToStorage());
 
 
         new Expectations(executionProfile) {
@@ -101,7 +102,7 @@ public class ProfileTest {
             }
         };
         // Now it should be ready to store
-        Assert.assertTrue(profile.shouldStoreToStorage());
+        Assertions.assertTrue(profile.shouldStoreToStorage());
     }
 
     @Test
@@ -117,17 +118,17 @@ public class ProfileTest {
         };
 
         // Should be true before we write
-        Assert.assertTrue(profile.shouldStoreToStorage());
-        Assert.assertFalse(profile.profileHasBeenStored());
+        Assertions.assertTrue(profile.shouldStoreToStorage());
+        Assertions.assertFalse(profile.profileHasBeenStored());
 
         // Write to storage
-        profile.writeToStorage(testProfileStorageDir);
+        profile.writeToStorage(testProfileStoragePath);
 
         // Verify it's stored
-        Assert.assertTrue(profile.profileHasBeenStored());
-        Assert.assertNotNull(profile.getProfileStoragePath());
-        Assert.assertTrue(new File(profile.getProfileStoragePath()).exists());
-        Assert.assertTrue(profile.getProfileSize() > 0);
+        Assertions.assertTrue(profile.profileHasBeenStored());
+        Assertions.assertNotNull(profile.getProfileStoragePath());
+        Assertions.assertTrue(new File(profile.getProfileStoragePath()).exists());
+        Assertions.assertTrue(profile.getProfileSize() > 0);
     }
 
     @Test
@@ -145,8 +146,8 @@ public class ProfileTest {
         };
 
         // Should be false before we write because execution profile isn't complete
-        Assert.assertFalse(profile.shouldStoreToStorage());
-        Assert.assertFalse(profile.profileHasBeenStored());
+        Assertions.assertFalse(profile.shouldStoreToStorage());
+        Assertions.assertFalse(profile.profileHasBeenStored());
 
         // Sleep to simulate time passing
         try {
@@ -157,7 +158,7 @@ public class ProfileTest {
 
         int orig = Config.profile_waiting_time_for_spill_seconds;
         Config.profile_waiting_time_for_spill_seconds = 1;
-        Assert.assertTrue(profile.shouldStoreToStorage());
+        Assertions.assertTrue(profile.shouldStoreToStorage());
         Config.profile_waiting_time_for_spill_seconds = orig;
     }
 
@@ -166,16 +167,16 @@ public class ProfileTest {
         profile.markQueryFinished();
         // First write to storage
         profile.setQueryFinishTimestamp(System.currentTimeMillis());
-        profile.writeToStorage(testProfileStorageDir);
+        profile.writeToStorage(testProfileStoragePath);
 
         // Now read it back
         Profile readProfile = Profile.read(profile.getProfileStoragePath());
 
         // Verify read profile
-        Assert.assertNotNull(readProfile);
-        Assert.assertEquals(profile.getId(), readProfile.getId());
-        Assert.assertTrue(readProfile.isQueryFinished);
-        Assert.assertTrue(readProfile.profileHasBeenStored());
+        Assertions.assertNotNull(readProfile);
+        Assertions.assertEquals(profile.getId(), readProfile.getId());
+        Assertions.assertTrue(readProfile.isQueryFinished);
+        Assertions.assertTrue(readProfile.profileHasBeenStored());
     }
 
     @Test
@@ -183,16 +184,16 @@ public class ProfileTest {
         // First write to storage
         profile.markQueryFinished();
         profile.setQueryFinishTimestamp(System.currentTimeMillis());
-        profile.writeToStorage(testProfileStorageDir);
+        profile.writeToStorage(testProfileStoragePath);
 
         String storagePath = profile.getProfileStoragePath();
-        Assert.assertTrue(new File(storagePath).exists());
+        Assertions.assertTrue(new File(storagePath).exists());
 
         // Now delete it
         profile.deleteFromStorage();
 
         // Verify it's gone
-        Assert.assertFalse(new File(storagePath).exists());
+        Assertions.assertFalse(new File(storagePath).exists());
     }
 
     @Test
@@ -200,16 +201,16 @@ public class ProfileTest {
         // First write to storage
         profile.markQueryFinished();
         profile.setQueryFinishTimestamp(System.currentTimeMillis());
-        profile.writeToStorage(testProfileStorageDir);
+        profile.writeToStorage(testProfileStoragePath);
 
         // Test with valid path
         FileInputStream fis = Profile.createPorfileFileInputStream(profile.getProfileStoragePath());
-        Assert.assertNotNull(fis);
+        Assertions.assertNotNull(fis);
         fis.close();
 
         // Test with invalid path
         FileInputStream invalidFis = Profile.createPorfileFileInputStream("/invalid/path/to/profile.zip");
-        Assert.assertNull(invalidFis);
+        Assertions.assertNull(invalidFis);
     }
 
     @Test
@@ -222,18 +223,18 @@ public class ProfileTest {
         String validName = timestamp + "_" + id + ".zip";
 
         String[] parts = Profile.parseProfileFileName(validName);
-        Assert.assertNotNull(parts);
-        Assert.assertEquals(2, parts.length);
-        Assert.assertEquals(String.valueOf(timestamp), parts[0]);
-        Assert.assertEquals(id, parts[1]);
+        Assertions.assertNotNull(parts);
+        Assertions.assertEquals(2, parts.length);
+        Assertions.assertEquals(String.valueOf(timestamp), parts[0]);
+        Assertions.assertEquals(id, parts[1]);
 
         // Invalid profile name
         String invalidName = "not_a_valid_profile_name";
-        Assert.assertNull(Profile.parseProfileFileName(invalidName));
+        Assertions.assertNull(Profile.parseProfileFileName(invalidName));
 
         // Wrong extension
         String wrongExtension = timestamp + "_" + id + ".txt";
-        Assert.assertNull(Profile.parseProfileFileName(wrongExtension));
+        Assertions.assertNull(Profile.parseProfileFileName(wrongExtension));
     }
 
     @Test
@@ -241,22 +242,22 @@ public class ProfileTest {
         // First write to storage
         profile.markQueryFinished();
         profile.setQueryFinishTimestamp(System.currentTimeMillis());
-        profile.writeToStorage(testProfileStorageDir);
+        profile.writeToStorage(testProfileStoragePath);
         profile.releaseMemory();
         StringBuilder builder = new StringBuilder();
         profile.getOnStorageProfile(builder);
 
         // Verify we got content
-        Assert.assertTrue(builder.length() > 0);
+        Assertions.assertTrue(builder.length() > 0);
     }
 
     @Test
     public void testReleaseMemory() {
-        Assert.assertEquals(1, profile.getExecutionProfiles().size());
+        Assertions.assertEquals(1, profile.getExecutionProfiles().size());
         profile.setChangedSessionVar("test=1");
 
         profile.releaseMemory();
 
-        Assert.assertEquals(0, profile.getExecutionProfiles().size());
+        Assertions.assertEquals(0, profile.getExecutionProfiles().size());
     }
 }
