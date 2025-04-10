@@ -65,7 +65,7 @@ public class CommonSubExpressionOpt extends PlanPostProcessor {
         List<List<NamedExpression>> multiLayers = Lists.newArrayList();
         CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
         for (Expression expr : projects) {
-            expr.accept(collector, null);
+            collector.collect(expr);
         }
         Map<Expression, Alias> aliasMap = new HashMap<>();
         if (!collector.commonExprByDepth.isEmpty()) {
