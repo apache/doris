@@ -619,8 +619,7 @@ Status CloudStorageEngine::_prepare_tablet_compaction_job(
         }
         {
             std::lock_guard lock(_compaction_mtx);
-            _tablet_preparing_cumu_compaction.erase(tablet->tablet_id());
-            _submitted_cumu_compactions[tablet->tablet_id()].push_back(cumu_compaction);
+            _executing_cumu_compactions[tablet->tablet_id()].push_back(cumu_compaction);
         }
         return st;
     } else if (compaction_type == ReaderType::READER_BASE_COMPACTION) {
@@ -641,7 +640,7 @@ Status CloudStorageEngine::_prepare_tablet_compaction_job(
         }
         {
             std::lock_guard lock(_compaction_mtx);
-            _submitted_base_compactions[tablet->tablet_id()] = base_compaction;
+            _executing_base_compactions[tablet->tablet_id()].push_back(base_compaction);
         }
         return st;
     } else {
@@ -663,11 +662,15 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
                     tablet->tablet_id());
         }
     }
+    auto compaction = std::make_shared<CloudBaseCompaction>(*this, tablet);
+    {
+        std::lock_guard lock(_compaction_mtx);
+        _submitted_base_compactions[tablet->tablet_id()] = compaction;
+    }
     auto st = _base_compaction_thread_pool->submit_func([=, this]() {
         g_base_compaction_running_task_count << 1;
         signal::tablet_id = tablet->tablet_id();
         Defer defer {[&]() { g_base_compaction_running_task_count << -1; }};
-        auto compaction = std::make_shared<CloudBaseCompaction>(*this, tablet);
         auto st = _prepare_tablet_compaction_job(ReaderType::READER_BASE_COMPACTION, tablet,
                                                  compaction);
         if (!st.ok()) return;
@@ -705,6 +708,11 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         }
     }
     auto compaction = std::make_shared<CloudCumulativeCompaction>(*this, tablet);
+    {
+        std::lock_guard lock(_compaction_mtx);
+        _tablet_preparing_cumu_compaction.erase(tablet->tablet_id());
+        _submitted_cumu_compactions[tablet->tablet_id()].push_back(compaction);
+    }
     auto erase_submitted_cumu_compaction = [=, this]() {
         std::lock_guard lock(_compaction_mtx);
         auto it = _submitted_cumu_compactions.find(tablet->tablet_id());
@@ -872,12 +880,12 @@ void CloudStorageEngine::_lease_compaction_thread_callback() {
         std::vector<std::shared_ptr<CloudCompactionStopToken>> compation_stop_tokens;
         {
             std::lock_guard lock(_compaction_mtx);
-            for (auto& [_, base] : _submitted_base_compactions) {
+            for (auto& [_, base] : _executing_base_compactions) {
                 if (base) { // `base` might be a nullptr placeholder
                     base_compactions.push_back(base);
                 }
             }
-            for (auto& [_, cumus] : _submitted_cumu_compactions) {
+            for (auto& [_, cumus] : _executing_cumu_compactions) {
                 for (auto& cumu : cumus) {
                     cumu_compactions.push_back(cumu);
                 }

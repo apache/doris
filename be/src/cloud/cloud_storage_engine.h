@@ -205,6 +205,11 @@ private:
     // tablet_id -> active compaction stop tokens
     std::unordered_map<int64_t, std::shared_ptr<CloudCompactionStopToken>>
             _active_compaction_stop_tokens;
+    // tablet_id -> executing cumu compactions, guarded by `_compaction_mtx`
+    std::unordered_map<int64_t, std::vector<std::shared_ptr<CloudCumulativeCompaction>>>
+            _executing_cumu_compactions;
+    // tablet_id -> executing base compactions, guarded by `_compaction_mtx`
+    std::unordered_map<int64_t, std::shared_ptr<CloudBaseCompaction>> _executing_base_compactions;
 
     using CumuPolices =
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;
