@@ -890,6 +890,10 @@ public class StmtExecutor {
         try {
             // parsedStmt maybe null here, we parse it. Or the predicate will not work.
             parseByLegacy();
+            // set isQuery here because when fallback from Nereids, parsedStmt is null, so the above set will be skipped
+            if (parsedStmt instanceof QueryStmt) {
+                context.getState().setIsQuery(true);
+            }
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
                 throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
