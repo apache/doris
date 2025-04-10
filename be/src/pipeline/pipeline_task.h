@@ -332,6 +332,7 @@ private:
     std::atomic<State> _exec_state = State::INITED;
     MonotonicStopWatch _state_change_watcher;
     std::atomic<bool> _spilling = false;
+    const std::string _pipeline_name;
 };
 
 using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;

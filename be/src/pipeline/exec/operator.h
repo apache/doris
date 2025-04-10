@@ -1100,12 +1100,15 @@ public:
                                                        "DummyOperatorDependency", true);
         _filter_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                        "DummyOperatorDependency", true);
+        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                      "DummyOperatorDependency", true);
     }
     Dependency* finishdependency() override { return _finish_dependency.get(); }
     ~DummyOperatorLocalState() = default;
 
     std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
     std::vector<Dependency*> filter_dependencies() override { return {_filter_dependency.get()}; }
+    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
 private:
     std::shared_ptr<Dependency> _tmp_dependency;
@@ -1145,10 +1148,13 @@ public:
                                                     "DummyOperatorDependency", true);
         _finish_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                        "DummyOperatorDependency", true);
+        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                      "DummyOperatorDependency", true);
     }
 
     std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
     Dependency* finishdependency() override { return _finish_dependency.get(); }
+    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
     bool is_finished() const override { return _is_finished; }
 
 private:
