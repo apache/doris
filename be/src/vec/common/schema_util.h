@@ -152,4 +152,6 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
                              segment_v2::VariantStatisticsPB* stats, size_t row_pos,
                              size_t num_rows);
 
+void get_field_info(const Field& field, FieldInfo* info);
+
 } // namespace  doris::vectorized::schema_util

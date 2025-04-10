@@ -64,6 +64,7 @@
 #include "vec/columns/column_object.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/field_visitors.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -901,6 +902,231 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
                 "Sparse column non null size: {} is greater than max statistics size: {}",
                 stats->sparse_column_non_null_size().size(),
                 config::variant_max_sparse_column_statistics_size);
+    }
+}
+
+/// Calculates number of dimensions in array field.
+/// Returns 0 for scalar fields.
+class FieldVisitorToNumberOfDimensions : public StaticVisitor<size_t> {
+public:
+    size_t operator()(const Array& x) const {
+        const size_t size = x.size();
+        size_t dimensions = 0;
+        for (size_t i = 0; i < size; ++i) {
+            size_t element_dimensions = apply_visitor(*this, x[i]);
+            dimensions = std::max(dimensions, element_dimensions);
+        }
+        return 1 + dimensions;
+    }
+    size_t operator()(const VariantField& x) { return apply_visitor(*this, x.get_field()); }
+    template <typename T>
+    size_t operator()(const T&) const {
+        return 0;
+    }
+};
+
+// Visitor that allows to get type of scalar field
+// but exclude fields contain complex field.This is a faster version
+// for FieldVisitorToScalarType which does not support complex field.
+class SimpleFieldVisitorToScalarType : public StaticVisitor<size_t> {
+public:
+    size_t operator()(const Array& x) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Array type is not supported");
+    }
+    size_t operator()(const UInt64& x) {
+        if (x <= std::numeric_limits<Int8>::max()) {
+            type = TypeIndex::Int8;
+        } else if (x <= std::numeric_limits<Int16>::max()) {
+            type = TypeIndex::Int16;
+        } else if (x <= std::numeric_limits<Int32>::max()) {
+            type = TypeIndex::Int32;
+        } else {
+            type = TypeIndex::Int64;
+        }
+        return 1;
+    }
+    size_t operator()(const Int64& x) {
+        if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
+            type = TypeIndex::Int8;
+        } else if (x <= std::numeric_limits<Int16>::max() &&
+                   x >= std::numeric_limits<Int16>::min()) {
+            type = TypeIndex::Int16;
+        } else if (x <= std::numeric_limits<Int32>::max() &&
+                   x >= std::numeric_limits<Int32>::min()) {
+            type = TypeIndex::Int32;
+        } else {
+            type = TypeIndex::Int64;
+        }
+        return 1;
+    }
+    size_t operator()(const JsonbField& x) {
+        type = TypeIndex::JSONB;
+        return 1;
+    }
+    size_t operator()(const Null&) {
+        have_nulls = true;
+        return 1;
+    }
+    size_t operator()(const VariantMap&) {
+        type = TypeIndex::VARIANT;
+        return 1;
+    }
+    size_t operator()(const VariantField& x) {
+        typed_field_info =
+                FieldInfo {x.get_type_id(), true, false, 0, x.get_scale(), x.get_precision()};
+        return 1;
+    }
+    template <typename T>
+    size_t operator()(const T&) {
+        type = TypeId<NearestFieldType<T>>::value;
+        return 1;
+    }
+    void get_scalar_type(TypeIndex* data_type, int* precision, int* scale) const {
+        if (typed_field_info.has_value()) {
+            *data_type = typed_field_info->scalar_type_id;
+            *precision = typed_field_info->precision;
+            *scale = typed_field_info->scale;
+            return;
+        }
+        *data_type = type;
+    }
+    bool contain_nulls() const { return have_nulls; }
+
+    bool need_convert_field() const { return false; }
+
+private:
+    // initialized when operator()(const VariantField& x)
+    std::optional<FieldInfo> typed_field_info;
+    TypeIndex type = TypeIndex::Nothing;
+    bool have_nulls = false;
+};
+
+/// Visitor that allows to get type of scalar field
+/// or least common type of scalars in array.
+/// More optimized version of FieldToDataType.
+class FieldVisitorToScalarType : public StaticVisitor<size_t> {
+public:
+    using FieldType = Field::Types::Which;
+    size_t operator()(const Array& x) {
+        size_t size = x.size();
+        for (size_t i = 0; i < size; ++i) {
+            apply_visitor(*this, x[i]);
+        }
+        return 0;
+    }
+    // TODO doris not support unsigned integers for now
+    // treat as signed integers
+    size_t operator()(const UInt64& x) {
+        field_types.insert(FieldType::UInt64);
+        if (x <= std::numeric_limits<Int8>::max()) {
+            type_indexes.insert(TypeIndex::Int8);
+        } else if (x <= std::numeric_limits<Int16>::max()) {
+            type_indexes.insert(TypeIndex::Int16);
+        } else if (x <= std::numeric_limits<Int32>::max()) {
+            type_indexes.insert(TypeIndex::Int32);
+        } else {
+            type_indexes.insert(TypeIndex::Int64);
+        }
+        return 0;
+    }
+    size_t operator()(const Int64& x) {
+        field_types.insert(FieldType::Int64);
+        if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
+            type_indexes.insert(TypeIndex::Int8);
+        } else if (x <= std::numeric_limits<Int16>::max() &&
+                   x >= std::numeric_limits<Int16>::min()) {
+            type_indexes.insert(TypeIndex::Int16);
+        } else if (x <= std::numeric_limits<Int32>::max() &&
+                   x >= std::numeric_limits<Int32>::min()) {
+            type_indexes.insert(TypeIndex::Int32);
+        } else {
+            type_indexes.insert(TypeIndex::Int64);
+        }
+        return 0;
+    }
+    size_t operator()(const JsonbField& x) {
+        field_types.insert(FieldType::JSONB);
+        type_indexes.insert(TypeIndex::JSONB);
+        return 0;
+    }
+    size_t operator()(const VariantMap&) {
+        field_types.insert(FieldType::VariantMap);
+        type_indexes.insert(TypeIndex::VARIANT);
+        return 0;
+    }
+    size_t operator()(const VariantField& x) {
+        if (x.get_type_id() == TypeIndex::Array) {
+            apply_visitor(*this, x.get_field());
+        } else {
+            typed_field_info =
+                    FieldInfo {x.get_type_id(), true, false, 0, x.get_scale(), x.get_precision()};
+        }
+        return 0;
+    }
+    size_t operator()(const Null&) {
+        have_nulls = true;
+        return 0;
+    }
+    template <typename T>
+    size_t operator()(const T&) {
+        Field::EnumToType<Field::Types::Array>::Type a;
+        field_types.insert(Field::TypeToEnum<NearestFieldType<T>>::value);
+        type_indexes.insert(TypeId<NearestFieldType<T>>::value);
+        return 0;
+    }
+    void get_scalar_type(TypeIndex* type, int* precision, int* scale) const {
+        if (typed_field_info.has_value()) {
+            // fast path
+            *type = typed_field_info->scalar_type_id;
+            *precision = typed_field_info->precision;
+            *scale = typed_field_info->scale;
+            return;
+        }
+        DataTypePtr data_type;
+        get_least_supertype_jsonb(type_indexes, &data_type);
+        *type = data_type->get_type_id();
+    }
+    bool contain_nulls() const { return have_nulls; }
+    bool need_convert_field() const { return field_types.size() > 1; }
+
+private:
+    // initialized when operator()(const VariantField& x)
+    std::optional<FieldInfo> typed_field_info;
+    phmap::flat_hash_set<TypeIndex> type_indexes;
+    phmap::flat_hash_set<FieldType> field_types;
+    bool have_nulls = false;
+};
+
+template <typename Visitor>
+void get_field_info_impl(const Field& field, FieldInfo* info) {
+    Visitor to_scalar_type_visitor;
+    apply_visitor(to_scalar_type_visitor, field);
+    TypeIndex type_id;
+    int precision = 0;
+    int scale = 0;
+    to_scalar_type_visitor.get_scalar_type(&type_id, &precision, &scale);
+    // array item's dimension may missmatch, eg. [1, 2, [1, 2, 3]]
+    *info = {
+            type_id,
+            to_scalar_type_visitor.contain_nulls(),
+            to_scalar_type_visitor.need_convert_field(),
+            apply_visitor(FieldVisitorToNumberOfDimensions(), field),
+            scale,
+            precision,
+    };
+}
+
+bool is_complex_field(const Field& field) {
+    return field.is_complex_field() ||
+           (field.is_variant_field() &&
+            field.get<const VariantField&>().get_field().is_complex_field());
+}
+
+void get_field_info(const Field& field, FieldInfo* info) {
+    if (is_complex_field(field)) {
+        get_field_info_impl<FieldVisitorToScalarType>(field, info);
+    } else {
+        get_field_info_impl<SimpleFieldVisitorToScalarType>(field, info);
     }
 }
 
