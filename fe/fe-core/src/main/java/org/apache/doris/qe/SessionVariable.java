@@ -708,8 +708,6 @@ public class SessionVariable implements Serializable, Writable {
             "enable_cooldown_replica_affinity";
     public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
 
-    public static final String READ_HIVE_JSON_IN_ONE_COLUMN = "read_hive_json_in_one_column";
-
     /**
      * Inserting overwrite for auto partition table allows creating partition for
      * datas which cannot find partition to overwrite.
@@ -1221,17 +1219,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_PREPARE_THRESHOLD, fuzzy = true)
     public int parallelPrepareThreshold = 32;
-
-    @VariableMgr.VarAttr(name = READ_HIVE_JSON_IN_ONE_COLUMN,
-            description = {"在读取hive json的时候，由于存在一些不支持的json格式，我们默认会报错。为了让用户使用体验更好，"
-                    + "当该变量为true的时候，将一整行json读取到第一列中，用户可以自行选择对一整行json进行处理，例如JSON_PARSE。"
-                    + "需要表的第一列的数据类型为string.",
-                    "When reading hive json, we will report an error by default because there are some unsupported "
-                    + "json formats. In order to provide users with a better experience, when this variable is true,"
-                    + "a whole line of json is read into the first column. Users can choose to process a whole line"
-                    + "of json, such as JSON_PARSE. The data type of the first column of the table needs to"
-                    + "be string."})
-    private boolean readHiveJsonInOneColumn = false;
 
     @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
     private boolean enableJoinReorderBasedCost = false;
@@ -3782,14 +3769,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setKeepCarriageReturn(boolean keepCarriageReturn) {
         this.keepCarriageReturn = keepCarriageReturn;
-    }
-
-    public boolean isReadHiveJsonInOneColumn() {
-        return readHiveJsonInOneColumn;
-    }
-
-    public void setReadHiveJsonInOneColumn(boolean readHiveJsonInOneColumn) {
-        this.readHiveJsonInOneColumn = readHiveJsonInOneColumn;
     }
 
     public boolean isDropTableIfCtasFailed() {
