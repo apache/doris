@@ -20,6 +20,8 @@
 #include <ctype.h>
 #include <math.h>
 #include <re2/stringpiece.h>
+#include <unicode/schriter.h>
+#include <unicode/uchar.h>
 #include <unicode/unistr.h>
 #include <unicode/ustream.h>
 
@@ -511,8 +513,22 @@ struct NameToInitcap {
 struct InitcapImpl {
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        size_t offset_size = offsets.size();
         res_offsets.resize(offsets.size());
+
+        const bool is_ascii = simd::VStringFunctions::is_ascii({data.data(), data.size()});
+        if (is_ascii) {
+            impl_vectors_ascii(data, offsets, res_data, res_offsets);
+        } else {
+            impl_vectors_utf8(data, offsets, res_data, res_offsets);
+        }
+        return Status::OK();
+    }
+
+    static void impl_vectors_ascii(const ColumnString::Chars& data,
+                                   const ColumnString::Offsets& offsets,
+                                   ColumnString::Chars& res_data,
+                                   ColumnString::Offsets& res_offsets) {
+        size_t offset_size = offsets.size();
         memcpy_small_allow_read_write_overflow15(
                 res_offsets.data(), offsets.data(),
                 offset_size * sizeof(ColumnString::Offsets::value_type));
@@ -537,7 +553,40 @@ struct InitcapImpl {
 
             start_index = end_index;
         }
-        return Status::OK();
+    }
+
+    static void impl_vectors_utf8(const ColumnString::Chars& data,
+                                  const ColumnString::Offsets& offsets,
+                                  ColumnString::Chars& res_data,
+                                  ColumnString::Offsets& res_offsets) {
+        std::string result;
+        for (int64_t i = 0; i < offsets.size(); ++i) {
+            const char* begin = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            uint32_t size = offsets[i] - offsets[i - 1];
+            result.clear();
+            to_initcap_utf8(begin, size, result);
+            StringOP::push_value_string(result, i, res_data, res_offsets);
+        }
+    }
+
+    static void to_initcap_utf8(const char* data, uint32_t size, std::string& result) {
+        icu::StringPiece sp;
+        sp.set(data, size);
+        icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
+        unicode_str.toLower();
+        icu::UnicodeString output_str;
+        bool need_capitalize = true;
+        icu::StringCharacterIterator iter(unicode_str);
+        for (UChar32 ch = iter.first32(); ch != icu::CharacterIterator::DONE; ch = iter.next32()) {
+            if (!u_isalnum(ch)) {
+                need_capitalize = true;
+            } else if (need_capitalize) {
+                ch = u_toupper(ch);
+                need_capitalize = false;
+            }
+            output_str.append(ch);
+        }
+        output_str.toUTF8String(result);
     }
 };
 

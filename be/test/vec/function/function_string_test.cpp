@@ -1301,4 +1301,21 @@ TEST(function_string_test, function_strcmp_test) {
     }
 }
 
+TEST(function_string_test, function_initcap) {
+    std::string func_name {"initcap"};
+
+    InputTypeSet input_types = {TypeIndex::String};
+
+    DataSet data_set = {{{std::string("SKJ_ASD_SAD _1A")}, std::string("Skj_Asd_Sad _1a")},
+                        {{std::string("BC'S aaaaA'' 'S")}, std::string("Bc'S Aaaaa'' 'S")},
+                        {{std::string("NULL")}, std::string("Null")},
+                        {{Null()}, Null()},
+                        {{std::string("GROSSE     àstanbul , ÀÇAC123    ΣΟΦΟΣ")},
+                         std::string("Grosse     Àstanbul , Àçac123    Σοφος")},
+                        {{std::string("HELLO, WORLD!")}, std::string("Hello, World!")},
+                        {{std::string("HHHH+-1; asAAss__!")}, std::string("Hhhh+-1; Asaass__!")},
+                        {{std::string("a,B,C,D")}, std::string("A,B,C,D")}};
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
 } // namespace doris::vectorized
