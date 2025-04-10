@@ -32,12 +32,12 @@ import java.util.Map;
 public class S3Properties extends AbstractObjectStorageProperties {
 
 
-    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "access_key"},
+    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
             required = false,
             description = "The endpoint of S3.")
     protected String s3Endpoint = "";
 
-    @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "region"},
+    @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION"},
             required = false,
             description = "The region of S3.")
     protected String s3Region = "us-east-1";
@@ -46,7 +46,7 @@ public class S3Properties extends AbstractObjectStorageProperties {
             description = "The access key of S3.")
     protected String s3AccessKey = "";
 
-    @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key"},
+    @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
             description = "The secret key of S3.")
     protected String s3SecretKey = "";
 

@@ -573,6 +573,16 @@ under the License.
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-auth</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-client-runtime</artifactId>
+            <version>${hadoop.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-client-api</artifactId>
+            <version>${hadoop.version}</version>
+        </dependency>
 
         <!-- lakesoul -->
         <dependency>

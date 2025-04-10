@@ -68,13 +68,14 @@ public class DFSFileSystem extends RemoteFileSystem {
 
 
         super(StorageBackend.StorageType.HDFS.name(), StorageBackend.StorageType.HDFS);
-        this.properties.putAll(properties);
+        this.properties.putAll(hdfsProperties.getOrigProps());
+        this.storageProperties = hdfsProperties;
         this.hdfsProperties = hdfsProperties;
     }
 
     public DFSFileSystem(HDFSProperties hdfsProperties, StorageBackend.StorageType storageType) {
         super(storageType.name(), storageType);
-        this.properties.putAll(properties);
+        this.properties.putAll(hdfsProperties.getOrigProps());
         this.hdfsProperties = hdfsProperties;
     }
 
@@ -222,7 +223,7 @@ public class DFSFileSystem extends RemoteFileSystem {
      * @throws IOException when read data error.
      */
     private static ByteBuffer readStreamBuffer(FSDataInputStream fsDataInputStream, long readOffset, long length)
-                throws IOException {
+            throws IOException {
         synchronized (fsDataInputStream) {
             long currentStreamOffset;
             try {
