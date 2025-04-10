@@ -180,7 +180,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                         + PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY
                         + " or " + PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
             }
-            if (compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
+            if (compactionPolicy != null && compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
                     && olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
                 throw new UserException("Time series compaction policy is not supported for unique key table");
             }
