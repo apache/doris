@@ -1073,6 +1073,22 @@ public class ExpressionUtils {
         return true;
     }
 
+    /** check constant value the expression */
+    public static Optional<Literal> checkConstantExpr(Expression expr, ExpressionRewriteContext context) {
+        if (expr instanceof Literal) {
+            return Optional.of((Literal) expr);
+        } else if (expr instanceof Alias) {
+            return checkConstantExpr(((Alias) expr).child(), context);
+        } else if (expr.isConstant()) {
+            Expression evalExpr = FoldConstantRule.evaluate(expr, context);
+            if (evalExpr instanceof Literal) {
+                return Optional.of((Literal) evalExpr);
+            }
+        }
+
+        return Optional.empty();
+    }
+
     /** analyze the unbound expression and fold it to literal */
     public static Literal analyzeAndFoldToLiteral(ConnectContext ctx, Expression expression) throws UserException {
         Scope scope = new Scope(new ArrayList<>());
