@@ -51,6 +51,19 @@ public class FoldConstantRule implements ExpressionPatternRuleFactory {
 
     /** evaluate by visitor */
     public static Expression evaluate(Expression expr, ExpressionRewriteContext ctx) {
+        try {
+            return evaluateOrThrow(expr, ctx);
+        } catch (Exception e) {
+            if (ctx.cascadesContext != null
+                    && ctx.cascadesContext.getConnectContext() != null
+                    && ctx.cascadesContext.getConnectContext().getSessionVariable().feDebug) {
+                throw e;
+            }
+            return expr;
+        }
+    }
+
+    private static Expression evaluateOrThrow(Expression expr, ExpressionRewriteContext ctx) {
         if (ctx.cascadesContext != null
                 && ctx.cascadesContext.getConnectContext() != null
                 && ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoldConstantByBe()) {
