@@ -69,7 +69,7 @@ TEST_F(RuntimeFilterConsumerHelperTest, basic) {
             TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build(),
             TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build()};
 
-    std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>> runtime_filter_dependencies;
+    std::vector<std::shared_ptr<pipeline::Dependency>> runtime_filter_dependencies;
     SlotDescriptor slot_desc;
     TupleDescriptor tuple_desc;
     tuple_desc.add_slot(&slot_desc);

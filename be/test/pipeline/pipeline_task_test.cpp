@@ -398,4 +398,112 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
     }
 }
 
+TEST_F(PipelineTaskTest, TEST_TERMINATE) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    {
+        OperatorPtr source_op;
+        // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    task->set_task_queue(_task_queue.get());
+    {
+        std::vector<TScanRangeParams> scan_range;
+        int sender_id = 0;
+        TDataSink tsink;
+        EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_FALSE(task->_filter_dependencies.empty());
+    }
+    _query_ctx->get_execution_dependency()->set_ready();
+    {
+        std::atomic_bool terminated = false;
+        auto exec_func = [&]() {
+            bool done = false;
+            EXPECT_TRUE(task->execute(&done).ok());
+            EXPECT_TRUE(terminated);
+            EXPECT_TRUE(task->_eos);
+            EXPECT_TRUE(done);
+            EXPECT_TRUE(task->_wake_up_early);
+            EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._terminated);
+            EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._terminated);
+            EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        };
+
+        auto terminate_func = [&]() {
+            // Sleep 0~5000ms randomly.
+            std::this_thread::sleep_for(std::chrono::milliseconds(std::rand() % 5000));
+            task->set_wake_up_early();
+            task->terminate();
+            terminated = true;
+        };
+
+        std::thread exec_thread(exec_func);
+        std::thread terminate_thread(terminate_func);
+        exec_thread.join();
+        terminate_thread.join();
+    }
+}
+
+TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    {
+        OperatorPtr source_op;
+        // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    task->set_task_queue(_task_queue.get());
+    {
+        std::vector<TScanRangeParams> scan_range;
+        int sender_id = 0;
+        TDataSink tsink;
+        EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_FALSE(task->_filter_dependencies.empty());
+    }
+    for (int i = 0; i < task->LEGAL_STATE_TRANSITION.size(); i++) {
+        auto target = (PipelineTask::State)i;
+        for (int j = 0; j < task->LEGAL_STATE_TRANSITION.size(); j++) {
+            task->_exec_state = (PipelineTask::State)j;
+            EXPECT_EQ(task->_state_transition(target).ok(),
+                      task->LEGAL_STATE_TRANSITION[i].contains((PipelineTask::State)j));
+        }
+    }
+}
+
 } // namespace doris::pipeline

@@ -71,4 +71,15 @@ suite("test_function_string") {
     qt_sql """
         select parse_url(url, 'HOST') as host, parse_url(url, 'FILE') as file from test_parse_url order by id;
     """
+
+
+    sql """
+        set DEBUG_SKIP_FOLD_CONSTANT = true;
+    """
+    qt_sql """
+       select initcap('GROSSE     àstanbul , ÀÇAC123    ΣΟΦΟΣ');
+    """
+    sql """
+        set DEBUG_SKIP_FOLD_CONSTANT = false;
+    """
 }
