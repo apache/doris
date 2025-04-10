@@ -450,9 +450,9 @@ TEST_F(PipelineTaskTest, TEST_TERMINATE) {
         auto terminate_func = [&]() {
             // Sleep 0~5000ms randomly.
             std::this_thread::sleep_for(std::chrono::milliseconds(std::rand() % 5000));
+            terminated = true;
             task->set_wake_up_early();
             task->terminate();
-            terminated = true;
         };
 
         std::thread exec_thread(exec_func);
@@ -503,6 +503,136 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
             EXPECT_EQ(task->_state_transition(target).ok(),
                       task->LEGAL_STATE_TRANSITION[i].contains((PipelineTask::State)j));
         }
+    }
+}
+
+TEST_F(PipelineTaskTest, TEST_SINK_FINISHED) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    {
+        OperatorPtr source_op;
+        // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    task->set_task_queue(_task_queue.get());
+    {
+        std::vector<TScanRangeParams> scan_range;
+        int sender_id = 0;
+        TDataSink tsink;
+        EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_FALSE(task->_filter_dependencies.empty());
+    }
+    _query_ctx->get_execution_dependency()->set_ready();
+    {
+        auto& is_finished =
+                _runtime_state->get_sink_local_state()->cast<DummySinkLocalState>()._is_finished;
+        auto exec_func = [&]() {
+            bool done = false;
+            EXPECT_TRUE(task->execute(&done).ok());
+            EXPECT_TRUE(is_finished);
+            EXPECT_TRUE(task->_eos);
+            EXPECT_TRUE(done);
+            EXPECT_TRUE(task->_wake_up_early);
+            EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._terminated);
+            EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._terminated);
+            EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        };
+
+        auto finish_func = [&]() {
+            // Sleep 0~5000ms randomly.
+            std::this_thread::sleep_for(std::chrono::milliseconds(std::rand() % 5000));
+            is_finished = true;
+        };
+
+        auto finish_check_func = [&]() {
+            while (!is_finished) {
+                task->stop_if_finished();
+            }
+        };
+
+        // Make sure `debug_string` will not be blocked.
+        auto debug_string_func = [&]() {
+            while (!is_finished) {
+                static_cast<void>(task->debug_string());
+            }
+        };
+
+        std::thread exec_thread(exec_func);
+        std::thread finish_thread(finish_func);
+        std::thread finish_check_thread(finish_check_func);
+        std::thread debug_string_thread(debug_string_func);
+        exec_thread.join();
+        finish_thread.join();
+        finish_check_thread.join();
+        debug_string_thread.join();
+    }
+}
+
+TEST_F(PipelineTaskTest, TEST_SINK_EOF) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    {
+        OperatorPtr source_op;
+        // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    task->set_task_queue(_task_queue.get());
+    {
+        std::vector<TScanRangeParams> scan_range;
+        int sender_id = 0;
+        TDataSink tsink;
+        EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_FALSE(task->_filter_dependencies.empty());
+    }
+    _query_ctx->get_execution_dependency()->set_ready();
+    {
+        task->_operators.front()->cast<DummyOperator>()._eos = true;
+        task->_sink->cast<DummySinkOperatorX>()._return_eof = true;
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._return_eof);
+        EXPECT_TRUE(task->_eos);
+        EXPECT_TRUE(done);
+        EXPECT_TRUE(task->_wake_up_early);
+        EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._terminated);
+        EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._terminated);
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
     }
 }
 
