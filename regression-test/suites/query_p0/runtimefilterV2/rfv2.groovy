@@ -56,7 +56,7 @@ suite("rfv2") {
 
     insert into c values (7,8,9);
 
-    set runtime_filter_type=3;
+    set runtime_filter_type=6;
     """
 
     qt_1 """
