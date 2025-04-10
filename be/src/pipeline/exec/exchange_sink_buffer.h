@@ -114,7 +114,6 @@ struct TransmitInfo {
     vectorized::Channel* channel = nullptr;
     std::unique_ptr<PBlock> block;
     bool eos;
-    Status exec_status;
 };
 
 struct BroadcastTransmitInfo {
@@ -242,10 +241,9 @@ public:
 
     void set_dependency(InstanceLoId sender_ins_id, std::shared_ptr<Dependency> queue_dependency,
                         ExchangeSinkLocalState* local_state) {
-        DCHECK(_queue_deps.contains(sender_ins_id));
-        DCHECK(_parents.contains(sender_ins_id));
-        _queue_deps[sender_ins_id] = queue_dependency;
-        _parents[sender_ins_id] = local_state;
+        std::lock_guard l(_m);
+        _queue_deps.push_back(queue_dependency);
+        _parents.push_back(local_state);
     }
 
     void set_low_memory_mode() { _queue_capacity = 8; }
@@ -326,10 +324,13 @@ private:
     // _running_sink_count is used to track how many sinks have not finished yet.
     // It is only decremented when eos is reached.
     phmap::flat_hash_map<InstanceLoId, int64_t> _running_sink_count;
+
+    // protected the `_queue_deps` and `_parents`
+    std::mutex _m;
     // _queue_deps is used for memory control.
-    phmap::flat_hash_map<InstanceLoId, std::shared_ptr<Dependency>> _queue_deps;
+    std::vector<std::shared_ptr<Dependency>> _queue_deps;
     // The ExchangeSinkLocalState in _parents is only used in _turn_off_channel.
-    phmap::flat_hash_map<InstanceLoId, ExchangeSinkLocalState*> _parents;
+    std::vector<ExchangeSinkLocalState*> _parents;
     const int64_t _exchange_sink_num;
 };
 

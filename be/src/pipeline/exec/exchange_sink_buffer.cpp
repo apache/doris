@@ -100,12 +100,7 @@ ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_
           _node_id(node_id),
           _state(state),
           _context(state->get_query_ctx()),
-          _exchange_sink_num(sender_ins_ids.size()) {
-    for (auto sender_ins_id : sender_ins_ids) {
-        _queue_deps.emplace(sender_ins_id, nullptr);
-        _parents.emplace(sender_ins_id, nullptr);
-    }
-}
+          _exchange_sink_num(sender_ins_ids.size()) {}
 
 void ExchangeSinkBuffer::close() {
     // Could not clear the queue here, because there maybe a running rpc want to
@@ -175,7 +170,7 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
         _instance_to_package_queue[ins_id].emplace(std::move(request));
         _total_queue_size++;
         if (_total_queue_size > _queue_capacity) {
-            for (auto& [_, dep] : _queue_deps) {
+            for (auto& dep : _queue_deps) {
                 dep->block();
             }
         }
@@ -245,9 +240,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         brpc_request->set_be_number(request.channel->_parent->be_number());
         if (request.block && !request.block->column_metas().empty()) {
             brpc_request->set_allocated_block(request.block.get());
-        }
-        if (!request.exec_status.ok()) {
-            request.exec_status.to_protobuf(brpc_request->mutable_exec_status());
         }
         auto send_callback = request.channel->get_send_callback(id, request.eos);
 
@@ -322,7 +314,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         q.pop();
         _total_queue_size--;
         if (_total_queue_size <= _queue_capacity) {
-            for (auto& [_, dep] : _queue_deps) {
+            for (auto& dep : _queue_deps) {
                 dep->set_ready();
             }
         }
@@ -474,7 +466,7 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
 
     // Try to wake up pipeline after clearing the queue
     if (_total_queue_size <= _queue_capacity) {
-        for (auto& [_, dep] : _queue_deps) {
+        for (auto& dep : _queue_deps) {
             dep->set_ready();
         }
     }
@@ -498,7 +490,7 @@ void ExchangeSinkBuffer::_turn_off_channel(InstanceLoId id,
     _rpc_channel_is_turn_off[id] = true;
     auto weak_task_ctx = weak_task_exec_ctx();
     if (auto pip_ctx = weak_task_ctx.lock()) {
-        for (auto& [_, parent] : _parents) {
+        for (auto& parent : _parents) {
             parent->on_channel_finished(id);
         }
     }
