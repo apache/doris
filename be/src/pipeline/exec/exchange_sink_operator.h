@@ -62,9 +62,6 @@ public:
         if (_queue_dependency) {
             dep_vec.push_back(_queue_dependency.get());
         }
-        if (_broadcast_dependency) {
-            dep_vec.push_back(_broadcast_dependency.get());
-        }
         std::for_each(_local_channels_dependency.begin(), _local_channels_dependency.end(),
                       [&](std::shared_ptr<Dependency> dep) { dep_vec.push_back(dep.get()); });
         return dep_vec;
@@ -104,7 +101,7 @@ public:
     }
     std::vector<std::shared_ptr<vectorized::Channel>> channels;
     int current_channel_idx {0}; // index of current channel to send to if _random == true
-    bool only_local_exchange {false};
+    bool _only_local_exchange {false};
 
     void on_channel_finished(InstanceLoId channel_id);
     vectorized::PartitionerBase* partitioner() const { return _partitioner.get(); }
@@ -145,7 +142,6 @@ private:
     vectorized::BlockSerializer _serializer;
 
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
-    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
 
     /**
      * We use this to control the execution for local exchange.
@@ -202,7 +198,7 @@ public:
     bool is_serial_operator() const override { return true; }
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);
-        // When `local_state.only_local_exchange` the `sink_buffer` is nullptr.
+        // When `local_state._only_local_exchange` the `sink_buffer` is nullptr.
         if (local_state._sink_buffer) {
             local_state._sink_buffer->set_low_memory_mode();
         }

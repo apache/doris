@@ -100,12 +100,7 @@ ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_
           _node_id(node_id),
           _state(state),
           _context(state->get_query_ctx()),
-          _exchange_sink_num(sender_ins_ids.size()) {
-    for (auto sender_ins_id : sender_ins_ids) {
-        _queue_deps.emplace(sender_ins_id, nullptr);
-        _parents.emplace(sender_ins_id, nullptr);
-    }
-}
+          _exchange_sink_num(sender_ins_ids.size()) {}
 
 void ExchangeSinkBuffer::close() {
     // Could not clear the queue here, because there maybe a running rpc want to
@@ -121,29 +116,34 @@ void ExchangeSinkBuffer::construct_request(TUniqueId fragment_instance_id) {
         return;
     }
     auto low_id = fragment_instance_id.lo;
-    if (_instance_to_package_queue_mutex.count(low_id)) {
+    if (_rpc_instances.contains(low_id)) {
         return;
     }
-    _instance_to_package_queue_mutex[low_id] = std::make_unique<std::mutex>();
-    _instance_to_seq[low_id] = 0;
-    _instance_to_package_queue[low_id] = std::queue<TransmitInfo, std::list<TransmitInfo>>();
-    _instance_to_broadcast_package_queue[low_id] =
+
+    // Initialize the instance data
+    auto instance_data = std::make_unique<RpcInstance>(low_id);
+    instance_data->mutex = std::make_unique<std::mutex>();
+    instance_data->seq = 0;
+    instance_data->package_queue = std::queue<TransmitInfo, std::list<TransmitInfo>>();
+    instance_data->broadcast_package_queue =
             std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>();
-    _queue_capacity =
-            config::exchg_buffer_queue_capacity_factor * _instance_to_package_queue.size();
+    _queue_capacity = config::exchg_buffer_queue_capacity_factor * _rpc_instances.size();
+
     PUniqueId finst_id;
     finst_id.set_hi(fragment_instance_id.hi);
     finst_id.set_lo(fragment_instance_id.lo);
-    _rpc_channel_is_idle[low_id] = true;
-    _rpc_channel_is_turn_off[low_id] = false;
-    _instance_to_rpc_stats_vec.emplace_back(std::make_shared<RpcInstanceStatistics>(low_id));
-    _instance_to_rpc_stats[low_id] = _instance_to_rpc_stats_vec.back().get();
-    _instance_to_request[low_id] = std::make_shared<PTransmitDataParams>();
-    _instance_to_request[low_id]->mutable_finst_id()->CopyFrom(finst_id);
-    _instance_to_request[low_id]->mutable_query_id()->CopyFrom(_query_id);
 
-    _instance_to_request[low_id]->set_node_id(_dest_node_id);
-    _running_sink_count[low_id] = _exchange_sink_num;
+    instance_data->rpc_channel_is_idle = true;
+    instance_data->rpc_channel_is_turn_off = false;
+
+    // Initialize request
+    instance_data->request = std::make_shared<PTransmitDataParams>();
+    instance_data->request->mutable_finst_id()->CopyFrom(finst_id);
+    instance_data->request->mutable_query_id()->CopyFrom(_query_id);
+    instance_data->request->set_node_id(_dest_node_id);
+    instance_data->running_sink_count = _exchange_sink_num;
+
+    _rpc_instances[low_id] = std::move(instance_data);
 }
 
 Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
@@ -151,20 +151,21 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
         return Status::OK();
     }
     auto ins_id = request.channel->dest_ins_id();
-    if (!_instance_to_package_queue_mutex.contains(ins_id)) {
+    if (!_rpc_instances.contains(ins_id)) {
         return Status::InternalError("fragment_instance_id {} not do register_sink",
                                      print_id(request.channel->_fragment_instance_id));
     }
-    if (_rpc_channel_is_turn_off[ins_id]) {
+    auto& instance_data = *_rpc_instances[ins_id];
+    if (instance_data.rpc_channel_is_turn_off) {
         return Status::EndOfFile("receiver eof");
     }
     bool send_now = false;
     {
-        std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[ins_id]);
+        std::unique_lock<std::mutex> lock(*instance_data.mutex);
         // Do not have in process rpc, directly send
-        if (_rpc_channel_is_idle[ins_id]) {
+        if (instance_data.rpc_channel_is_idle) {
             send_now = true;
-            _rpc_channel_is_idle[ins_id] = false;
+            instance_data.rpc_channel_is_idle = false;
         }
         if (request.block) {
             RETURN_IF_ERROR(
@@ -172,16 +173,16 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
             COUNTER_UPDATE(request.channel->_parent->memory_used_counter(),
                            request.block->ByteSizeLong());
         }
-        _instance_to_package_queue[ins_id].emplace(std::move(request));
+        instance_data.package_queue.emplace(std::move(request));
         _total_queue_size++;
         if (_total_queue_size > _queue_capacity) {
-            for (auto& [_, dep] : _queue_deps) {
+            for (auto& dep : _queue_deps) {
                 dep->block();
             }
         }
     }
     if (send_now) {
-        RETURN_IF_ERROR(_send_rpc(ins_id));
+        RETURN_IF_ERROR(_send_rpc(instance_data));
     }
 
     return Status::OK();
@@ -192,71 +193,69 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
         return Status::OK();
     }
     auto ins_id = request.channel->dest_ins_id();
-    if (!_instance_to_package_queue_mutex.contains(ins_id)) {
+    if (!_rpc_instances.contains(ins_id)) {
         return Status::InternalError("fragment_instance_id {} not do register_sink",
                                      print_id(request.channel->_fragment_instance_id));
     }
-    if (_rpc_channel_is_turn_off[ins_id]) {
+    auto& instance_data = *_rpc_instances[ins_id];
+    if (instance_data.rpc_channel_is_turn_off) {
         return Status::EndOfFile("receiver eof");
     }
     bool send_now = false;
     {
-        std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[ins_id]);
+        std::unique_lock<std::mutex> lock(*instance_data.mutex);
         // Do not have in process rpc, directly send
-        if (_rpc_channel_is_idle[ins_id]) {
+        if (instance_data.rpc_channel_is_idle) {
             send_now = true;
-            _rpc_channel_is_idle[ins_id] = false;
+            instance_data.rpc_channel_is_idle = false;
         }
         if (request.block_holder->get_block()) {
             RETURN_IF_ERROR(BeExecVersionManager::check_be_exec_version(
                     request.block_holder->get_block()->be_exec_version()));
         }
-        _instance_to_broadcast_package_queue[ins_id].emplace(request);
+        instance_data.broadcast_package_queue.emplace(request);
     }
     if (send_now) {
-        RETURN_IF_ERROR(_send_rpc(ins_id));
+        RETURN_IF_ERROR(_send_rpc(instance_data));
     }
 
     return Status::OK();
 }
 
-Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
-    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
+    std::unique_lock<std::mutex> lock(*(instance_data.mutex));
 
-    std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
+    std::queue<TransmitInfo, std::list<TransmitInfo>>& q = instance_data.package_queue;
     std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
-            _instance_to_broadcast_package_queue[id];
+            instance_data.broadcast_package_queue;
 
     if (_is_failed) {
-        _turn_off_channel(id, lock);
+        _turn_off_channel(instance_data, lock);
         return Status::OK();
     }
-    if (_rpc_channel_is_turn_off[id]) {
+    if (instance_data.rpc_channel_is_turn_off) {
         return Status::OK();
     }
 
     if (!q.empty()) {
         // If we have data to shuffle which is not broadcasted
         auto& request = q.front();
-        auto& brpc_request = _instance_to_request[id];
+        auto& brpc_request = instance_data.request;
         brpc_request->set_eos(request.eos);
-        brpc_request->set_packet_seq(_instance_to_seq[id]++);
+        brpc_request->set_packet_seq(instance_data.seq++);
         brpc_request->set_sender_id(request.channel->_parent->sender_id());
         brpc_request->set_be_number(request.channel->_parent->be_number());
         if (request.block && !request.block->column_metas().empty()) {
             brpc_request->set_allocated_block(request.block.get());
         }
-        if (!request.exec_status.ok()) {
-            request.exec_status.to_protobuf(brpc_request->mutable_exec_status());
-        }
-        auto send_callback = request.channel->get_send_callback(id, request.eos);
+        auto send_callback = request.channel->get_send_callback(&instance_data, request.eos);
 
         send_callback->cntl_->set_timeout_ms(request.channel->_brpc_timeout_ms);
         if (config::execution_ignore_eovercrowded) {
             send_callback->cntl_->ignore_eovercrowded();
         }
         send_callback->addFailedHandler([&, weak_task_ctx = weak_task_exec_ctx()](
-                                                const InstanceLoId& id, const std::string& err) {
+                                                RpcInstance* ins, const std::string& err) {
             auto task_lock = weak_task_ctx.lock();
             if (task_lock == nullptr) {
                 // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
@@ -264,11 +263,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_state);
-            _failed(id, err);
+            _failed(ins->id, err);
         });
         send_callback->start_rpc_time = GetCurrentTimeNanos();
         send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
-                                                 const InstanceLoId& id, const bool& eos,
+                                                 RpcInstance* ins_ptr, const bool& eos,
                                                  const PTransmitDataResult& result,
                                                  const int64_t& start_rpc_time) {
             auto task_lock = weak_task_ctx.lock();
@@ -279,24 +278,25 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_state);
 
+            auto& ins = *ins_ptr;
             auto end_rpc_time = GetCurrentTimeNanos();
-            update_rpc_time(id, start_rpc_time, end_rpc_time);
+            update_rpc_time(ins, start_rpc_time, end_rpc_time);
 
             Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
-                _set_receiver_eof(id);
+                _set_receiver_eof(ins);
             } else if (!s.ok()) {
-                _failed(id,
+                _failed(ins.id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
                 return;
             } else if (eos) {
-                _ended(id);
+                _ended(ins);
             }
             // The eos here only indicates that the current exchange sink has reached eos.
             // However, the queue still contains data from other exchange sinks, so RPCs need to continue being sent.
-            s = _send_rpc(id);
+            s = _send_rpc(ins);
             if (!s) {
-                _failed(id,
+                _failed(ins.id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
             }
         });
@@ -322,29 +322,29 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         q.pop();
         _total_queue_size--;
         if (_total_queue_size <= _queue_capacity) {
-            for (auto& [_, dep] : _queue_deps) {
+            for (auto& dep : _queue_deps) {
                 dep->set_ready();
             }
         }
     } else if (!broadcast_q.empty()) {
         // If we have data to shuffle which is broadcasted
         auto& request = broadcast_q.front();
-        auto& brpc_request = _instance_to_request[id];
+        auto& brpc_request = instance_data.request;
         brpc_request->set_eos(request.eos);
-        brpc_request->set_packet_seq(_instance_to_seq[id]++);
+        brpc_request->set_packet_seq(instance_data.seq++);
         brpc_request->set_sender_id(request.channel->_parent->sender_id());
         brpc_request->set_be_number(request.channel->_parent->be_number());
         if (request.block_holder->get_block() &&
             !request.block_holder->get_block()->column_metas().empty()) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
         }
-        auto send_callback = request.channel->get_send_callback(id, request.eos);
+        auto send_callback = request.channel->get_send_callback(&instance_data, request.eos);
         send_callback->cntl_->set_timeout_ms(request.channel->_brpc_timeout_ms);
         if (config::execution_ignore_eovercrowded) {
             send_callback->cntl_->ignore_eovercrowded();
         }
         send_callback->addFailedHandler([&, weak_task_ctx = weak_task_exec_ctx()](
-                                                const InstanceLoId& id, const std::string& err) {
+                                                RpcInstance* ins, const std::string& err) {
             auto task_lock = weak_task_ctx.lock();
             if (task_lock == nullptr) {
                 // This means ExchangeSinkBuffer Ojbect already destroyed, not need run failed any more.
@@ -352,11 +352,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_state);
-            _failed(id, err);
+            _failed(ins->id, err);
         });
         send_callback->start_rpc_time = GetCurrentTimeNanos();
         send_callback->addSuccessHandler([&, weak_task_ctx = weak_task_exec_ctx()](
-                                                 const InstanceLoId& id, const bool& eos,
+                                                 RpcInstance* ins_ptr, const bool& eos,
                                                  const PTransmitDataResult& result,
                                                  const int64_t& start_rpc_time) {
             auto task_lock = weak_task_ctx.lock();
@@ -366,26 +366,26 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_state);
-
+            auto& ins = *ins_ptr;
             auto end_rpc_time = GetCurrentTimeNanos();
-            update_rpc_time(id, start_rpc_time, end_rpc_time);
+            update_rpc_time(ins, start_rpc_time, end_rpc_time);
 
             Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
-                _set_receiver_eof(id);
+                _set_receiver_eof(ins);
             } else if (!s.ok()) {
-                _failed(id,
+                _failed(ins.id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
                 return;
             } else if (eos) {
-                _ended(id);
+                _ended(ins);
             }
 
             // The eos here only indicates that the current exchange sink has reached eos.
             // However, the queue still contains data from other exchange sinks, so RPCs need to continue being sent.
-            s = _send_rpc(id);
+            s = _send_rpc(ins);
             if (!s) {
-                _failed(id,
+                _failed(ins.id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
             }
         });
@@ -408,29 +408,17 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         }
         broadcast_q.pop();
     } else {
-        _rpc_channel_is_idle[id] = true;
+        instance_data.rpc_channel_is_idle = true;
     }
 
     return Status::OK();
 }
 
-void ExchangeSinkBuffer::_ended(InstanceLoId id) {
-    if (!_instance_to_package_queue_mutex.contains(id)) {
-        std::stringstream ss;
-        ss << "failed find the instance id:" << id
-           << " now mutex map size:" << _instance_to_package_queue_mutex.size();
-        for (const auto& p : _instance_to_package_queue_mutex) {
-            ss << " key:" << p.first << " value:" << p.second << "\n";
-        }
-        LOG(INFO) << ss.str();
-
-        throw Exception(Status::FatalError("not find the instance id"));
-    } else {
-        std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
-        _running_sink_count[id]--;
-        if (_running_sink_count[id] == 0) {
-            _turn_off_channel(id, lock);
-        }
+void ExchangeSinkBuffer::_ended(RpcInstance& ins) {
+    std::unique_lock<std::mutex> lock(*ins.mutex);
+    ins.running_sink_count--;
+    if (ins.running_sink_count == 0) {
+        _turn_off_channel(ins, lock);
     }
 }
 
@@ -441,15 +429,15 @@ void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
     _context->cancel(Status::Cancelled(err));
 }
 
-void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
-    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+void ExchangeSinkBuffer::_set_receiver_eof(RpcInstance& ins) {
+    std::unique_lock<std::mutex> lock(*ins.mutex);
     // When the receiving side reaches eof, it means the receiver has finished early.
     // The remaining data in the current rpc_channel does not need to be sent,
     // and the rpc_channel should be turned off immediately.
-    Defer turn_off([&]() { _turn_off_channel(id, lock); });
+    Defer turn_off([&]() { _turn_off_channel(ins, lock); });
 
     std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
-            _instance_to_broadcast_package_queue[id];
+            ins.broadcast_package_queue;
     for (; !broadcast_q.empty(); broadcast_q.pop()) {
         if (broadcast_q.front().block_holder->get_block()) {
             COUNTER_UPDATE(broadcast_q.front().channel->_parent->memory_used_counter(),
@@ -461,7 +449,7 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
         swap(empty, broadcast_q);
     }
 
-    std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
+    std::queue<TransmitInfo, std::list<TransmitInfo>>& q = ins.package_queue;
     for (; !q.empty(); q.pop()) {
         // Must update _total_queue_size here, otherwise if _total_queue_size > _queue_capacity at EOF,
         // ExchangeSinkQueueDependency will be blocked and pipeline will be deadlocked
@@ -474,7 +462,7 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
 
     // Try to wake up pipeline after clearing the queue
     if (_total_queue_size <= _queue_capacity) {
-        for (auto& [_, dep] : _queue_deps) {
+        for (auto& dep : _queue_deps) {
             dep->set_ready();
         }
     }
@@ -486,20 +474,20 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
 }
 
 // The unused parameter `with_lock` is to ensure that the function is called when the lock is held.
-void ExchangeSinkBuffer::_turn_off_channel(InstanceLoId id,
+void ExchangeSinkBuffer::_turn_off_channel(RpcInstance& ins,
                                            std::unique_lock<std::mutex>& /*with_lock*/) {
-    if (!_rpc_channel_is_idle[id]) {
-        _rpc_channel_is_idle[id] = true;
+    if (!ins.rpc_channel_is_idle) {
+        ins.rpc_channel_is_idle = true;
     }
     // Ensure that each RPC is turned off only once.
-    if (_rpc_channel_is_turn_off[id]) {
+    if (ins.rpc_channel_is_turn_off) {
         return;
     }
-    _rpc_channel_is_turn_off[id] = true;
+    ins.rpc_channel_is_turn_off = true;
     auto weak_task_ctx = weak_task_exec_ctx();
     if (auto pip_ctx = weak_task_ctx.lock()) {
-        for (auto& [_, parent] : _parents) {
-            parent->on_channel_finished(id);
+        for (auto& parent : _parents) {
+            parent->on_channel_finished(ins.id);
         }
     }
 }
@@ -507,10 +495,10 @@ void ExchangeSinkBuffer::_turn_off_channel(InstanceLoId id,
 void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_time) {
     int64_t local_max_time = 0;
     int64_t local_min_time = INT64_MAX;
-    for (auto& [id, stats] : _instance_to_rpc_stats) {
-        if (stats->sum_time != 0) {
-            local_max_time = std::max(local_max_time, stats->sum_time);
-            local_min_time = std::min(local_min_time, stats->sum_time);
+    for (auto& [_, ins] : _rpc_instances) {
+        if (ins->stats.sum_time != 0) {
+            local_max_time = std::max(local_max_time, ins->stats.sum_time);
+            local_min_time = std::min(local_min_time, ins->stats.sum_time);
         }
     }
     *max_time = local_max_time;
@@ -519,24 +507,22 @@ void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_ti
 
 int64_t ExchangeSinkBuffer::get_sum_rpc_time() {
     int64_t sum_time = 0;
-    for (auto& [id, stats] : _instance_to_rpc_stats) {
-        sum_time += stats->sum_time;
+    for (auto& [_, ins] : _rpc_instances) {
+        sum_time += ins->stats.sum_time;
     }
     return sum_time;
 }
 
-void ExchangeSinkBuffer::update_rpc_time(InstanceLoId id, int64_t start_rpc_time,
+void ExchangeSinkBuffer::update_rpc_time(RpcInstance& ins, int64_t start_rpc_time,
                                          int64_t receive_rpc_time) {
     _rpc_count++;
     int64_t rpc_spend_time = receive_rpc_time - start_rpc_time;
-    DCHECK(_instance_to_rpc_stats.find(id) != _instance_to_rpc_stats.end());
     if (rpc_spend_time > 0) {
-        ++_instance_to_rpc_stats[id]->rpc_count;
-        _instance_to_rpc_stats[id]->sum_time += rpc_spend_time;
-        _instance_to_rpc_stats[id]->max_time =
-                std::max(_instance_to_rpc_stats[id]->max_time, rpc_spend_time);
-        _instance_to_rpc_stats[id]->min_time =
-                std::min(_instance_to_rpc_stats[id]->min_time, rpc_spend_time);
+        auto& stats = ins.stats;
+        ++stats.rpc_count;
+        stats.sum_time += rpc_spend_time;
+        stats.max_time = std::max(stats.max_time, rpc_spend_time);
+        stats.min_time = std::min(stats.min_time, rpc_spend_time);
     }
 }
 
@@ -561,21 +547,21 @@ void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
     // This counter will lead to performance degradation.
     // So only collect this information when the profile level is greater than 3.
     if (_state->profile_level() > 3 && max_count > 0) {
-        std::vector<RpcInstanceStatistics> tmp_rpc_stats_vec;
-        for (const auto& stats : _instance_to_rpc_stats_vec) {
-            tmp_rpc_stats_vec.emplace_back(*stats);
+        std::vector<std::pair<InstanceLoId, RpcInstanceStatistics>> tmp_rpc_stats_vec;
+        for (const auto& [id, ins] : _rpc_instances) {
+            tmp_rpc_stats_vec.emplace_back(id, ins->stats);
         }
         pdqsort(tmp_rpc_stats_vec.begin(), tmp_rpc_stats_vec.end(),
-                [](const auto& a, const auto& b) { return a.max_time > b.max_time; });
+                [](const auto& a, const auto& b) { return a.second.max_time > b.second.max_time; });
         auto count = std::min((size_t)max_count, tmp_rpc_stats_vec.size());
         int i = 0;
         auto* detail_profile = profile->create_child("RpcInstanceDetails", true, true);
-        for (const auto& stats : tmp_rpc_stats_vec) {
+        for (const auto& [id, stats] : tmp_rpc_stats_vec) {
             if (0 == stats.rpc_count) {
                 continue;
             }
             std::stringstream out;
-            out << "Instance " << std::hex << stats.inst_lo_id;
+            out << "Instance " << std::hex << id;
             auto stats_str = fmt::format(
                     "Count: {}, MaxTime: {}, MinTime: {}, AvgTime: {}, SumTime: {}",
                     stats.rpc_count, PrettyPrinter::print(stats.max_time, TUnit::TIME_NS),
@@ -594,10 +580,10 @@ void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
 
 std::string ExchangeSinkBuffer::debug_each_instance_queue_size() {
     fmt::memory_buffer debug_string_buffer;
-    for (auto& [id, m] : _instance_to_package_queue_mutex) {
-        std::unique_lock<std::mutex> lock(*m);
+    for (auto& [id, instance_data] : _rpc_instances) {
+        std::unique_lock<std::mutex> lock(*instance_data->mutex);
         fmt::format_to(debug_string_buffer, "Instance: {}, queue size: {}\n", id,
-                       _instance_to_package_queue[id].size());
+                       instance_data->package_queue.size());
     }
     return fmt::to_string(debug_string_buffer);
 }

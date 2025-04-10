@@ -138,10 +138,8 @@ struct SinkWithChannel {
     std::map<int64_t, std::shared_ptr<Channel>> channels;
     Status add_block(int64_t id, bool eos) {
         auto channel = channels[id];
-        TransmitInfo transmitInfo {.channel = channel.get(),
-                                   .block = std::make_unique<PBlock>(),
-                                   .eos = eos,
-                                   .exec_status = Status::OK()};
+        TransmitInfo transmitInfo {
+                .channel = channel.get(), .block = std::make_unique<PBlock>(), .eos = eos};
         return buffer->add_block(std::move(transmitInfo));
     }
 };
