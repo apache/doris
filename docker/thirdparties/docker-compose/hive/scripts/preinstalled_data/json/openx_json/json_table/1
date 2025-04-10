@@ -1,2 +1,0 @@
-{"id": 1, "name": "Alice", "numbers": [1, 2, 3], "scores": {"math": 90, "english": 85}, "details": {"a": 100, "b": "test1", "c": 1234567890}}
-{"id": 2, "name": "Bob", "numbers": [4, 5], "scores": {"math": 80, "science": 95}, "details": {"a": 200, "b": "test2", "c": 9876543210}}
