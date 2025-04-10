@@ -19,6 +19,7 @@
 
 #include "pipeline/pipeline_task.h"
 #include "runtime_filter/runtime_filter_consumer.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -27,19 +28,16 @@ RuntimeFilterConsumerHelper::RuntimeFilterConsumerHelper(
         const RowDescriptor& row_descriptor)
         : _node_id(_node_id),
           _runtime_filter_descs(runtime_filters),
-          _row_descriptor_ref(row_descriptor),
-          _profile(new RuntimeProfile("RuntimeFilterConsumerHelper")) {
+          _row_descriptor_ref(row_descriptor) {
     _blocked_by_rf = std::make_shared<std::atomic_bool>(false);
 }
 
 Status RuntimeFilterConsumerHelper::init(
-        RuntimeState* state, RuntimeProfile* profile, bool need_local_merge,
-        std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>& dependencies, const int id,
+        RuntimeState* state, bool need_local_merge,
+        std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies, const int id,
         const int node_id, const std::string& name) {
     _state = state;
-    profile->add_child(_profile.get(), true, nullptr);
     RETURN_IF_ERROR(_register_runtime_filter(need_local_merge));
-    _acquire_runtime_filter_timer = ADD_TIMER(_profile, "AcquireRuntimeFilterTime");
     _init_dependency(dependencies, id, node_id, name);
     return Status::OK();
 }
@@ -49,23 +47,22 @@ Status RuntimeFilterConsumerHelper::_register_runtime_filter(bool need_local_mer
     for (size_t i = 0; i < filter_size; ++i) {
         std::shared_ptr<RuntimeFilterConsumer> filter;
         RETURN_IF_ERROR(_state->register_consumer_runtime_filter(
-                _runtime_filter_descs[i], need_local_merge, _node_id, &filter, _profile.get()));
+                _runtime_filter_descs[i], need_local_merge, _node_id, &filter));
         _consumers.emplace_back(filter);
     }
     return Status::OK();
 }
 
 void RuntimeFilterConsumerHelper::_init_dependency(
-        std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>& dependencies, const int id,
+        std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies, const int id,
         const int node_id, const std::string& name) {
     dependencies.resize(_runtime_filter_descs.size());
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> runtime_filter_timers(
             _runtime_filter_descs.size());
-    std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>> local_dependencies;
+    std::vector<std::shared_ptr<pipeline::Dependency>> local_dependencies;
 
     for (size_t i = 0; i < _consumers.size(); ++i) {
-        dependencies[i] = std::make_shared<pipeline::RuntimeFilterDependency>(id, node_id, name,
-                                                                              _consumers[i].get());
+        dependencies[i] = std::make_shared<pipeline::Dependency>(id, node_id, name);
         runtime_filter_timers[i] = _consumers[i]->create_filter_timer(dependencies[i]);
         if (_consumers[i]->has_remote_target()) {
             // The gloabl runtime filter timer need set local runtime filter dependencies.
@@ -84,7 +81,7 @@ void RuntimeFilterConsumerHelper::_init_dependency(
 
 Status RuntimeFilterConsumerHelper::acquire_runtime_filter(
         vectorized::VExprContextSPtrs& conjuncts) {
-    SCOPED_TIMER(_acquire_runtime_filter_timer);
+    SCOPED_TIMER(_acquire_runtime_filter_timer.get());
     std::vector<vectorized::VRuntimeFilterPtr> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         RETURN_IF_ERROR(_consumers[i]->acquire_expr(vexprs));
@@ -146,6 +143,19 @@ Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
 
     *arrived_rf_num = current_arrived_rf_num;
     return Status::OK();
+}
+
+void RuntimeFilterConsumerHelper::collect_realtime_profile(
+        RuntimeProfile* parent_operator_profile) {
+    std::ignore = parent_operator_profile->add_counter("RuntimeFilterInfo", TUnit::NONE,
+                                                       RuntimeProfile::ROOT_COUNTER, 1);
+    RuntimeProfile::Counter* c = parent_operator_profile->add_counter(
+            "AcquireRuntimeFilter", TUnit::TIME_NS, "RuntimeFilterInfo", 2);
+    c->update(_acquire_runtime_filter_timer->value());
+
+    for (auto& consumer : _consumers) {
+        consumer->collect_realtime_profile(parent_operator_profile);
+    }
 }
 
 } // namespace doris

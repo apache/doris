@@ -88,10 +88,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     }
 #endif
     DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
-    if (fragment_exec_params.__isset.runtime_filter_params) {
-        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                fragment_exec_params.runtime_filter_params);
-    }
 }
 
 RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id,
@@ -414,6 +410,11 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
 }
 
 std::string RuntimeState::get_error_log_file_path() {
+    DBUG_EXECUTE_IF("RuntimeState::get_error_log_file_path.block", {
+        if (!_error_log_file_path.empty()) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    });
     std::lock_guard<std::mutex> l(_s3_error_log_file_lock);
     if (_s3_error_fs && _error_log_file && _error_log_file->is_open()) {
         // close error log file
@@ -422,10 +423,7 @@ std::string RuntimeState::get_error_log_file_path() {
                 _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
         // upload error log file to s3
         Status st = _s3_error_fs->upload(error_log_absolute_path, _s3_error_log_file_path);
-        if (st.ok()) {
-            // remove local error log file
-            std::filesystem::remove(error_log_absolute_path);
-        } else {
+        if (!st.ok()) {
             // upload failed and return local error log file path
             LOG(WARNING) << "Fail to upload error file to s3, error_log_file_path="
                          << _error_log_file_path << ", error=" << st;
@@ -510,10 +508,10 @@ Status RuntimeState::register_producer_runtime_filter(
 
 Status RuntimeState::register_consumer_runtime_filter(
         const doris::TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
-        std::shared_ptr<RuntimeFilterConsumer>* consumer_filter, RuntimeProfile* parent_profile) {
+        std::shared_ptr<RuntimeFilterConsumer>* consumer_filter) {
     bool need_merge = desc.has_remote_targets || need_local_merge;
     RuntimeFilterMgr* mgr = need_merge ? global_runtime_filter_mgr() : local_runtime_filter_mgr();
-    return mgr->register_consumer_filter(desc, node_id, consumer_filter, parent_profile);
+    return mgr->register_consumer_filter(desc, node_id, consumer_filter);
 }
 
 bool RuntimeState::is_nereids() const {

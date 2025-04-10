@@ -39,7 +39,7 @@ CREATE TABLE `test2`(
   `col38` varchar(128),
   `col39` decimal(9, 3),
   `col40` char(128)
-) UNIQUE KEY(`col1`)
+) DUPLICATE KEY(`col1`)
 DISTRIBUTED BY HASH(`col1`) BUCKETS 10
 PROPERTIES (
   "replication_num" = "1"

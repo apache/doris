@@ -56,6 +56,11 @@ public class ShowPrivilegesCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<List<String>> infos = Lists.newArrayList();
         Privilege[] values = Privilege.values();
@@ -64,7 +69,7 @@ public class ShowPrivilegesCommand extends ShowCommand {
                 infos.add(Lists.newArrayList(privilege.getName(), privilege.getContext(), privilege.getDesc()));
             }
         }
-        return new ShowResultSet(META_DATA, infos);
+        return new ShowResultSet(getMetaData(), infos);
     }
 
     @Override

@@ -82,6 +82,8 @@ public:
     }
 
     virtual std::string debug_string() const = 0;
+    std::shared_ptr<RuntimeFilterWrapper> wrapper() const { return _wrapper; }
+    void set_wrapper(std::shared_ptr<RuntimeFilterWrapper> wrapper) { _wrapper = wrapper; }
 
 protected:
     RuntimeFilter(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc)
@@ -106,14 +108,7 @@ protected:
 
     std::string _debug_string() const;
 
-    void _check_wrapper_state(std::vector<RuntimeFilterWrapper::State> assumed_states) {
-        try {
-            _wrapper->check_state(assumed_states);
-        } catch (const Exception& e) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "rf wrapper meet invalid state, {}, {}",
-                            e.what(), debug_string());
-        }
-    }
+    void _check_wrapper_state(std::vector<RuntimeFilterWrapper::State> assumed_states);
 
     RuntimeFilterParamsContext* _state = nullptr;
     // _wrapper is a runtime filter function wrapper
