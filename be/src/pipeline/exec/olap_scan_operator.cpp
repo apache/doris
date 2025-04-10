@@ -447,21 +447,19 @@ Status OlapScanLocalState::hold_tablets() {
     _read_sources.resize(_scan_ranges.size());
 
     if (config::is_cloud_mode()) {
-        std::vector<SyncRowsetStats> sync_statistics {};
-        sync_statistics.reserve(_scan_ranges.size());
+        std::vector<SyncRowsetStats> sync_statistics(_scan_ranges.size());
         std::vector<std::function<Status()>> tasks {};
         tasks.reserve(_scan_ranges.size());
         int64_t duration_ns {0};
         {
             SCOPED_RAW_TIMER(&duration_ns);
             for (size_t i = 0; i < _scan_ranges.size(); i++) {
-                sync_statistics.emplace_back();
-                auto* sync_stats = &sync_statistics.back();
+                auto* sync_stats = &sync_statistics[i];
                 int64_t version = 0;
                 std::from_chars(_scan_ranges[i]->version.data(),
                                 _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(),
                                 version);
-                tasks.emplace_back([=, this]() {
+                tasks.emplace_back([this, sync_stats, version, i]() {
                     auto tablet =
                             DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id, sync_stats));
                     _tablets[i] = {std::move(tablet), version};
