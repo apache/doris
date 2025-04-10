@@ -201,7 +201,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public void onClose() {
         super.onClose();
         if (null != fileSystemExecutor) {
-            ThreadPoolManager.shutdownExecutorService(fileSystemExecutor);
+            fileSystemExecutor.shutdown();
         }
         if (null != icebergMetadataOps) {
             icebergMetadataOps.close();
