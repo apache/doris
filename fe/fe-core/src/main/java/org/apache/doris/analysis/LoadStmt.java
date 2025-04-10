@@ -27,7 +27,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.load.EtlJobType;
@@ -519,26 +518,6 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
         user = ConnectContext.get().getQualifiedUser();
     }
 
-
-    private String getProviderFromEndpoint() {
-        Map<String, String> properties = brokerDesc.getProperties();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().equalsIgnoreCase(S3Properties.PROVIDER)) {
-                // S3 Provider properties should be case insensitive.
-                return entry.getValue().toUpperCase();
-            }
-        }
-        return S3Properties.S3_PROVIDER;
-    }
-
-    private String getBucketFromFilePath(String filePath) throws Exception {
-        String[] parts = filePath.split("\\/\\/");
-        if (parts.length < 2) {
-            throw new Exception("filePath is not valid");
-        }
-        String buckt = parts[1].split("\\/")[0];
-        return buckt;
-    }
 
     public String getComment() {
         return comment;

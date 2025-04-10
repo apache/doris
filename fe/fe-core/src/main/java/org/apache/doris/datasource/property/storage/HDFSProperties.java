@@ -17,12 +17,12 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
 import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 
 import java.util.HashMap;
@@ -61,6 +61,9 @@ public class HDFSProperties extends StorageProperties {
             description = "Whether to enable the impersonation of HDFS.")
     private boolean hdfsImpersonationEnabled = false;
 
+    @ConnectorProperty(names = {"fs.defaultFS"}, required = false, description = "")
+    private String fsDefaultFS = "";
+
     /**
      * The final HDFS configuration map that determines the effective settings.
      * Priority rules:
@@ -72,15 +75,14 @@ public class HDFSProperties extends StorageProperties {
 
     public HDFSProperties(Map<String, String> origProps) {
         super(Type.HDFS, origProps);
-        // to be care     setOrigProps(matchParams);
         loadFinalHdfsConfig(origProps);
     }
 
-    public static boolean guessIsMe(Map<String, String> props){
-        if(MapUtils.isEmpty(props)){
+    public static boolean guessIsMe(Map<String, String> props) {
+        if (MapUtils.isEmpty(props)) {
             return false;
         }
-        if(props.containsKey("hadoop.config.resources")|| props.containsKey("hadoop.security.authentication")){
+        if (props.containsKey("hadoop.config.resources") || props.containsKey("hadoop.security.authentication")) {
             return true;
         }
         return false;
@@ -92,7 +94,7 @@ public class HDFSProperties extends StorageProperties {
         }
         finalHdfsConfig = new HashMap<>();
         origProps.forEach((key, value) -> {
-            if (key.startsWith("hadoop.") || key.startsWith("dfs.")||key.equals("fs.defaultFS")) {
+            if (key.startsWith("hadoop.") || key.startsWith("dfs.") || key.equals("fs.defaultFS")) {
                 finalHdfsConfig.put(key, value);
             }
         });
@@ -108,11 +110,13 @@ public class HDFSProperties extends StorageProperties {
         super.checkRequiredProperties();
         checkConfigFileIsValid(hadoopConfigResources);
         if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
-            if (Strings.isNullOrEmpty(hdfsKerberosPrincipal)
-                    || Strings.isNullOrEmpty(hdfsKerberosKeytab)) {
+            if (Strings.isNullOrEmpty(hdfsKerberosPrincipal) || Strings.isNullOrEmpty(hdfsKerberosKeytab)) {
                 throw new IllegalArgumentException("HDFS authentication type is kerberos, "
                         + "but principal or keytab is not set.");
             }
+        }
+        if (StringUtils.isBlank(fsDefaultFS)) {
+            this.fsDefaultFS = HdfsPropertiesUtils.constructDefaultFsFromUri(origProps);
         }
     }
 
@@ -128,6 +132,9 @@ public class HDFSProperties extends StorageProperties {
         allProps.forEach(conf::set);
         if (MapUtils.isNotEmpty(finalHdfsConfig)) {
             finalHdfsConfig.forEach(conf::set);
+        }
+        if (StringUtils.isNotBlank(fsDefaultFS)) {
+            conf.set("fs.defaultFS", fsDefaultFS);
         }
         //todo waiting be support should use new params
         conf.set("hdfs.security.authentication", hdfsAuthenticationType);
@@ -147,7 +154,7 @@ public class HDFSProperties extends StorageProperties {
         if (MapUtils.isNotEmpty(finalHdfsConfig)) {
             finalHdfsConfig.forEach(conf::set);
         }
-       /* conf.set("hadoop.kerberos.authentication", hdfsAuthenticationType);
+        /* conf.set("hadoop.kerberos.authentication", hdfsAuthenticationType);
         if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
             conf.set("hadoop.kerberos.principal", hdfsKerberosPrincipal);
             conf.set("hadoop.kerberos.keytab", hdfsKerberosKeytab);
@@ -173,12 +180,12 @@ public class HDFSProperties extends StorageProperties {
 
     @Override
     public String convertUrlToFilePath(String url) throws UserException {
-        return url;
+        return HdfsPropertiesUtils.convertUrlToFilePath(url);
     }
 
     @Override
     public String checkLoadPropsAndReturnUri(Map<String, String> loadProps) throws UserException {
-        throw new NotImplementedException("Support HDFS is not implemented");
+        return HdfsPropertiesUtils.checkLoadPropsAndReturnUri(loadProps);
     }
 
     @Override

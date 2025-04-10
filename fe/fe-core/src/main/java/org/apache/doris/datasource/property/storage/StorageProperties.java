@@ -107,7 +107,7 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static StorageProperties createStorageProperties(Map<String, String> origProps) {
         StorageProperties storageProperties = null;
         // 1. parse the storage properties by user specified fs.xxx.support properties
-        if (isFsSupport(origProps, FS_HDFS_SUPPORT)||HDFSProperties.guessIsMe(origProps)) {
+        if (isFsSupport(origProps, FS_HDFS_SUPPORT) || HDFSProperties.guessIsMe(origProps)) {
             storageProperties = new HDFSProperties(origProps);
         }
 
