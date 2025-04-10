@@ -2,6 +2,10 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20250408
+
+- Modified: jindofs 6.3.4 -> 6.8.2
+
 ## 20250402
 
 - Added: icu 75-1, develop ICU tokenizer based on ICU library.
