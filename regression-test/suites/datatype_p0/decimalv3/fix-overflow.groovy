@@ -16,7 +16,7 @@
 // under the License.
 
 suite("fix-overflow") {
-    sql "set check_overflow_for_decimal=true;"
+    sql "set enable_ansi_mode=true;"
     sql "drop table if exists fix_overflow_l;"
     sql """
         create table fix_overflow_l(k1 decimalv3(38,1)) distributed by hash(k1) properties("replication_num"="1");

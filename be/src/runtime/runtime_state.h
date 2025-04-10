@@ -155,7 +155,7 @@ public:
     int32_t nano_seconds() const { return _nano_seconds; }
     // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
-    const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
+    MOCK_FUNCTION const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
     const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
@@ -173,9 +173,8 @@ public:
                _query_options.enable_function_pushdown;
     }
 
-    bool check_overflow_for_decimal() const {
-        return _query_options.__isset.check_overflow_for_decimal &&
-               _query_options.check_overflow_for_decimal;
+    MOCK_FUNCTION bool enable_ansi_mode() const {
+        return _query_options.__isset.enable_ansi_mode && _query_options.enable_ansi_mode;
     }
 
     bool enable_decimal256() const {

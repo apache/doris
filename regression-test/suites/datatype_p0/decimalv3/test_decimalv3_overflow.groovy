@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_decimalv3_overflow") {
-    sql """ set check_overflow_for_decimal=true; """
+    sql """ set enable_ansi_mode=true; """
 
     def tblName1 = "test_decimalv3_overflow1"
     sql "drop table if exists ${tblName1}"

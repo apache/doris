@@ -115,7 +115,7 @@ public:
     static constexpr bool is_parametric = true;
 
     DataTypeDateTimeV2(UInt32 scale = 0) : _scale(scale) {
-        if (UNLIKELY(scale > 6)) {
+        if (UNLIKELY(scale > MAX_MICROSECOND_DIGIT_COUNT)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scale {} is out of bounds", scale);
         }
     }

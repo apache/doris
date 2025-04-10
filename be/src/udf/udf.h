@@ -75,11 +75,7 @@ public:
 
     RuntimeState* state() { return _state; }
 
-    bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
-
-    bool set_check_overflow_for_decimal(bool check_overflow_for_decimal) {
-        return _check_overflow_for_decimal = check_overflow_for_decimal;
-    }
+    bool enable_ansi_mode() const;
 
     void set_string_as_jsonb_string(bool string_as_jsonb_string) {
         _string_as_jsonb_string = string_as_jsonb_string;
@@ -185,7 +181,6 @@ private:
 
     //udf execute timer
     RuntimeProfile::Counter* _udf_execute_timer = nullptr;
-    bool _check_overflow_for_decimal = false;
 
     bool _string_as_jsonb_string = false;
     bool _jsonb_string_as_string = false;

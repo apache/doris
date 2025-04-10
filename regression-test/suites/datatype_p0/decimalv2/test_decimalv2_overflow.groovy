@@ -20,7 +20,7 @@ suite("test_decimalv2_overflow", "nonConcurrent") {
         admin set frontend config("enable_decimal_conversion" = "false");
     """
 
-    sql """ set check_overflow_for_decimal=false; """
+    sql """ set enable_ansi_mode=false; """
 
     def tblName1 = "test_decimalv2_overflow1"
     sql "drop table if exists ${tblName1}"
@@ -124,7 +124,7 @@ suite("test_decimalv2_overflow", "nonConcurrent") {
         select * from (select * from test_decimalv2_tb2 except select * from test_decimalv2_tb1) t order by 1;
     """
 
-    sql """ set check_overflow_for_decimal=true; """
+    sql """ set enable_ansi_mode=true; """
     def prepare_decimalv2_overflow_test = {
         sql """
             drop TABLE if exists decimalv2_overflow_test;

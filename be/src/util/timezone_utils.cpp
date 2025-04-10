@@ -55,6 +55,10 @@ RE2 time_zone_offset_format_reg(R"(^[+-]{1}\d{2}\:\d{2}$)"); // visiting is thre
 // for ut, make it never nullptr.
 std::unique_ptr<vectorized::ZoneList> lower_zone_cache_ = std::make_unique<vectorized::ZoneList>();
 
+const vectorized::ZoneList* get_time_zone_cache() {
+    return lower_zone_cache_.get();
+}
+
 const std::string TimezoneUtils::default_time_zone = "+08:00";
 static const char* tzdir = "/usr/share/zoneinfo"; // default value, may change by TZDIR env var
 

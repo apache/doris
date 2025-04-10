@@ -44,12 +44,15 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "gutil/integral_types.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/type_limit.h"
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
 #include "util/jsonb_writer.h"
+#include "util/string_parser.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -62,8 +65,10 @@
 #include "vec/columns/columns_common.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/int_exp.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
+#include "vec/common/string_utils/string_utils.h"
 #include "vec/core/block.h"
 #include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
@@ -140,9 +145,15 @@ struct TimeCast {
     // Some examples of conversions.
     // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24
     template <typename T>
-    static bool try_parse_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone) {
+    static bool try_parse_time(const char* s, size_t arg_len, UInt32 scale, T& x,
+                               const cctz::time_zone& local_time_zone) {
         /// TODO: Maybe we can move Timecast to the io_helper.
-        if (try_as_time(s, len, x, local_time_zone)) {
+        int len = arg_len;
+        s = trim_ascii_whitespaces(s, len);
+        if (len == 0) {
+            return false;
+        }
+        if (try_as_time(s, len, x, scale)) {
             return true;
         } else {
             if (VecDateTimeValue dv {}; dv.from_date_str(s, len, local_time_zone)) {
@@ -155,20 +166,12 @@ struct TimeCast {
     }
 
     template <typename T>
-    static bool try_as_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone) {
-        char* first_char = s;
-        char* end_char = s + len;
-        int hour = 0, minute = 0, second = 0;
-        auto parse_from_str_to_int = [](char* begin, size_t len, auto& num) {
-            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-            auto int_value = StringParser::string_to_unsigned_int<uint64_t>(
-                    reinterpret_cast<char*>(begin), len, &parse_result);
-            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
-                return false;
-            }
-            num = int_value;
-            return true;
-        };
+    static bool try_as_time(const char* s, size_t len, T& x, UInt32 scale) {
+        const char* first_char = s;
+        const char* end_char = s + len;
+        int hour = 0;
+        uint32_t minute = 0, second = 0, microsecond = 0;
+        int carry_second = 0;
         if (char* first_colon {nullptr};
             (first_colon = (char*)memchr(first_char, ':', len)) != nullptr) {
             if (char* second_colon {nullptr};
@@ -176,64 +179,106 @@ struct TimeCast {
                 nullptr) {
                 // find two colon
                 // parse hour
-                if (!parse_from_str_to_int(first_char, first_colon - first_char, hour)) {
+                if (!parse_to_integer_(first_char, first_colon - first_char, hour)) {
                     // hour  failed
                     return false;
                 }
+                if (TimeValue::hour_overflow(hour)) {
+                    return false;
+                }
                 // parse minute
-                if (!parse_from_str_to_int(first_colon + 1, second_colon - first_colon - 1,
-                                           minute)) {
+                if (!parse_to_integer_(first_colon + 1, second_colon - first_colon - 1, minute)) {
+                    return false;
+                }
+                // minute and second must be < 60
+                if (TimeValue::minute_overflow(minute)) {
                     return false;
                 }
                 // parse second
-                if (!parse_from_str_to_int(second_colon + 1, end_char - second_colon - 1, second)) {
+                const char* dot =
+                        (const char*)memchr(second_colon + 1, '.', end_char - second_colon - 1);
+                const char* end = dot ? dot : end_char;
+                if (!parse_to_integer_(second_colon + 1, end - second_colon - 1, second)) {
                     return false;
+                }
+                if (TimeValue::second_overflow(second)) {
+                    return false;
+                }
+                // parse microseconds
+                if (dot) {
+                    if (!parse_microsecond_(dot, end_char, scale, microsecond, carry_second)) {
+                        return false;
+                    }
                 }
             } else {
                 // find one colon
                 // parse hour
-                if (!parse_from_str_to_int(first_char, first_colon - first_char, hour)) {
+                if (!parse_to_integer_(first_char, first_colon - first_char, hour)) {
+                    return false;
+                }
+                if (TimeValue::hour_overflow(hour)) {
                     return false;
                 }
                 // parse minute
-                if (!parse_from_str_to_int(first_colon + 1, end_char - first_colon - 1, minute)) {
+                const char* dot =
+                        (const char*)memchr(first_colon + 1, '.', end_char - first_colon - 1);
+                const char* end = dot ? dot : end_char;
+                if (!parse_to_integer_(first_colon + 1, end - first_colon - 1, minute)) {
+                    return false;
+                }
+                if (TimeValue::minute_overflow(minute)) {
+                    return false;
+                }
+                // parse microseconds
+                if (dot) {
+                    if (!parse_microsecond_(dot, end_char, scale, microsecond, carry_second)) {
+                        return false;
+                    }
+                }
+            }
+            x = TimeValue::make_time(std::abs(hour), minute, second, microsecond);
+            if (carry_second) {
+                x += TimeValue::ONE_SECOND_MICROSECONDS;
+                if (TimeValue::time_overflow(x)) {
                     return false;
                 }
             }
+            if (hour < 0) {
+                x = -x;
+            }
+            return true;
         } else {
             // no colon ,so try to parse as a number
-            size_t from {};
-            if (!parse_from_str_to_int(first_char, len, from)) {
-                return false;
-            }
-            return try_parse_time(from, x, local_time_zone);
+            return try_as_decimal_(s, len, scale, x);
         }
-        // minute second must be < 60
-        if (minute >= 60 || second >= 60) {
-            return false;
-        }
-        x = TimeValue::make_time(hour, minute, second);
-        return true;
     }
+
     // Cast from number
     template <typename T, typename S>
     //requires {std::is_arithmetic_v<T> && std::is_arithmetic_v<S>}
-    static bool try_parse_time(T from, S& x, const cctz::time_zone& local_time_zone) {
-        int64 seconds = int64(from / 100);
-        int64 hour = 0, minute = 0, second = 0;
-        second = int64(from - 100 * seconds);
-        from /= 100;
-        seconds = int64(from / 100);
-        minute = int64(from - 100 * seconds);
-        hour = seconds;
-        if (minute >= 60 || second >= 60) {
+    static bool try_parse_time(T from, S& x) {
+        // max/min time: +-838:59:59.999999
+        static constexpr int32_t max_number = 8385960;
+        static constexpr int32_t min_number = -8385960;
+        if (from > max_number || from < min_number) {
+            return false;
+        }
+        int32_t hour = 0, minute = 0, second = 0;
+        auto from_as_int = (int32_t)from;
+        second = from_as_int % 100;
+        minute = (from_as_int / 100) % 100;
+        if (TimeValue::second_overflow(second) || TimeValue::minute_overflow(minute)) {
+            return false;
+        }
+        hour = from_as_int / 10000;
+        if (TimeValue::hour_overflow(hour)) {
             return false;
         }
         x = TimeValue::make_time(hour, minute, second);
         return true;
     }
     template <typename S>
-    static bool try_parse_time(__int128 from, S& x, const cctz::time_zone& local_time_zone) {
+    static bool try_parse_time(__int128 from, S& x) {
         from %= (int64)(1000000000000);
         int64 seconds = from / 100;
         int64 hour = 0, minute = 0, second = 0;
@@ -246,6 +291,114 @@ struct TimeCast {
             return false;
         }
         x = TimeValue::make_time(hour, minute, second);
+        return true;
+    }
+
+private:
+    template <typename T>
+    static bool parse_to_integer_(const char* begin, size_t len, T& num) {
+        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+        if constexpr (std::is_signed_v<T>) {
+            num = StringParser::string_to_int<T>(begin, len, &parse_result);
+        } else {
+            num = StringParser::string_to_unsigned_int<T>(begin, len, &parse_result);
+        }
+        return parse_result == StringParser::PARSE_SUCCESS;
+    }
+
+    template <typename T>
+    static bool try_as_decimal_(const char* s, size_t len, UInt32 scale, T& x) {
+        x = 0;
+        const char* end_char = s + len;
+        auto* dot = (char*)memchr(s, '.', len);
+        int32_t int_part = 0;
+        size_t int_part_len = len;
+        size_t microsecond_len = 0;
+        uint32_t microsecond = 0;
+        int32_t carry_second = 0;
+        if (dot) {
+            int_part_len = dot - s;
+            microsecond_len = len - int_part_len - 1;
+            if (microsecond_len > 0) {
+                if (!parse_microsecond_(dot, end_char, scale, microsecond, carry_second)) {
+                    return false;
+                }
+            }
+        }
+        if (int_part_len > 8) {
+            return false;
+        }
+        if (int_part_len > 0) {
+            // special case: -.999999
+            if (int_part_len == 1 && s[0] == '-') {
+                if (carry_second) {
+                    x = -TimeValue::ONE_SECOND_MICROSECONDS;
+                } else {
+                    x = -((int64_t)microsecond);
+                }
+                return true;
+            } else {
+                if (!parse_to_integer_(s, int_part_len, int_part)) {
+                    return false;
+                }
+                bool res = try_parse_time(int_part, x);
+                if (!res) {
+                    return false;
+                }
+            }
+        }
+        if (microsecond_len > 0) {
+            if (carry_second) {
+                (x >= 0) ? (x += TimeValue::ONE_SECOND_MICROSECONDS)
+                         : (x -= TimeValue::ONE_SECOND_MICROSECONDS);
+                if (TimeValue::time_overflow(x)) {
+                    return false;
+                }
+            } else {
+                (x >= 0) ? (x += microsecond) : (x -= microsecond);
+            }
+        }
+        return true;
+    }
+
+    template <typename T>
+    static void round_microseconds_(T& microsecond, int32_t round_to_scale, int32_t& carry_second) {
+        Decimal32 dec_value(microsecond);
+        if (round_to_scale != MAX_MICROSECOND_DIGIT_COUNT) {
+            Decimal32 dec_value_rounded;
+            convert_decimal_cols<DataTypeDecimal<Decimal32>, DataTypeDecimal<Decimal32>, false,
+                                 false>(&dec_value, &dec_value_rounded,
+                                        BeConsts::MAX_DECIMAL32_PRECISION,
+                                        MAX_MICROSECOND_DIGIT_COUNT,
+                                        BeConsts::MAX_DECIMAL32_PRECISION, round_to_scale, 1);
+            dec_value = dec_value_rounded;
+            dec_value *= int_exp10(MAX_MICROSECOND_DIGIT_COUNT - round_to_scale);
+        }
+        auto dec_int_val = (int32_t)dec_value;
+        microsecond = dec_int_val % 1000000;
+        carry_second = dec_int_val / 1000000;
+    }
+    static bool parse_microsecond_(const char* begin, const char* end, UInt32 scale,
+                                   uint32_t& microsecond, int32_t& carry_second) {
+        microsecond = 0;
+        carry_second = 0;
+        if (end == begin) {
+            return true;
+        }
+        // parse microseconds
+        if (!StringParser::is_float_suffix(begin, end - begin)) {
+            return false;
+        }
+        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+        Decimal32 dec_value;
+        dec_value = StringParser::string_to_decimal<PrimitiveType::TYPE_DECIMAL32>(
+                begin, end - begin, BeConsts::MAX_DECIMAL32_PRECISION, MAX_MICROSECOND_DIGIT_COUNT,
+                &parse_result);
+        if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
+            return false;
+        }
+        microsecond = dec_value.value;
+        round_microseconds_(microsecond, scale, carry_second);
         return true;
     }
 };
@@ -343,10 +496,10 @@ struct ConvertImpl {
             if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
                 // the result is rounded when doing cast, so it may still overflow after rounding
                 // if destination integer digit count is the same as source integer digit count.
-                bool narrow_integral = context->check_overflow_for_decimal() &&
+                bool narrow_integral = context->enable_ansi_mode() &&
                                        (to_precision - to_scale) <= (from_precision - from_scale);
 
-                bool multiply_may_overflow = context->check_overflow_for_decimal();
+                bool multiply_may_overflow = context->enable_ansi_mode();
                 if (to_scale > from_scale) {
                     multiply_may_overflow &=
                             (from_precision + to_scale - from_scale) >= to_max_digits;
@@ -447,8 +600,8 @@ struct ConvertImpl {
                     col_null_map_to = ColumnUInt8::create(size, 0);
                     vec_null_map_to = &col_null_map_to->get_data();
                     for (size_t i = 0; i < size; ++i) {
-                        (*vec_null_map_to)[i] = !TimeCast::try_parse_time(
-                                vec_from[i], vec_to[i], context->state()->timezone_obj());
+                        // TODO: support scale
+                        (*vec_null_map_to)[i] = !TimeCast::try_parse_time(vec_from[i], vec_to[i]);
                     }
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
@@ -1102,9 +1255,9 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionCon
                   std::is_same_v<DataTypeTimeV2, DataType>) {
         // cast from string to time(float64)
         auto len = rb.count();
-        auto s = rb.position();
+        auto* s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
-        auto ret = TimeCast::try_parse_time(s, len, x, context->state()->timezone_obj());
+        auto ret = TimeCast::try_parse_time(s, len, scale, x, context->state()->timezone_obj());
         return ret;
     }
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
@@ -1419,37 +1572,61 @@ struct StringParsing {
         const IColumn::Offsets* offsets = &col_from_string->get_offsets();
 
         [[maybe_unused]] UInt32 scale = 0;
-        if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-            const auto* type = assert_cast<const DataTypeDateTimeV2*>(
-                    block.get_by_position(result).type.get());
+        if constexpr (IsDataTypeDateTimeV2<ToDataType> ||
+                      std::is_same_v<ToDataType, DataTypeTimeV2>) {
+            const auto* type =
+                    assert_cast<const ToDataType*>(block.get_by_position(result).type.get());
             scale = type->get_scale();
         }
 
         size_t current_offset = 0;
 
-        for (size_t i = 0; i < row; ++i) {
-            size_t next_offset = (*offsets)[i];
-            size_t string_size = next_offset - current_offset;
+        std::visit(
+                [&](auto is_strict_mode) {
+                    for (size_t i = 0; i < row; ++i) {
+                        size_t next_offset = (*offsets)[i];
+                        size_t string_size = next_offset - current_offset;
 
-            ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
+                        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
 
-            bool parsed;
-            if constexpr (IsDataTypeDecimal<ToDataType>) {
-                ToDataType::check_type_precision((PrecisionScaleArg(additions).precision));
-                StringParser::ParseResult res = try_parse_decimal_impl<ToDataType>(
-                        vec_to[i], read_buffer, PrecisionScaleArg(additions));
-                parsed = (res == StringParser::PARSE_SUCCESS ||
-                          res == StringParser::PARSE_OVERFLOW ||
-                          res == StringParser::PARSE_UNDERFLOW);
-            } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context, scale);
-            } else {
-                parsed =
-                        try_parse_impl<ToDataType, DataTypeString>(vec_to[i], read_buffer, context);
-            }
-            (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
-            current_offset = next_offset;
-        }
+                        bool parsed = false;
+                        bool overflow = false;
+                        if constexpr (IsDataTypeDecimal<ToDataType>) {
+                            ToDataType::check_type_precision(
+                                    (PrecisionScaleArg(additions).precision));
+                            StringParser::ParseResult res = try_parse_decimal_impl<ToDataType>(
+                                    vec_to[i], read_buffer, PrecisionScaleArg(additions));
+                            parsed = (res == StringParser::PARSE_SUCCESS);
+                            overflow = (res == StringParser::PARSE_OVERFLOW ||
+                                        res == StringParser::PARSE_UNDERFLOW);
+                        } else {
+                            parsed = try_parse_impl<ToDataType, DataTypeString>(
+                                    vec_to[i], read_buffer, context, scale);
+                        }
+                        bool b_all_read = is_all_read(read_buffer);
+                        bool error = (!parsed || !b_all_read);
+                        if constexpr (is_strict_mode) {
+                            if (error) {
+                                std::string err_msg((char*)&(*chars)[current_offset], string_size);
+                                if (overflow) {
+                                    throw doris::Exception(
+                                            ErrorCode::INTERNAL_ERROR,
+                                            "Overflow converting '{}' to {}", err_msg,
+                                            block.get_by_position(result).type->get_name());
+                                } else {
+                                    throw doris::Exception(
+                                            ErrorCode::INTERNAL_ERROR, "Cannot convert '{}' to {}",
+                                            err_msg,
+                                            block.get_by_position(result).type->get_name());
+                                }
+                            }
+                        }
+
+                        (*vec_null_map_to)[i] = error;
+                        current_offset = next_offset;
+                    }
+                },
+                make_bool_variant(context->enable_ansi_mode()));
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
@@ -2223,10 +2400,10 @@ private:
                     }
 
                     bool narrow_integral =
-                            context->check_overflow_for_decimal() &&
+                            context->enable_ansi_mode() &&
                             (to_precision - to_scale) <= (from_precision - from_scale);
 
-                    bool multiply_may_overflow = context->check_overflow_for_decimal();
+                    bool multiply_may_overflow = context->enable_ansi_mode();
                     if (to_scale > from_scale) {
                         multiply_may_overflow &=
                                 (from_precision + to_scale - from_scale) >= to_max_digits;

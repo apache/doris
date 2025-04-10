@@ -204,7 +204,7 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
     if (have_null_column(block, args)) {
         bool need_to_default = need_replace_null_data_to_default();
         if (context) {
-            need_to_default &= context->check_overflow_for_decimal();
+            need_to_default &= context->enable_ansi_mode();
         }
         // extract nested column from nulls
         ColumnNumbers new_args;
