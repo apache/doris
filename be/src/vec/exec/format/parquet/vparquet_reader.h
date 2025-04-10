@@ -153,6 +153,15 @@ public:
         _table_col_to_file_col = map;
     }
 
+    void set_read_lines(std::list<int64_t> read_lines) {
+        _read_line_mode = true;
+        _read_lines = read_lines;
+    }
+
+    void set_row_id_column_iterator(std::pair<std::shared_ptr<RowIdColumnIteratorV2>, SlotId> iterator_pair) {
+        _row_id_column_iterator_pair = iterator_pair;
+    }
+
 protected:
     void _collect_profile_before_close() override;
 
@@ -288,6 +297,11 @@ private:
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     bool _hive_use_column_names = false;
     std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
+
+    bool _read_line_mode = false;
+    std::list<int64_t> _read_lines;
+    std::vector<std::vector<RowRange>> _read_line_mode_row_ranges;
+    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr, -1};
 };
 #include "common/compile_check_end.h"
 

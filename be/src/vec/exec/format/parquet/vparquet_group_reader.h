@@ -32,6 +32,8 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vparquet_column_reader.h"
+#include "olap/id_manager.h"
+#include "olap/utils.h"
 
 namespace cctz {
 class time_zone;
@@ -163,6 +165,15 @@ public:
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
     int64_t get_remaining_rows() { return _remaining_rows; }
 
+
+    void set_row_id_column_iterator(const std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int>& iterator_pair) {
+        _row_id_column_iterator_pair = iterator_pair;
+    }
+
+    void set_current_row_group_idx(RowGroupIndex row_group_idx) {
+        _current_row_group_idx = row_group_idx;
+    }
+
 protected:
     void _collect_profile_before_close() override {
         if (_file_reader != nullptr) {
@@ -198,6 +209,9 @@ private:
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
     void _convert_dict_cols_to_string_cols(Block* block);
 
+    Status _get_current_batch_row_id(size_t read_rows, std::vector<rowid_t>& row_ids);
+    Status _fill_row_id_columns(Block* block,size_t read_rows);
+
     io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;
     const std::vector<std::string>& _read_columns;
@@ -229,6 +243,9 @@ private:
     RuntimeState* _state = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
     bool _is_row_group_filtered = false;
+
+    RowGroupIndex _current_row_group_idx{0,0,0};
+    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr, -1};
 };
 #include "common/compile_check_end.h"
 

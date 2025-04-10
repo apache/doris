@@ -788,6 +788,8 @@ message PRequestBlockDesc {
     repeated ColumnPB column_descs = 3;
     repeated uint32 file_id = 4;
     repeated uint32 row_id = 5;
+    optional PTupleDescriptor desc = 6;
+    repeated uint32 column_idxs = 7;
 }
 
 message PMultiGetRequestV2 {

@@ -321,6 +321,9 @@ public:
     TNetworkAddress coord_addr;
     TNetworkAddress current_connect_fe;
     TQueryGlobals query_globals;
+    const TQueryGlobals get_query_globals() const {
+        return query_globals;
+    }
 
     ObjectPool obj_pool;
 
@@ -496,6 +499,10 @@ public:
 
     timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
     QuerySource get_query_source() const { return this->_query_source; }
+
+    const TQueryOptions get_query_options() const{
+        return _query_options;
+    }
 };
 
 } // namespace doris

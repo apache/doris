@@ -45,13 +45,22 @@ namespace doris {
 
 enum class FileMappingType {
     DORIS_FORMAT, // for doris format file {tablet_id}{rowset_id}{segment_id}
-    ORC,
-    PARQUET
+    EXTERNAL, //
+};
+
+struct ExternalFileMappingInfo {
+    TFileRangeDesc external_scan_range_desc;
+    bool enable_file_meta_cache;
+
+    ExternalFileMappingInfo(const TFileRangeDesc& scan_range, bool file_meta_cache):
+            external_scan_range_desc(scan_range), enable_file_meta_cache(file_meta_cache) {
+    }
 };
 
 struct FileMapping {
     FileMappingType type;
     std::string value;
+    std::optional<ExternalFileMappingInfo> external_info = std::nullopt;
 
     FileMapping(FileMappingType t, std::string v) : type(t), value(std::move(v)) {};
 
@@ -66,6 +75,19 @@ struct FileMapping {
         ptr += sizeof(rowset_id);
         memcpy(ptr, &segment_id, sizeof(segment_id));
     }
+
+    FileMapping(int plan_node_id, const TFileRangeDesc& scan_range, bool enable_file_meta_cache)
+            : type(FileMappingType::EXTERNAL), external_info(std::in_place, scan_range, enable_file_meta_cache) {
+        value.resize(scan_range.path.size() + sizeof(plan_node_id) + sizeof(scan_range.start_offset));
+        auto* ptr = value.data();
+
+        memcpy(ptr, &plan_node_id, sizeof(plan_node_id));
+        ptr += sizeof(plan_node_id);
+        memcpy(ptr, &scan_range.start_offset, sizeof(scan_range.start_offset));
+        ptr += sizeof(scan_range.start_offset);
+        memcpy(ptr, scan_range.path.data(), scan_range.path.size());
+    }
+
 
     std::tuple<int64_t, RowsetId, uint32_t> get_doris_format_info() const {
         DCHECK(type == FileMappingType::DORIS_FORMAT);
@@ -83,6 +105,17 @@ struct FileMapping {
 
         return std::make_tuple(tablet_id, rowset_id, segment_id);
     }
+
+    std::tuple<int, ExternalFileMappingInfo&> get_external_file_info() {
+        DCHECK(type == FileMappingType::EXTERNAL);
+        DCHECK(external_info.has_value());
+
+        int plan_node_id;
+        memcpy(&plan_node_id, value.data(), sizeof(plan_node_id));
+
+        return std::tuple<int, ExternalFileMappingInfo&>{plan_node_id, external_info.value()};
+    }
+
 };
 
 class IdFileMap {
