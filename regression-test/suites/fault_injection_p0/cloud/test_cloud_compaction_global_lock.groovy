@@ -66,6 +66,9 @@ suite('test_cloud_compaction_global_lock', 'docker') {
             def originTabletId = array[0].TabletId
             def noramlOriginTabletId = array[0].TabletId
 
+            sql """ select * from ${tableName} order by k"""
+
+            Thread.sleep(5000)
 
             // inject be cu compaction
             logger.info("run inject be cumu compaction:" + originTabletId)

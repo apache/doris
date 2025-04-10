@@ -371,8 +371,8 @@ void CloudStorageEngine::_sync_tablets_thread_callback() {
 void CloudStorageEngine::get_cumu_compaction(
         int64_t tablet_id, std::vector<std::shared_ptr<CloudCumulativeCompaction>>& res) {
     std::lock_guard lock(_compaction_mtx);
-    if (auto it = _submitted_cumu_compactions.find(tablet_id);
-        it != _submitted_cumu_compactions.end()) {
+    if (auto it = _executing_cumu_compactions.find(tablet_id);
+        it != _executing_cumu_compactions.end()) {
         res = it->second;
     }
 }
@@ -640,7 +640,7 @@ Status CloudStorageEngine::_prepare_tablet_compaction_job(
         }
         {
             std::lock_guard lock(_compaction_mtx);
-            _executing_base_compactions[tablet->tablet_id()].push_back(base_compaction);
+            _executing_base_compactions[tablet->tablet_id()] = base_compaction;
         }
         return st;
     } else {
@@ -667,7 +667,8 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         std::lock_guard lock(_compaction_mtx);
         _submitted_base_compactions[tablet->tablet_id()] = compaction;
     }
-    auto st = _base_compaction_thread_pool->submit_func([=, this]() {
+    auto st = _base_compaction_thread_pool->submit_func([=, this,
+                                                         compaction = std::move(compaction)]() {
         g_base_compaction_running_task_count << 1;
         signal::tablet_id = tablet->tablet_id();
         Defer defer {[&]() { g_base_compaction_running_task_count << -1; }};
@@ -682,6 +683,7 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         }
         std::lock_guard lock(_compaction_mtx);
         _submitted_base_compactions.erase(tablet->tablet_id());
+        _executing_base_compactions.erase(tablet->tablet_id());
     });
     if (!st.ok()) {
         std::lock_guard lock(_compaction_mtx);
@@ -729,7 +731,24 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
             tablet->last_cumu_no_suitable_version_ms = 0;
         }
     };
-    auto st = _cumu_compaction_thread_pool->submit_func([=, this]() {
+    auto erase_executing_cumu_compaction = [=, this]() {
+        std::lock_guard lock(_compaction_mtx);
+        auto it = _executing_cumu_compactions.find(tablet->tablet_id());
+        DCHECK(it != _executing_cumu_compactions.end());
+        auto& compactions = it->second;
+        auto it1 = std::find(compactions.begin(), compactions.end(), compaction);
+        DCHECK(it1 != compactions.end());
+        compactions.erase(it1);
+        if (compactions.empty()) { // No compactions on this tablet, erase key
+            _executing_cumu_compactions.erase(it);
+            // No cumu compaction on this tablet, reset `last_cumu_no_suitable_version_ms` to enable this tablet to
+            // enter the compaction scheduling candidate set. The purpose of doing this is to have at least one BE perform
+            // cumu compaction on tablet which has suitable versions for cumu compaction.
+            tablet->last_cumu_no_suitable_version_ms = 0;
+        }
+    };
+    auto st = _cumu_compaction_thread_pool->submit_func([=, this,
+                                                         compaction = std::move(compaction)]() {
         DBUG_EXECUTE_IF("CloudStorageEngine._submit_cumulative_compaction_task.wait_in_line",
                         { sleep(5); })
         signal::tablet_id = tablet->tablet_id();
@@ -770,6 +789,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                                        .count();
                     tablet->set_last_cumu_compaction_failure_time(now);
                     erase_submitted_cumu_compaction();
+                    erase_executing_cumu_compaction();
                     // sleep 5s for this tablet
                     tablet->last_cumu_no_suitable_version_ms = now;
                     LOG_WARNING(
@@ -796,6 +816,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
             tablet->set_last_cumu_compaction_failure_time(now);
         }
         erase_submitted_cumu_compaction();
+        erase_executing_cumu_compaction();
     });
     if (!st.ok()) {
         erase_submitted_cumu_compaction();
