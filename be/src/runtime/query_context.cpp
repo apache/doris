@@ -110,7 +110,7 @@ std::shared_ptr<QueryContext> QueryContext::create(TUniqueId query_id, ExecEnv* 
             new QueryContext(query_id, exec_env, query_options, coord_addr, is_nereids,
                              current_connect_fe, query_type),
             [&](QueryContext* ctx) {
-                ExecEnv::GetInstance()->fragment_mgr()->release_query(query_id);
+                ExecEnv::GetInstance()->fragment_mgr()->release_query(ctx->query_id());
                 delete ctx;
             });
     ctx->init_query_task_controller();
