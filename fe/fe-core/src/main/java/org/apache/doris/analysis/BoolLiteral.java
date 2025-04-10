@@ -114,7 +114,7 @@ public class BoolLiteral extends LiteralExpr {
     @Override
     public String getStringValueForArray(FormatOptions options) {
         String val = options.isBoolValueNum() ? getStringValue() : (value ? "true" : "false");
-        return options.getNestedStringWrapper() + val + options.getNestedStringWrapper();
+        return val;
     }
 
     @Override
