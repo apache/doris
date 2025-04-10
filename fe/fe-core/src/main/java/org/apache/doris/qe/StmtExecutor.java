@@ -894,12 +894,17 @@ public class StmtExecutor {
                     && !(parsedStmt instanceof TransactionStmt)) {
                 throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
             }
+            SessionVariable sessionVariable = context.getSessionVariable();
+            if (!(parsedStmt instanceof SetStmt) && !(parsedStmt instanceof UnsetVariableStmt)) {
+                sessionVariable.disableNereidsPlannerOnce();
+            }
+
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
             analyzeVariablesInStmt();
 
             if (!context.isTxnModel()) {
                 // analyze this query
-                analyze(context.getSessionVariable().toThrift());
+                analyze(sessionVariable.toThrift());
 
                 if (isForwardToMaster()) {
                     // before forward to master, we also need to set profileType in this node
