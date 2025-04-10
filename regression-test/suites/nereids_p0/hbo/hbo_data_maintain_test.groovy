@@ -89,7 +89,7 @@ suite("hbo_data_maintain_test") {
 
     // data maintain
     sql "delete from hbo_data_maintain_test1 where a = 1;"
-
+    sleep(3000)
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                              |
@@ -143,7 +143,6 @@ suite("hbo_data_maintain_test") {
         contains("stats=(hbo)0, type=INNER_JOIN")
         contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
-    sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "2000"); """
 }
 
 
