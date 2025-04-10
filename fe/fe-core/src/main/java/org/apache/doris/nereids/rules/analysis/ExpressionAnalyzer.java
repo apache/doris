@@ -405,6 +405,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         List<Object> arguments = unboundFunction.isDistinct()
                 ? ImmutableList.builderWithExpectedSize(unboundFunction.arity() + 1)
                     .add(unboundFunction.isDistinct())
+                    .add(unboundFunction.isSkew())
                     .addAll(unboundFunction.getArguments())
                     .build()
                 : (List) unboundFunction.getArguments();
