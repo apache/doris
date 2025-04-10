@@ -36,7 +36,6 @@
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "util/spinlock.h"
 #include "util/uid_util.h"
 
 namespace doris {
