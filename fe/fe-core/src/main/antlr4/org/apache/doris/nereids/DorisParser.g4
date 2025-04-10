@@ -1004,6 +1004,13 @@ identifierOrTextOrAsterisk
     | ASTERISK
     ;
 
+identifierOrTextOrParen
+    : identifier
+    | STRING_LITERAL
+    | LEFT_PAREN
+    | RIGHT_PAREN
+    ;
+
 multipartIdentifierOrAsterisk
     : parts+=identifierOrAsterisk (DOT parts+=identifierOrAsterisk)*
     ;
@@ -1256,7 +1263,7 @@ hintStatement
     ;
 
 hintAssignment
-    : (key=identifierOrText | distribute=distributeHintType) (EQ (constantValue=constant | identifierValue=identifier))?
+    : (key=identifierOrTextOrParen | distribute=distributeHintType) (EQ (constantValue=constant | identifierValue=identifier))?
     | constant
     ;
 
