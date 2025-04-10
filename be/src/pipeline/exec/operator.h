@@ -1125,11 +1125,16 @@ public:
         return Status::OK();
     }
     void set_low_memory_mode(RuntimeState* state) override { _low_memory_mode = true; }
+    Status terminate(RuntimeState* state) override {
+        _terminated = true;
+        return Status::OK();
+    }
 
 private:
     friend class AssertNumRowsLocalState;
     bool _eos = false;
     bool _low_memory_mode = false;
+    bool _terminated = false;
 };
 
 class DummySinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
@@ -1159,9 +1164,14 @@ public:
         return Status::OK();
     }
     void set_low_memory_mode(RuntimeState* state) override { _low_memory_mode = true; }
+    Status terminate(RuntimeState* state) override {
+        _terminated = true;
+        return Status::OK();
+    }
 
 private:
     bool _low_memory_mode = false;
+    bool _terminated = false;
 };
 #endif
 

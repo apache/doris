@@ -806,37 +806,7 @@ Status PipelineTask::_state_transition(State new_state) {
     }
     _task_profile->add_info_string("TaskState", _to_string(new_state));
     _task_profile->add_info_string("BlockedByDependency", _blocked_dep ? _blocked_dep->name() : "");
-    switch (new_state) {
-    case State::RUNNABLE:
-        if (_exec_state != State::RUNNABLE && _exec_state != State::BLOCKED &&
-            _exec_state != State::INITED) {
-            return Status::InternalError(
-                    "Task state transition from {} to {} is not allowed! Task info: {}",
-                    _to_string(_exec_state), _to_string(new_state), debug_string());
-        }
-        break;
-    case State::BLOCKED:
-        if (_exec_state != State::RUNNABLE && _exec_state != State::FINISHED) {
-            return Status::InternalError(
-                    "Task state transition from {} to {} is not allowed! Task info: {}",
-                    _to_string(_exec_state), _to_string(new_state), debug_string());
-        }
-        break;
-    case State::FINISHED:
-        if (_exec_state != State::RUNNABLE) {
-            return Status::InternalError(
-                    "Task state transition from {} to {} is not allowed! Task info: {}",
-                    _to_string(_exec_state), _to_string(new_state), debug_string());
-        }
-        break;
-    case State::FINALIZED:
-        if (_exec_state != State::FINISHED && _exec_state != State::INITED) {
-            return Status::InternalError(
-                    "Task state transition from {} to {} is not allowed! Task info: {}",
-                    _to_string(_exec_state), _to_string(new_state), debug_string());
-        }
-        break;
-    default:
+    if (!LEGAL_STATE_TRANSITION[(int)new_state].contains(_exec_state)) {
         return Status::InternalError(
                 "Task state transition from {} to {} is not allowed! Task info: {}",
                 _to_string(_exec_state), _to_string(new_state), debug_string());
