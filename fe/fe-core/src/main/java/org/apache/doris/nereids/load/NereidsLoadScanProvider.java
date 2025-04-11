@@ -185,10 +185,6 @@ public class NereidsLoadScanProvider {
         if (!specifyFileFieldNames) {
             List<Column> columns = tbl.getBaseSchema(false);
             for (Column column : columns) {
-                // columnExprs has sequence column, don't need to generate the sequence column
-                if (hasSequenceCol && column.isSequenceColumn()) {
-                    continue;
-                }
                 NereidsImportColumnDesc columnDesc;
                 if (formatType(fileGroup.getFileFormat()) == TFileFormatType.FORMAT_JSON) {
                     columnDesc = new NereidsImportColumnDesc(column.getName());
@@ -204,7 +200,6 @@ public class NereidsLoadScanProvider {
             List<String> hiddenColumns = fileGroupInfo.getHiddenColumns();
             if (hasSkipBitmapColumn
                     && fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-                Preconditions.checkArgument(!specifyFileFieldNames);
                 Preconditions.checkArgument(hiddenColumns == null);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("add hidden column {} to stream load task", Column.DELETE_SIGN);
@@ -338,7 +333,6 @@ public class NereidsLoadScanProvider {
             if (importColumnDesc.getExpr() != null) {
                 if (tblColumn.getGeneratedColumnInfo() == null) {
                     Expression expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
-                    replaceMap.put(new UnboundSlot(realColName), expr);
                     context.exprMap.put(realColName, expr);
                 }
             } else {
