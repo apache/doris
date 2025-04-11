@@ -831,6 +831,12 @@ void Tablet::delete_expired_stale_rowset() {
         while (to_delete_iter != stale_version_path_map.end()) {
             std::vector<TimestampedVersionSharedPtr>& to_delete_version =
                     to_delete_iter->second->timestamped_versions();
+
+            // agg delete bitmap for pre rowset
+            DeleteBitmapKeyRanges remove_delete_bitmap_key_ranges;
+            agg_delete_bitmap_for_stale_rowsets(to_delete_version, remove_delete_bitmap_key_ranges);
+            std::vector<RowsetId> remove_rowset_ids;
+
             int64_t start_version = -1;
             int64_t end_version = -1;
             for (auto& timestampedVersion : to_delete_version) {
@@ -840,6 +846,8 @@ void Tablet::delete_expired_stale_rowset() {
                     // delete rowset
                     if (it->second->is_local()) {
                         _engine.add_unused_rowset(it->second);
+                        // mow does not support cold data in object storage
+                        remove_rowset_ids.emplace_back(it->second->rowset_id());
                     }
                     _stale_rs_version_map.erase(it);
                     VLOG_NOTICE << "delete stale rowset tablet=" << tablet_id() << " version["
@@ -862,6 +870,12 @@ void Tablet::delete_expired_stale_rowset() {
             Version version(start_version, end_version);
             version_to_delete.emplace_back(version.to_string());
             to_delete_iter++;
+
+            // add remove delete bitmap
+            if (!remove_delete_bitmap_key_ranges.empty()) {
+                _engine.add_unused_delete_bitmap_key_ranges(tablet_id(), remove_rowset_ids,
+                                                            remove_delete_bitmap_key_ranges);
+            }
         }
         _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue(version_to_delete);
 
@@ -879,6 +893,8 @@ void Tablet::delete_expired_stale_rowset() {
         save_meta();
     }
 #endif
+    DBUG_EXECUTE_IF("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset",
+                    { _engine.start_delete_unused_rowset(); });
 }
 
 Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
