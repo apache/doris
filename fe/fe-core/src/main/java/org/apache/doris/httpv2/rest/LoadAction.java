@@ -474,8 +474,8 @@ public class LoadAction extends RestBaseController {
         }
 
         String redirectPolicy = req.getHeader(LoadAction.HEADER_REDIRECT_POLICY);
-        // User specified redirect policy
-        if (redirectPolicy != null && redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_RANDOM_BE)) {
+        // 1. group commit use the selected be; 2. User specified redirect policy
+        if (groupCommit || (redirectPolicy != null && redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_RANDOM_BE))) {
             return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
         }
         redirectPolicy = redirectPolicy == null || redirectPolicy.isEmpty()
