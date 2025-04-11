@@ -809,8 +809,10 @@ public class NereidsPlanner extends Planner {
             case "trino":
                 statementContext.setFormatOptions(FormatOptions.getForPresto());
                 break;
-            case "doris":
             case "hive":
+                statementContext.setFormatOptions(FormatOptions.getForHive());
+                break;
+            case "doris":
                 statementContext.setFormatOptions(FormatOptions.getDefault());
                 break;
             default:

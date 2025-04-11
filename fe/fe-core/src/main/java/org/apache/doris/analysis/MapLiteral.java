@@ -171,18 +171,24 @@ public class MapLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
+        ++options.level;
         for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
-            list.add(children.get(i).getStringValueForArray(options)
-                    + options.getMapKeyDelim()
-                    + children.get(i + 1).getStringValueForArray(options));
+            // we should use type to decide we output array is suitable for json format
+            if (children.get(i).getType().isComplexType()) {
+                // map key type do not support complex type
+                throw new UnsupportedOperationException("Unsupported key type for MAP: " + children.get(i).getType());
+            }
+            list.add(children.get(i).getStringValueInComplexTypeForQuery(options)
+                    + options.getMapKeyDelim() + children.get(i + 1).getStringValueInComplexTypeForQuery(options));
         }
-        return "{" + StringUtils.join(list, ", ") + "}";
+        --options.level;
+        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForStreamLoad(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
         for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
             // we should use type to decide we output array is suitable for json format
@@ -190,10 +196,10 @@ public class MapLiteral extends LiteralExpr {
                 // map key type do not support complex type
                 throw new UnsupportedOperationException("Unsupported key type for MAP: " + children.get(i).getType());
             }
-            list.add(getStringLiteralForComplexType(children.get(i), options)
-                    + options.getMapKeyDelim() + getStringLiteralForComplexType(children.get(i + 1), options));
+            list.add(children.get(i).getStringValueInComplexTypeForQuery(options)
+                    + options.getMapKeyDelim() + children.get(i + 1).getStringValueInComplexTypeForQuery(options));
         }
-        return "{" + StringUtils.join(list, ", ") + "}";
+        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
 
     @Override

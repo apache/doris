@@ -24,7 +24,6 @@ import org.apache.doris.analysis.AnalyzeDBStmt;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
@@ -43,7 +42,6 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.LoadType;
 import org.apache.doris.analysis.LockTablesStmt;
 import org.apache.doris.analysis.NativeInsertStmt;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PlaceHolderExpr;
@@ -270,7 +268,6 @@ public class StmtExecutor {
 
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
-    public static final String NULL_VALUE_FOR_LOAD = "\\N";
     private static Set<String> blockSqlAstNames = Sets.newHashSet();
 
     private Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
@@ -371,19 +368,7 @@ public class StmtExecutor {
                 throw new UserException(
                         "do not support non-literal expr in transactional insert operation: " + expr.toSql());
             }
-            if (expr instanceof NullLiteral) {
-                row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
-            } else if (expr instanceof ArrayLiteral) {
-                row.addColBuilder().setValue("\"" + expr.getStringValueForStreamLoad(options) + "\"");
-            } else {
-                String stringValue = expr.getStringValueForStreamLoad(options);
-                if (stringValue.equals(NULL_VALUE_FOR_LOAD) || stringValue.startsWith("\"") || stringValue.endsWith(
-                        "\"")) {
-                    row.addColBuilder().setValue("\"" + stringValue + "\"");
-                } else {
-                    row.addColBuilder().setValue(stringValue);
-                }
-            }
+            row.addColBuilder().setValue(expr.getStringValueForStreamLoad(options));
         }
         return row.build();
     }
