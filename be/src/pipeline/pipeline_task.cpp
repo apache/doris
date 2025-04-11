@@ -48,12 +48,19 @@ namespace doris::pipeline {
 
 PipelineTask::PipelineTask(
         PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
-        PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
+        std::shared_ptr<PipelineFragmentContext> fragment_context, RuntimeProfile* parent_profile,
         std::map<int,
                  std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
                 le_state_map,
         int task_idx)
-        : _index(task_id),
+        :
+#ifdef BE_TEST
+          _query_id(fragment_context ? fragment_context->get_query_id() : TUniqueId()),
+#else
+          _query_id(fragment_context->get_query_id()),
+#endif
+          _pipeline_id(pipeline->id()),
+          _index(task_id),
           _pipeline(pipeline),
           _opened(false),
           _state(state),
@@ -120,8 +127,10 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
         std::unique_lock<std::mutex> lc(_dependency_lock);
         filter_dependencies.swap(_filter_dependencies);
     }
-    if (query_context()->is_cancelled()) {
-        clear_blocking_state();
+    if (auto fragment = _fragment_context.lock()) {
+        if (fragment->get_query_ctx()->is_cancelled()) {
+            clear_blocking_state();
+        }
     }
     return Status::OK();
 }
@@ -225,14 +234,14 @@ bool PipelineTask::_wait_to_start() {
     // Before task starting, we should make sure
     // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
     // 2. Runtime filter dependencies are ready
-    _blocked_dep = _execution_dep->is_blocked_by(this);
+    _blocked_dep = _execution_dep->is_blocked_by(shared_from_this());
     if (_blocked_dep != nullptr) {
         static_cast<Dependency*>(_blocked_dep)->start_watcher();
         return true;
     }
 
     for (auto* op_dep : _filter_dependencies) {
-        _blocked_dep = op_dep->is_blocked_by(this);
+        _blocked_dep = op_dep->is_blocked_by(shared_from_this());
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
             return true;
@@ -253,7 +262,7 @@ bool PipelineTask::_is_blocked() {
         for (int i = _read_dependencies.size() - 1; i >= 0; i--) {
             // `_read_dependencies` is organized according to operators. For each operator, running condition is met iff all dependencies are ready.
             for (auto* dep : _read_dependencies[i]) {
-                _blocked_dep = dep->is_blocked_by(this);
+                _blocked_dep = dep->is_blocked_by(shared_from_this());
                 if (_blocked_dep != nullptr) {
                     _blocked_dep->start_watcher();
                     return true;
@@ -272,7 +281,7 @@ bool PipelineTask::_is_blocked() {
     }
 
     for (auto* op_dep : _write_dependencies) {
-        _blocked_dep = op_dep->is_blocked_by(this);
+        _blocked_dep = op_dep->is_blocked_by(shared_from_this());
         if (_blocked_dep != nullptr) {
             _blocked_dep->start_watcher();
             return true;
@@ -291,6 +300,8 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
 
+    auto fragment_context = _fragment_context.lock();
+    DCHECK(fragment_context);
     int64_t time_spent = 0;
     DBUG_EXECUTE_IF("fault_inject::PipelineXTask::execute", {
         Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");
@@ -304,11 +315,11 @@ Status PipelineTask::execute(bool* eos) {
         }
         int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
         _task_cpu_timer->update(delta_cpu_time);
-        auto cpu_qs = query_context()->get_cpu_statistics();
+        auto cpu_qs = fragment_context->get_query_ctx()->get_cpu_statistics();
         if (cpu_qs) {
             cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
-        query_context()->update_cpu_time(delta_cpu_time);
+        fragment_context->get_query_ctx()->update_cpu_time(delta_cpu_time);
     }};
     if (_wait_to_start()) {
         if (config::enable_prefetch_tablet) {
@@ -318,7 +329,7 @@ Status PipelineTask::execute(bool* eos) {
     }
 
     // The status must be runnable
-    if (!_opened && !_fragment_context->is_canceled()) {
+    if (!_opened && !fragment_context->is_canceled()) {
         DBUG_EXECUTE_IF("PipelineTask::execute.open_sleep", {
             auto required_pipeline_id =
                     DebugPoints::instance()->get_debug_param_or_default<int32_t>(
@@ -349,7 +360,7 @@ Status PipelineTask::execute(bool* eos) {
 
     _task_profile->add_info_string("TaskState", "Runnable");
     _task_profile->add_info_string("BlockedByDependency", "");
-    while (!_fragment_context->is_canceled()) {
+    while (!fragment_context->is_canceled()) {
         if (_is_blocked()) {
             return Status::OK();
         }
@@ -357,7 +368,7 @@ Status PipelineTask::execute(bool* eos) {
         /// When a task is cancelled,
         /// its blocking state will be cleared and it will transition to a ready state (though it is not truly ready).
         /// Here, checking whether it is cancelled to prevent tasks in a blocking state from being re-executed.
-        if (_fragment_context->is_canceled()) {
+        if (fragment_context->is_canceled()) {
             break;
         }
 
@@ -426,7 +437,7 @@ Status PipelineTask::execute(bool* eos) {
         }
     }
 
-    RETURN_IF_ERROR(get_task_queue()->push_back(this));
+    RETURN_IF_ERROR(get_task_queue()->push_back(shared_from_this()));
     return Status::OK();
 }
 
@@ -493,6 +504,10 @@ void PipelineTask::finalize() {
     _sink_shared_state.reset();
     _op_shared_states.clear();
     _le_state_map.clear();
+    _block.reset();
+    _operators.clear();
+    _sink.reset();
+    _pipeline.reset();
 }
 
 Status PipelineTask::close(Status exec_status, bool close_sink) {
@@ -530,20 +545,24 @@ std::string PipelineTask::debug_string() {
     std::unique_lock<std::mutex> lc(_dependency_lock);
     fmt::memory_buffer debug_string_buffer;
 
-    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
+    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(_query_id));
     fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
                    print_id(_state->fragment_instance_id()));
 
-    auto* cur_blocked_dep = _blocked_dep;
-    auto elapsed = _fragment_context->elapsed_time() / 1000000000.0;
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, id = {}, open = {}, eos = {}, finish = {}, dry run = "
-                   "{}, elapse time = {}s, _wake_up_early = {}], block dependency = {}, is "
-                   "running = {}\noperators: ",
-                   (void*)this, _index, _opened, _eos, _finalized, _dry_run, elapsed,
-                   _wake_up_early.load(),
-                   cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL",
+                   "{}, _wake_up_early = {}, running = {}]",
+                   (void*)this, _index, _opened, _eos, _finalized, _dry_run, _wake_up_early.load(),
                    is_running());
+    auto fragment = _fragment_context.lock();
+    if (is_finalized() || !fragment) {
+        return fmt::to_string(debug_string_buffer);
+    }
+    auto* cur_blocked_dep = _blocked_dep;
+    auto elapsed = fragment->elapsed_time() / 1000000000.0;
+    fmt::format_to(debug_string_buffer,
+                   ", elapse time = {}s, block dependency = {}\noperators: ", elapsed,
+                   cur_blocked_dep && !_finalized ? cur_blocked_dep->debug_string() : "NULL");
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
                        _opened && !_finalized ? _operators[i]->debug_string(_state, i)
@@ -586,10 +605,8 @@ std::string PipelineTask::debug_string() {
 
 void PipelineTask::wake_up() {
     // call by dependency
-    static_cast<void>(get_task_queue()->push_back(this));
+    static_cast<void>(get_task_queue()->push_back(
+            std::dynamic_pointer_cast<PipelineTask>(shared_from_this())));
 }
 
-QueryContext* PipelineTask::query_context() {
-    return _fragment_context->get_query_ctx();
-}
 } // namespace doris::pipeline
