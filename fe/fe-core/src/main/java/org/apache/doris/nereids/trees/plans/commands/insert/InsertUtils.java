@@ -244,7 +244,6 @@ public class InsertUtils {
                 .setTimeout((int) timeoutSecond)
                 .setTimezone(timeZone)
                 .setSendBatchParallelism(sendBatchParallelism)
-                .setTrimDoubleQuotes(true)
                 .setSequenceCol(columns.stream()
                         .filter(c -> Column.SEQUENCE_COL.equalsIgnoreCase(c.getName()))
                         .map(Column::getName)
