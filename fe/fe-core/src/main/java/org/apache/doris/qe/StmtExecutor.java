@@ -723,7 +723,8 @@ public class StmtExecutor {
                 throw new UserException("Forward master command is not supported for prepare statement");
             }
             if (logicalPlan instanceof UnsupportedCommand || logicalPlan instanceof CreatePolicyCommand) {
-                throw new MustFallbackException("cannot prepare command " + logicalPlan.getClass().getSimpleName());
+                throw new NereidsException(
+                        new MustFallbackException("cannot prepare command " + logicalPlan.getClass().getSimpleName()));
             }
             long stmtId = Config.prepared_stmt_start_id > 0
                     ? Config.prepared_stmt_start_id : context.getPreparedStmtId();
