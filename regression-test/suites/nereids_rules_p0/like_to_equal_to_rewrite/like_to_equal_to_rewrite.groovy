@@ -50,4 +50,24 @@ suite("like_to_equal_to_rewrite") {
     sql "insert into mal_test_to_equal_to values('abc\\\\\\%',1);"
     qt_test_backslash_percent_sign_even_match "select * from mal_test_to_equal_to where a like 'abc\\\\\\\\\\\\\\\\\\\\%';"
     qt_test_backslash_percent_sign_even_cannot_match "select * from mal_test_to_equal_to where a like 'abc\\\\\\\\\\\\\\\\\\\\\\\\%';"
+	
+	
+	sql "drop table if exists test_employees"
+	
+	sql """  
+       CREATE TABLE `test_employees`( `id` tinyint, `name` char(20) ) ENGINE=OLAP DUPLICATE KEY(`id`, `name`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1" );
+    """
+	sql """insert into test_employees values (1, 'A_%'),(2, 'B_%'),(3, 'C_D'),(4, 'E_F'),(5, 'F_%');"""
+
+	def result = sql """select * from test_employees where name like '%\_\%' escape '\\';"""
+	assertEquals(3, result.size())
+	
+	result = sql """select * from test_employees where name like '%|_|%' escape '|';"""
+	assertEquals(3, result.size())
+	
+	result = sql """select * from test_employees where name like '%@_@%' escape '@';"""
+	assertEquals(3, result.size())
+	
+	result = sql """select * from test_employees where name like '%#_#%' escape '#';"""
+	assertEquals(3, result.size())
 }
