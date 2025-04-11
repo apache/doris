@@ -26,6 +26,7 @@
 #include <type_traits>
 
 #include "common/status.h"
+#include "util/debug/leak_annotations.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -43,15 +44,12 @@
 #include "vec/functions/function_unary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+
 struct LnImpl;
 struct Log10Impl;
 struct Log2Impl;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
 struct AcosName {
     static constexpr auto name = "acos";
     // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_acos
@@ -248,6 +246,7 @@ struct UnaryFunctionPlainSin {
     using FuncType = double (*)(double);
 
     static FuncType get_sin_func() {
+#ifndef BE_TEST
         void* handle = dlopen("libm.so.6", RTLD_LAZY);
         if (handle) {
             if (auto sin_func = (double (*)(double))dlsym(handle, "sin"); sin_func) {
@@ -255,6 +254,7 @@ struct UnaryFunctionPlainSin {
             }
             dlclose(handle);
         }
+#endif
         return std::sin;
     }
 

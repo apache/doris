@@ -881,7 +881,6 @@ struct ConvertImplFromJsonb {
 template <typename ToDataType, typename Name>
 struct ConvertImpl<DataTypeString, ToDataType, Name> {
     template <typename Additions = void*>
-
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {

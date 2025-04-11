@@ -69,8 +69,7 @@ void __lsan_do_leak_check();
 int __lsan_do_recoverable_leak_check();
 } // extern "C"
 
-namespace doris {
-namespace debug {
+namespace doris::debug {
 
 class ScopedLSANDisabler {
 public:
@@ -78,5 +77,4 @@ public:
     ~ScopedLSANDisabler() { __lsan_enable(); }
 };
 
-} // namespace debug
-} // namespace doris
+} // namespace doris::debug

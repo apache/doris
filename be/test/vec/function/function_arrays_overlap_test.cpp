@@ -20,8 +20,6 @@
 #include <string>
 
 #include "function_test_util.h"
-#include "testutil/any_type.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 
@@ -29,16 +27,16 @@ namespace doris::vectorized {
 
 TEST(function_arrays_overlap_test, arrays_overlap) {
     std::string func_name = "arrays_overlap";
-    Array empty_arr;
+    TestArray empty_arr;
 
     // arrays_overlap(Array<Int32>, Array<Int32>)
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32, TypeIndex::Array,
                                     TypeIndex::Int32};
 
-        Array vec1 = {Int32(1), Int32(2), Int32(3)};
-        Array vec2 = {Int32(3)};
-        Array vec3 = {Int32(4), Int32(5)};
+        TestArray vec1 = {Int32(1), Int32(2), Int32(3)};
+        TestArray vec2 = {Int32(3)};
+        TestArray vec3 = {Int32(4), Int32(5)};
         DataSet data_set = {{{vec1, vec2}, UInt8(1)},
                             {{vec1, vec3}, UInt8(0)},
                             {{Null(), vec1}, Null()},
@@ -52,8 +50,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int128, TypeIndex::Array,
                                     TypeIndex::Int128};
 
-        Array vec1 = {Int128(11111111111LL), Int128(22222LL), Int128(333LL)};
-        Array vec2 = {Int128(11111111111LL)};
+        TestArray vec1 = {Int128(11111111111LL), Int128(22222LL), Int128(333LL)};
+        TestArray vec2 = {Int128(11111111111LL)};
         DataSet data_set = {
                 {{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)}};
 
@@ -65,8 +63,8 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Float64, TypeIndex::Array,
                                     TypeIndex::Float64};
 
-        Array vec1 = {double(1.2345), double(2.222), double(3.0)};
-        Array vec2 = {double(1.2345)};
+        TestArray vec1 = {double(1.2345), double(2.222), double(3.0)};
+        TestArray vec2 = {double(1.2345)};
         DataSet data_set = {
                 {{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)}};
 
@@ -78,9 +76,9 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Array,
                                     TypeIndex::Date};
 
-        Array vec1 = {str_to_date_time("2022-01-02", false), str_to_date_time("", false),
-                      str_to_date_time("2022-07-08", false)};
-        Array vec2 = {str_to_date_time("2022-01-02", false)};
+        TestArray vec1 = {std::string("2022-01-02"), std::string("2022-01-02"),
+                          std::string("2022-07-08")};
+        TestArray vec2 = {std::string("2022-01-02")};
         DataSet data_set = {
                 {{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)}};
 
@@ -92,12 +90,12 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::Array,
                                     TypeIndex::DateTime};
 
-        Array vec1 = {str_to_date_time("2022-01-02 00:00:00"), str_to_date_time(""),
-                      str_to_date_time("2022-07-08 00:00:00")};
-        Array vec2 = {str_to_date_time("2022-01-02 00:00:00")};
-        Array vec3 = {str_to_date_time("")};
+        TestArray vec1 = {std::string("2022-01-02 00:00:00"), std::string("2022-01-02 00:00:00"),
+                          std::string("2022-07-08 00:00:00")};
+        TestArray vec2 = {std::string("2022-01-02 00:00:00")};
+        TestArray vec3 = {std::string("")};
         DataSet data_set = {{{vec1, vec2}, UInt8(1)},
-                            {{vec1, vec3}, UInt8(1)},
+                            {{vec1, vec3}, Null()},
                             {{Null(), vec1}, Null()},
                             {{empty_arr, vec1}, UInt8(0)}};
 
@@ -109,14 +107,14 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2, TypeIndex::Array,
                                     TypeIndex::Decimal128V2};
 
-        Array vec1 = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
-                      ut_type::DECIMALFIELD(0.0)};
-        Array vec2 = {ut_type::DECIMALFIELD(17014116.67)};
+        TestArray vec1 = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
+                          ut_type::DECIMALV2(0.0)};
+        TestArray vec2 = {ut_type::DECIMALV2(17014116.67)};
 
-        Array vec3 = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
-                      Null()};
-        Array vec4 = {ut_type::DECIMALFIELD(-17014116.67)};
-        Array vec5 = {ut_type::DECIMALFIELD(-17014116.68)};
+        TestArray vec3 = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
+                          Null()};
+        TestArray vec4 = {ut_type::DECIMALV2(-17014116.67)};
+        TestArray vec5 = {ut_type::DECIMALV2(-17014116.68)};
         DataSet data_set = {{{vec1, vec2}, UInt8(1)}, {{Null(), vec1}, Null()},
                             {{vec1, Null()}, Null()}, {{empty_arr, vec1}, UInt8(0)},
                             {{vec3, vec4}, UInt8(1)}, {{vec3, vec5}, Null()},
@@ -130,11 +128,11 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::Array,
                                     TypeIndex::String};
 
-        Array vec1 = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
-        Array vec2 = {Field(String("abc", 3))};
-        Array vec3 = {Field(String("", 0))};
-        Array vec4 = {Field(String("abc", 3)), Null()};
-        Array vec5 = {Field(String("abcd", 4)), Null()};
+        TestArray vec1 = {std::string("abc"), std::string(""), std::string("def")};
+        TestArray vec2 = {std::string("abc")};
+        TestArray vec3 = {std::string("")};
+        TestArray vec4 = {std::string("abc"), Null()};
+        TestArray vec5 = {std::string("abcd"), Null()};
         DataSet data_set = {{{vec1, vec2}, UInt8(1)}, {{vec1, vec3}, UInt8(1)},
                             {{Null(), vec1}, Null()}, {{empty_arr, vec1}, UInt8(0)},
                             {{vec4, vec1}, UInt8(1)}, {{vec1, vec5}, Null()},
@@ -148,13 +146,13 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2, TypeIndex::Array,
                                     TypeIndex::Decimal128V2};
 
-        Array vec1 = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
-                      ut_type::DECIMALFIELD(0.0)};
-        Array vec2 = {ut_type::DECIMALFIELD(17014116.67)};
+        TestArray vec1 = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
+                          ut_type::DECIMALV2(0.0)};
+        TestArray vec2 = {ut_type::DECIMALV2(17014116.67)};
 
-        Array vec3 = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67)};
-        Array vec4 = {ut_type::DECIMALFIELD(-17014116.67)};
-        Array vec5 = {ut_type::DECIMALFIELD(-17014116.68)};
+        TestArray vec3 = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67)};
+        TestArray vec4 = {ut_type::DECIMALV2(-17014116.67)};
+        TestArray vec5 = {ut_type::DECIMALV2(-17014116.68)};
         DataSet data_set = {{{vec1, vec2}, UInt8(1)}, {{empty_arr, vec1}, UInt8(0)},
                             {{vec3, vec4}, UInt8(1)}, {{vec3, vec5}, UInt8(0)},
                             {{vec4, vec3}, UInt8(1)}, {{vec5, vec3}, UInt8(0)}};
@@ -167,11 +165,11 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::Array,
                                     TypeIndex::String};
 
-        Array vec1 = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
-        Array vec2 = {Field(String("abc", 3))};
-        Array vec3 = {Field(String("", 0))};
-        Array vec4 = {Field(String("abc", 3))};
-        Array vec5 = {Field(String("abcd", 4))};
+        TestArray vec1 = {std::string("abc"), std::string(""), std::string("def")};
+        TestArray vec2 = {std::string("abc")};
+        TestArray vec3 = {std::string("")};
+        TestArray vec4 = {std::string("abc")};
+        TestArray vec5 = {std::string("abcd")};
         DataSet data_set = {{{vec1, vec2}, UInt8(1)},      {{vec1, vec3}, UInt8(1)},
                             {{empty_arr, vec1}, UInt8(0)}, {{vec4, vec1}, UInt8(1)},
                             {{vec1, vec5}, UInt8(0)},      {{vec1, vec4}, UInt8(1)},

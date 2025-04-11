@@ -18,7 +18,6 @@
 #include <string>
 
 #include "function_test_util.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
@@ -30,13 +29,13 @@ namespace doris::vectorized {
 
 TEST(function_array_element_test, element_at) {
     std::string func_name = "element_at";
-    Array empty_arr;
+    TestArray empty_arr;
 
     // element_at(Array<Int32>, Int32)
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32, TypeIndex::Int32};
 
-        Array vec = {Int32(1), Int32(2), Int32(3)};
+        TestArray vec = {Int32(1), Int32(2), Int32(3)};
         DataSet data_set = {
                 {{vec, 0}, Null()},    {{vec, 1}, Int32(1)},     {{vec, 4}, Null()},
                 {{vec, -1}, Int32(3)}, {{vec, -3}, Int32(1)},    {{vec, -4}, Null()},
@@ -49,7 +48,7 @@ TEST(function_array_element_test, element_at) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int8, TypeIndex::Int32};
 
-        Array vec = {Int8(1), Int8(2), Int8(3)};
+        TestArray vec = {Int8(1), Int8(2), Int8(3)};
         DataSet data_set = {
                 {{vec, 0}, Null()},    {{vec, 1}, Int8(1)},      {{vec, 4}, Null()},
                 {{vec, -1}, Int8(3)},  {{vec, -3}, Int8(1)},     {{vec, -4}, Null()},
@@ -62,7 +61,7 @@ TEST(function_array_element_test, element_at) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int128, TypeIndex::Int64};
 
-        Array vec = {Int128(1), Int128(2), Int128(3)};
+        TestArray vec = {Int128(1), Int128(2), Int128(3)};
         DataSet data_set = {{{vec, Int64(0)}, Null()},      {{vec, Int64(1)}, Int128(1)},
                             {{vec, Int64(4)}, Null()},      {{vec, Int64(-1)}, Int128(3)},
                             {{vec, Int64(-3)}, Int128(1)},  {{vec, Int64(-4)}, Null()},
@@ -76,7 +75,7 @@ TEST(function_array_element_test, element_at) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Float64, TypeIndex::Int64};
 
-        Array vec = {double(1.11), double(2.22), double(3.33)};
+        TestArray vec = {double(1.11), double(2.22), double(3.33)};
         DataSet data_set = {{{vec, Int64(0)}, Null()},        {{vec, Int64(1)}, double(1.11)},
                             {{vec, Int64(4)}, Null()},        {{vec, Int64(-1)}, double(3.33)},
                             {{vec, Int64(-3)}, double(1.11)}, {{vec, Int64(-4)}, Null()},
@@ -90,13 +89,13 @@ TEST(function_array_element_test, element_at) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::Int64};
 
-        Array vec = {str_to_date_time("2022-01-02 01:00:00"), str_to_date_time(""),
-                     str_to_date_time("2022-07-08 03:00:00")};
+        TestArray vec = {std::string("2022-01-02 01:00:00"), std::string(""),
+                         std::string("2022-07-08 03:00:00")};
         DataSet data_set = {{{vec, Int64(0)}, Null()},
-                            {{vec, Int64(1)}, str_to_date_time("2022-01-02 01:00:00")},
+                            {{vec, Int64(1)}, std::string("2022-01-02 01:00:00")},
                             {{vec, Int64(4)}, Null()},
-                            {{vec, Int64(-1)}, str_to_date_time("2022-07-08 03:00:00")},
-                            {{vec, Int64(-2)}, str_to_date_time("")},
+                            {{vec, Int64(-1)}, std::string("2022-07-08 03:00:00")},
+                            {{vec, Int64(-2)}, std::string("")},
                             {{vec, Int64(-4)}, Null()},
                             {{Null(), Int64(1)}, Null()},
                             {{empty_arr, Int64(0)}, Null()},
@@ -109,17 +108,13 @@ TEST(function_array_element_test, element_at) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Int64};
 
-        Array vec = {str_to_date_time("2022-01-02"), str_to_date_time(""),
-                     str_to_date_time("2022-07-08")};
-        DataSet data_set = {{{vec, Int64(0)}, Null()},
-                            {{vec, Int64(1)}, str_to_date_time("2022-01-02")},
-                            {{vec, Int64(4)}, Null()},
-                            {{vec, Int64(-1)}, str_to_date_time("2022-07-08")},
-                            {{vec, Int64(-2)}, str_to_date_time("")},
-                            {{vec, Int64(-4)}, Null()},
-                            {{Null(), Int64(1)}, Null()},
-                            {{empty_arr, Int64(0)}, Null()},
-                            {{empty_arr, Int64(1)}, Null()}};
+        TestArray vec = {std::string("2022-01-02"), std::string(""), std::string("2022-07-08")};
+        DataSet data_set = {
+                {{vec, Int64(0)}, Null()},           {{vec, Int64(1)}, std::string("2022-01-02")},
+                {{vec, Int64(4)}, Null()},           {{vec, Int64(-1)}, std::string("2022-07-08")},
+                {{vec, Int64(-2)}, std::string("")}, {{vec, Int64(-4)}, Null()},
+                {{Null(), Int64(1)}, Null()},        {{empty_arr, Int64(0)}, Null()},
+                {{empty_arr, Int64(1)}, Null()}};
 
         static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
     }
@@ -128,8 +123,8 @@ TEST(function_array_element_test, element_at) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2, TypeIndex::Int64};
 
-        Array vec = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
-                     ut_type::DECIMALFIELD(0.0)};
+        TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
+                         ut_type::DECIMALV2(0.0)};
         DataSet data_set = {{{vec, Int64(0)}, Null()},
                             {{vec, Int64(1)}, ut_type::DECIMALV2(17014116.67)},
                             {{vec, Int64(4)}, Null()},
@@ -148,7 +143,7 @@ TEST(function_array_element_test, element_at) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::Int32};
 
-        Array vec = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
+        TestArray vec = {std::string("abc"), std::string(""), std::string("def")};
         DataSet data_set = {{{vec, 1}, std::string("abc")},
                             {{vec, 2}, std::string("")},
                             {{vec, 10}, Null()},

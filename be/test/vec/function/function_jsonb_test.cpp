@@ -1232,7 +1232,7 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
 
 TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     std::string func_name = "CAST";
-    InputTypeSet input_types = {Nullable {TypeIndex::JSONB}, ConstedNotnull {TypeIndex::UInt8}};
+    InputTypeSet input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::UInt8}};
 
     // cast to boolean
     DataSet data_set = {
@@ -1265,7 +1265,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
         static_cast<void>(
                 check_function<DataTypeUInt8, true>(func_name, input_types, const_dataset));
     }
-    input_types = {Nullable {TypeIndex::JSONB}, ConstedNotnull {TypeIndex::Int8}};
+    input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::Int8}};
     // cast to TINYINT
     data_set = {
             {{STRING("null"), static_cast<int8_t>(TypeIndex::Int8)}, Null()},
@@ -1298,7 +1298,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
                 check_function<DataTypeInt8, true>(func_name, input_types, const_dataset));
     }
 
-    input_types = {Nullable {TypeIndex::JSONB}, ConstedNotnull {TypeIndex::Int16}};
+    input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::Int16}};
     // cast to SMALLINT
     data_set = {
             {{STRING("null"), static_cast<int16_t>(TypeIndex::Int16)}, Null()},
@@ -1332,7 +1332,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
                 check_function<DataTypeInt16, true>(func_name, input_types, const_dataset));
     }
 
-    input_types = {Nullable {TypeIndex::JSONB}, ConstedNotnull {TypeIndex::Int32}};
+    input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::Int32}};
     // cast to INT
     data_set = {
             {{STRING("null"), static_cast<int32_t>(TypeIndex::Int32)}, Null()},
@@ -1366,7 +1366,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
                 check_function<DataTypeInt32, true>(func_name, input_types, const_dataset));
     }
 
-    input_types = {Nullable {TypeIndex::JSONB}, ConstedNotnull {TypeIndex::Int64}};
+    input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::Int64}};
     // cast to BIGINT
     data_set = {
             {{STRING("null"), BIGINT(1)}, Null()},
@@ -1394,7 +1394,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
                 check_function<DataTypeInt64, true>(func_name, input_types, const_dataset));
     }
 
-    input_types = {Nullable {TypeIndex::JSONB}, ConstedNotnull {TypeIndex::Float64}};
+    input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::Float64}};
     // cast to DOUBLE
     data_set = {
             {{STRING("null"), DOUBLE(1)}, Null()},
@@ -1422,7 +1422,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
                 check_function<DataTypeFloat64, true>(func_name, input_types, const_dataset));
     }
 
-    input_types = {Nullable {TypeIndex::JSONB}, ConstedNotnull {TypeIndex::String}};
+    input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::String}};
     // cast to STRING
     data_set = {
             {{STRING("null"), STRING("1")}, STRING("null")},
@@ -1456,62 +1456,63 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
 TEST(FunctionJsonbTEST, JsonbCastFromOtherTest) {
     // CAST Nullable(X) to Nullable(JSONB)
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST", {Nullable {TypeIndex::UInt8}, Consted {TypeIndex::JSONB}},
             {{{BOOLEAN(1), Null()}, STRING("true")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST", {Nullable {TypeIndex::UInt8}, Consted {TypeIndex::JSONB}},
             {{{BOOLEAN(0), Null()}, STRING("false")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::Int8}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST", {Nullable {TypeIndex::Int8}, Consted {TypeIndex::JSONB}},
             {{{TINYINT(100), Null()}, STRING("100")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::Int16}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST", {Nullable {TypeIndex::Int16}, Consted {TypeIndex::JSONB}},
             {{{SMALLINT(10000), Null()}, STRING("10000")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::Int32}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST", {Nullable {TypeIndex::Int32}, Consted {TypeIndex::JSONB}},
             {{{INT(1000000000), Null()}, STRING("1000000000")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::Int64}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST", {Nullable {TypeIndex::Int64}, Consted {TypeIndex::JSONB}},
             {{{BIGINT(1152921504606846976), Null()}, STRING("1152921504606846976")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::Float64}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST", {Nullable {TypeIndex::Float64}, Consted {TypeIndex::JSONB}},
             {{{DOUBLE(6.18), Null()}, STRING("6.18")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::String}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST", {Nullable {TypeIndex::String}, Consted {TypeIndex::JSONB}},
             {{{STRING(R"(abcd)"), Null()}, Null()}})); // should fail
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::String}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST", {Nullable {TypeIndex::String}, Consted {TypeIndex::JSONB}},
             {{{STRING(R"("abcd")"), Null()}, STRING(R"("abcd")")}}));
 
-    // CAST X to JSONB
+    // CAST X to JSONB. the second argument is just a dummy because result type is not nullable so we need it
+    // rather than a Null.
     static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{BOOLEAN(1), Null()}, STRING("true")}}));
+            {{{BOOLEAN(1), STRING()}, STRING("true")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{BOOLEAN(0), Null()}, STRING("false")}}));
+            {{{BOOLEAN(0), STRING()}, STRING("false")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::Int8}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{TINYINT(100), Null()}, STRING("100")}}));
+            {{{TINYINT(100), STRING()}, STRING("100")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::Int16}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{SMALLINT(10000), Null()}, STRING("10000")}}));
+            {{{SMALLINT(10000), STRING()}, STRING("10000")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::Int32}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{INT(1000000000), Null()}, STRING("1000000000")}}));
+            {{{INT(1000000000), STRING()}, STRING("1000000000")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::Int64}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{BIGINT(1152921504606846976), Null()}, STRING("1152921504606846976")}}));
+            {{{BIGINT(1152921504606846976), STRING()}, STRING("1152921504606846976")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
             "CAST", {Notnull {TypeIndex::Float64}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{DOUBLE(6.18), Null()}, STRING("6.18")}}));
+            {{{DOUBLE(6.18), STRING()}, STRING("6.18")}}));
     // String to JSONB should always be Nullable
     static_cast<void>(check_function<DataTypeJsonb, true>(
             "CAST", {Notnull {TypeIndex::String}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{STRING(R"(abcd)"), Null()}, Null()}})); // should fail
+            {{{STRING(R"(abcd)"), STRING()}, Null()}})); // should fail
     static_cast<void>(check_function<DataTypeJsonb, true>(
             "CAST", {Notnull {TypeIndex::String}, ConstedNotnull {TypeIndex::JSONB}},
-            {{{STRING(R"("abcd")"), Null()}, STRING(R"("abcd")")}}));
+            {{{STRING(R"("abcd")"), STRING()}, STRING(R"("abcd")")}}));
 }
 
 TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {

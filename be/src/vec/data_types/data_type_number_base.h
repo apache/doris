@@ -21,38 +21,32 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <type_traits>
 
-#include "common/cast_set.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "serde/data_type_number_serde.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/uint128.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 class BufferWritable;
 class IColumn;
 class ReadBuffer;
 template <typename T>
 struct TypeId;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
-#include "common/compile_check_begin.h"
 /** Implements part of the IDataType interface, common to all numbers and for Date and DateTime.
   */
 template <typename T>
@@ -69,34 +63,34 @@ public:
     TypeDescriptor get_type_as_type_descriptor() const override {
         // Doris does not support uint8 at present, use uint8 as boolean type
         if constexpr (std::is_same_v<TypeId<T>, TypeId<UInt8>>) {
-            return TypeDescriptor(TYPE_BOOLEAN);
+            return {TYPE_BOOLEAN};
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
-            return TypeDescriptor(TYPE_TINYINT);
+            return {TYPE_TINYINT};
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Int16>> ||
                       std::is_same_v<TypeId<T>, TypeId<UInt16>>) {
-            return TypeDescriptor(TYPE_SMALLINT);
+            return {TYPE_SMALLINT};
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Int32>> ||
                       std::is_same_v<TypeId<T>, TypeId<UInt32>>) {
-            return TypeDescriptor(TYPE_INT);
+            return {TYPE_INT};
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Int64>> ||
                       std::is_same_v<TypeId<T>, TypeId<UInt64>>) {
-            return TypeDescriptor(TYPE_BIGINT);
+            return {TYPE_BIGINT};
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>> ||
                       std::is_same_v<TypeId<T>, TypeId<Int128>>) {
-            return TypeDescriptor(TYPE_LARGEINT);
+            return {TYPE_LARGEINT};
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Float32>>) {
-            return TypeDescriptor(TYPE_FLOAT);
+            return {TYPE_FLOAT};
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
-            return TypeDescriptor(TYPE_DOUBLE);
+            return {TYPE_DOUBLE};
         }
-        return TypeDescriptor(INVALID_TYPE);
+        return {INVALID_TYPE};
     }
 
     doris::FieldType get_storage_field_type() const override {
