@@ -100,13 +100,17 @@ TEST_F(GeoTypesTest, point_intersects) {
 
     const char* wkt_linestring = "LINESTRING(-20 0, 20 0)";
     const char* wkt_polygon = "POLYGON((0 0,10 0,10 10,0 10,0 0))";
+    const char* wkt_multi_polygon = "MULTIPOLYGON(((0 0,10 0,10 10,0 10,0 0)))";
 
     std::unique_ptr<GeoShape> line(
             GeoShape::from_wkt(wkt_linestring, strlen(wkt_linestring), &status));
     std::unique_ptr<GeoShape> polygon(
             GeoShape::from_wkt(wkt_polygon, strlen(wkt_polygon), &status));
+    std::unique_ptr<GeoShape> multi_polygon(
+            GeoShape::from_wkt(wkt_multi_polygon, strlen(wkt_multi_polygon), &status));
     ASSERT_NE(nullptr, line.get());
     ASSERT_NE(nullptr, polygon.get());
+    ASSERT_NE(nullptr, multi_polygon.get());
 
     {
         // point on the line (center)
@@ -132,24 +136,28 @@ TEST_F(GeoTypesTest, point_intersects) {
         GeoPoint point;
         point.from_coord(5, 5);
         EXPECT_TRUE(point.intersects(polygon.get()));
+        EXPECT_TRUE(point.intersects(multi_polygon.get()));
     }
     {
         // point on polygon boundary edges (not vertices)
         GeoPoint point;
         point.from_coord(5, 0);
         EXPECT_TRUE(point.intersects(polygon.get()));
+        EXPECT_TRUE(point.intersects(multi_polygon.get()));
     }
     {
         // point at polygon vertices
         GeoPoint point;
         point.from_coord(0, 0);
         EXPECT_TRUE(point.intersects(polygon.get()));
+        EXPECT_TRUE(point.intersects(multi_polygon.get()));
     }
     {
         // point outside the polygon
         GeoPoint point;
         point.from_coord(20, 20);
         EXPECT_FALSE(point.intersects(polygon.get()));
+        EXPECT_FALSE(point.intersects(multi_polygon.get()));
     }
 
     std::string buf;
@@ -172,15 +180,20 @@ TEST_F(GeoTypesTest, linestring_intersects) {
     const char* base_line = "LINESTRING(-10 0, 10 0)";
     const char* vertical_line = "LINESTRING(0 -10, 0 10)";
     const char* polygon = "POLYGON((-5 -5,5 -5,5 5,-5 5,-5 -5))";
+    const char* multi_polygon =
+            "MULTIPOLYGON(((30 30,35 30,35 35,30 35,30 30)), ((-5 -5,5 -5,5 5,-5 5,-5 -5)))";
 
     std::unique_ptr<GeoShape> base_line_shape(
             GeoShape::from_wkt(base_line, strlen(base_line), &status));
     std::unique_ptr<GeoShape> vertical_line_shape(
             GeoShape::from_wkt(vertical_line, strlen(vertical_line), &status));
     std::unique_ptr<GeoShape> polygon_shape(GeoShape::from_wkt(polygon, strlen(polygon), &status));
+    std::unique_ptr<GeoShape> multi_polygon_shape(
+            GeoShape::from_wkt(multi_polygon, strlen(multi_polygon), &status));
     ASSERT_NE(nullptr, base_line_shape.get());
     ASSERT_NE(nullptr, vertical_line_shape.get());
     ASSERT_NE(nullptr, polygon_shape.get());
+    ASSERT_NE(nullptr, multi_polygon_shape.get());
 
     // ======================
     // LineString vs Point
@@ -252,6 +265,7 @@ TEST_F(GeoTypesTest, linestring_intersects) {
         std::unique_ptr<GeoShape> inner_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_TRUE(polygon_shape->intersects(inner_line.get()));
+        EXPECT_TRUE(multi_polygon_shape->intersects(inner_line.get()));
     }
     {
         // crossing the border
@@ -259,6 +273,7 @@ TEST_F(GeoTypesTest, linestring_intersects) {
         std::unique_ptr<GeoShape> cross_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_TRUE(polygon_shape->intersects(cross_line.get()));
+        EXPECT_TRUE(multi_polygon_shape->intersects(cross_line.get()));
     }
     {
         // along the borderline
@@ -266,6 +281,7 @@ TEST_F(GeoTypesTest, linestring_intersects) {
         std::unique_ptr<GeoShape> edge_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_TRUE(polygon_shape->intersects(edge_line.get()));
+        EXPECT_TRUE(multi_polygon_shape->intersects(edge_line.get()));
     }
     {
         // only one point
@@ -273,6 +289,7 @@ TEST_F(GeoTypesTest, linestring_intersects) {
         std::unique_ptr<GeoShape> edge_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_TRUE(polygon_shape->intersects(edge_line.get()));
+        EXPECT_TRUE(multi_polygon_shape->intersects(edge_line.get()));
     }
     {
         // fully external
@@ -280,6 +297,7 @@ TEST_F(GeoTypesTest, linestring_intersects) {
         std::unique_ptr<GeoShape> outer_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_FALSE(polygon_shape->intersects(outer_line.get()));
+        EXPECT_FALSE(multi_polygon_shape->intersects(outer_line.get()));
     }
 
     std::string buf;
@@ -303,6 +321,8 @@ TEST_F(GeoTypesTest, polygon_intersects) {
     const char* test_line = "LINESTRING(-5 5,15 5)";
     const char* overlap_polygon = "POLYGON((5 5,15 5,15 15,5 15,5 5))";
     const char* base_polygon2 = "POLYGON((-5 -5,5 -5,5 5,-5 5,-5 -5))";
+    const char* multi_polygons =
+            "MULTIPOLYGON(((35 35,40 35,40 40,35 40,35 35)), ((0 0,10 0,10 10,0 10,0 0)))";
 
     std::unique_ptr<GeoShape> polygon(
             GeoShape::from_wkt(base_polygon, strlen(base_polygon), &status));
@@ -311,10 +331,13 @@ TEST_F(GeoTypesTest, polygon_intersects) {
     std::unique_ptr<GeoShape> line(GeoShape::from_wkt(test_line, strlen(test_line), &status));
     std::unique_ptr<GeoShape> other_polygon(
             GeoShape::from_wkt(overlap_polygon, strlen(overlap_polygon), &status));
+    std::unique_ptr<GeoShape> multi_polygon(
+            GeoShape::from_wkt(multi_polygons, strlen(multi_polygons), &status));
     ASSERT_NE(nullptr, polygon.get());
     ASSERT_NE(nullptr, polygon2.get());
     ASSERT_NE(nullptr, line.get());
     ASSERT_NE(nullptr, other_polygon.get());
+    ASSERT_NE(nullptr, multi_polygon.get());
 
     // ======================
     // Polygon vs Point
@@ -443,21 +466,25 @@ TEST_F(GeoTypesTest, polygon_intersects) {
         const char* wkt = "POLYGON((2 2,8 2,8 8,2 8,2 2))";
         std::unique_ptr<GeoShape> small_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
         EXPECT_TRUE(polygon->intersects(small_polygon.get()));
+        EXPECT_TRUE(multi_polygon->intersects(small_polygon.get()));
     }
     {
         const char* wkt = "POLYGON((5 5,15 5,15 15,5 15,5 5))";
         std::unique_ptr<GeoShape> overlap_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
         EXPECT_TRUE(polygon->intersects(overlap_polygon.get()));
+        EXPECT_TRUE(multi_polygon->intersects(overlap_polygon.get()));
     }
     {
         const char* wkt = "POLYGON((10 0,20 0,20 10,10 10,10 0))";
         std::unique_ptr<GeoShape> touch_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
         EXPECT_TRUE(polygon->intersects(touch_polygon.get()));
+        EXPECT_TRUE(multi_polygon->intersects(touch_polygon.get()));
     }
     {
         const char* wkt = "POLYGON((20 20,30 20,30 30,20 30,20 20))";
         std::unique_ptr<GeoShape> separate_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
         EXPECT_FALSE(polygon->intersects(separate_polygon.get()));
+        EXPECT_FALSE(multi_polygon->intersects(separate_polygon.get()));
     }
 
     std::string buf;
@@ -466,6 +493,160 @@ TEST_F(GeoTypesTest, polygon_intersects) {
         std::unique_ptr<GeoShape> decoded(GeoShape::from_encoded(buf.data(), buf.size()));
         ASSERT_NE(nullptr, decoded.get());
         EXPECT_EQ(GEO_SHAPE_POLYGON, decoded->type());
+    }
+    {
+        buf.resize(buf.size() - 2);
+        std::unique_ptr<GeoShape> decoded(GeoShape::from_encoded(buf.data(), buf.size()));
+        EXPECT_EQ(nullptr, decoded.get());
+    }
+}
+
+TEST_F(GeoTypesTest, multipolygon_intersects) {
+    GeoParseStatus status;
+
+    const char* base_multipolygon =
+            "MULTIPOLYGON ("
+            "((0 0, 10 0, 10 10, 0 10, 0 0), (3 3, 8 3, 8 8, 3 8, 3 3)),"
+            "((15 0, 25 0, 25 10, 15 10, 15 0)),"
+            "((30 30, 40 30, 35 35, 30 30))"
+            ")";
+
+    const char* test_line = "LINESTRING(-5 5, 35 5)";
+    const char* overlap_polygon = "POLYGON((8 8, 18 8, 18 18, 8 18, 8 8))";
+    const char* external_polygon = "POLYGON((50 50, 60 50, 60 60, 50 60, 50 50))";
+
+    std::unique_ptr<GeoShape> multipolygon(
+            GeoShape::from_wkt(base_multipolygon, strlen(base_multipolygon), &status));
+    std::unique_ptr<GeoShape> line(GeoShape::from_wkt(test_line, strlen(test_line), &status));
+    std::unique_ptr<GeoShape> poly_overlap(
+            GeoShape::from_wkt(overlap_polygon, strlen(overlap_polygon), &status));
+    std::unique_ptr<GeoShape> poly_external(
+            GeoShape::from_wkt(external_polygon, strlen(external_polygon), &status));
+
+    ASSERT_NE(nullptr, multipolygon.get());
+    ASSERT_NE(nullptr, line.get());
+    ASSERT_NE(nullptr, poly_overlap.get());
+    ASSERT_NE(nullptr, poly_external.get());
+
+    // ======================
+    // MultiPolygon vs Point
+    // ======================
+    {
+        GeoPoint point;
+        point.from_coord(5, 5);
+        EXPECT_FALSE(multipolygon->intersects(&point));
+    }
+    {
+        GeoPoint point;
+        point.from_coord(1.5, 1.8);
+        EXPECT_TRUE(multipolygon->intersects(&point));
+    }
+    {
+        GeoPoint point;
+        point.from_coord(20, 5);
+        EXPECT_TRUE(multipolygon->intersects(&point));
+    }
+    {
+        GeoPoint point;
+        point.from_coord(12, 0);
+        EXPECT_FALSE(multipolygon->intersects(&point));
+    }
+    {
+        GeoPoint point;
+        point.from_coord(40, 30);
+        EXPECT_TRUE(multipolygon->intersects(&point));
+    }
+
+    // ======================
+    // MultiPolygon vs LineString
+    // ======================
+    {
+        const char* wkt = "LINESTRING(4 4, 7 7)";
+        std::unique_ptr<GeoShape> in_hole_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(multipolygon->intersects(in_hole_line.get()));
+    }
+    {
+        const char* wkt = "LINESTRING(-5 5, 35 5)";
+        std::unique_ptr<GeoShape> cross_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->intersects(cross_line.get()));
+    }
+    {
+        const char* wkt = "LINESTRING(3 3, 7 3)";
+        std::unique_ptr<GeoShape> inner_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->intersects(inner_line.get()));
+    }
+    {
+        const char* wkt = "LINESTRING(30 30, 35 35)";
+        std::unique_ptr<GeoShape> triangle_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->intersects(triangle_line.get()));
+    }
+    {
+        const char* wkt = "LINESTRING(50 50, 60 60)";
+        std::unique_ptr<GeoShape> outer_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(multipolygon->intersects(outer_line.get()));
+    }
+
+    // ======================
+    // MultiPolygon vs Polygon
+    // ======================
+    {
+        const char* wkt = "POLYGON((4 4, 7 4, 7 7, 4 7, 4 4))";
+        std::unique_ptr<GeoShape> in_hole_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(multipolygon->intersects(in_hole_polygon.get()));
+    }
+    {
+        const char* wkt = "POLYGON((20 0, 30 0, 30 10, 20 10, 20 0))";
+        std::unique_ptr<GeoShape> overlap_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->intersects(overlap_polygon.get()));
+    }
+    {
+        const char* wkt = "POLYGON((50 50, 60 50, 60 60, 50 60, 50 50))";
+        std::unique_ptr<GeoShape> external_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(multipolygon->intersects(external_polygon.get()));
+    }
+    {
+        const char* wkt = "POLYGON((10 0, 20 0, 20 5, 10 5, 10 0))";
+        std::unique_ptr<GeoShape> cross_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->intersects(cross_polygon.get()));
+    }
+    {
+        const char* wkt = "POLYGON((10 0, 15 0, 15 10, 10 10, 10 0))";
+        std::unique_ptr<GeoShape> touch_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->intersects(touch_polygon.get()));
+    }
+
+    // ======================
+    // MultiPolygon vs MultiPolygon
+    // ======================
+    {
+        const char* wkt = "MULTIPOLYGON (((4 4, 5 4, 5 5, 4 5, 4 4)), ((6 6, 7 6, 7 7, 6 7, 6 6)))";
+        std::unique_ptr<GeoShape> in_hole_multi(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(multipolygon->intersects(in_hole_multi.get()));
+    }
+    {
+        const char* wkt =
+                "MULTIPOLYGON (((8 8, 18 8, 18 18, 8 18, 8 8)), ((30 30, 40 30, 35 35, 30 30)))";
+        std::unique_ptr<GeoShape> overlap_multi(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->intersects(overlap_multi.get()));
+    }
+    {
+        const char* wkt =
+                "MULTIPOLYGON (((-10 -10, 0 -10, 0 0, -10 0, -10 -10)), ((50 50, 60 50, 60 60, 50 "
+                "60, 50 50)))";
+        std::unique_ptr<GeoShape> separate_multi(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->intersects(separate_multi.get()));
+    }
+
+    std::string buf;
+    multipolygon->encode_to(&buf);
+    {
+        std::unique_ptr<GeoShape> decoded(GeoShape::from_encoded(buf.data(), buf.size()));
+        ASSERT_NE(nullptr, decoded.get());
+        EXPECT_EQ(GEO_SHAPE_MULTI_POLYGON, decoded->type());
+
+        GeoPoint point;
+        point.from_coord(20, 5);
+        EXPECT_TRUE(decoded->intersects(&point));
     }
     {
         buf.resize(buf.size() - 2);
@@ -553,13 +734,17 @@ TEST_F(GeoTypesTest, point_touches) {
 
     const char* wkt_linestring = "LINESTRING(-20 0, 20 0)";
     const char* wkt_polygon = "POLYGON((0 0,10 0,10 10,0 10,0 0))";
+    const char* wkt_multi_polygon = "MULTIPOLYGON(((0 0,10 0,10 10,0 10,0 0)))";
 
     std::unique_ptr<GeoShape> line(
             GeoShape::from_wkt(wkt_linestring, strlen(wkt_linestring), &status));
     std::unique_ptr<GeoShape> polygon(
             GeoShape::from_wkt(wkt_polygon, strlen(wkt_polygon), &status));
+    std::unique_ptr<GeoShape> multi_polygon(
+            GeoShape::from_wkt(wkt_multi_polygon, strlen(wkt_multi_polygon), &status));
     ASSERT_NE(nullptr, line.get());
     ASSERT_NE(nullptr, polygon.get());
+    ASSERT_NE(nullptr, multi_polygon.get());
 
     {
         // point touches the line at the center
@@ -585,24 +770,28 @@ TEST_F(GeoTypesTest, point_touches) {
         GeoPoint point;
         point.from_coord(5, 5);
         EXPECT_FALSE(point.touches(polygon.get()));
+        EXPECT_FALSE(point.touches(multi_polygon.get()));
     }
     {
         // point touches the polygon boundary edge (not vertex)
         GeoPoint point;
         point.from_coord(5, 0);
         EXPECT_TRUE(point.touches(polygon.get()));
+        EXPECT_TRUE(point.touches(multi_polygon.get()));
     }
     {
         // point touches the polygon vertex
         GeoPoint point;
         point.from_coord(0, 0);
         EXPECT_TRUE(point.touches(polygon.get()));
+        EXPECT_TRUE(point.touches(multi_polygon.get()));
     }
     {
         // point does not touch the polygon
         GeoPoint point;
         point.from_coord(20, 20);
         EXPECT_FALSE(point.touches(polygon.get()));
+        EXPECT_FALSE(point.touches(multi_polygon.get()));
     }
 
     std::string buf;
@@ -625,15 +814,19 @@ TEST_F(GeoTypesTest, linestring_touches) {
     const char* base_line = "LINESTRING(-10 0, 10 0)";
     const char* vertical_line = "LINESTRING(0 -10, 0 10)";
     const char* polygon = "POLYGON((-5 -5,5 -5,5 5,-5 5,-5 -5))";
+    const char* multi_polygon = "MULTIPOLYGON(((-5 -5,5 -5,5 5,-5 5,-5 -5)))";
 
     std::unique_ptr<GeoShape> base_line_shape(
             GeoShape::from_wkt(base_line, strlen(base_line), &status));
     std::unique_ptr<GeoShape> vertical_line_shape(
             GeoShape::from_wkt(vertical_line, strlen(vertical_line), &status));
     std::unique_ptr<GeoShape> polygon_shape(GeoShape::from_wkt(polygon, strlen(polygon), &status));
+    std::unique_ptr<GeoShape> multi_polygon_shape(
+            GeoShape::from_wkt(multi_polygon, strlen(multi_polygon), &status));
     ASSERT_NE(nullptr, base_line_shape.get());
     ASSERT_NE(nullptr, vertical_line_shape.get());
     ASSERT_NE(nullptr, polygon_shape.get());
+    ASSERT_NE(nullptr, multi_polygon_shape.get());
 
     // ======================
     // LineString vs Point
@@ -712,6 +905,7 @@ TEST_F(GeoTypesTest, linestring_touches) {
         std::unique_ptr<GeoShape> inner_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_FALSE(polygon_shape->touches(inner_line.get()));
+        EXPECT_FALSE(multi_polygon_shape->touches(inner_line.get()));
     }
     {
         // crossing the border
@@ -719,6 +913,7 @@ TEST_F(GeoTypesTest, linestring_touches) {
         std::unique_ptr<GeoShape> cross_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_FALSE(polygon_shape->touches(cross_line.get()));
+        EXPECT_FALSE(multi_polygon_shape->touches(cross_line.get()));
     }
     {
         // along the borderline
@@ -726,6 +921,7 @@ TEST_F(GeoTypesTest, linestring_touches) {
         std::unique_ptr<GeoShape> edge_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_TRUE(polygon_shape->touches(edge_line.get()));
+        EXPECT_TRUE(multi_polygon_shape->touches(edge_line.get()));
     }
     {
         // along the borderline
@@ -733,6 +929,7 @@ TEST_F(GeoTypesTest, linestring_touches) {
         std::unique_ptr<GeoShape> edge_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_FALSE(polygon_shape->touches(edge_line.get()));
+        EXPECT_FALSE(multi_polygon_shape->touches(edge_line.get()));
     }
     {
         // along the borderline
@@ -740,6 +937,7 @@ TEST_F(GeoTypesTest, linestring_touches) {
         std::unique_ptr<GeoShape> edge_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_FALSE(polygon_shape->touches(edge_line.get()));
+        EXPECT_FALSE(multi_polygon_shape->touches(edge_line.get()));
     }
     {
         // along the borderline
@@ -747,6 +945,7 @@ TEST_F(GeoTypesTest, linestring_touches) {
         std::unique_ptr<GeoShape> edge_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_TRUE(polygon_shape->touches(edge_line.get()));
+        EXPECT_TRUE(multi_polygon_shape->touches(edge_line.get()));
     }
     {
         // fully external
@@ -754,6 +953,7 @@ TEST_F(GeoTypesTest, linestring_touches) {
         std::unique_ptr<GeoShape> outer_line(
                 GeoShape::from_wkt(wkt_string, strlen(wkt_string), &status));
         EXPECT_FALSE(polygon_shape->touches(outer_line.get()));
+        EXPECT_FALSE(multi_polygon_shape->touches(outer_line.get()));
     }
 
     std::string buf;
@@ -776,15 +976,20 @@ TEST_F(GeoTypesTest, polygon_touches) {
     const char* base_polygon = "POLYGON((0 0,10 0,10 10,0 10,0 0))";
     const char* test_line = "LINESTRING(-5 5,15 5)";
     const char* overlap_polygon = "POLYGON((5 5,15 5,15 15,5 15,5 5))";
+    const char* test_multi_polugon =
+            "MULTIPOLYGON(((30 30,35 30,35 35,30 35,30 30)), ((0 0,10 0,10 10,0 10,0 0)))";
 
     std::unique_ptr<GeoShape> polygon(
             GeoShape::from_wkt(base_polygon, strlen(base_polygon), &status));
     std::unique_ptr<GeoShape> line(GeoShape::from_wkt(test_line, strlen(test_line), &status));
     std::unique_ptr<GeoShape> other_polygon(
             GeoShape::from_wkt(overlap_polygon, strlen(overlap_polygon), &status));
+    std::unique_ptr<GeoShape> multi_polygon(
+            GeoShape::from_wkt(test_multi_polugon, strlen(test_multi_polugon), &status));
     ASSERT_NE(nullptr, polygon.get());
     ASSERT_NE(nullptr, line.get());
     ASSERT_NE(nullptr, other_polygon.get());
+    ASSERT_NE(nullptr, multi_polygon.get());
 
     // ======================
     // Polygon vs Point
@@ -893,12 +1098,195 @@ TEST_F(GeoTypesTest, polygon_touches) {
         EXPECT_FALSE(polygon->touches(separate_polygon.get()));
     }
 
+    // ========================
+    // Polygon vs MultiPolygon
+    // ========================
+    {
+        const char* wkt = "MULTIPOLYGON(((2 2,8 2,8 8,2 8,2 2)))";
+        std::unique_ptr<GeoShape> small_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(polygon->touches(small_polygon.get()));
+    }
+    {
+        const char* wkt = "MULTIPOLYGON(((5 5,15 5,15 15,5 15,5 5)))";
+        std::unique_ptr<GeoShape> overlap_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(polygon->touches(overlap_polygon.get()));
+    }
+    {
+        const char* wkt = "MULTIPOLYGON(((10 0,20 0,20 10,10 10,10 0)))";
+        std::unique_ptr<GeoShape> touch_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(polygon->touches(touch_polygon.get()));
+    }
+    {
+        const char* wkt = "MULTIPOLYGON(((10.1 0,20 0,20 10,10.1 10,10.1 0)))";
+        std::unique_ptr<GeoShape> touch_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(polygon->touches(touch_polygon.get()));
+    }
+    {
+        const char* wkt = "MULTIPOLYGON(((9.99 0,20 0,20 10,9.99 10,9.99 0)))";
+        std::unique_ptr<GeoShape> touch_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(polygon->touches(touch_polygon.get()));
+    }
+    {
+        const char* wkt = "MULTIPOLYGON(((20 20,30 20,30 30,20 30,20 20)))";
+        std::unique_ptr<GeoShape> separate_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(polygon->touches(separate_polygon.get()));
+    }
+
     std::string buf;
     polygon->encode_to(&buf);
     {
         std::unique_ptr<GeoShape> decoded(GeoShape::from_encoded(buf.data(), buf.size()));
         ASSERT_NE(nullptr, decoded.get());
         EXPECT_EQ(GEO_SHAPE_POLYGON, decoded->type());
+    }
+    {
+        buf.resize(buf.size() - 2);
+        std::unique_ptr<GeoShape> decoded(GeoShape::from_encoded(buf.data(), buf.size()));
+        EXPECT_EQ(nullptr, decoded.get());
+    }
+}
+
+TEST_F(GeoTypesTest, multipolygon_touches) {
+    GeoParseStatus status;
+
+    const char* base_multipolygon =
+            "MULTIPOLYGON ("
+            "((0 0, 10 0, 10 10, 0 10, 0 0), (3 3, 8 3, 8 8, 3 8, 3 3)),"
+            "((15 0, 25 0, 25 10, 15 10, 15 0)),"
+            "((30 30, 40 30, 35 35, 30 30))"
+            ")";
+    const char* test_line = "LINESTRING(10 5, 20 5)";
+    const char* overlap_polygon = "POLYGON((8 8, 18 8, 18 18, 8 18, 8 8))";
+    const char* test_multi_polygon =
+            "MULTIPOLYGON (((-5 -5, 0 -5, 0 0, -5 0, -5 -5)), ((40 40, 50 40, 50 50, 40 50, 40 "
+            "40)))";
+
+    std::unique_ptr<GeoShape> multipolygon(
+            GeoShape::from_wkt(base_multipolygon, strlen(base_multipolygon), &status));
+    std::unique_ptr<GeoShape> line(GeoShape::from_wkt(test_line, strlen(test_line), &status));
+    std::unique_ptr<GeoShape> other_polygon(
+            GeoShape::from_wkt(overlap_polygon, strlen(overlap_polygon), &status));
+    std::unique_ptr<GeoShape> other_multipolygon(
+            GeoShape::from_wkt(test_multi_polygon, strlen(test_multi_polygon), &status));
+    ASSERT_NE(nullptr, multipolygon.get());
+    ASSERT_NE(nullptr, line.get());
+    ASSERT_NE(nullptr, other_polygon.get());
+    ASSERT_NE(nullptr, other_multipolygon.get());
+
+    // ======================
+    // MultiPolygon vs Point
+    // ======================
+    {
+        GeoPoint point;
+        point.from_coord(0, 0);
+        EXPECT_TRUE(multipolygon->touches(&point));
+    }
+    {
+        GeoPoint point;
+        point.from_coord(10, 5);
+        EXPECT_TRUE(multipolygon->touches(&point));
+    }
+    {
+        GeoPoint point;
+        point.from_coord(30, 30);
+        EXPECT_TRUE(multipolygon->touches(&point));
+    }
+    {
+        GeoPoint point;
+        point.from_coord(50, 50);
+        EXPECT_FALSE(multipolygon->touches(&point));
+    }
+
+    // ===========================
+    // MultiPolygon vs LineString
+    // ===========================
+    {
+        const char* wkt = "LINESTRING(3 5, 8 5)";
+        std::unique_ptr<GeoShape> in_hole_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->touches(in_hole_line.get()));
+    }
+    {
+        const char* wkt = "LINESTRING(10 5, 20 5)";
+        std::unique_ptr<GeoShape> cross_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(multipolygon->touches(cross_line.get()));
+    }
+    {
+        const char* wkt = "LINESTRING(30 30, 35 35)";
+        std::unique_ptr<GeoShape> edge_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->touches(edge_line.get()));
+    }
+    {
+        const char* wkt = "LINESTRING(10 10, 15 0)";
+        std::unique_ptr<GeoShape> cross_line(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->touches(cross_line.get()));
+    }
+
+    // ========================
+    // MultiPolygon vs Polygon
+    // ========================
+    {
+        const char* wkt = "POLYGON((3 3, 8 3, 8 8, 3 8, 3 3))";
+        std::unique_ptr<GeoShape> in_hole_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->touches(in_hole_polygon.get()));
+    }
+    {
+        const char* wkt = "POLYGON((3 3, 10 3, 10 8, 3 8, 3 3))";
+        std::unique_ptr<GeoShape> cross_hole_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(multipolygon->touches(cross_hole_polygon.get()));
+    }
+    {
+        const char* wkt = "POLYGON((25 0, 35 0, 35 10, 25 10, 25 0))";
+        std::unique_ptr<GeoShape> touch_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->touches(touch_polygon.get()));
+    }
+    {
+        const char* wkt = "POLYGON((8 8, 18 8, 18 18, 8 18, 8 8))";
+        std::unique_ptr<GeoShape> overlap_poly(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(multipolygon->touches(overlap_poly.get()));
+    }
+    {
+        const char* wkt = "POLYGON((10 0, 15 0, 15 10, 10 10, 10 0))";
+        std::unique_ptr<GeoShape> touch_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->touches(touch_polygon.get()));
+    }
+    {
+        const char* wkt = "POLYGON((20 20, 30 20, 30 30, 20 30, 20 20))";
+        std::unique_ptr<GeoShape> separate_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->touches(separate_polygon.get()));
+    }
+    {
+        const char* wkt = "POLYGON((10 0, 20 0, 20 5, 10 5, 10 0))";
+        std::unique_ptr<GeoShape> cross_polygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(multipolygon->touches(cross_polygon.get()));
+    }
+
+    // =============================
+    // MultiPolygon vs MultiPolygon
+    // =============================
+    {
+        const char* wkt =
+                "MULTIPOLYGON (((-5 -5, 0 -5, 0 0, -5 0, -5 -5)), ((40 30, 50 30, 50 50, 40 50, 40 "
+                "30)))";
+        std::unique_ptr<GeoShape> touch_multi(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_TRUE(multipolygon->touches(touch_multi.get()));
+    }
+    {
+        const char* wkt =
+                "MULTIPOLYGON (((8 8, 18 8, 18 18, 8 18, 8 8)), ((30 30, 40 30, 35 25, 30 30)))";
+        std::unique_ptr<GeoShape> overlap_multi(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_FALSE(multipolygon->touches(overlap_multi.get()));
+    }
+
+    std::string buf;
+    multipolygon->encode_to(&buf);
+    {
+        std::unique_ptr<GeoShape> decoded(GeoShape::from_encoded(buf.data(), buf.size()));
+        ASSERT_NE(nullptr, decoded.get());
+        EXPECT_EQ(GEO_SHAPE_MULTI_POLYGON, decoded->type());
+
+        GeoPoint point;
+        point.from_coord(10, 5);
+        EXPECT_TRUE(decoded->touches(&point));
     }
     {
         buf.resize(buf.size() - 2);
@@ -1094,7 +1482,47 @@ TEST_F(GeoTypesTest, polygon_hole_contains) {
         GeoPoint point;
         point.from_coord(20, 20);
         auto res = polygon->contains(&point);
-        EXPECT_TRUE(res);
+        EXPECT_FALSE(res);
+    }
+}
+
+TEST_F(GeoTypesTest, multipolygon_parse_fail) {
+    {
+        const char* wkt = "MULTIPOLYGON (((10 10, 50 10, 50 50, 10 50), (10 10 01)))";
+        GeoParseStatus status;
+        std::unique_ptr<GeoShape> multipolygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_EQ(GEO_PARSE_WKT_SYNTAX_ERROR, status);
+        EXPECT_EQ(nullptr, multipolygon.get());
+    }
+    {
+        const char* wkt = "MULTIPOLYGON (((10 10, 50 10, 50 50, 10 50)))";
+        GeoParseStatus status;
+        std::unique_ptr<GeoShape> multipolygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_EQ(GEO_PARSE_LOOP_NOT_CLOSED, status);
+        EXPECT_EQ(nullptr, multipolygon.get());
+    }
+    {
+        const char* wkt = "MULTIPOLYGON (((10 10, 50 10, 10 10)))";
+        GeoParseStatus status;
+        std::unique_ptr<GeoShape> multipolygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_EQ(GEO_PARSE_LOOP_LACK_VERTICES, status);
+        EXPECT_EQ(nullptr, multipolygon.get());
+    }
+    {
+        const char* wkt =
+                "MULTIPOLYGON (((0 0, 0 10, 10 10, 10 0, 0 0)), ((5 5, 5 15, 15 15, 15 5, 5 5)))";
+        GeoParseStatus status;
+        std::unique_ptr<GeoShape> multipolygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_EQ(GEO_PARSE_MULTIPOLYGON_OVERLAP, status);
+        EXPECT_EQ(nullptr, multipolygon.get());
+    }
+    {
+        const char* wkt =
+                "MULTIPOLYGON(((5 5, 5 8, 8 8, 8 5, 5 5)), ((8 6, 10 6, 10 10, 8 10, 8 6)))";
+        GeoParseStatus status;
+        std::unique_ptr<GeoShape> multipolygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_EQ(GEO_PARSE_MULTIPOLYGON_OVERLAP, status);
+        EXPECT_EQ(nullptr, multipolygon.get());
     }
 }
 

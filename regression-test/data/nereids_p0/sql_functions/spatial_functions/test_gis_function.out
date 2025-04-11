@@ -8,6 +8,34 @@ POINT (24.7 56.7)
 -- !sql --
 CIRCLE ((111 64), 10000)
 
+-- ST_Contains --
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- ST_Intersects --
+-- POINT
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- LINESTRING
+-- !sql --
+true
+
 -- !sql --
 true
 
@@ -24,21 +52,6 @@ false
 true
 
 -- !sql --
-true
-
--- !sql --
-false
-
--- !sql --
-true
-
--- !sql --
-false
-
--- !sql --
-true
-
--- !sql --
 false
 
 -- !sql --
@@ -53,50 +66,9 @@ false
 -- !sql --
 true
 
+-- POLYGON
 -- !sql --
 true
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-false
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-false
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-false
 
 -- !sql --
 true
@@ -129,11 +101,70 @@ true
 false
 
 -- !sql --
+true
+
+-- MULTIPOLYGON
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- CIRCLE
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- ST_Touches --
+-- POINT
+-- !sql --
 false
 
 -- !sql --
 false
 
+-- LINESTRING
 -- !sql --
 false
 
@@ -152,6 +183,7 @@ false
 -- !sql --
 false
 
+-- POLYGON
 -- !sql --
 true
 
@@ -166,105 +198,6 @@ true
 
 -- !sql --
 true
-
--- !sql --
-false
-
--- !sql --
-false
-
--- !sql --
-false
-
--- !sql --
-false
-
--- !sql --
-true
-
--- !sql --
-false
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-false
-
--- !sql --
-false
-
--- !sql --
-true
-
--- !sql --
-false
-
--- !sql --
-false
-
--- !sql --
-true
-
--- !sql --
-false
-
--- !sql --
-false
-
--- !sql --
-false
-
--- !sql --
-true
-
--- !sql --
-false
-
--- !sql --
-false
-
--- !sql --
-false
-
--- !sql --
-true
-
--- !sql --
-false
-
--- !sql --
-false
-
--- !sql --
-true
-
--- !sql --
-false
-
--- !sql --
-true
-
--- !sql --
-false
-
--- !sql --
-false
-
--- !sql --
-false
-
--- !sql --
-false
-
--- !sql --
-false
 
 -- !sql --
 false
@@ -284,6 +217,140 @@ true
 -- !sql --
 false
 
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- MULTIPOLYGON
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- CIRCLE
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- ST_Disjoint --
+-- POINT
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- LINESTRING
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- POLYGON
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- MULTIPOLYGON
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- CIRCLE
 -- !sql --
 false
 
@@ -332,6 +399,7 @@ true
 -- !sql --
 45.0
 
+-- ST_AsText --
 -- !sql --
 LINESTRING (1 1, 2 2)
 
@@ -355,6 +423,33 @@ POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))
 
 -- !sql --
 POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))
+
+-- !sql --
+MULTIPOLYGON (((5.2 0, 5.3 5.3, 0 4.9, 0 0, 5.2 0)), ((30 20.2, 30.6 30.4, 20.4 30.6, 20.1 20.3, 30 20.2)), ((60.5 50.5, 60.7 60.9, 50.1 60.7, 50.2 50.3, 60.5 50.5)), ((80 70, 80.3 80.2, 70.5 80.5, 70.3 70.1, 80 70)))
+
+-- !sql --
+MULTIPOLYGON (((8 5, 8 8, 5 8, 5 5, 8 5)), ((12 8, 12 12, 8 12, 8 8, 12 8)))
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+MULTIPOLYGON (((10 -10, 10 10, -10 10, -10 -10, 10 -10)), ((30 20, 30 30, 20 30, 20 20, 30 20), (27 25, 27 27, 25 27, 25 25, 27 25)))
+
+-- !sql --
+MULTIPOLYGON (((0 0, 10 0, 10 10, 0 10, 0 0)), ((2 10, 5 15, 8 10, 10 15, 5 20, 0 15, 2 10)))
+
+-- !sql --
+MULTIPOLYGON (((0 0, 20 0, 20 20, 0 20, 0 0), (5 5, 15 5, 15 15, 5 15, 5 5)), ((5 10, 10 5, 15 10, 10 15, 5 10)))
+
+-- !sql --
+\N
+
+-- !sql --
+MULTIPOLYGON (((0 0, 4 1, 2 4, 0 0)), ((2 4, 5 6, 3 8, 2 4)))
 
 -- !sql --
 1.0
