@@ -28,6 +28,7 @@
 #include "vec/columns/column_object.h"
 #include "vec/columns/common_column_test.h"
 #include "vec/columns/subcolumn_tree.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -1623,7 +1624,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
     {
         Int32 field(42);
         FieldInfo info;
-        get_field_info(field, &info);
+        schema_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -1634,7 +1635,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
     {
         Int64 field(42);
         FieldInfo info;
-        get_field_info(field, &info);
+        schema_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -1645,7 +1646,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
     {
         Field field(UInt64(42));
         FieldInfo info;
-        get_field_info(field, &info);
+        schema_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -1658,7 +1659,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         // Test Int64 <= Int8::max()
         Int64 field1(std::numeric_limits<Int8>::max());
         FieldInfo info1;
-        get_field_info(field1, &info1);
+        schema_util::get_field_info(field1, &info1);
         EXPECT_EQ(info1.scalar_type_id, TypeIndex::Int8);
         EXPECT_FALSE(info1.have_nulls);
         EXPECT_FALSE(info1.need_convert);
@@ -1667,7 +1668,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         // Test Int64 <= Int16::max()
         Int64 field2(std::numeric_limits<Int16>::max());
         FieldInfo info2;
-        get_field_info(field2, &info2);
+        schema_util::get_field_info(field2, &info2);
         EXPECT_EQ(info2.scalar_type_id, TypeIndex::Int16);
         EXPECT_FALSE(info2.have_nulls);
         EXPECT_FALSE(info2.need_convert);
@@ -1676,7 +1677,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         // Test Int64 <= Int32::max()
         Int64 field3(std::numeric_limits<Int32>::max());
         FieldInfo info3;
-        get_field_info(field3, &info3);
+        schema_util::get_field_info(field3, &info3);
         EXPECT_EQ(info3.scalar_type_id, TypeIndex::Int32);
         EXPECT_FALSE(info3.have_nulls);
         EXPECT_FALSE(info3.need_convert);
@@ -1685,7 +1686,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         // Test Int64 > Int32::max()
         Int64 field4(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1);
         FieldInfo info4;
-        get_field_info(field4, &info4);
+        schema_util::get_field_info(field4, &info4);
         EXPECT_EQ(info4.scalar_type_id, TypeIndex::Int64);
         EXPECT_FALSE(info4.have_nulls);
         EXPECT_FALSE(info4.need_convert);
@@ -1694,7 +1695,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         // Test Int64 <= Int8::min()
         Int64 field5(std::numeric_limits<Int8>::min());
         FieldInfo info5;
-        get_field_info(field5, &info5);
+        schema_util::get_field_info(field5, &info5);
         EXPECT_EQ(info5.scalar_type_id, TypeIndex::Int8);
         EXPECT_FALSE(info5.have_nulls);
         EXPECT_FALSE(info5.need_convert);
@@ -1703,7 +1704,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         // Test Int64 <= Int16::min()
         Int64 field6(std::numeric_limits<Int16>::min());
         FieldInfo info6;
-        get_field_info(field6, &info6);
+        schema_util::get_field_info(field6, &info6);
         EXPECT_EQ(info6.scalar_type_id, TypeIndex::Int16);
         EXPECT_FALSE(info6.have_nulls);
         EXPECT_FALSE(info6.need_convert);
@@ -1712,7 +1713,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         // Test Int64 <= Int32::min()
         Int64 field7(std::numeric_limits<Int32>::min());
         FieldInfo info7;
-        get_field_info(field7, &info7);
+        schema_util::get_field_info(field7, &info7);
         EXPECT_EQ(info7.scalar_type_id, TypeIndex::Int32);
         EXPECT_FALSE(info7.have_nulls);
         EXPECT_FALSE(info7.need_convert);
@@ -1721,7 +1722,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         // Test Int64 < Int32::min()
         Int64 field8(static_cast<Int64>(std::numeric_limits<Int32>::min()) - 1);
         FieldInfo info8;
-        get_field_info(field8, &info8);
+        schema_util::get_field_info(field8, &info8);
         EXPECT_EQ(info8.scalar_type_id, TypeIndex::Int64);
     }
 
@@ -1730,7 +1731,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         // Test UInt64 <= UInt8::max()
         UInt64 field1(std::numeric_limits<UInt8>::max());
         FieldInfo info1;
-        get_field_info(field1, &info1);
+        schema_util::get_field_info(field1, &info1);
         EXPECT_EQ(info1.scalar_type_id, TypeIndex::Int16);
         EXPECT_FALSE(info1.have_nulls);
         EXPECT_FALSE(info1.need_convert);
@@ -1739,7 +1740,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         // Test UInt64 <= UInt16::max()
         UInt64 field2(std::numeric_limits<UInt16>::max());
         FieldInfo info2;
-        get_field_info(field2, &info2);
+        schema_util::get_field_info(field2, &info2);
         EXPECT_EQ(info2.scalar_type_id, TypeIndex::Int32);
         EXPECT_FALSE(info2.have_nulls);
         EXPECT_FALSE(info2.need_convert);
@@ -1748,7 +1749,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         // Test UInt64 <= UInt32::max()
         UInt64 field3(std::numeric_limits<UInt32>::max());
         FieldInfo info3;
-        get_field_info(field3, &info3);
+        schema_util::get_field_info(field3, &info3);
         EXPECT_EQ(info3.scalar_type_id, TypeIndex::Int64);
         EXPECT_FALSE(info3.have_nulls);
         EXPECT_FALSE(info3.need_convert);
@@ -1757,7 +1758,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         // Test UInt64 > UInt32::max()
         UInt64 field4(static_cast<UInt64>(std::numeric_limits<UInt32>::max()) + 1);
         FieldInfo info4;
-        get_field_info(field4, &info4);
+        schema_util::get_field_info(field4, &info4);
         EXPECT_EQ(info4.scalar_type_id, TypeIndex::Int64);
     }
 
@@ -1765,7 +1766,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
     {
         Field field(Float32(42.0f));
         FieldInfo info;
-        get_field_info(field, &info);
+        schema_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, TypeIndex::Float64);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -1776,7 +1777,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
     {
         Field field(Float64(42.0));
         FieldInfo info;
-        get_field_info(field, &info);
+        schema_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, TypeIndex::Float64);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -1787,7 +1788,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
     {
         Field field(String("test"));
         FieldInfo info;
-        get_field_info(field, &info);
+        schema_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, TypeIndex::String);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -1802,7 +1803,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         JsonbField field(value.value(), value.size());
 
         FieldInfo info;
-        get_field_info(field, &info);
+        schema_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, TypeIndex::JSONB);
     }
 
@@ -1813,7 +1814,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         array.push_back(Int64(2));
         Field field(array);
         FieldInfo info;
-        get_field_info(field, &info);
+        schema_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -1832,7 +1833,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
 
         Field field(outer_array);
         FieldInfo info;
-        get_field_info(field, &info);
+        schema_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -1846,7 +1847,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         t1.push_back(__int128_t(37));
         t1.push_back(true);
         FieldInfo info;
-        get_field_info(t1, &info);
+        schema_util::get_field_info(t1, &info);
         EXPECT_EQ(info.scalar_type_id, TypeIndex::JSONB)
                 << "info.scalar_type_id: " << getTypeName(info.scalar_type_id);
         EXPECT_FALSE(info.have_nulls);
@@ -1862,7 +1863,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         map.push_back(k1);
         map.push_back(v1);
         FieldInfo info;
-        EXPECT_ANY_THROW(get_field_info(map, &info));
+        EXPECT_ANY_THROW(schema_util::get_field_info(map, &info));
     }
 
     // Test VariantMap
@@ -1872,7 +1873,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         variant_map["key2"] = String("value");
         Field field(variant_map);
         FieldInfo info;
-        get_field_info(field, &info);
+        schema_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, TypeIndex::VARIANT);
         EXPECT_FALSE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -1885,7 +1886,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         array.push_back(Int64(1));
         Field field(array);
         FieldInfo info;
-        get_field_info(field, &info);
+        schema_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8)
                 << "info.scalar_type_id: " << getTypeName(info.scalar_type_id);
         EXPECT_FALSE(info.have_nulls);
@@ -1900,7 +1901,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
         array.push_back(Null());
         Field field(array);
         FieldInfo info;
-        get_field_info(field, &info);
+        schema_util::get_field_info(field, &info);
         EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
         EXPECT_TRUE(info.have_nulls);
         EXPECT_FALSE(info.need_convert);
@@ -1919,7 +1920,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
 
     Field field(outer_array);
     FieldInfo info;
-    get_field_info(field, &info);
+    schema_util::get_field_info(field, &info);
     EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
     EXPECT_FALSE(info.have_nulls);
     EXPECT_FALSE(info.need_convert);
@@ -1938,7 +1939,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
 
     Field field(outer_array);
     FieldInfo info;
-    get_field_info(field, &info);
+    schema_util::get_field_info(field, &info);
     EXPECT_EQ(info.scalar_type_id, TypeIndex::Int16);
     EXPECT_FALSE(info.have_nulls);
     EXPECT_FALSE(info.need_convert);
@@ -1957,7 +1958,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
 
     Field field(outer_array);
     FieldInfo info;
-    get_field_info(field, &info);
+    schema_util::get_field_info(field, &info);
     EXPECT_EQ(info.scalar_type_id, TypeIndex::Int32);
     EXPECT_FALSE(info.have_nulls);
     EXPECT_FALSE(info.need_convert);
@@ -1976,7 +1977,7 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
 
     Field field(outer_array);
     FieldInfo info;
-    get_field_info(field, &info);
+    schema_util::get_field_info(field, &info);
     EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
     EXPECT_FALSE(info.have_nulls);
     EXPECT_FALSE(info.need_convert);
@@ -1996,7 +1997,7 @@ outer_array.push_back(inner_array);
 
 Field field(outer_array);
 FieldInfo info;
-get_field_info(field, &info);
+schema_util::get_field_info(field, &info);
 EXPECT_EQ(info.scalar_type_id, TypeIndex::Int16);
 EXPECT_FALSE(info.have_nulls);
 EXPECT_FALSE(info.need_convert);
@@ -2015,7 +2016,7 @@ EXPECT_EQ(info.num_dimensions, 2);
 
     Field field(outer_array);
     FieldInfo info;
-    get_field_info(field, &info);
+    schema_util::get_field_info(field, &info);
     EXPECT_EQ(info.scalar_type_id, TypeIndex::Int32);
     EXPECT_FALSE(info.have_nulls);
     EXPECT_FALSE(info.need_convert);
@@ -2034,7 +2035,7 @@ EXPECT_EQ(info.num_dimensions, 2);
 
     Field field(outer_array);
     FieldInfo info;
-    get_field_info(field, &info);
+    schema_util::get_field_info(field, &info);
     EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
     EXPECT_FALSE(info.have_nulls);
     EXPECT_FALSE(info.need_convert);
@@ -2053,7 +2054,7 @@ EXPECT_EQ(info.num_dimensions, 2);
 
     Field field(outer_array);
     FieldInfo info;
-    get_field_info(field, &info);
+    schema_util::get_field_info(field, &info);
     EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
     EXPECT_FALSE(info.have_nulls);
     EXPECT_FALSE(info.need_convert);
@@ -2077,7 +2078,7 @@ EXPECT_EQ(info.num_dimensions, 2);
 
     Field field(outer_array);
     FieldInfo info;
-    get_field_info(field, &info);
+    schema_util::get_field_info(field, &info);
     EXPECT_EQ(info.scalar_type_id, TypeIndex::Int64);
     EXPECT_FALSE(info.have_nulls);
     EXPECT_TRUE(info.need_convert);
@@ -2100,7 +2101,7 @@ EXPECT_EQ(info.num_dimensions, 2);
 
     Field field(outer_array);
     FieldInfo info;
-    get_field_info(field, &info);
+    schema_util::get_field_info(field, &info);
     EXPECT_EQ(info.scalar_type_id, TypeIndex::Int8);
     EXPECT_TRUE(info.have_nulls);
     EXPECT_FALSE(info.need_convert);
@@ -2119,7 +2120,7 @@ EXPECT_EQ(info.num_dimensions, 2);
     array.push_back(field);
     array.push_back(field);
     FieldInfo info;
-    get_field_info(array, &info);
+    schema_util::get_field_info(array, &info);
     EXPECT_EQ(info.scalar_type_id, TypeIndex::JSONB);
 }
 }
