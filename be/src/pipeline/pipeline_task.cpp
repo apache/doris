@@ -331,6 +331,7 @@ Status PipelineTask::execute(bool* eos) {
             }
         });
 
+        SCOPED_RAW_TIMER(&time_spent);
         if (_wake_up_early) {
             *eos = true;
             _eos = true;
@@ -350,6 +351,7 @@ Status PipelineTask::execute(bool* eos) {
     _task_profile->add_info_string("TaskState", "Runnable");
     _task_profile->add_info_string("BlockedByDependency", "");
     while (!_fragment_context->is_canceled()) {
+        SCOPED_RAW_TIMER(&time_spent);
         if (_is_blocked()) {
             return Status::OK();
         }
