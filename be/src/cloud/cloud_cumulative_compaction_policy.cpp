@@ -243,6 +243,10 @@ int64_t CloudTimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
         size_t* compaction_score, bool allow_delete) {
     int64_t last_cumu = tablet->last_cumu_compaction_success_time();
+    if (last_cumu == 0) {
+        last_cumu = UnixMillis();
+        tablet->set_last_cumu_compaction_success_time(last_cumu);
+    }
     return TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
             tablet, last_cumu, candidate_rowsets, max_compaction_score, min_compaction_score,
             input_rowsets, last_delete_version, compaction_score, allow_delete);
