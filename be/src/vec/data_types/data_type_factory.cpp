@@ -420,6 +420,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_STRING:
         result = std::make_shared<vectorized::DataTypeString>();
         break;
+    case FieldType::OLAP_FIELD_TYPE_VARIANT:
+        result = std::make_shared<vectorized::DataTypeObject>();
+        break;
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         result = std::make_shared<vectorized::DataTypeJsonb>();
         break;
