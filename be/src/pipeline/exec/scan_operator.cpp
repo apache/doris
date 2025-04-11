@@ -339,34 +339,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 return Status::OK();
             }
         } else {
-            vectorized::VExprSPtr left_child;
-            RETURN_IF_ERROR(
-                    _normalize_predicate(conjunct_expr_root->children()[0], context, left_child));
-            vectorized::VExprSPtr right_child;
-            RETURN_IF_ERROR(
-                    _normalize_predicate(conjunct_expr_root->children()[1], context, right_child));
-
-            if (left_child != nullptr && right_child != nullptr) {
-                conjunct_expr_root->set_children({left_child, right_child});
-                output_expr = conjunct_expr_root;
-                return Status::OK();
-            } else {
-                if (left_child == nullptr) {
-                    conjunct_expr_root->children()[0]->close(context,
-                                                             context->get_function_state_scope());
-                }
-                if (right_child == nullptr) {
-                    conjunct_expr_root->children()[1]->close(context,
-                                                             context->get_function_state_scope());
-                }
-                // here only close the and expr self, do not close the child
-                conjunct_expr_root->set_children({});
-                conjunct_expr_root->close(context, context->get_function_state_scope());
-            }
-
-            // here do not close VExpr* now
-            output_expr = left_child != nullptr ? left_child : right_child;
-            return Status::OK();
+            return Status::InternalError("YXC TEST");
         }
     }
     output_expr = conjunct_expr_root;
