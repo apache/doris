@@ -292,6 +292,14 @@ DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> b
     }
     return true;
 });
+DEFINE_Int32(doris_task_initial_split_concurrency, "-1");
+DEFINE_Validator(doris_task_initial_split_concurrency, [](const int config) -> bool {
+    if (config == -1) {
+        CpuInfo::init();
+        doris_task_initial_split_concurrency = std::max(48, CpuInfo::num_cores() * 2);
+    }
+    return true;
+});
 DEFINE_Int32(doris_scanner_min_thread_pool_thread_num, "8");
 DEFINE_Int32(remote_split_source_batch_size, "10240");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
