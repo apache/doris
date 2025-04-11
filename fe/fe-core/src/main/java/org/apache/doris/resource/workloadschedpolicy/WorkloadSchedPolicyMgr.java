@@ -447,10 +447,8 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
 
         String workloadGroupNameStr = properties.get(WorkloadSchedPolicy.WORKLOAD_GROUP);
         if (workloadGroupNameStr != null && !workloadGroupNameStr.isEmpty()) {
-            Long wgId = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroupIdByName(workloadGroupNameStr);
-            if (wgId == null) {
-                throw new UserException("unknown workload group:" + workloadGroupNameStr);
-            }
+            Long wgId = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroupByName(null, workloadGroupNameStr)
+                    .get(0).getId();
             wgIdList.add(wgId);
         }
     }

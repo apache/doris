@@ -20,6 +20,7 @@ package org.apache.doris.resource.computegroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -66,6 +67,10 @@ public class ComputeGroup {
 
     public String getName() {
         return name;
+    }
+
+    public Set<String> getNames() {
+        return Sets.newHashSet(name);
     }
 
     public boolean containsBackend(String backendTag) {

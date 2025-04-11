@@ -406,7 +406,8 @@ public class CreateRoutineLoadInfo {
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
             this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                .getWorkloadGroup(ConnectContext.get().getCurrentUserIdentity(), inputWorkloadGroupStr);
+                    .getWorkloadGroupByName(ConnectContext.get().getCurrentUserIdentity(), inputWorkloadGroupStr).get(0)
+                    .getId();
         }
 
         if (ConnectContext.get() != null) {

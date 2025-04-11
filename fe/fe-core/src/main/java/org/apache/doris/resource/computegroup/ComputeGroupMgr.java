@@ -20,6 +20,7 @@ package org.apache.doris.resource.computegroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Sets;
@@ -36,7 +37,9 @@ public class ComputeGroupMgr {
 
     public ComputeGroup getComputeGroupByName(String name) {
         if (Config.isCloudMode()) {
-            return new CloudComputeGroup("", name, (CloudSystemInfoService) systemInfoService);
+            CloudSystemInfoService cloudSystemInfoService = (CloudSystemInfoService) systemInfoService;
+            return new CloudComputeGroup(cloudSystemInfoService.getCloudClusterIdByName(name), name,
+                    cloudSystemInfoService);
         } else {
             return new ComputeGroup("", name, systemInfoService);
         }
@@ -54,6 +57,16 @@ public class ComputeGroupMgr {
     // which means return all backends.
     public ComputeGroup getAllBackendComputeGroup() {
         return new AllBackendComputeGroup(systemInfoService);
+    }
+
+    // in cloud mode, compute group identifier means cluster id.
+    // in non-cloud mode, compute group identifier means tag name.
+    public Set<String> getComputeGroupIdentifiers() {
+        Set<String> ret = Sets.newHashSet();
+        for (Backend backend : systemInfoService.getAllClusterBackendsNoException().values()) {
+            ret.add(backend.getComputeGroup());
+        }
+        return ret;
     }
 
 }
