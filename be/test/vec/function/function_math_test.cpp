@@ -682,8 +682,8 @@ TEST(MathFunctionTest, format_round_test) {
     {
         InputTypeSet input_types = {{TypeIndex::Decimal64, 5, 18}, TypeIndex::Int32};
         DataSet data_set = {
-                // oob
-                {{DECIMAL64(12345678901234, 67000, 5), INT(2)}, VARCHAR("12,345,678,901,234.67")},
+                // oob of 9e19(int64)
+                {{DECIMAL64(123456789012345, 67000, 5), INT(2)}, VARCHAR("12,345,678,901,234.67")},
                 // different scale
                 {{DECIMAL64(-17014116, -671, 3), INT(2)}, VARCHAR("-17,014,116.67")},
         };
