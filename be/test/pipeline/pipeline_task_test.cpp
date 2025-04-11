@@ -263,7 +263,7 @@ TEST_F(PipelineTaskTest, TEST_OPEN) {
         EXPECT_FALSE(task->_read_dependencies.empty());
         EXPECT_FALSE(task->_write_dependencies.empty());
         EXPECT_FALSE(task->_finish_dependencies.empty());
-        EXPECT_TRUE(task->_spill_dependencies.empty());
+        EXPECT_FALSE(task->_spill_dependencies.empty());
         EXPECT_TRUE(task->_opened);
     }
 }
@@ -360,7 +360,7 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
         EXPECT_FALSE(task->_read_dependencies.empty());
         EXPECT_FALSE(task->_write_dependencies.empty());
         EXPECT_FALSE(task->_finish_dependencies.empty());
-        EXPECT_TRUE(task->_spill_dependencies.empty());
+        EXPECT_FALSE(task->_spill_dependencies.empty());
         EXPECT_TRUE(task->_opened);
         EXPECT_FALSE(read_dep->ready());
         EXPECT_TRUE(write_dep->ready());
