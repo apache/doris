@@ -44,6 +44,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -177,6 +178,8 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     private void validate(ConnectContext ctx) throws Exception {
         name.analyze(ctx);
         Pair<LogicalPlan, CascadesContext> result = analyzeAndRewriteLogicalPlan(logicalPlan, ctx);
+        CheckPrivileges checkPrivileges = new CheckPrivileges();
+        checkPrivileges.rewriteRoot(result.first, result.second.getCurrentJobContext());
         PlanValidator planValidator = new PlanValidator();
         planValidator.validate(result.first, result.second);
         mvColumnItemList = planValidator.context.selectItems;
