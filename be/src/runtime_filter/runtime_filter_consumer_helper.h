@@ -17,7 +17,10 @@
 
 #pragma once
 
+#include <mutex>
+
 #include "pipeline/dependency.h"
+#include "util/runtime_profile.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
@@ -33,9 +36,8 @@ public:
                                 const RowDescriptor& row_descriptor);
     ~RuntimeFilterConsumerHelper() = default;
 
-    Status init(RuntimeState* state, RuntimeProfile* profile, bool need_local_merge,
-                std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>&
-                        runtime_filter_dependencies,
+    Status init(RuntimeState* state, bool need_local_merge,
+                std::vector<std::shared_ptr<pipeline::Dependency>>& runtime_filter_dependencies,
                 const int id, const int node_id, const std::string& name);
     // Get all arrived runtime filters at Open phase which will be push down to storage.
     // Called by Operator.
@@ -46,6 +48,10 @@ public:
     Status try_append_late_arrival_runtime_filter(int* arrived_rf_num,
                                                   vectorized::VExprContextSPtrs& conjuncts);
 
+    // Called by XXXLocalState::close()
+    // parent_operator_profile is owned by LocalState so update it is safe at here.
+    void collect_realtime_profile(RuntimeProfile* parent_operator_profile);
+
 private:
     // Register and get all runtime filters at Init phase.
     Status _register_runtime_filter(bool need_local_merge);
@@ -54,9 +60,8 @@ private:
     Status _append_rf_into_conjuncts(const std::vector<vectorized::VRuntimeFilterPtr>& vexprs,
                                      vectorized::VExprContextSPtrs& conjuncts);
 
-    void _init_dependency(
-            std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>>& dependencies,
-            const int id, const int node_id, const std::string& name);
+    void _init_dependency(std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies,
+                          const int id, const int node_id, const std::string& name);
 
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> _consumers;
     std::mutex _rf_locks;
@@ -70,8 +75,8 @@ private:
     bool _is_all_rf_applied = true;
     std::shared_ptr<std::atomic_bool> _blocked_by_rf;
 
-    RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
-    std::unique_ptr<RuntimeProfile> _profile;
+    std::unique_ptr<RuntimeProfile::Counter> _acquire_runtime_filter_timer =
+            std::make_unique<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);
 };
 #include "common/compile_check_end.h"
 } // namespace doris

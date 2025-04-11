@@ -65,21 +65,21 @@ statementBase
     | supportedAdminStatement           #supportedAdminStatementAlias
     | supportedUseStatement             #supportedUseStatementAlias
     | supportedOtherStatement           #supportedOtherStatementAlias
+    | supportedKillStatement            #supportedKillStatementAlias
     | supportedStatsStatement           #supportedStatsStatementAlias
+    | supportedTransactionStatement     #supportedTransactionStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
 unsupportedStatement
     : unsupportedUseStatement
     | unsupportedDmlStatement
-    | unsupportedKillStatement
     | unsupportedCreateStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
     | unsupportedAlterStatement
     | unsupportedGrantRevokeStatement
     | unsupportedAdminStatement
-    | unsupportedTransactionStatement
     | unsupportedCancelStatement
     | unsupportedCleanStatement
     | unsupportedRefreshStatement
@@ -217,6 +217,9 @@ supportedCreateStatement
             functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
             WITH PARAMETER LEFT_PAREN parameters=identifierSeq? RIGHT_PAREN
             AS expression                                                           #createAliasFunction
+    | CREATE USER (IF NOT EXISTS)? grantUserIdentify
+            (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
+            passwordOption commentSpec?                            #createUser
     ;
 
 supportedAlterStatement
@@ -235,6 +238,8 @@ supportedAlterStatement
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?                       #alterSqlBlockRule
     | ALTER CATALOG name=identifier MODIFY COMMENT comment=STRING_LITERAL                   #alterCatalogComment
     | ALTER DATABASE name=identifier RENAME newName=identifier                              #alterDatabaseRename
+    | ALTER STORAGE POLICY name=identifierOrText
+        properties=propertyClause                                                           #alterStoragePolicy
     | ALTER TABLE tableName=multipartIdentifier
         alterTableClause (COMMA alterTableClause)*                                          #alterTable
     | ALTER TABLE tableName=multipartIdentifier ADD ROLLUP
@@ -312,6 +317,7 @@ supportedShowStatement
     | SHOW PROPERTY (FOR user=identifierOrText)? (LIKE STRING_LITERAL)?                         #showUserProperties
     | SHOW ALL PROPERTIES (LIKE STRING_LITERAL)?                                               #showAllProperties
     | SHOW COLLATION wildWhere?                                                     #showCollation
+    | SHOW ROW POLICY (FOR (userIdentify | (ROLE role=identifier)))?                #showRowPolicy
     | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy   
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
@@ -331,7 +337,8 @@ supportedShowStatement
     | SHOW DATABASE databaseId=INTEGER_VALUE                                        #showDatabaseId
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
-    | SHOW statementScope? STATUS                                       #showStatus
+    | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters    
+    | SHOW statementScope? STATUS                                                   #showStatus
     | SHOW WHITELIST                                                                #showWhitelist
     | SHOW TABLETS BELONG
         tabletIds+=INTEGER_VALUE (COMMA tabletIds+=INTEGER_VALUE)*                  #showTabletsBelong
@@ -357,13 +364,18 @@ supportedLoadStatement
 
 supportedOtherStatement
     : HELP mark=identifierOrText                                                    #help
+    | UNLOCK TABLES                                                                 #unlockTables
     ;
 
-unsupportedOtherStatement
+supportedKillStatement
+    : KILL (CONNECTION)? INTEGER_VALUE                                              #killConnection
+    | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)                                   #killQuery
+    ;
+
+unsupportedOtherStatement 
     : INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
     | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
-    | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
-    | UNLOCK TABLES                                                                 #unlockTables
+    | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables 
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
@@ -386,8 +398,7 @@ lockTable
     ;
 
 unsupportedShowStatement
-    : SHOW ROW POLICY (FOR (userIdentify | (ROLE role=identifierOrText)))?                #showRowPolicy
-    | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
+    : SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
     | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
     | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
@@ -422,7 +433,6 @@ unsupportedShowStatement
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
-    | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters
     | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
     | SHOW COPY ((FROM | IN) database=multipartIdentifier)?
         whereClause? sortClause? limitClause?                                       #showCopy
@@ -590,7 +600,7 @@ wildWhere
     | WHERE expression
     ;
 
-unsupportedTransactionStatement
+supportedTransactionStatement
     : BEGIN (WITH LABEL identifier?)?                                               #transactionBegin
     | COMMIT WORK? (AND NO? CHAIN)? (NO? RELEASE)?                                  #transcationCommit
     | ROLLBACK WORK? (AND NO? CHAIN)? (NO? RELEASE)?                                #transactionRollback
@@ -628,8 +638,6 @@ unsupportedAlterStatement
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
-    | ALTER STORAGE POLICY name=identifierOrText
-        properties=propertyClause                                                   #alterStoragePlicy
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                    #alterUser
     ;
@@ -773,9 +781,6 @@ analyzeProperties
 unsupportedCreateStatement
     : CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
         properties=propertyClause?                                              #createDatabase
-    | CREATE USER (IF NOT EXISTS)? grantUserIdentify
-        (SUPERUSER | DEFAULT ROLE role=identifierOrText)?
-        passwordOption (COMMENT STRING_LITERAL)?                                #createUser
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
     | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
         name=identifierOrText properties=propertyClause?                        #createResource
@@ -897,11 +902,6 @@ unsupportedDmlStatement
 stageAndPattern
     : ATSIGN (stage=identifier | TILDE)
         (LEFT_PAREN pattern=STRING_LITERAL RIGHT_PAREN)?
-    ;
-
-unsupportedKillStatement
-    : KILL (CONNECTION)? INTEGER_VALUE              #killConnection
-    | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)   #killQuery
     ;
 
 supportedDescribeStatement

@@ -45,21 +45,26 @@ Status TableFunctionLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     return Status::OK();
 }
 
-Status TableFunctionLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(PipelineXLocalState<>::exec_time_counter());
-    SCOPED_TIMER(PipelineXLocalState<>::_open_timer);
-    RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
+Status TableFunctionLocalState::_clone_table_function(RuntimeState* state) {
     auto& p = _parent->cast<TableFunctionOperatorX>();
     _vfn_ctxs.resize(p._vfn_ctxs.size());
     for (size_t i = 0; i < _vfn_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._vfn_ctxs[i]->clone(state, _vfn_ctxs[i]));
 
         vectorized::TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(_vfn_ctxs[i]->root()->fn(),
-                                                                 state->obj_pool(), &fn));
+        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(
+                _vfn_ctxs[i]->root()->fn(), state->obj_pool(), &fn, state->be_exec_version()));
         fn->set_expr_context(_vfn_ctxs[i]);
         _fns.push_back(fn);
     }
+    return Status::OK();
+}
+
+Status TableFunctionLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(PipelineXLocalState<>::exec_time_counter());
+    SCOPED_TIMER(PipelineXLocalState<>::_open_timer);
+    RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
+    RETURN_IF_ERROR(_clone_table_function(state));
     for (auto* fn : _fns) {
         RETURN_IF_ERROR(fn->open());
     }
@@ -276,7 +281,8 @@ Status TableFunctionOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
 
         auto root = ctx->root();
         vectorized::TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(root->fn(), _pool, &fn));
+        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(root->fn(), _pool, &fn,
+                                                                 state->be_exec_version()));
         fn->set_expr_context(ctx);
         _fns.push_back(fn);
     }
@@ -292,10 +298,10 @@ Status TableFunctionOperatorX::prepare(doris::RuntimeState* state) {
     for (auto* fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_vfn_ctxs, state, _row_descriptor));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_vfn_ctxs, state, row_descriptor()));
 
     // get current all output slots
-    for (const auto& tuple_desc : _row_descriptor.tuple_descriptors()) {
+    for (const auto& tuple_desc : row_descriptor().tuple_descriptors()) {
         for (const auto& slot_desc : tuple_desc->slots()) {
             _output_slots.push_back(slot_desc);
         }

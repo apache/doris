@@ -47,7 +47,6 @@ class RuntimeFilterConsumerHelperTest : public RuntimeFilterTest {
 
         _task.reset(new pipeline::PipelineTask(_pipeline, 0, _runtime_states[0].get(), nullptr,
                                                &_profile, {}, 0));
-        _runtime_states[0]->set_task(_task.get());
 
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(ExecEnv::GetInstance()->init_pipeline_task_scheduler());
     }
@@ -70,7 +69,7 @@ TEST_F(RuntimeFilterConsumerHelperTest, basic) {
             TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build(),
             TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build()};
 
-    std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>> runtime_filter_dependencies;
+    std::vector<std::shared_ptr<pipeline::Dependency>> runtime_filter_dependencies;
     SlotDescriptor slot_desc;
     TupleDescriptor tuple_desc;
     tuple_desc.add_slot(&slot_desc);
@@ -79,8 +78,8 @@ TEST_F(RuntimeFilterConsumerHelperTest, basic) {
     const_cast<std::vector<TupleDescriptor*>&>(row_desc._tuple_desc_map).push_back(&tuple_desc);
     auto helper = RuntimeFilterConsumerHelper(0, runtime_filter_descs, row_desc);
 
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.init(_runtime_states[0].get(), &_profile, true,
-                                                 runtime_filter_dependencies, 0, 0, ""));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            helper.init(_runtime_states[0].get(), true, runtime_filter_dependencies, 0, 0, ""));
 
     vectorized::VExprContextSPtrs conjuncts;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.acquire_runtime_filter(conjuncts));

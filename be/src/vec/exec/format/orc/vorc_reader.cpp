@@ -486,6 +486,8 @@ bool OrcReader::_check_acid_schema(const orc::Type& type) {
                 return false;
             }
         }
+    } else {
+        return false;
     }
     return true;
 }
@@ -1117,7 +1119,7 @@ Status OrcReader::set_fill_columns(
         }
     }
 
-    if (!_has_complex_type && _enable_lazy_mat && !_lazy_read_ctx.predicate_columns.first.empty() &&
+    if (_enable_lazy_mat && !_lazy_read_ctx.predicate_columns.first.empty() &&
         !_lazy_read_ctx.lazy_read_columns.empty()) {
         _lazy_read_ctx.can_lazy_read = true;
     }
@@ -1679,15 +1681,9 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
     case TypeIndex::Decimal128V3:
         return _decode_decimal_column<Decimal128V3, is_filter>(col_name, data_column, data_type,
                                                                cvb, num_values);
-    case TypeIndex::Date:
-        return _decode_time_column<VecDateTimeValue, Int64, orc::LongVectorBatch, is_filter>(
-                col_name, data_column, cvb, num_values);
     case TypeIndex::DateV2:
         return _decode_time_column<DateV2Value<DateV2ValueType>, UInt32, orc::LongVectorBatch,
                                    is_filter>(col_name, data_column, cvb, num_values);
-    case TypeIndex::DateTime:
-        return _decode_time_column<VecDateTimeValue, Int64, orc::TimestampVectorBatch, is_filter>(
-                col_name, data_column, cvb, num_values);
     case TypeIndex::DateTimeV2:
         return _decode_time_column<DateV2Value<DateTimeV2ValueType>, UInt64,
                                    orc::TimestampVectorBatch, is_filter>(col_name, data_column, cvb,

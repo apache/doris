@@ -63,6 +63,11 @@ public class ShowGrantsCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (userIdent != null) {
             if (isAll) {
@@ -88,7 +93,7 @@ public class ShowGrantsCommand extends ShowCommand {
             throw new AnalysisException(String.format("User: %s does not exist", userIdent));
         }
         List<List<String>> infos = Env.getCurrentEnv().getAuth().getAuthInfo(userIdent);
-        return new ShowResultSet(META_DATA, infos);
+        return new ShowResultSet(getMetaData(), infos);
     }
 
     @Override
