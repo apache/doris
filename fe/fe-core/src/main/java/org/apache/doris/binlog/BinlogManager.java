@@ -437,7 +437,7 @@ public class BinlogManager {
     }
 
     public void addModifyDistributionNum(ModifyTableDefaultDistributionBucketNumOperationLog info, long commitSeq) {
-        if (info.getBucketNum() <= 0) {
+        if (info.getBucketNum() <= 0 || info.getType() == null) {
             LOG.warn("skip modify distribution num binlog, because bucket num is invalid. info: {}", info);
             return;
         }

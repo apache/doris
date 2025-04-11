@@ -74,7 +74,7 @@ public class ModifyTableDefaultDistributionBucketNumOperationLog implements Writ
     }
 
     public String getColumnsName() {
-        return columnsName;
+        return columnsName == null ? "" : columnsName;
     }
 
     @Override
