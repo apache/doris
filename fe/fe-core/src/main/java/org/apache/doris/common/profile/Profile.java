@@ -51,6 +51,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -114,6 +115,7 @@ public class Profile {
     private List<PhysicalRelation> physicalRelations = new ArrayList<>();
 
     private String changedSessionVarCache = "";
+    private ReentrantReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
     // Need default constructor for read from storage
     public Profile() {}
@@ -243,22 +245,32 @@ public class Profile {
 
     // For load task, the profile contains many execution profiles
     public void addExecutionProfile(ExecutionProfile executionProfile) {
-        if (executionProfile == null) {
-            LOG.warn("try to set a null execution profile, it is abnormal", new Exception());
-            return;
+        readWriteLock.writeLock().lock();
+        try {
+            if (executionProfile == null) {
+                LOG.warn("try to set a null execution profile, it is abnormal", new Exception());
+                return;
+            }
+            this.executionProfiles.add(executionProfile);
+        } finally {
+            readWriteLock.writeLock().unlock();
         }
-        executionProfile.setSummaryProfile(summaryProfile);
-        this.executionProfiles.add(executionProfile);
     }
 
     public List<ExecutionProfile> getExecutionProfiles() {
-        return this.executionProfiles;
+        readWriteLock.readLock().lock();
+        try {
+            return this.executionProfiles;
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     // This API will also add the profile to ProfileManager, so that we could get the profile from ProfileManager.
     // isFinished ONLY means the coordinator or stmt executor is finished.
-    public synchronized void updateSummary(Map<String, String> summaryInfo, boolean isFinished,
+    public void updateSummary(Map<String, String> summaryInfo, boolean isFinished,
             Planner planner) {
+        readWriteLock.writeLock().lock();
         try {
             if (this.isQueryFinished) {
                 return;
@@ -305,20 +317,32 @@ public class Profile {
         } catch (Throwable t) {
             LOG.warn("update profile {} failed", getId(), t);
             throw t;
+        } finally {
+            readWriteLock.writeLock().unlock();
         }
     }
 
     public SummaryProfile getSummaryProfile() {
-        return summaryProfile;
+        readWriteLock.readLock().lock();
+        try {
+            return summaryProfile;
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     public String getProfileByLevel() {
         StringBuilder builder = new StringBuilder();
-        // add summary to builder
-        summaryProfile.prettyPrint(builder);
-        getChangedSessionVars(builder);
-        getExecutionProfileContent(builder);
-        getOnStorageProfile(builder);
+        readWriteLock.readLock().lock();
+        try {
+            // add summary to builder
+            summaryProfile.prettyPrint(builder);
+            getChangedSessionVars(builder);
+            getExecutionProfileContent(builder);
+            getOnStorageProfile(builder);
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
 
         return builder.toString();
     }
@@ -326,22 +350,27 @@ public class Profile {
     // If the query is already finished, and user wants to get the profile, we should check
     // if BE has reported all profiles, if not, sleep 2s.
     private void waitProfileCompleteIfNeeded() {
-        if (!this.isQueryFinished) {
-            return;
-        }
-        boolean allCompleted = true;
-        for (ExecutionProfile executionProfile : executionProfiles) {
-            if (!executionProfile.isCompleted()) {
-                allCompleted = false;
-                break;
+        readWriteLock.readLock().lock();
+        try {
+            if (!this.isQueryFinished) {
+                return;
             }
-        }
-        if (!allCompleted) {
-            try {
-                Thread.currentThread().sleep(2000);
-            } catch (InterruptedException e) {
-                // Do nothing
+            boolean allCompleted = true;
+            for (ExecutionProfile executionProfile : executionProfiles) {
+                if (!executionProfile.isCompleted()) {
+                    allCompleted = false;
+                    break;
+                }
             }
+            if (!allCompleted) {
+                try {
+                    Thread.currentThread().sleep(2000);
+                } catch (InterruptedException e) {
+                    // Do nothing
+                }
+            }
+        } finally {
+            readWriteLock.readLock().unlock();
         }
     }
 
@@ -357,73 +386,88 @@ public class Profile {
     }
 
     public String getProfileBrief() {
-        RuntimeProfile rootProfile = composeRootProfile();
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
-        return gson.toJson(rootProfile.toBrief());
+        readWriteLock.readLock().lock();
+        try {
+            RuntimeProfile rootProfile = composeRootProfile();
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            return gson.toJson(rootProfile.toBrief());
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     // Return if profile has been stored to storage
     public void getExecutionProfileContent(StringBuilder builder) {
-        if (builder == null) {
-            builder = new StringBuilder();
-        }
+        readWriteLock.readLock().lock();
+        try {
+            if (builder == null) {
+                builder = new StringBuilder();
+            }
 
-        if (profileHasBeenStored()) {
-            return;
-        }
+            if (profileHasBeenStored()) {
+                return;
+            }
 
-        // For broker load, if it has more than one execution profile, we will not generate merged profile.
-        RuntimeProfile mergedProfile = null;
-        if (this.executionProfiles.size() == 1) {
+            // For broker load, if it has more than one execution profile, we will not generate merged profile.
+            RuntimeProfile mergedProfile = null;
+            if (this.executionProfiles.size() == 1) {
+                try {
+                    mergedProfile = this.executionProfiles.get(0).getAggregatedFragmentsProfile(planNodeMap);
+                    this.rowsProducedMap.putAll(mergedProfile.rowsProducedMap);
+                    if (physicalPlan != null) {
+                        updateActualRowCountOnPhysicalPlan(physicalPlan);
+                    }
+                } catch (Throwable aggProfileException) {
+                    LOG.warn("build merged simple profile {} failed", getId(), aggProfileException);
+                }
+            }
+
+            if (physicalPlan != null) {
+                builder.append("\nPhysical Plan \n");
+                StringBuilder physcialPlanBuilder = new StringBuilder();
+                physcialPlanBuilder.append(physicalPlan.treeString());
+                physcialPlanBuilder.append("\n");
+                for (PhysicalRelation relation : physicalRelations) {
+                    if (relation.getStats() != null) {
+                        physcialPlanBuilder.append(relation).append("\n")
+                                .append(relation.getStats().printColumnStats());
+                    }
+                }
+                builder.append(
+                        physcialPlanBuilder.toString().replace("\n", "\n     "));
+            }
+
+            if (this.executionProfiles.size() == 1) {
+                builder.append("\nMergedProfile \n");
+                if (mergedProfile != null) {
+                    mergedProfile.prettyPrint(builder, "     ");
+                } else {
+                    builder.append("build merged simple profile failed");
+                }
+            }
+
             try {
-                mergedProfile = this.executionProfiles.get(0).getAggregatedFragmentsProfile(planNodeMap);
-                this.rowsProducedMap.putAll(mergedProfile.rowsProducedMap);
-                if (physicalPlan != null) {
-                    updateActualRowCountOnPhysicalPlan(physicalPlan);
+                // For load task, they will have multiple execution_profiles.
+                for (ExecutionProfile executionProfile : executionProfiles) {
+                    builder.append("\n");
+                    executionProfile.getRoot().prettyPrint(builder, "");
                 }
             } catch (Throwable aggProfileException) {
-                LOG.warn("build merged simple profile {} failed", getId(), aggProfileException);
+                LOG.warn("build profile failed", aggProfileException);
+                builder.append("build  profile failed");
             }
-        }
-
-        if (physicalPlan != null) {
-            builder.append("\nPhysical Plan \n");
-            StringBuilder physcialPlanBuilder = new StringBuilder();
-            physcialPlanBuilder.append(physicalPlan.treeString());
-            physcialPlanBuilder.append("\n");
-            for (PhysicalRelation relation : physicalRelations) {
-                if (relation.getStats() != null) {
-                    physcialPlanBuilder.append(relation).append("\n")
-                            .append(relation.getStats().printColumnStats());
-                }
-            }
-            builder.append(
-                    physcialPlanBuilder.toString().replace("\n", "\n     "));
-        }
-
-        if (this.executionProfiles.size() == 1) {
-            builder.append("\nMergedProfile \n");
-            if (mergedProfile != null) {
-                mergedProfile.prettyPrint(builder, "     ");
-            } else {
-                builder.append("build merged simple profile failed");
-            }
-        }
-
-        try {
-            // For load task, they will have multiple execution_profiles.
-            for (ExecutionProfile executionProfile : executionProfiles) {
-                builder.append("\n");
-                executionProfile.getRoot().prettyPrint(builder, "");
-            }
-        } catch (Throwable aggProfileException) {
-            LOG.warn("build profile failed", aggProfileException);
-            builder.append("build  profile failed");
+        } finally {
+            readWriteLock.readLock().unlock();
         }
     }
 
     public long getQueryFinishTimestamp() {
-        return this.queryFinishTimestamp;
+        readWriteLock.readLock().lock();
+        try {
+            return this.queryFinishTimestamp;
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     // For UT
@@ -432,54 +476,76 @@ public class Profile {
     }
 
     public void releaseMemory() {
-        this.executionProfiles.clear();
-        this.changedSessionVarCache = "";
+        readWriteLock.writeLock().lock();
+        try {
+            this.executionProfiles.clear();
+            this.changedSessionVarCache = "";
+        } finally {
+            readWriteLock.writeLock().unlock();
+        }
     }
 
     public boolean shouldStoreToStorage() {
-        if (profileHasBeenStored()) {
+        readWriteLock.readLock().lock();
+        try {
+            if (profileHasBeenStored()) {
+                return false;
+            }
+
+            if (!isQueryFinished) {
+                return false;
+            }
+
+            if (this.queryFinishTimestamp == Long.MAX_VALUE) {
+                LOG.warn("Logical error, query {} has finished, but queryFinishTimestamp is not set,", getId());
+                return false;
+            }
+
+            long currentTimeMillis = System.currentTimeMillis();
+            if (this.queryFinishTimestamp != Long.MAX_VALUE
+                    && (currentTimeMillis - this.queryFinishTimestamp)
+                    > Config.profile_waiting_time_for_spill_seconds * 1000) {
+                LOG.warn("Profile {} should be stored to storage without waiting for incoming profile,"
+                                + " since it has been waiting for {} ms, current time {} query finished time: {}",
+                        getId(), currentTimeMillis - this.queryFinishTimestamp, currentTimeMillis,
+                        this.queryFinishTimestamp);
+
+                this.summaryProfile.setSystemMessage(
+                        "This profile is not complete, since its collection does not finish in time."
+                                + " Maybe increase profile_waiting_time_for_spill_secs in fe.conf current val: "
+                                + String.valueOf(Config.profile_waiting_time_for_spill_seconds));
+                return true;
+            }
+
+            // query finished, wait a while for reporting profile
             return false;
+        } finally {
+            readWriteLock.writeLock().unlock();
         }
-
-        if (!isQueryFinished) {
-            return false;
-        }
-
-        if (this.queryFinishTimestamp == Long.MAX_VALUE) {
-            LOG.warn("Logical error, query {} has finished, but queryFinishTimestamp is not set,", getId());
-            return false;
-        }
-
-        long currentTimeMillis = System.currentTimeMillis();
-        if (this.queryFinishTimestamp != Long.MAX_VALUE
-                && (currentTimeMillis - this.queryFinishTimestamp)
-                > Config.profile_waiting_time_for_spill_seconds * 1000) {
-            LOG.warn("Profile {} should be stored to storage without waiting for incoming profile,"
-                    + " since it has been waiting for {} ms, current time {} query finished time: {}",
-                    getId(), currentTimeMillis - this.queryFinishTimestamp, currentTimeMillis,
-                    this.queryFinishTimestamp);
-
-            this.summaryProfile.setSystemMessage(
-                            "This profile is not complete, since its collection does not finish in time."
-                            + " Maybe increase profile_waiting_time_for_spill_secs in fe.conf current val: "
-                            + String.valueOf(Config.profile_waiting_time_for_spill_seconds));
-            return true;
-        }
-
-        // query finished, wait a while for reporting profile
-        return false;
     }
 
     public String getProfileStoragePath() {
-        return this.profileStoragePath;
+        readWriteLock.readLock().lock();
+        try {
+            return this.profileStoragePath;
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     public boolean profileHasBeenStored() {
-        return !Strings.isNullOrEmpty(profileStoragePath);
+        readWriteLock.readLock().lock();
+        try {
+            return !Strings.isNullOrEmpty(profileStoragePath);
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     // Profile IO threads races with Coordinator threads.
     public void markQueryFinished() {
+        readWriteLock.writeLock().lock();
+
         try {
             if (this.profileHasBeenStored()) {
                 LOG.error("Logical error, profile {} has already been stored to storage", getId());
@@ -491,6 +557,8 @@ public class Profile {
         } catch (Throwable t) {
             LOG.warn("mark query finished failed", t);
             throw t;
+        } finally {
+            readWriteLock.writeLock().unlock();
         }
     }
 
@@ -543,12 +611,15 @@ public class Profile {
             zipOut.write(memoryStream.toByteArray());
             zipOut.closeEntry();
 
-            this.profileSize = profileFile.length();
-            this.profileStoragePath = profileFilePath;
-
+            readWriteLock.writeLock().lock();
+            try {
+                this.profileSize = profileFile.length();
+                this.profileStoragePath = profileFilePath;
+            } finally {
+                readWriteLock.writeLock().unlock();
+            }
         } catch (Exception e) {
             LOG.error("write {} summary profile failed", getId(), e);
-            return;
         } finally {
             try {
                 if (zipOut != null) {
@@ -590,7 +661,12 @@ public class Profile {
     }
 
     public long getProfileSize() {
-        return this.profileSize;
+        readWriteLock.readLock().lock();
+        try {
+            return this.profileSize;
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     public boolean shouldBeRemoveFromMemory() {
@@ -631,20 +707,30 @@ public class Profile {
     }
 
     public void setChangedSessionVar(String changedSessionVar) {
-        this.changedSessionVarCache = changedSessionVar;
+        readWriteLock.writeLock().lock();
+        try {
+            this.changedSessionVarCache = changedSessionVar;
+        } finally {
+            readWriteLock.writeLock().unlock();
+        }
     }
 
     private void getChangedSessionVars(StringBuilder builder) {
-        if (builder == null) {
-            builder = new StringBuilder();
-        }
-        if (profileHasBeenStored()) {
-            return;
-        }
+        readWriteLock.readLock().lock();
+        try {
+            if (builder == null) {
+                builder = new StringBuilder();
+            }
+            if (profileHasBeenStored()) {
+                return;
+            }
 
-        builder.append("\nChanged Session Variables:\n");
-        builder.append(changedSessionVarCache);
-        builder.append("\n");
+            builder.append("\nChanged Session Variables:\n");
+            builder.append(changedSessionVarCache);
+            builder.append("\n");
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     void getOnStorageProfile(StringBuilder builder) {
@@ -708,20 +794,30 @@ public class Profile {
     }
 
     public String debugInfo() {
-        StringBuilder builder = new StringBuilder();
-        builder.append("ProfileId:").append(getId()).append("|");
-        builder.append("StoragePath:").append(profileStoragePath).append("|");
-        builder.append("StartTimeStamp:").append(summaryProfile.getQueryBeginTime()).append("|");
-        builder.append("IsFinished:").append(isQueryFinished).append("|");
-        builder.append("FinishTimestamp:").append(queryFinishTimestamp).append("|");
-        builder.append("AutoProfileDuration: ").append(autoProfileDurationMs).append("|");
-        builder.append("ExecutionProfileCnt: ").append(executionProfiles.size()).append("|");
-        builder.append("ProfileOnStorageSize:").append(profileSize);
-        return builder.toString();
+        readWriteLock.readLock().lock();
+        try {
+            StringBuilder builder = new StringBuilder();
+            builder.append("ProfileId:").append(getId()).append("|");
+            builder.append("StoragePath:").append(profileStoragePath).append("|");
+            builder.append("StartTimeStamp:").append(summaryProfile.getQueryBeginTime()).append("|");
+            builder.append("IsFinished:").append(isQueryFinished).append("|");
+            builder.append("FinishTimestamp:").append(queryFinishTimestamp).append("|");
+            builder.append("AutoProfileDuration: ").append(autoProfileDurationMs).append("|");
+            builder.append("ExecutionProfileCnt: ").append(executionProfiles.size()).append("|");
+            builder.append("ProfileOnStorageSize:").append(profileSize);
+            return builder.toString();
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     public void setQueryFinishTimestamp(long l) {
-        this.queryFinishTimestamp = l;
+        readWriteLock.writeLock().lock();
+        try {
+            this.queryFinishTimestamp = l;
+        } finally {
+            readWriteLock.writeLock().unlock();
+        }
     }
 
     public String getId() {
