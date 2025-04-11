@@ -243,11 +243,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return getStringValue();
     }
 
-    @Override
-    public String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        return getStringValueForQuery(options);
-    }
-
     public long getLongValue() {
         return 0;
     }

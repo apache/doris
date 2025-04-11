@@ -69,7 +69,7 @@ public final class MaxLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueInComplexTypeForQuery(FormatOptions options) {
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
         return null;
     }
 

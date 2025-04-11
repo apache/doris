@@ -188,21 +188,6 @@ public class MapLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForStreamLoad(FormatOptions options) {
-        List<String> list = new ArrayList<>(children.size());
-        for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
-            // we should use type to decide we output array is suitable for json format
-            if (children.get(i).getType().isComplexType()) {
-                // map key type do not support complex type
-                throw new UnsupportedOperationException("Unsupported key type for MAP: " + children.get(i).getType());
-            }
-            list.add(children.get(i).getStringValueInComplexTypeForQuery(options)
-                    + options.getMapKeyDelim() + children.get(i + 1).getStringValueInComplexTypeForQuery(options));
-        }
-        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
-    }
-
-    @Override
     protected String toSqlImpl() {
         List<String> list = new ArrayList<>(children.size());
         for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {

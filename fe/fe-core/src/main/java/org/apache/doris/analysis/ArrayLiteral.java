@@ -144,15 +144,6 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForStreamLoad(FormatOptions options) {
-        List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> {
-            list.add(v.getStringValueInComplexTypeForQuery(options));
-        });
-        return "[" + StringUtils.join(list, options.getCollectionDelim()) + "]";
-    }
-
-    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.ARRAY_LITERAL;
         msg.setChildType(((ArrayType) type).getItemType().getPrimitiveType().toThrift());

@@ -582,7 +582,7 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public String getStringValueInComplexTypeForQuery(FormatOptions options) {
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
         return children.get(0).getStringValueInComplexTypeForQuery(options);
     }
 

@@ -170,7 +170,7 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueInComplexTypeForQuery(FormatOptions options) {
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
         String ret = this.getStringValueForQuery(options);
         if (type == Type.TIME || type == Type.TIMEV2) {
             ret = options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();

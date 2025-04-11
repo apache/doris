@@ -765,7 +765,7 @@ public class DateLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueInComplexTypeForQuery(FormatOptions options) {
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
         return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
     }
 
