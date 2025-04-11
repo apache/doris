@@ -37,11 +37,11 @@ Status TableFunctionLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _init_function_timer = ADD_TIMER(_runtime_profile, "InitTableFunctionTime");
-    _process_rows_timer = ADD_TIMER(_runtime_profile, "ProcessRowsTime");
-    _copy_data_timer = ADD_TIMER(_runtime_profile, "CopyDataTime");
-    _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
-    _repeat_data_timer = ADD_TIMER(_runtime_profile, "RepeatDataTime");
+    _init_function_timer = ADD_TIMER(custom_profile(), "InitTableFunctionTime");
+    _process_rows_timer = ADD_TIMER(custom_profile(), "ProcessRowsTime");
+    _copy_data_timer = ADD_TIMER(custom_profile(), "CopyDataTime");
+    _filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
+    _repeat_data_timer = ADD_TIMER(custom_profile(), "RepeatDataTime");
     return Status::OK();
 }
 
