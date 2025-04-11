@@ -44,7 +44,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 
 public class AlterMTMV implements Writable {
     private static final Logger LOG = LogManager.getLogger(AlterMTMV.class);
