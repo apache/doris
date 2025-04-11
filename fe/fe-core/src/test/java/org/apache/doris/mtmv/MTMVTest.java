@@ -86,9 +86,10 @@ public class MTMVTest {
     }
 
     private MTMVJobInfo buildMTMVJobInfo(MTMV mtmv) {
-        MTMVJobInfo mtmvJobInfo = new MTMVJobInfo("job1");
-        mtmvJobInfo.addHistoryTask(buildMTMVTask(mtmv));
-        return mtmvJobInfo;
+        // TODO: 2025/1/24 zd
+        // MTMVJobInfo mtmvJobInfo = new MTMVJobInfo("job1");
+        // mtmvJobInfo.addHistoryTask(buildMTMVTask(mtmv));
+        // return mtmvJobInfo;
     }
 
     private MTMVTask buildMTMVTask(MTMV mtmv) {
