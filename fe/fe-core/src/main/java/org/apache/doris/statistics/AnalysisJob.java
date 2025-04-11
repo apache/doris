@@ -20,11 +20,13 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -127,7 +129,9 @@ public class AnalysisJob {
             }
             insertStmt += values.toString();
             try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
-                stmtExecutor = new StmtExecutor(r.connectContext, insertStmt);
+                ConnectContext context = r.connectContext;
+                context.setSqlHash(DigestUtils.md5Hex(insertStmt));
+                stmtExecutor = new StmtExecutor(context, insertStmt);
                 executeWithExceptionOnFail(stmtExecutor);
             } catch (Exception t) {
                 throw new RuntimeException("Failed to analyze: " + t.getMessage());
