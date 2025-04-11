@@ -52,6 +52,7 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -355,6 +356,89 @@ public abstract class RoutineLoadJob
         }
     }
 
+    protected void setOptional(CreateRoutineLoadInfo info) throws UserException {
+        setRoutineLoadDesc(info.getRoutineLoadDesc());
+        if (info.getDesiredConcurrentNum() != -1) {
+            this.desireTaskConcurrentNum = info.getDesiredConcurrentNum();
+        }
+        if (info.getMaxErrorNum() != -1) {
+            this.maxErrorNum = info.getMaxErrorNum();
+        }
+        if (info.getMaxFilterRatio() != -1) {
+            this.maxFilterRatio = info.getMaxFilterRatio();
+        }
+        if (info.getMaxBatchIntervalS() != -1) {
+            this.maxBatchIntervalS = info.getMaxBatchIntervalS();
+        }
+        if (info.getMaxBatchRows() != -1) {
+            this.maxBatchRows = info.getMaxBatchRows();
+        }
+        if (info.getMaxBatchSizeBytes() != -1) {
+            this.maxBatchSizeBytes = info.getMaxBatchSizeBytes();
+        }
+        if (info.getExecMemLimit() != -1) {
+            this.execMemLimit = info.getExecMemLimit();
+        }
+        if (info.getSendBatchParallelism() > 0) {
+            this.sendBatchParallelism = info.getSendBatchParallelism();
+        }
+        if (info.isLoadToSingleTablet()) {
+            this.loadToSingleTablet = info.isLoadToSingleTablet();
+        }
+        jobProperties.put(info.TIMEZONE, info.getTimezone());
+        jobProperties.put(info.STRICT_MODE, String.valueOf(info.isStrictMode()));
+        jobProperties.put(info.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
+        jobProperties.put(info.LOAD_TO_SINGLE_TABLET, String.valueOf(this.loadToSingleTablet));
+        jobProperties.put(info.PARTIAL_COLUMNS, info.isPartialUpdate() ? "true" : "false");
+        if (info.isPartialUpdate()) {
+            this.isPartialUpdate = true;
+        }
+        jobProperties.put(info.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
+        if (Strings.isNullOrEmpty(info.getFormat()) || info.getFormat().equals("csv")) {
+            jobProperties.put(PROPS_FORMAT, "csv");
+        } else if (info.getFormat().equals("json")) {
+            jobProperties.put(PROPS_FORMAT, "json");
+        } else {
+            throw new UserException("Invalid format type.");
+        }
+
+        if (!Strings.isNullOrEmpty(info.getJsonPaths())) {
+            jobProperties.put(PROPS_JSONPATHS, info.getJsonPaths());
+        } else {
+            jobProperties.put(PROPS_JSONPATHS, "");
+        }
+        if (!Strings.isNullOrEmpty(info.getJsonRoot())) {
+            jobProperties.put(PROPS_JSONROOT, info.getJsonRoot());
+        } else {
+            jobProperties.put(PROPS_JSONROOT, "");
+        }
+        if (info.isStripOuterArray()) {
+            jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "true");
+        } else {
+            jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
+        }
+        if (info.isNumAsString()) {
+            jobProperties.put(PROPS_NUM_AS_STRING, "true");
+        } else {
+            jobProperties.put(PROPS_NUM_AS_STRING, "false");
+        }
+        if (info.isFuzzyParse()) {
+            jobProperties.put(PROPS_FUZZY_PARSE, "true");
+        } else {
+            jobProperties.put(PROPS_FUZZY_PARSE, "false");
+        }
+        if (String.valueOf(info.getEnclose()) != null) {
+            this.enclose = info.getEnclose();
+            jobProperties.put(LoadStmt.KEY_ENCLOSE, String.valueOf(info.getEnclose()));
+        }
+        if (String.valueOf(info.getEscape()) != null) {
+            this.escape = info.getEscape();
+            jobProperties.put(info.KEY_ESCAPE, String.valueOf(info.getEscape()));
+        }
+        if (info.getWorkloadGroupId() > 0) {
+            jobProperties.put(WORKLOAD_GROUP, String.valueOf(info.getWorkloadGroupId()));
+        }
+    }
 
     protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
         setRoutineLoadDesc(stmt.getRoutineLoadDesc());
