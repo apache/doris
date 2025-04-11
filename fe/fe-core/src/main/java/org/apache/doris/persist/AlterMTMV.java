@@ -172,7 +172,7 @@ public class AlterMTMV implements Writable {
         try {
             alterMTMV.compatible();
         } catch (Throwable t) {
-            LOG.info("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", alterMTMV.mvName.getDb(),
+            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", alterMTMV.mvName.getDb(),
                     alterMTMV.mvName.getTbl(),
                     t.getMessage());
         }

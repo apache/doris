@@ -530,7 +530,7 @@ public class MTMV extends OlapTable {
                         errMsg.get());
             }
         } catch (Throwable t) {
-            LOG.info("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getQualifiedDbName(), name,
+            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getQualifiedDbName(), name,
                     t.getMessage());
         }
     }
