@@ -139,12 +139,6 @@ size_t get_number_of_dimensions(const IDataType& type) {
 }
 } // namespace
 
-#ifdef NDEBUG
-#define ENABLE_CHECK_CONSISTENCY (void)/* Nothing */
-#else
-#define ENABLE_CHECK_CONSISTENCY(this) (this)->check_consistency()
-#endif
-
 // current nested level is 2, inside column object
 constexpr int CURRENT_SERIALIZE_NESTING_LEVEL = 2;
 
@@ -662,7 +656,7 @@ ColumnObject::ColumnObject(int32_t max_subcolumns_count, DataTypePtr root_type,
           _max_subcolumns_count(max_subcolumns_count) {
     subcolumns.create_root(
             Subcolumn(std::move(root_column), root_type, is_nullable, true /*root*/));
-    serialized_sparse_column->insert_many_defaults(num_rows);
+    serialized_sparse_column->resize(num_rows);
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
@@ -677,7 +671,7 @@ ColumnObject::ColumnObject(int32_t max_subcolumns_count, Subcolumns&& subcolumns
                                "subcolumns count: {}",
                                max_subcolumns_count, subcolumns_.size());
     }
-    serialized_sparse_column->insert_many_defaults(num_rows);
+    serialized_sparse_column->resize(num_rows);
 }
 
 ColumnObject::ColumnObject(int32_t max_subcolumns_count, size_t size)
@@ -822,7 +816,7 @@ void ColumnObject::insert_many_defaults(size_t length) {
     for (auto& entry : subcolumns) {
         entry->data.insert_many_defaults(length);
     }
-    serialized_sparse_column->insert_many_defaults(length);
+    serialized_sparse_column->resize(num_rows + length);
     num_rows += length;
     ENABLE_CHECK_CONSISTENCY(this);
 }
@@ -1189,7 +1183,7 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
 
         /// If no src subcolumns should be inserted into sparse column, insert defaults.
         if (sorted_src_subcolumn_for_sparse_column.empty()) {
-            serialized_sparse_column->insert_many_defaults(length);
+            serialized_sparse_column->resize(num_rows + length);
         } else {
             // Otherwise insert required src dense columns into sparse column.
             auto [sparse_column_keys, sparse_column_values] = get_sparse_data_paths_and_values();
@@ -1757,7 +1751,7 @@ Status ColumnObject::serialize_sparse_columns(
     CHECK(is_finalized());
 
     if (remaing_subcolumns.empty()) {
-        serialized_sparse_column->insert_many_defaults(num_rows);
+        serialized_sparse_column->resize(num_rows);
         return Status::OK();
     }
     serialized_sparse_column->reserve(num_rows);
@@ -2052,7 +2046,7 @@ void ColumnObject::create_root(const DataTypePtr& type, MutableColumnPtr&& colum
     }
     add_sub_column({}, std::move(column), type);
     if (serialized_sparse_column->empty()) {
-        serialized_sparse_column->insert_many_defaults(num_rows);
+        serialized_sparse_column->resize(num_rows);
     }
     ENABLE_CHECK_CONSISTENCY(this);
 }

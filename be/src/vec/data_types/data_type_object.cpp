@@ -207,7 +207,8 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
                                                                   be_exec_version);
         column_object->set_sparse_column(std::move(sparse_column));
     } else {
-        column_object->get_sparse_column()->assume_mutable()->insert_many_defaults(num_rows);
+        column_object->get_sparse_column()->assume_mutable()->resize(
+                column_object->get_sparse_column()->size() + num_rows);
     }
 
     if (!root_added && column_object->get_subcolumn({})) {
