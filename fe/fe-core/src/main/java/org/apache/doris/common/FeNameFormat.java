@@ -109,7 +109,8 @@ public class FeNameFormat {
     }
 
     public static void checkColumnCommentLength(String comment) throws AnalysisException {
-        if (!Strings.isNullOrEmpty(comment) && comment.length() > Config.column_comment_length_limit) {
+        if (!Strings.isNullOrEmpty(comment) && Config.column_comment_length_limit > 0
+                && comment.length() > Config.column_comment_length_limit) {
             throw new AnalysisException("Column comment is too long " + comment.length() + ", max length is "
                     + Config.column_comment_length_limit);
         }

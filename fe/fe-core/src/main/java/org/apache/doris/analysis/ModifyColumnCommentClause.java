@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeNameFormat;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -58,7 +57,6 @@ public class ModifyColumnCommentClause extends AlterTableClause {
         if (Strings.isNullOrEmpty(colName)) {
             throw new AnalysisException("Empty column name");
         }
-        FeNameFormat.checkColumnCommentLength(comment);
     }
 
     @Override
