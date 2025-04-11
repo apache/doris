@@ -48,7 +48,7 @@ public class RecordPlanForMvLaterRewrite extends DefaultPlanRewriter<Void> imple
             return plan;
         }
         List<RewriteJob> recordMvBeforeJobs =
-                new ArrayList<>(Rewriter.CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN_STAGE_1);
+                new ArrayList<>(Rewriter.CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_1);
         recordMvBeforeJobs.addAll(
                 Rewriter.notTraverseChildrenOf(
                         ImmutableSet.of(LogicalCTEAnchor.class),
@@ -59,6 +59,7 @@ public class RecordPlanForMvLaterRewrite extends DefaultPlanRewriter<Void> imple
                                                 new CollectCteConsumerOutput())
                                 ),
                                 Rewriter.topic("necessary rules before record mv",
+                                        Rewriter.topDown(new SplitLimit()),
                                         Rewriter.topDown(new AdjustPreAggStatus()),
                                         Rewriter.custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new),
                                         Rewriter.custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
