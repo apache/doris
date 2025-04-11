@@ -803,7 +803,12 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
 void AnalyticSinkLocalState::_remove_unused_rows() {
     // test column overflow 4G
     DBUG_EXECUTE_IF("AnalyticSinkLocalState._remove_unused_rows", { return; });
+#ifdef BE_TEST
+    const size_t block_num = 1;
+#else
     const size_t block_num = 256;
+#endif
+
     if (_removed_block_index + block_num + 1 >= _input_block_first_row_positions.size()) {
         return;
     }
