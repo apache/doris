@@ -28,6 +28,7 @@
 #include "pipeline/exec/group_commit_scan_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
+#include "pipeline/exec/mock_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/types.h"
@@ -339,6 +340,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 return Status::OK();
             }
         } else {
+            ///TODO: fe 应该保证这里等谓词都按照and划分好了，不应该在出现 root节点是and的情况
             vectorized::VExprSPtr left_child;
             RETURN_IF_ERROR(
                     _normalize_predicate(conjunct_expr_root->children()[0], context, left_child));
@@ -456,6 +458,9 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
         return false;
     }
 
+    /// TODO: child_contains_slot和slot_ref其实指向的是同一个位置，应该只保留一个
+    DCHECK_EQ(child_contains_slot.get(), slot_ref.get());
+
     auto entry = _slot_id_to_value_range.find(slot_ref->slot_id());
     if (_slot_id_to_value_range.end() == entry) {
         return false;
@@ -552,6 +557,7 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                          << "] should return a const column but actually is "
                          << const_col_wrapper->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
+            ///TODO: 这里有DCHECK还要额外判断一次，应该返回错误码
             if (bool_column->size() == 1) {
                 constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
                 if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
@@ -1361,5 +1367,10 @@ template class ScanLocalState<MetaScanLocalState>;
 template class ScanOperatorX<MetaScanLocalState>;
 template class ScanOperatorX<GroupCommitLocalState>;
 template class ScanLocalState<GroupCommitLocalState>;
+
+#ifdef BE_TEST
+template class ScanOperatorX<MockScanLocalState>;
+template class ScanLocalState<MockScanLocalState>;
+#endif
 
 } // namespace doris::pipeline

@@ -399,6 +399,10 @@ public:
     using OperatorX<LocalStateType>::operator_id;
     using OperatorX<LocalStateType>::get_local_state;
 
+#ifdef BE_TEST
+    ScanOperatorX() = default;
+#endif
+
 protected:
     using LocalState = LocalStateType;
     ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
