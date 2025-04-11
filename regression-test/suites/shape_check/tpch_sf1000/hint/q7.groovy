@@ -36,7 +36,7 @@ sql 'set be_number_for_test=3'
     qt_select """
     explain shape plan
     select 
-    /*+ leading( lineitem broadcast {supplier broadcast n1} {orders shuffle {customer broadcast n2}}) */
+    /*+ leading( lineitem [broadcast] (supplier [broadcast] n1) (orders [shuffle] (customer [broadcast] n2))) */
         supp_nation,
         cust_nation,
         l_year,
