@@ -109,6 +109,7 @@ public class StructLiteral extends LiteralExpr {
     @Override
     public String getStringValueForQuery(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
+        ++options.level;
         // same with be default field index start with 1
         for (int i = 0; i < children.size(); i++) {
             Expr child = children.get(i);
@@ -118,6 +119,7 @@ public class StructLiteral extends LiteralExpr {
                     + options.getMapKeyDelim()
                     + child.getStringValueInComplexTypeForQuery(options));
         }
+        --options.level;
         return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
 

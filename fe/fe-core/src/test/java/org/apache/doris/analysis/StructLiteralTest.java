@@ -77,6 +77,9 @@ public class StructLiteralTest {
 
         StructLiteral nullStruct = new StructLiteral(nullLiteral, intLiteral1);
         Assert.assertEquals("{\"col1\":null, \"col2\":1}", nullStruct.getStringValueForQuery(options));
+
+        StructLiteral boolStruct = new StructLiteral(boolLiteral, intLiteral1);
+        Assert.assertEquals("{\"col1\":1, \"col2\":1}", boolStruct.getStringValueForQuery(options));
     }
 
     @Test
@@ -96,6 +99,9 @@ public class StructLiteralTest {
 
         StructLiteral nullStruct = new StructLiteral(nullLiteral, intLiteral1);
         Assert.assertEquals("{col1=NULL, col2=1}", nullStruct.getStringValueForQuery(options));
+
+        StructLiteral boolStruct = new StructLiteral(boolLiteral, intLiteral1);
+        Assert.assertEquals("{col1=1, col2=1}", boolStruct.getStringValueForQuery(options));
     }
 
     @Test
@@ -115,6 +121,9 @@ public class StructLiteralTest {
 
         StructLiteral nullStruct = new StructLiteral(nullLiteral, intLiteral1);
         Assert.assertEquals("{\"col1\":null,\"col2\":1}", nullStruct.getStringValueForQuery(options));
+
+        StructLiteral boolStruct = new StructLiteral(boolLiteral, intLiteral1);
+        Assert.assertEquals("{\"col1\":true,\"col2\":1}", boolStruct.getStringValueForQuery(options));
     }
 
     @Test
@@ -134,5 +143,8 @@ public class StructLiteralTest {
 
         StructLiteral nullStruct = new StructLiteral(nullLiteral, intLiteral1);
         Assert.assertEquals("{null, 1}", nullStruct.getStringValueForStreamLoad(options));
+
+        StructLiteral boolStruct = new StructLiteral(boolLiteral, intLiteral1);
+        Assert.assertEquals("{1, 1}", boolStruct.getStringValueForStreamLoad(options));
     }
 }

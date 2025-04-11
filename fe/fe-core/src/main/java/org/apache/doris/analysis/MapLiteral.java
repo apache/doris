@@ -173,6 +173,7 @@ public class MapLiteral extends LiteralExpr {
     @Override
     public String getStringValueForQuery(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
+        ++options.level;
         for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
             // we should use type to decide we output array is suitable for json format
             if (children.get(i).getType().isComplexType()) {
@@ -182,6 +183,7 @@ public class MapLiteral extends LiteralExpr {
             list.add(children.get(i).getStringValueInComplexTypeForQuery(options)
                     + options.getMapKeyDelim() + children.get(i + 1).getStringValueInComplexTypeForQuery(options));
         }
+        --options.level;
         return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
 

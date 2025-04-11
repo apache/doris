@@ -35,6 +35,8 @@ public class FormatOptions {
     // This is only for boolean column within the collection type.
     // For top level boolean column, it is always 0/1
     private boolean isBoolValueNum;
+    // Indicate the nested level of column. It is used to control some behavior of serde
+    public int level = 0;
 
     private FormatOptions(String nestedStringWrapper, String mapKeyDelim, String nullFormat, String collectionDelim,
             boolean isBoolValueNum) {

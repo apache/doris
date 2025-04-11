@@ -114,8 +114,11 @@ public class BoolLiteral extends LiteralExpr {
 
     @Override
     public String getStringValueForQuery(FormatOptions options) {
-        String val = options.isBoolValueNum() ? getStringValue() : (value ? "true" : "false");
-        return val;
+        if (options.level > 0) {
+            return options.isBoolValueNum() ? getStringValue() : (value ? "true" : "false");
+        } else {
+            return getStringValue();
+        }
     }
 
     @Override

@@ -135,9 +135,11 @@ public class ArrayLiteral extends LiteralExpr {
     @Override
     public String getStringValueForQuery(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
+        ++options.level;
         children.forEach(v -> {
             list.add(v.getStringValueInComplexTypeForQuery(options));
         });
+        --options.level;
         return "[" + StringUtils.join(list, options.getCollectionDelim()) + "]";
     }
 
