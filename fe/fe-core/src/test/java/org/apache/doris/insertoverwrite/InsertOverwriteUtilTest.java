@@ -15,30 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.insertoverwrite;
 
-#include <boost/uuid/uuid.hpp>
-#include <boost/uuid/uuid_generators.hpp>
-#include <boost/uuid/uuid_io.hpp>
-#include <mutex>
+import com.google.common.collect.Lists;
+import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
-namespace doris {
+import java.util.List;
 
-class UUIDGenerator {
-public:
-    boost::uuids::uuid next_uuid() {
-        std::lock_guard<std::mutex> lock(_uuid_gen_lock);
-        return _boost_uuid_generator();
+public class InsertOverwriteUtilTest {
+
+    @Test
+    public void testGenerateTempPartitionNames() {
+        String regex = "^iot_temp_[0-9]+_p1$";
+        List<String> res = InsertOverwriteUtil.generateTempPartitionNames(Lists.newArrayList("p1"));
+        String tempP1Name = res.get(0);
+        Assertions.assertTrue(tempP1Name.matches(regex));
     }
-
-    static UUIDGenerator* instance() {
-        static UUIDGenerator generator;
-        return &generator;
-    }
-
-private:
-    boost::uuids::basic_random_generator<boost::mt19937> _boost_uuid_generator;
-    std::mutex _uuid_gen_lock;
-};
-
-} // namespace doris
+}

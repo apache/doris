@@ -321,7 +321,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
     auto& sink_local_state =
             _runtime_states.back().front()->get_sink_local_state()->cast<ExchangeSinkLocalState>();
     EXPECT_EQ(sink_local_state.channels.size(), 1);
-    EXPECT_EQ(sink_local_state.only_local_exchange, true);
+    EXPECT_EQ(sink_local_state._only_local_exchange, true);
 
     EXPECT_EQ(local_state.stream_recvr->sender_queues().size(), 1);
 

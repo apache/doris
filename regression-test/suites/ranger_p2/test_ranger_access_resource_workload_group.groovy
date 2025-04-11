@@ -86,7 +86,7 @@ suite("test_ranger_access_workload_group", "p2,ranger,external") {
 		resource.clear()
 		resource.put("workload_group", new RangerPolicy.RangerPolicyResource("*"))
 		policy.setResources(resource)
-		policyItem.setUsers([userList[1], "admin"])
+		policyItem.setUsers([userList[1], "admin", "root"])
 		rangerClient.updatePolicy(rangerServiceName, "all%20-%20workload_group", policy)
 		waitPolicyEffect()
 		connect("${userList[1]}", "$pwd", "$defaultJdbcUrl") {

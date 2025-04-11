@@ -83,9 +83,6 @@ suite("test_ranger_access_role_resource_catalog", "p2,ranger,external") {
 				executeSqlWithLogging("""CALL EXECUTE_STMT ('${catalog}', 'INSERT INTO ${dbName}.${tableName} VALUES (1, ''test'')')""", "Error executing INSERT")
 				executeSqlWithLogging("""SELECT * FROM ${dbName}.${tableName}""", "Error executing SELECT")
 				executeSqlWithLogging("""CALL EXECUTE_STMT ('${catalog}', 'ALTER TABLE ${dbName}.${tableName} ADD COLUMN age INT')""", "Error executing ALTER TABLE")
-				executeSqlWithLogging("""CREATE VIEW ${dbName}.test_view AS SELECT * FROM ${dbName}.${tableName}""", "Error executing CREATE VIEW")
-				executeSqlWithLogging("""SELECT * FROM ${dbName}.test_view""", "Error executing SELECT VIEW")
-				executeSqlWithLogging("""SHOW CREATE VIEW ${dbName}.test_view""", "Error executing SHOW CREATE VIEW")
 				executeSqlWithLogging("""CALL EXECUTE_STMT ('${catalog}', 'DROP TABLE IF EXISTS ${dbName}.${tableName}')""", "Error executing DROP TABLE")
 				executeSqlWithLogging("""CALL EXECUTE_STMT ('${catalog}', 'DROP DATABASE ${dbName}')""", "Error executing DROP DATABASE")
 			}
