@@ -97,8 +97,11 @@ suite('test_alter_column_comment') {
     // Check table structure after ALTER TABLE
     qt_select """ SELECT TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME,COLUMN_COMMENT FROM information_schema.columns where TABLE_SCHEMA='${context.dbName}' and table_name='${tbl}' order by TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME """
 
+    // use a smaller config, column comment should be truncated
+    sql "ADMIN SET FRONTEND CONFIG ('column_comment_length_limit' = '4')"
+    qt_select1 """ SELECT TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME,COLUMN_COMMENT FROM information_schema.columns where TABLE_SCHEMA='${context.dbName}' and table_name='${tbl}' order by TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME """
+
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
-    
     // restore old_limit to old_value
     sql """ ADMIN SET FRONTEND CONFIG ("column_comment_length_limit" = "${old_limit}"); """
 }
