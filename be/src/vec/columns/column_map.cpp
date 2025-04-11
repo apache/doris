@@ -137,6 +137,7 @@ void ColumnMap::insert_data(const char*, size_t) {
 }
 
 void ColumnMap::insert(const Field& x) {
+    DCHECK_EQ(x.get_type(), Field::Types::Map);
     const auto& map = doris::vectorized::get<const Map&>(x);
     CHECK_EQ(map.size(), 2);
     const auto& k_f = doris::vectorized::get<const Array&>(map[0]);
