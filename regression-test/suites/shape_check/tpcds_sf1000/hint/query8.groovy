@@ -144,7 +144,7 @@ suite("query8") {
     qt_ds_shape_8 '''
     explain shape plan
     select  
-    /*+ leading(store_sales broadcast date_dim broadcast store broadcast V1) */
+    /*+ leading(store_sales [broadcast] date_dim [broadcast] store [broadcast] V1) */
     s_store_name
       ,sum(ss_net_profit)
  from store_sales
@@ -238,7 +238,7 @@ suite("query8") {
      intersect
       select ca_zip
       from (SELECT 
-      /*+ leading(customer_address shuffle customer) */
+      /*+ leading(customer_address [shuffle] customer) */
       substr(ca_zip,1,5) ca_zip,count(*) cnt
             FROM customer_address, customer
             WHERE ca_address_sk = c_current_addr_sk and

@@ -46,7 +46,7 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[date_dim]
 
 Hint log:
-Used: leading(customer_demographics broadcast { c broadcast ca } ) 
+Used: leading(customer_demographics [broadcast]_1 ( c [broadcast]_2 ca ) ) 
 UnUsed:
 SyntaxError:
 
