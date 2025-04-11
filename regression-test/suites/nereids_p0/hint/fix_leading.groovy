@@ -272,4 +272,10 @@ suite("fix_leading") {
             RIGHT JOIN t3 AS tbl3 ON tbl2.c2 = tbl3.c3;"""
         contains("Used: leading(tbl2 tbl1 )")
     }
+
+    // check cte as input in alias leading query
+    explain {
+        sql """shape plan select /*+ leading(t1 ((t2 t3) */ * from t1 join t2 on c1 = c2 join t3 on c1 = c3;"""
+        contains("SyntaxError: leading(t1 ( ( t2 t3)")
+    }
 }
