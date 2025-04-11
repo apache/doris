@@ -64,6 +64,16 @@ suite("column_authorization") {
             sql "select * from ${db}.${baseTable}"
             exception "Permission denied"
         }
+        sql "use ${db}"
+        test {
+            sql "create materialized view mv_xyz as select id, name from ${db}.${baseTable}"
+            exception "Permission denied"
+        }
+
+        test {
+            sql "create materialized view mv_xyz as select id from ${db}.${baseTable}"
+            exception "Access denied; you need (at least one of) the (ALTER) privilege(s) for this operation"
+        }
 
         // has privilege to id, __DORIS_DELETE_SIGN__
         sql "select id, __DORIS_DELETE_SIGN__ from ${db}.${baseTable}"
