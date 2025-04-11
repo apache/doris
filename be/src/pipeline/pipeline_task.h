@@ -128,7 +128,11 @@ public:
     void set_task_queue(MultiCoreTaskQueue* task_queue) { _task_queue = task_queue; }
     MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
 
+#ifdef BE_TEST
+    unsigned long long THREAD_TIME_SLICE = 100'000'000ULL;
+#else
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
+#endif
 
     // 1 used for update priority queue
     // note(wb) an ugly implementation, need refactor later
