@@ -66,7 +66,10 @@ public class DropRowPolicyCommand extends DropCommand {
         Env.getCurrentEnv().getPolicyMgr().dropPolicy(dropPolicyLog, ifExists);
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    /**
+     * validate
+     */
+    public void validate(ConnectContext ctx) throws AnalysisException {
         tableNameInfo.analyze(ctx);
         if (user != null) {
             user.analyze();
