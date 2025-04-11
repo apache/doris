@@ -35,7 +35,6 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/tablet_fwd.h"
-#include "util/spinlock.h"
 #include "util/uid_util.h"
 
 namespace doris {

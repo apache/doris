@@ -20,8 +20,6 @@
 #include <mutex>
 #include <vector>
 
-#include "util/spinlock.h"
-
 namespace doris {
 
 // An ObjectPool maintains a list of C++ objects which are deallocated
@@ -36,20 +34,20 @@ public:
     template <class T>
     T* add(T* t) {
         // TODO: Consider using a lock-free structure.
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         _objects.emplace_back(Element {t, [](void* obj) { delete reinterpret_cast<T*>(obj); }});
         return t;
     }
 
     template <class T>
     T* add_array(T* t) {
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         _objects.emplace_back(Element {t, [](void* obj) { delete[] reinterpret_cast<T*>(obj); }});
         return t;
     }
 
     void clear() {
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         // reverse delete object to make sure the obj can
         // safe access the member object construt early by
         // object pool
@@ -65,7 +63,7 @@ public:
     }
 
     uint64_t size() {
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         return _objects.size();
     }
 
@@ -83,7 +81,7 @@ private:
     };
 
     std::vector<Element> _objects;
-    SpinLock _lock;
+    std::mutex _lock;
 };
 
 } // namespace doris
