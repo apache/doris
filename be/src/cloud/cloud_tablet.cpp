@@ -144,8 +144,9 @@ Status CloudTablet::merge_rowsets_schema() {
 
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
 // This function will erase the tablet from `CloudTabletMgr` when it can't find this tablet in MS.
-Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) {
-    RETURN_IF_ERROR(sync_if_not_running());
+Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data,
+                                 SyncRowsetStats* stats) {
+    RETURN_IF_ERROR(sync_if_not_running(stats));
 
     if (query_version > 0) {
         std::shared_lock rlock(_meta_lock);
@@ -163,7 +164,7 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) 
         }
     }
 
-    auto st = _engine.meta_mgr().sync_tablet_rowsets(this, warmup_delta_data);
+    auto st = _engine.meta_mgr().sync_tablet_rowsets(this, warmup_delta_data, true, false, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
@@ -174,7 +175,7 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) 
 // Sync tablet meta and all rowset meta if not running.
 // This could happen when BE didn't finish schema change job and another BE committed this schema change job.
 // It should be a quite rare situation.
-Status CloudTablet::sync_if_not_running() {
+Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
     if (tablet_state() == TABLET_RUNNING) {
         return Status::OK();
     }
@@ -215,7 +216,7 @@ Status CloudTablet::sync_if_not_running() {
         _max_version = -1;
     }
 
-    st = _engine.meta_mgr().sync_tablet_rowsets(this);
+    st = _engine.meta_mgr().sync_tablet_rowsets(this, false, true, false, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
