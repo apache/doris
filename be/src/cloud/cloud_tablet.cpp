@@ -319,6 +319,28 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
         return;
     }
 
+    {
+        std::string msg {fmt::format(
+                "[xxx CloudTablet::add_rowsets] tablet_id={}\n_rs_version_map:\n", tablet_id())};
+        for (const auto& [version, rowset] : _rs_version_map) {
+            msg += fmt::format("    version={}, rowset_version={}, rowset={}, txn={}\n",
+                               version.to_string(), rowset->version().to_string(),
+                               rowset->rowset_id().to_string(), rowset->txn_id());
+        }
+        msg += "to_add:\n";
+        for (const auto& rs : to_add) {
+            msg += fmt::format("    version={}, rowset={}\n", rs->version().to_string(),
+                               rs->rowset_id().to_string());
+        }
+        msg += "tablet_meta._rs_metas:\n";
+        for (const auto& rs : tablet_meta()->all_rs_metas()) {
+            msg += fmt::format("    version={}, rowset={}, txn={}, rowset_state={}\n",
+                               rs->version().to_string(), rs->rowset_id().to_string(), rs->txn_id(),
+                               RowsetStatePB_Name(rs->rowset_state()));
+        }
+        LOG_INFO(msg);
+    }
+
     // Filter out existed rowsets
     auto remove_it =
             std::remove_if(to_add.begin(), to_add.end(), [this](const RowsetSharedPtr& rs) {
@@ -328,7 +350,12 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                 } else if (find_it->second->rowset_id() == rs->rowset_id()) {
                     return true; // Same rowset
                 }
-
+                LOG_INFO(
+                        "[xxx CloudTablet::add_rowsets] remove old rowset={}, txn_id={} with "
+                        "version={}, new rowset={}",
+                        _rs_version_map[rs->version()]->rowset_id().to_string(),
+                        _rs_version_map[rs->version()]->txn_id(), rs->version().to_string(),
+                        rs->rowset_id().to_string());
                 // If version of rowset in `to_add` is equal to rowset in tablet but rowset_id is not equal,
                 // replace existed rowset with `to_add` rowset. This may occur when:
                 //  1. schema change converts rowsets which have been double written to new tablet
@@ -992,6 +1019,16 @@ Status CloudTablet::check_delete_bitmap_cache(int64_t txn_id,
         }
     }
     return Status::OK();
+}
+
+std::string CloudTablet::rowsets_digest() const {
+    std::string msg {};
+    for (const auto& [k, v] : rowset_map()) {
+        msg += fmt::format("version={},rowset={},txn_id={},state={}\n", k.to_string(),
+                           v->rowset_id().to_string(), v->txn_id(),
+                           RowsetStatePB_Name(v->rowset_meta_state()));
+    }
+    return msg;
 }
 
 #include "common/compile_check_end.h"
