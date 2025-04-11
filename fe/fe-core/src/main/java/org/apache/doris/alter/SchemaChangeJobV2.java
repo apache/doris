@@ -608,7 +608,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
             return;
         }
-
         Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
         Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(tableId);
         Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
