@@ -31,6 +31,7 @@ import org.apache.doris.event.EventListener;
 import org.apache.doris.event.TableEvent;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
@@ -44,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 public class MTMVService implements EventListener {
@@ -131,11 +133,11 @@ public class MTMVService implements EventListener {
         }
     }
 
-    public void alterTable(Table table, String oldTableName) {
-        Objects.requireNonNull(table);
-        LOG.info("alterTable, tableName: {}", table.getName());
+    public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace) {
+        Objects.requireNonNull(oldTableInfo);
+        LOG.info("alterTable, tableName: {}", oldTableInfo);
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.alterTable(table, oldTableName);
+            mtmvHookService.alterTable(oldTableInfo, newTableInfo, isReplace);
         }
     }
 
@@ -207,9 +209,16 @@ public class MTMVService implements EventListener {
         }
     }
 
-    private boolean canRefresh(MTMV mtmv, TableIf table)   {
+    private boolean canRefresh(MTMV mtmv, TableIf table) {
         if (mtmv.getExcludedTriggerTables().contains(table.getName())) {
             LOG.info("skip refresh mtmv: {}, because exclude trigger table: {}",
+                    mtmv.getName(), table.getName());
+            return false;
+        }
+        // replace/alter base table,not change MTMVRelation, only change MTMV to schema_change,
+        // Therefore, it may trigger incorrect materialized view refresh
+        if (mtmv.getStatus().getState().equals(MTMVState.SCHEMA_CHANGE)) {
+            LOG.info("skip refresh mtmv: {}, because state is SCHEMA_CHANGE, trigger table: {}",
                     mtmv.getName(), table.getName());
             return false;
         }

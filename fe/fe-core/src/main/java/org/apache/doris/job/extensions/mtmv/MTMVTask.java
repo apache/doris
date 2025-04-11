@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -52,6 +53,7 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
@@ -82,6 +84,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
@@ -194,6 +197,8 @@ public class MTMVTask extends AbstractTask {
             // lock table order by id to avoid deadlock
             MetaLockUtils.readLockTables(tableIfs);
             try {
+                // check if column type has changed
+                checkColumnTypeIfChange(mtmv, ctx);
                 if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
                     MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
                     if (!relatedTable.isValidRelatedTable()) {
@@ -244,6 +249,34 @@ public class MTMVTask extends AbstractTask {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
                 LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
             }
+        }
+    }
+
+    private void checkColumnTypeIfChange(MTMV mtmv, ConnectContext ctx) throws JobException {
+        List<ColumnDefinition> derivedColumnsDefinition = MTMVPlanUtil.generateColumnsBySql(mtmv.getQuerySql(), ctx,
+                mtmv.getMvPartitionInfo().getPartitionCol(),
+                mtmv.getDistributionColumnNames(), null, mtmv.getTableProperty().getProperties());
+        List<Column> derivedColumns = derivedColumnsDefinition.stream()
+                .map(ColumnDefinition::translateToCatalogStyle)
+                .collect(Collectors.toList());
+        List<Column> currentColumns = mtmv.getBaseSchemaColumns();
+        if (derivedColumns.size() != currentColumns.size()) {
+            throw new JobException("column length not equals, please check columns of base table if changed");
+        }
+        for (int i = 0; i < currentColumns.size(); i++) {
+            if (!isTypeLike(currentColumns.get(i).getType(), derivedColumns.get(i).getType())) {
+                throw new JobException(
+                        "column type not like, please check columns of base table if changed, columnName: "
+                                + currentColumns.get(i).getName());
+            }
+        }
+    }
+
+    private boolean isTypeLike(Type type, Type typeOther) {
+        if (type.isStringType()) {
+            return typeOther.isStringType();
+        } else {
+            return type.equals(typeOther);
         }
     }
 
