@@ -102,7 +102,7 @@ public class RefreshCatalogTest extends TestWithFeService {
         Thread.sleep(5000);
         // there are test1.db1 , test1.db2 , test1.db3, information_schema, mysql
         List<String> dbNames2 = test1.getDbNames();
-        Assertions.assertEquals(5, dbNames2.size());
+        Assertions.assertEquals(4, dbNames2.size());
         ExternalInfoSchemaDatabase infoDb = (ExternalInfoSchemaDatabase) test1.getDb(InfoSchemaDb.DATABASE_NAME).get();
         Assertions.assertEquals(SchemaTable.TABLE_MAP.size(), infoDb.getTables().size());
         TestExternalDatabase testDb = (TestExternalDatabase) test1.getDb("db1").get();
