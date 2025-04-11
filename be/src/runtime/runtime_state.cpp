@@ -499,19 +499,19 @@ Status RuntimeState::register_producer_runtime_filter(
         RuntimeProfile* parent_profile) {
     // Producers are created by local runtime filter mgr and shared by global runtime filter manager.
     // When RF is published, consumers in both global and local RF mgr will be found.
-    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(desc, producer_filter,
-                                                                         parent_profile));
+    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(
+            _query_ctx, desc, producer_filter, parent_profile));
     RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merger_producer_filter(
-            desc, *producer_filter, &_profile));
+            _query_ctx, desc, *producer_filter, &_profile));
     return Status::OK();
 }
 
 Status RuntimeState::register_consumer_runtime_filter(
-        const doris::TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
+        const TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
         std::shared_ptr<RuntimeFilterConsumer>* consumer_filter) {
     bool need_merge = desc.has_remote_targets || need_local_merge;
     RuntimeFilterMgr* mgr = need_merge ? global_runtime_filter_mgr() : local_runtime_filter_mgr();
-    return mgr->register_consumer_filter(desc, node_id, consumer_filter);
+    return mgr->register_consumer_filter(_query_ctx, desc, node_id, consumer_filter);
 }
 
 bool RuntimeState::is_nereids() const {
