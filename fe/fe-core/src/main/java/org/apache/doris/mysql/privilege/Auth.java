@@ -63,6 +63,7 @@ import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
@@ -485,6 +486,12 @@ public class Auth implements Writable {
                 stmt.getComment(), stmt.getUserId(), false);
     }
 
+    public void createUser(CreateUserInfo info) throws DdlException {
+        createUserInternal(info.getUserIdent(), info.getRole(),
+                info.getPassword(), info.isIfNotExist(), info.getPasswordOptions(),
+                info.getComment(), info.getUserId(), false);
+    }
+
     public void replayCreateUser(PrivInfo privInfo) {
         try {
             createUserInternal(privInfo.getUserIdent(), privInfo.getRole(), privInfo.getPasswd(), false,
@@ -564,8 +571,12 @@ public class Auth implements Writable {
         dropUserInternal(stmt.getUserIdentity(), stmt.isSetIfExists(), false);
     }
 
-    public void replayDropUser(UserIdentity userIdent) throws DdlException {
-        dropUserInternal(userIdent, false, true);
+    public void replayDropUser(UserIdentity userIdent) {
+        try {
+            dropUserInternal(userIdent, false, true);
+        } catch (DdlException e) {
+            LOG.error("should not happen", e);
+        }
     }
 
     private void dropUserInternal(UserIdentity userIdent, boolean ignoreIfNonExists, boolean isReplay)
@@ -1142,8 +1153,12 @@ public class Auth implements Writable {
         updateUserPropertyInternal(stmt.getUser(), properties, false /* is replay */);
     }
 
-    public void replayUpdateUserProperty(UserPropertyInfo propInfo) throws UserException {
-        updateUserPropertyInternal(propInfo.getUser(), propInfo.getProperties(), true /* is replay */);
+    public void replayUpdateUserProperty(UserPropertyInfo propInfo) {
+        try {
+            updateUserPropertyInternal(propInfo.getUser(), propInfo.getProperties(), true /* is replay */);
+        } catch (UserException e) {
+            LOG.error("should not happened", e);
+        }
     }
 
     public void updateUserPropertyInternal(String user, List<Pair<String, String>> properties, boolean isReplay)
@@ -1243,6 +1258,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getExecMemLimit(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public String getInitCatalog(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getInitCatalog(qualifiedUser);
         } finally {
             readUnlock();
         }

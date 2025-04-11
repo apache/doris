@@ -174,7 +174,7 @@ Status Channel::send_remote_block(std::unique_ptr<PBlock>&& block, bool eos) {
         }
     }
     if (eos || block->column_metas_size()) {
-        RETURN_IF_ERROR(_buffer->add_block({this, std::move(block), eos, Status::OK()}));
+        RETURN_IF_ERROR(_buffer->add_block({this, std::move(block), eos}));
     }
     return Status::OK();
 }

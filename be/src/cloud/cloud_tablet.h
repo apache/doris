@@ -26,6 +26,17 @@ namespace doris {
 
 class CloudStorageEngine;
 
+struct SyncRowsetStats {
+    int64_t get_remote_rowsets_num {0};
+    int64_t get_remote_rowsets_rpc_ms {0};
+
+    int64_t get_local_delete_bitmap_rowsets_num {0};
+    int64_t get_remote_delete_bitmap_rowsets_num {0};
+    int64_t get_remote_delete_bitmap_key_count {0};
+    int64_t get_remote_delete_bitmap_bytes {0};
+    int64_t get_remote_delete_bitmap_rpc_ms {0};
+};
+
 struct SyncOptions {
     bool warmup_delta_data = false;
     bool sync_delete_bitmap = true;
@@ -76,7 +87,7 @@ public:
     // If `query_version` > 0 and local max_version of the tablet >= `query_version`, do nothing.
     // If 'need_download_data_async' is true, it means that we need to download the new version
     // rowsets datum async.
-    Status sync_rowsets(const SyncOptions& options = {});
+    Status sync_rowsets(const SyncOptions& options = {}, SyncRowsetStats* stats = nullptr);
 
     // Synchronize the tablet meta from meta service.
     Status sync_meta();
@@ -178,11 +189,12 @@ public:
 
     Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                               DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                              const RowsetIdUnorderedSet& cur_rowset_ids,
-                              int64_t lock_id = -1) override;
+                              const RowsetIdUnorderedSet& cur_rowset_ids, int64_t lock_id = -1,
+                              int64_t next_visible_version = -1) override;
 
     Status save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
-                                    DeleteBitmapPtr delete_bitmap, int64_t lock_id);
+                                    DeleteBitmapPtr delete_bitmap, int64_t lock_id,
+                                    int64_t next_visible_version);
 
     Status calc_delete_bitmap_for_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
                                              const RowsetSharedPtr& output_rowset,
@@ -227,7 +239,7 @@ private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
 
-    Status sync_if_not_running();
+    Status sync_if_not_running(SyncRowsetStats* stats = nullptr);
 
     CloudStorageEngine& _engine;
 

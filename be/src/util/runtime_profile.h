@@ -295,41 +295,36 @@ public:
         const std::string _parent_name;
     };
 
-    // When the collaboration Counter modifies itself, it also modifies the other counter.
-
-    class CollaborationCounter : public Counter {
+    class DescriptionEntry : public Counter {
     public:
-        CollaborationCounter(TUnit::type type, int64_t level, Counter* other_counter,
-                             int64_t value = 0)
-                : Counter(type, value, level), _other_counter(other_counter) {}
+        DescriptionEntry(const std::string& name, const std::string& description)
+                : Counter(TUnit::NONE, 0, 2), _description(description), _name(name) {}
 
         virtual Counter* clone() const override {
-            return new CollaborationCounter(type(), level(), _other_counter, value());
-        }
-
-        void update(int64_t delta) override {
-            if (_other_counter != nullptr) {
-                _other_counter->update(delta);
-            }
-            Counter::update(delta);
+            return new DescriptionEntry(_name, _description);
         }
 
         void set(int64_t value) override {
-            if (_other_counter != nullptr) {
-                _other_counter->set(value);
-            }
-            Counter::set(value);
+            // Do nothing
+        }
+        void set(double value) override {
+            // Do nothing
+        }
+        void update(int64_t delta) override {
+            // Do nothing
         }
 
-        void set(double value) override {
-            if (_other_counter != nullptr) {
-                _other_counter->set(value);
-            }
-            Counter::set(value);
+        TCounter to_thrift(const std::string& name) const override {
+            TCounter counter;
+            counter.name = name;
+            counter.__set_level(2);
+            counter.__set_description(_description);
+            return counter;
         }
 
     private:
-        Counter* _other_counter = nullptr; // Pointer to the other counter to be modified
+        const std::string _description;
+        const std::string _name;
     };
 
     // Create a runtime profile object with 'name'.
@@ -385,11 +380,9 @@ public:
             const std::string& parent_counter_name = RuntimeProfile::ROOT_COUNTER,
             int64_t level = 2);
 
-    CollaborationCounter* add_collaboration_counter(
-            const std::string& name, TUnit::type type, Counter* other_counter,
-            const std::string& parent_counter_name = RuntimeProfile::ROOT_COUNTER,
-            int64_t level = 2);
-
+    // Add a description entry under target counter.
+    void add_description(const std::string& name, const std::string& description,
+                         std::string parent_counter_name);
     // Add a derived counter with 'name'/'type'. The counter is owned by the
     // RuntimeProfile object.
     // If parent_counter_name is a non-empty string, the counter is added as a child of

@@ -94,7 +94,8 @@ public class ShowSnapshotCommand extends ShowCommand {
         return snapshotType.name();
     }
 
-    private ShowResultSetMetaData getMetaData() {
+    @Override
+    public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         if (!Strings.isNullOrEmpty(snapshotName) && !Strings.isNullOrEmpty(timestamp)) {
             for (String title : SNAPSHOT_DETAIL) {
