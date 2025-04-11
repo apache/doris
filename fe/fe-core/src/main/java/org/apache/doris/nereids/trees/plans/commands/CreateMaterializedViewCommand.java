@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -43,6 +44,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -72,12 +74,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -100,13 +104,6 @@ import java.util.stream.Collectors;
  * create synchronized materialized view
  */
 public class CreateMaterializedViewCommand extends Command implements ForwardWithSync {
-    private static final String SYNC_MV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE, PRUNE_EMPTY_PARTITION, "
-            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, HAVING_TO_FILTER, ELIMINATE_GROUP_BY, SIMPLIFY_AGG_GROUP_BY, "
-            + "MERGE_PERCENTILE_TO_ARRAY, VARIANT_SUB_PATH_PRUNING, INFER_PREDICATES, INFER_AGG_NOT_NULL, "
-            + "INFER_SET_OPERATOR_DISTINCT, INFER_FILTER_NOT_NULL, INFER_JOIN_NOT_NULL, PUSH_DOWN_MAX_MIN_FILTER, "
-            + "ELIMINATE_SORT, ELIMINATE_AGGREGATE, ELIMINATE_LIMIT, ELIMINATE_SEMI_JOIN, ELIMINATE_NOT_NULL, "
-            + "ELIMINATE_JOIN_BY_UK, ELIMINATE_JOIN_BY_FK, ELIMINATE_GROUP_BY_KEY, ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, "
-            + "ELIMINATE_FILTER_GROUP_BY_KEY";
     private final TableNameInfo name;
 
     private final LogicalPlan logicalPlan;
@@ -181,6 +178,8 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     private void validate(ConnectContext ctx) throws Exception {
         name.analyze(ctx);
         Pair<LogicalPlan, CascadesContext> result = analyzeAndRewriteLogicalPlan(logicalPlan, ctx);
+        CheckPrivileges checkPrivileges = new CheckPrivileges();
+        checkPrivileges.rewriteRoot(result.first, result.second.getCurrentJobContext());
         PlanValidator planValidator = new PlanValidator();
         planValidator.validate(result.first, result.second);
         mvColumnItemList = planValidator.context.selectItems;
@@ -199,22 +198,12 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             ConnectContext ctx) {
         StatementContext statementContext = ctx.getStatementContext();
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        Set<String> tempDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
-        ctx.getSessionVariable().setDisableNereidsRules(SYNC_MV_PLANER_DISABLE_RULES);
-        ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-        LogicalPlan plan;
-        try {
-            // disable rbo sync mv rewrite
-            ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_SYNC_MV_COST_BASED_REWRITE, "true");
-            // disable constant fold
-            ctx.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
-            plan = (LogicalPlan) planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
-                    ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
-        } finally {
-            // after operate, roll back the disable rules
-            ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
-            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-        }
+        // disable rbo sync mv rewrite
+        ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_SYNC_MV_COST_BASED_REWRITE, "true");
+        // disable constant fold
+        ctx.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
+        LogicalPlan plan = (LogicalPlan) planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
+                ExplainCommand.ExplainLevel.ANALYZED_PLAN);
         return Pair.of(plan, planner.getCascadesContext());
     }
 
@@ -245,6 +234,17 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         @Override
         public Plan visit(Plan plan, ValidateContext context) {
             throw new AnalysisException(String.format("%s is not supported", plan.getClass().getSimpleName()));
+        }
+
+        @Override
+        public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias plan, ValidateContext context) {
+            // do nothing
+            return super.visit(plan, context);
+        }
+
+        @Override
+        public Plan visitLogicalApply(LogicalApply plan, ValidateContext context) {
+            throw new AnalysisException("subquery or join is not supported");
         }
 
         @Override
@@ -331,6 +331,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             int groupByExprCount = aggregate.getGroupByExpressions().size();
             context.groupByExprs = Maps.newHashMap();
             for (int i = 0; i < groupByExprCount; ++i) {
+                if (outputs.get(i).getDataType().isOnlyMetricType()) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+                }
                 context.groupByExprs.put(outputs.get(i).getExprId(), outputs.get(i));
             }
             context.exprReplaceMap.putAll(ExpressionUtils.generateReplaceMap(outputs));
@@ -344,6 +347,11 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 throw new AnalysisException(String.format("Only support one sort node, the second is %s", sort));
             }
             checkNoNondeterministicFunction(sort);
+            if (sort.getOrderKeys().stream().anyMatch((
+                    orderKey -> orderKey.getExpr().getDataType()
+                            .isOnlyMetricType()))) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
             context.orderByExprs = (List<NamedExpression>) sort.getExpressions();
             if (!context.exprReplaceMap.isEmpty()) {
                 context.orderByExprs = ExpressionUtils.replaceNamedExpressions(context.orderByExprs,
