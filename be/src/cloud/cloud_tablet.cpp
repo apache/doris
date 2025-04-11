@@ -418,12 +418,13 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
             DeleteBitmapKeyRanges remove_delete_bitmap_key_ranges;
             agg_delete_bitmap_for_stale_rowsets(version_path->timestamped_versions(),
                                                 remove_delete_bitmap_key_ranges);
-
+            std::vector<RowsetSharedPtr> unused_rowsets;
             for (auto& v_ts : version_path->timestamped_versions()) {
                 auto rs_it = _stale_rs_version_map.find(v_ts->version());
                 if (rs_it != _stale_rs_version_map.end()) {
                     expired_rowsets.push_back(rs_it->second);
                     stale_rowsets.push_back(rs_it->second);
+                    unused_rowsets.push_back(rs_it->second);
                     LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
                               << " rowset_id=" << rs_it->second->rowset_id().to_string()
                               << " version=" << rs_it->first.to_string();
@@ -448,7 +449,7 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
             if (!remove_delete_bitmap_key_ranges.empty()) {
                 std::lock_guard<std::mutex> lock(_gc_mutex);
                 _unused_delete_bitmap.push_back(
-                        std::make_pair(stale_rowsets, remove_delete_bitmap_key_ranges));
+                        std::make_pair(unused_rowsets, remove_delete_bitmap_key_ranges));
             }
         }
         _reconstruct_version_tracker_if_necessary();
