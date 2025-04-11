@@ -162,6 +162,10 @@ public class ColumnDefinition {
         return isNullable;
     }
 
+    public String getComment() {
+        return comment;
+    }
+
     public boolean isKey() {
         return isKey;
     }

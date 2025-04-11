@@ -351,6 +351,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                 throw new AnalysisException(
                         "Disable to create table with `DECIMAL` type columns," + "please use `DECIMALV3`.");
             }
+            FeNameFormat.checkColumnCommentLength(columnDef.getComment());
         }
 
         boolean enableUniqueKeyMergeOnWrite = false;

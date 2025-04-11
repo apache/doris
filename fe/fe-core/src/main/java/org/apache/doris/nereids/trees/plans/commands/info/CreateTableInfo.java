@@ -354,6 +354,11 @@ public class CreateTableInfo {
                 throw new AnalysisException("Disable to create table with `DECIMAL` type columns,"
                         + "please use `DECIMALV3`.");
             }
+            try {
+                FeNameFormat.checkColumnCommentLength(columnDef.getComment());
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
         }
         // check duplicated columns
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
