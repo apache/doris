@@ -45,7 +45,7 @@ public:
     Status init();
     void stop();
 
-    Status allocate_dir(const std::string& db, const std::string& label, std::string* prefix);
+    Status allocate_dir(const std::string& db, const std::string& label, std::string* prefix, int64_t file_bytes);
 
     void get_load_data_path(std::vector<std::string>* data_paths);
 
@@ -54,12 +54,18 @@ public:
     std::string get_load_error_absolute_path(const std::string& file_path);
     const std::string& get_load_error_file_dir() const { return _error_log_dir; }
 
+    void clean_tmp_files(const std::string& file_path) {
+        clean_files_in_path_vec(file_path);
+    }
+
 private:
     bool is_too_old(time_t cur_time, const std::string& label_dir, int64_t reserve_hours);
     void clean_one_path(const std::string& path);
     void clean_error_log();
     void clean();
     void process_path(time_t now, const std::string& path, int64_t reserve_hours);
+
+    void clean_files_in_path_vec(const std::string& path);
 
     ExecEnv* _exec_env = nullptr;
     std::mutex _lock;

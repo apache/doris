@@ -33,6 +33,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <sys/statvfs.h>
 
 #include "common/config.h"
 #include "io/fs/file_system.h"
@@ -86,13 +87,30 @@ Status LoadPathMgr::init() {
 }
 
 Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label,
-                                 std::string* prefix) {
-    Status status = _init_once.call([this] {
+                                 std::string* prefix, int64_t file_bytes) {
+    Status status = _init_once.call([this, file_bytes] {
         for (auto& store_path : _exec_env->store_paths()) {
+            // 检查磁盘空间
+            struct statvfs vfs;
+            if (statvfs(store_path.path.c_str(), &vfs) == 0) {
+                int64_t available_bytes = static_cast<int64_t>(vfs.f_bavail) * vfs.f_frsize;
+                int64_t total_bytes = static_cast<int64_t>(vfs.f_blocks) * vfs.f_frsize;
+                int64_t remaining_bytes = available_bytes - file_bytes;
+                double used_ratio = 1.0 - static_cast<double>(remaining_bytes) / total_bytes;
+                if (used_ratio >= config::storage_flood_stage_usage_percent / 100.0 &&
+                        remaining_bytes <= config::storage_flood_stage_left_capacity_bytes) {  // 剩余空间少于10%
+                    LOG(WARNING) << "Store path " << store_path.path
+                                 << " has less than 10% free space, skip it";
+                    continue;
+                }
+            }
             _path_vec.push_back(store_path.path + "/" + MINI_PREFIX);
         }
         return Status::OK();
     });
+    if (_path_vec.empty()) {
+        return Status::BufferAllocFailed("Store path has less than 10% free space");
+    }
     std::string path;
     auto size = _path_vec.size();
     auto retry = size;
@@ -175,6 +193,25 @@ void LoadPathMgr::process_path(time_t now, const std::string& path, int64_t rese
         LOG(INFO) << "Remove path success. path=" << path;
     } else {
         LOG(WARNING) << "Remove path failed. path=" << path << ", error=" << status;
+    }
+}
+
+void LoadPathMgr::clean_files_in_path_vec(const std::string& path){
+    bool exists = false;
+    // 检查路径是否存在
+    Status status = io::global_local_filesystem()->exists(path, &exists);
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to check if path exists: " << path << ", error: " << status;
+        return;
+    }
+    if (exists) {
+        // 若路径存在，则删除该路径对应的文件或目录
+        status = io::global_local_filesystem()->delete_directory_or_file(path);
+        if (status.ok()) {
+            LOG(INFO) << "Delete path success: " << path;
+        } else {
+            LOG(WARNING) << "Delete path failed: " << path << ", error: " << status;
+        }
     }
 }
 
