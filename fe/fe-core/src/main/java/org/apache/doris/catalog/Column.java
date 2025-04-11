@@ -36,6 +36,7 @@ import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TAggregationType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
+import org.apache.doris.thrift.TPatternType;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Strings;
@@ -157,9 +158,9 @@ public class Column implements GsonPostProcessable {
     @SerializedName(value = "gctt")
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
 
-    @SerializedName(value = "idxid")
-    // variant subfield index id list(support multi index)
-    private List<Long> indexIdList = Lists.newArrayList();
+    // used for variant sub-field pattern type
+    @SerializedName(value = "fpt")
+    private TPatternType fieldPatternType;
 
     public Column() {
         this.name = "";
@@ -352,6 +353,7 @@ public class Column implements GsonPostProcessable {
                 // set column name as pattern
                 Column c = new Column(field.pattern, field.getType());
                 c.setIsAllowNull(true);
+                c.setFieldPatternType(field.getPatternType());
                 column.addChildrenColumn(c);
             }
         }
@@ -554,6 +556,10 @@ public class Column implements GsonPostProcessable {
         this.isAllowNull = isAllowNull;
     }
 
+    public void setFieldPatternType(TPatternType type) {
+        fieldPatternType = type;
+    }
+
     public String getDefaultValue() {
         return this.defaultValue;
     }
@@ -681,6 +687,9 @@ public class Column implements GsonPostProcessable {
 
         childrenTColumn.setColumnType(childrenTColumnType);
         childrenTColumn.setIsAllowNull(children.isAllowNull());
+        if (children.fieldPatternType != null) {
+            childrenTColumn.setPatternType(children.fieldPatternType);
+        }
         // TODO: If we don't set the aggregate type for children, the type will be
         //  considered as TAggregationType::SUM after deserializing in BE.
         //  For now, we make children inherit the aggregate type from their parent.

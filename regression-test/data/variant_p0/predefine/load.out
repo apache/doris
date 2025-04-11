@@ -16,7 +16,7 @@
 -- !sql --
 id	bigint	No	true	\N	
 type	varchar(30)	Yes	false	\N	NONE
-v1	variant<a.b.c:int,ss:text,dcm:decimalv3(38,9),dt:datetime,ip:ipv4,a.b.d:double>	Yes	false	\N	NONE
+v1	variant<MATCH_NAME_GLOB a.b.c:int,MATCH_NAME_GLOB ss:text,MATCH_NAME_GLOB dcm:decimalv3(38,9),MATCH_NAME_GLOB dt:datetime,MATCH_NAME_GLOB ip:ipv4,MATCH_NAME_GLOB a.b.d:double>	Yes	false	\N	NONE
 v1.a.b.c	int	Yes	false	\N	NONE
 v1.a.b.d	double	Yes	false	\N	NONE
 v1.dcm	decimal(38,0)	Yes	false	\N	NONE
@@ -108,8 +108,8 @@ v1.predefine_col4	text	Yes	false	\N	NONE
 -- !sql --
 id	bigint	No	true	\N	
 v1	variant	Yes	false	\N	NONE
-v2	variant<dcm:decimalv3(38,9),dt:datetime>	Yes	false	\N	NONE
-v3	variant<dcm:decimalv3(38,9),dt:datetime,ip:ipv6>	Yes	false	\N	NONE
+v2	variant<MATCH_NAME_GLOB dcm:decimalv3(38,9),MATCH_NAME_GLOB dt:datetime>	Yes	false	\N	NONE
+v3	variant<MATCH_NAME_GLOB dcm:decimalv3(38,9),MATCH_NAME_GLOB dt:datetime,MATCH_NAME_GLOB ip:ipv6>	Yes	false	\N	NONE
 v1.PREDEFINE_COL1	smallint	Yes	false	\N	NONE
 v1.PREDEFINE_COL2	double	Yes	false	\N	NONE
 v1.PREDEFINE_COL3	text	Yes	false	\N	NONE
@@ -146,7 +146,7 @@ v3.dt	datetime	Yes	false	\N	NONE
 
 -- !sql --
 id	bigint	No	true	\N	
-v	variant<nested.a:text>	Yes	false	\N	NONE
+v	variant<MATCH_NAME_GLOB nested.a:text>	Yes	false	\N	NONE
 v.auto_type	json	Yes	false	\N	NONE
 
 -- !sql_arr_null_1 --
@@ -158,6 +158,7 @@ v.auto_type	json	Yes	false	\N	NONE
 3	{"array_decimal":[null, 2.200000000, 3.300000000, 4.400000000]}
 4	{"array_decimal":[1.100000000, null, 3.300000000, 4.400000000]}
 5	{"array_decimal":[1.100000000, 2.200000000, 3.300000000, 4.400000000]}
-6	{}
-7	{}
+
+-- !sql --
+{"a.b.c":"Int32","db":"Float64","dcm":"Decimal128V3","dt":"DateTime"}
 

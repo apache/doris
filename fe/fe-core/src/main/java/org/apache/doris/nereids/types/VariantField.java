@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.thrift.TPatternType;
 
 import java.util.Objects;
 
@@ -25,21 +26,33 @@ import java.util.Objects;
  * A field inside a StructType.
  */
 public class VariantField {
-
     private final String pattern;
     private final DataType dataType;
     private final String comment;
+    private final TPatternType patternType;
+
+    public VariantField(String pattern, DataType dataType, String comment) {
+        this(pattern, dataType, comment, TPatternType.MATCH_NAME_GLOB.name());
+    }
 
     /**
      * StructField Constructor
      *  @param pattern of this field
      *  @param dataType The data type of this field
      *  @param comment The comment of this field
+     *  @param patternType The patternType of this field
      */
-    public VariantField(String pattern, DataType dataType, String comment) {
+    public VariantField(String pattern, DataType dataType, String comment, String patternType) {
         this.pattern = Objects.requireNonNull(pattern, "pattern should not be null");
         this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
         this.comment = Objects.requireNonNull(comment, "comment should not be null");
+        TPatternType type;
+        if (patternType.equalsIgnoreCase("MATCH_NAME")) {
+            type = TPatternType.MATCH_NAME;
+        } else {
+            type = TPatternType.MATCH_NAME_GLOB;
+        }
+        this.patternType = Objects.requireNonNull(type, "patternType should not be null");
     }
 
     public String getPattern() {
@@ -54,20 +67,9 @@ public class VariantField {
         return comment;
     }
 
-    public VariantField conversion() {
-        if (this.dataType.equals(dataType.conversion())) {
-            return this;
-        }
-        return withDataType(dataType.conversion());
-    }
-
-    public VariantField withDataType(DataType dataType) {
-        return new VariantField(pattern, dataType, comment);
-    }
-
     public org.apache.doris.catalog.VariantField toCatalogDataType() {
         return new org.apache.doris.catalog.VariantField(
-                pattern, dataType.toCatalogDataType(), comment);
+                pattern, dataType.toCatalogDataType(), comment, patternType);
     }
 
     public String toSql() {
