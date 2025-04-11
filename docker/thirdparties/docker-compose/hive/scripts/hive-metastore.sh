@@ -20,8 +20,6 @@ set -e -x
 
 parallel=$(getconf _NPROCESSORS_ONLN)
 
-
-
 AUX_LIB="/mnt/scripts/auxlib"
 for file in "${AUX_LIB}"/*.tar.gz; do
     [ -e "$file" ] || continue
@@ -29,7 +27,7 @@ for file in "${AUX_LIB}"/*.tar.gz; do
     echo "file = ${file}"
 done
 ls "${AUX_LIB}/"
-mv "${AUX_LIB}"/ /opt/hive
+cp -r "${AUX_LIB}"/ /opt/hive
 
 nohup /opt/hive/bin/hive --service metastore &
 
