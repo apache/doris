@@ -30,6 +30,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.mtmv.MTMVPartitionExprFactory;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
@@ -112,6 +113,7 @@ public class MTMVPartitionDefinition {
                 throw new AnalysisException(e.getMessage(), e);
             }
         }
+        MTMVPartitionUtil.analyzeUsedPartitions(planner.getRewrittenPlan(), mtmvPartitionInfo);
         return mtmvPartitionInfo;
     }
 

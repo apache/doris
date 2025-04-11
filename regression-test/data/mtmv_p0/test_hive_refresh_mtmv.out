@@ -25,9 +25,6 @@ SUCCESS
 1	1	2020
 1	1	2020
 
--- !task_error --
-FAILED
-
 -- !task_recover --
 SUCCESS
 
