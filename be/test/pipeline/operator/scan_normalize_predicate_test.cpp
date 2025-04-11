@@ -56,7 +56,7 @@ TEST_F(ScanNormalizePredicate, test1) {
 TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts1) {
     // case
     // Predicate false and xxx and xxx ....
-    // 这个时候直接不执行了，唤醒scan op ， eos设置为true
+    // In this case, it will not execute directly, wake up scan op, and set eos to true
     auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
 
     auto fn_eq = MockFnCall::create("eq");
@@ -87,7 +87,7 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts1) {
 TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts2) {
     // case
     // Predicate false and xxx and xxx ....
-    // 这个时候直接不执行了，唤醒scan op ， eos设置为true
+    // In this case, it will not execute directly, wake up scan op, and set eos to true
     auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
 
     auto fn_eq = MockFnCall::create("eq");
@@ -116,7 +116,7 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts2) {
 TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts3) {
     // case
     // Predicate false and xxx and xxx ....
-    // 返回的不是一个常量列，但是size 不等于1
+    // The returned column is not a constant column, but the size is not equal to 1
     auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
 
     auto fn_eq = MockFnCall::create("eq");
@@ -130,7 +130,7 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts3) {
 
     vectorized::VExprSPtr new_root;
     auto conjunct_expr_root = ctx;
-    // 代码里面有DCHECK去判断size必须等于1，等后续把这块代码给去掉
+    // There is a DCHECK in the code to ensure size must be equal to 1, wait for this part of the code to be removed later
     // auto st = local_state->_normalize_predicate(conjunct_expr_root->root(),
     //                                             conjunct_expr_root.get(), new_root);
     // EXPECT_FALSE(st.ok());
@@ -140,7 +140,7 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts3) {
 TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts4) {
     // case
     // Predicate false and xxx and xxx ....
-    // 返回的不是一个常量列，也不是一个bool 列
+    // The returned column is neither a constant column nor a boolean column
     auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
 
     auto fn_eq = MockFnCall::create("eq");
@@ -163,9 +163,9 @@ TEST_F(ScanNormalizePredicate, test_eval_const_conjuncts4) {
 TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot1) {
     auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
 
-    //case
+    // case
     // slot eq 42
-    // 最后的range 为一个fixed value 42
+    // The final range is a fixed value 42
 
     const int SlotId = 0;
 
@@ -219,9 +219,9 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot1) {
 TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot2) {
     auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
 
-    //case
+    // case
     // slot eq 42 and slot eq 43
-    // 两个值有冲突，最后的fixed value 为空
+    // The two values conflict, and the final fixed value is empty
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;

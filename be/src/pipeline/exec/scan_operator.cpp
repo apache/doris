@@ -340,7 +340,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 return Status::OK();
             }
         } else {
-            ///TODO: fe 应该保证这里等谓词都按照and划分好了，不应该在出现 root节点是and的情况
+            /// TODO: The FE should ensure that all equality predicates are divided by AND, and there should no longer be cases where the root node is AND
             vectorized::VExprSPtr left_child;
             RETURN_IF_ERROR(
                     _normalize_predicate(conjunct_expr_root->children()[0], context, left_child));
@@ -458,7 +458,7 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
         return false;
     }
 
-    /// TODO: child_contains_slot和slot_ref其实指向的是同一个位置，应该只保留一个
+    /// TODO: child_contains_slot and slot_ref actually point to the same location, only one should be retained
     DCHECK_EQ(child_contains_slot.get(), slot_ref.get());
 
     auto entry = _slot_id_to_value_range.find(slot_ref->slot_id());
@@ -557,7 +557,7 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                          << "] should return a const column but actually is "
                          << const_col_wrapper->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
-            ///TODO: 这里有DCHECK还要额外判断一次，应该返回错误码
+            /// TODO: There is a DCHECK here, but an additional check is still needed. It should return an error code.
             if (bool_column->size() == 1) {
                 constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
                 if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
