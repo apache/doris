@@ -1520,4 +1520,34 @@ class FilterEstimationTest {
         Statistics stats = new FilterEstimation().estimate(predicate, statsBuilder.build());
         Assertions.assertEquals(250, stats.getRowCount());
     }
+
+    @Test
+    void testEqualAndIsNull() {
+        // avoid to normalize num-nulls twice
+        Double row = 1000.0;
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        ColumnStatisticBuilder columnStatisticBuilderA = new ColumnStatisticBuilder(row)
+                .setNdv(10)
+                .setAvgSizeByte(4)
+                .setNumNulls(0);
+
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        ColumnStatisticBuilder columnStatisticBuilderB = new ColumnStatisticBuilder(row)
+                .setNdv(10)
+                .setAvgSizeByte(4)
+                .setNumNulls(90);
+
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.setRowCount(row);
+        statsBuilder.putColumnStatistics(a, columnStatisticBuilderA.build());
+        statsBuilder.putColumnStatistics(b, columnStatisticBuilderB.build());
+
+        Expression expr = new And(
+                new EqualTo(a, new IntegerLiteral(1)),
+                new IsNull(b)
+        );
+
+        Statistics result = new FilterEstimation().estimate(expr, statsBuilder.build());
+        System.out.println(result);
+    }
 }
