@@ -32,7 +32,7 @@ public:
     virtual std::string get_name() const = 0;
 
     virtual doris::Status prepare(RuntimeState* state) {
-        batch_size = state->batch_size();
+        runtime_state = state;
         return Status::OK();
     }
 
@@ -40,7 +40,7 @@ public:
                                   int* result_column_id, const DataTypePtr& result_type,
                                   const VExprSPtrs& children) = 0;
 
-    int batch_size;
+    RuntimeState* runtime_state;
 };
 
 using LambdaFunctionPtr = std::shared_ptr<LambdaFunction>;
