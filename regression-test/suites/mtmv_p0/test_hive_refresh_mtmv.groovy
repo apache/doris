@@ -105,6 +105,9 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
         logger.info("hive sql: " + insert_str)
         hive_docker """ ${insert_str} """
         sql """
+                REFRESH catalog ${catalog_name}
+            """
+        sql """
             REFRESH MATERIALIZED VIEW ${mvName} auto
         """
         waitingMTMVTaskFinished(jobName)
@@ -117,6 +120,9 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
                                     """
         logger.info("hive sql: " + add_partition2021_str)
         hive_docker """ ${add_partition2021_str} """
+        sql """
+                REFRESH catalog ${catalog_name}
+            """
         sql """
             REFRESH MATERIALIZED VIEW ${mvName} auto
         """
@@ -133,6 +139,9 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
                                         """
         logger.info("hive sql: " + drop_partition2021_str)
         hive_docker """ ${drop_partition2021_str} """
+        sql """
+                REFRESH catalog ${catalog_name}
+            """
             sql """
                 REFRESH MATERIALIZED VIEW ${mvName} auto
             """
@@ -148,6 +157,9 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
                                     """
         logger.info("hive sql: " + rename_column_str)
         hive_docker """ ${rename_column_str} """
+        sql """
+                REFRESH catalog ${catalog_name}
+            """
             sql """
                 REFRESH MATERIALIZED VIEW ${mvName} complete
             """

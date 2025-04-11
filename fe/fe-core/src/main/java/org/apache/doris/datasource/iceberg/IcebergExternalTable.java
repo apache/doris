@@ -38,8 +38,8 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
-import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -184,8 +184,6 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
-        Env.getCurrentEnv().getRefreshManager()
-            .refreshTable(getCatalog().getName(), getDbName(), getName(), true);
     }
 
     @Override
@@ -223,7 +221,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         if (latestSnapshotId <= 0) {
             throw new AnalysisException("can not find partition: " + partitionName);
         }
-        return new MTMVVersionSnapshot(latestSnapshotId);
+        return new MTMVSnapshotIdSnapshot(latestSnapshotId);
     }
 
     @Override
@@ -231,7 +229,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             throws AnalysisException {
         makeSureInitialized();
         IcebergSnapshotCacheValue snapshotValue = getOrFetchSnapshotCacheValue(snapshot);
-        return new MTMVVersionSnapshot(snapshotValue.getSnapshot().getSnapshotId());
+        return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
     }
 
     @Override
@@ -323,7 +321,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public IcebergPartitionInfo loadPartitionInfo(long snapshotId) throws AnalysisException {
         // snapshotId == UNKNOWN_SNAPSHOT_ID means this is an empty table, haven't contained any snapshot yet.
         if (!isValidRelatedTable() || snapshotId == IcebergUtils.UNKNOWN_SNAPSHOT_ID) {
-            return new IcebergPartitionInfo();
+            return IcebergPartitionInfo.empty();
         }
         List<IcebergPartition> icebergPartitions = loadIcebergPartition(snapshotId);
         Map<String, IcebergPartition> nameToPartition = Maps.newHashMap();

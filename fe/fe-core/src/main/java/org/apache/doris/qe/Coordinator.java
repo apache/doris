@@ -225,6 +225,7 @@ public class Coordinator implements CoordInterface {
     private final Map<Pair<Integer, Long>, PipelineExecContext> pipelineExecContexts = new HashMap<>();
     private final List<PipelineExecContext> needCheckPipelineExecContexts = Lists.newArrayList();
     private List<ResultReceiver> receivers = Lists.newArrayList();
+    private ResultReceiverConsumer receiverConsumer;
     private final List<ScanNode> scanNodes;
     private int scanRangeNum = 0;
     // number of instances of this query, equals to
@@ -276,8 +277,6 @@ public class Coordinator implements CoordInterface {
     private ConnectContext context;
 
     private StatsErrorEstimator statsErrorEstimator;
-
-    private int receiverOffset = 0;
 
     // A countdown latch to mark the completion of each instance.
     // use for old pipeline
@@ -377,6 +376,7 @@ public class Coordinator implements CoordInterface {
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
         this.queryOptions.setEnableProfile(enableProfile);
+        this.queryOptions.setProfileLevel(2);
         this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
@@ -401,15 +401,10 @@ public class Coordinator implements CoordInterface {
             this.queryOptions.setResourceLimit(resourceLimit);
         }
         // set exec mem limit
-        long maxExecMemByte = connectContext.getSessionVariable().getMaxExecMemByte();
-        long memLimit = maxExecMemByte > 0 ? maxExecMemByte :
-                Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
+        long memLimit = connectContext.getMaxExecMemByte();
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             this.queryOptions.setMemLimit(memLimit);
-            this.queryOptions.setMaxReservation(memLimit);
-            this.queryOptions.setInitialReservationTotalClaims(memLimit);
-            this.queryOptions.setBufferPoolLimit(memLimit);
         }
     }
 
@@ -667,7 +662,7 @@ public class Coordinator implements CoordInterface {
                         // throw exception during workload group manager.
                         throw new UserException("could not find query queue");
                     }
-                    queueToken = queryQueue.getToken();
+                    queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
                     queueToken.get(DebugUtil.printId(queryId),
                             this.queryOptions.getExecutionTimeout() * 1000);
                 }
@@ -750,6 +745,7 @@ public class Coordinator implements CoordInterface {
                             toArrowFlightHost(param.host), toBrpcHost(param.host), fragments.get(0).getOutputExprs()));
                 }
             }
+            receiverConsumer = new ResultReceiverConsumer(receivers, timeoutDeadline);
 
             LOG.info("dispatch result sink of query {} to {}", DebugUtil.printId(queryId),
                     topParams.instanceExecParams.get(0).host);
@@ -1156,10 +1152,8 @@ public class Coordinator implements CoordInterface {
             throw new UserException("There is no receiver.");
         }
 
-        RowBatch resultBatch;
         Status status = new Status();
-        ResultReceiver receiver = receivers.get(receiverOffset);
-        resultBatch = receiver.getNext(status);
+        RowBatch resultBatch = receiverConsumer.getNext(status);
         if (!status.ok()) {
             LOG.warn("Query {} coordinator get next fail, {}, need cancel.",
                     DebugUtil.printId(queryId), status.getErrorMsg());
@@ -1203,20 +1197,8 @@ public class Coordinator implements CoordInterface {
         boolean reachedLimit = LimitUtils.cancelIfReachLimit(
                 resultBatch, limitRows, numReceivedRows, this::cancelInternal);
 
-        if (resultBatch.isEos()) {
-            receivers.remove(receiver);
-            if (receivers.isEmpty()) {
-                returnedAllResults = true;
-            } else if (!reachedLimit) {
-                // if reachedLimit is true, which means this query has been cancelled.
-                // so no need to set eos to false again.
-                resultBatch.setEos(false);
-            }
-        }
-
-        if (!returnedAllResults) {
-            receiverOffset += 1;
-            receiverOffset %= receivers.size();
+        if (reachedLimit) {
+            resultBatch.setEos(true);
         }
         return resultBatch;
     }
@@ -1442,7 +1424,6 @@ public class Coordinator implements CoordInterface {
                         } else {
                             destHosts.put(param.host, param);
                             TPlanFragmentDestination dest = new TPlanFragmentDestination();
-                            param.recvrId = params.destinations.size();
                             dest.fragment_instance_id = param.instanceId;
                             try {
                                 dest.server = toRpcHost(param.host);
@@ -1588,7 +1569,6 @@ public class Coordinator implements CoordInterface {
                             destHosts.put(param.host, param);
                             TPlanFragmentDestination dest = new TPlanFragmentDestination();
                             dest.fragment_instance_id = param.instanceId;
-                            param.recvrId = params.destinations.size();
                             try {
                                 dest.server = toRpcHost(param.host);
                                 dest.setBrpcServer(toBrpcHost(param.host));
@@ -1743,7 +1723,7 @@ public class Coordinator implements CoordInterface {
                 TNetworkAddress execHostport;
                 if (groupCommitBackend != null) {
                     execHostport = getGroupCommitBackend(addressToBackendID);
-                } else if (((ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()) || (
+                } else if (((ConnectContext.get() != null && ConnectContext.get().isSetComputeGroup()) || (
                         isAllExternalScan
                                 && Config.prefer_compute_node_for_external_table)) && !addressToBackendID.isEmpty()) {
                     // 2 cases:
@@ -1935,7 +1915,7 @@ public class Coordinator implements CoordInterface {
                 TNetworkAddress execHostport;
                 if (groupCommitBackend != null) {
                     execHostport = getGroupCommitBackend(addressToBackendID);
-                } else if (ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()
+                } else if (ConnectContext.get() != null && ConnectContext.get().isSetComputeGroup()
                         && !addressToBackendID.isEmpty()) {
                     // In this case, we only use the BE where the replica selected by the tag is located to
                     // execute this query. Otherwise, except for the scan node, the rest of the execution nodes
@@ -2539,6 +2519,11 @@ public class Coordinator implements CoordInterface {
 
     public void setBatchSize(int batchSize) {
         this.queryOptions.setBatchSize(batchSize);
+    }
+
+    // Currently this method is for BrokerLoad.
+    public void setProfileLevel(int profileLevel) {
+        this.queryOptions.setProfileLevel(profileLevel);
     }
 
     // map from a BE host address to the per-node assigned scan ranges;
@@ -3429,6 +3414,11 @@ public class Coordinator implements CoordInterface {
             this.targetFragmentId = id;
             this.targetFragmentInstanceAddr = host;
         }
+    }
+
+    @Override
+    public void setIsProfileSafeStmt(boolean isSafe) {
+        this.queryOptions.setEnableProfile(isSafe && queryOptions.isEnableProfile());
     }
 }
 

@@ -441,6 +441,7 @@ struct TCalcDeleteBitmapPartitionInfo {
     5: optional list<i64> cumulative_compaction_cnts
     6: optional list<i64> cumulative_points
     7: optional list<i64> sub_txn_ids
+    8: optional list<i64> tablet_states
 }
 
 struct TCalcDeleteBitmapRequest {

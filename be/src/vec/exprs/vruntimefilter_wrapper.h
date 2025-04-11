@@ -48,7 +48,7 @@ class VRuntimeFilterWrapper final : public VExpr {
 
 public:
     VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr impl, double ignore_thredhold,
-                          bool null_aware = false);
+                          bool null_aware, int filter_id);
     ~VRuntimeFilterWrapper() override = default;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
@@ -63,10 +63,14 @@ public:
 
     void attach_profile_counter(RuntimeProfile::Counter* expr_filtered_rows_counter,
                                 RuntimeProfile::Counter* expr_input_rows_counter,
-                                RuntimeProfile::Counter* always_true_counter) {
+                                RuntimeProfile::Counter* always_true_counter,
+                                RuntimeProfile::Counter* predicate_filtered_rows_counter,
+                                RuntimeProfile::Counter* predicate_input_rows_counter) {
         _expr_filtered_rows_counter = expr_filtered_rows_counter;
         _expr_input_rows_counter = expr_input_rows_counter;
         _always_true_counter = always_true_counter;
+        _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
+        _predicate_input_rows_counter = predicate_input_rows_counter;
     }
 
     void update_counters(int64_t filter_rows, int64_t input_rows) {
@@ -83,6 +87,8 @@ public:
 
     bool is_rf_wrapper() const override { return true; }
 
+    int filter_id() const { return _filter_id; }
+
     void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) override {
         update_counters(filter_rows, input_rows);
 
@@ -93,6 +99,9 @@ public:
                               _always_true);
         }
     }
+
+    auto* predicate_filtered_rows_counter() const { return _predicate_filtered_rows_counter; }
+    auto* predicate_input_rows_counter() const { return _predicate_input_rows_counter; }
 
 private:
     void reset_judge_selectivity() {
@@ -120,9 +129,16 @@ private:
     RuntimeProfile::Counter* _expr_input_rows_counter = nullptr;
     RuntimeProfile::Counter* _always_true_counter = nullptr;
 
+    // Used to record filtering information on predicates.
+    // The transfer relationship of these counters is:
+    // RuntimeFilterConsumer(create) ==> VRuntimeFilterWrapper(pass) ==> FilterOlapParam(pass) ==> ColumnPredicate(record)
+    RuntimeProfile::Counter* _predicate_filtered_rows_counter = nullptr;
+    RuntimeProfile::Counter* _predicate_input_rows_counter = nullptr;
+
     std::string _expr_name;
     double _ignore_thredhold;
     bool _null_aware;
+    int _filter_id;
 };
 
 using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;

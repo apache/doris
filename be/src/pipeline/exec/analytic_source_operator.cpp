@@ -41,9 +41,7 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
 AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                  int operator_id, const DescriptorTbl& descs)
-        : OperatorX<AnalyticLocalState>(pool, tnode, operator_id, descs) {
-    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
-}
+        : OperatorX<AnalyticLocalState>(pool, tnode, operator_id, descs) {}
 
 Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* output_block,
                                           bool* eos) {
@@ -51,6 +49,8 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_TIMER(local_state._get_next_timer);
+    local_state._estimate_memory_usage = 0;
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
     output_block->clear_column_data();
     size_t output_rows = 0;
     {
@@ -60,8 +60,8 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             local_state._shared_state->blocks_buffer.pop();
             output_rows = output_block->rows();
             //if buffer have no data and sink not eos, block reading and wait for signal again
-            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
-                    local_state._conjuncts, output_block, output_block->columns()));
+            RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, output_block,
+                                                     output_block->columns()));
             if (local_state._shared_state->blocks_buffer.empty() &&
                 !local_state._shared_state->sink_eos) {
                 // add this mutex to check, as in some case maybe is doing block(), and the sink is doing set eos.
@@ -81,14 +81,13 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     local_state.reached_limit(output_block, eos);
     if (!output_block->empty()) {
         auto return_rows = output_block->rows();
-        local_state._num_rows_returned += return_rows;
         COUNTER_UPDATE(local_state._filtered_rows_counter, output_rows - return_rows);
     }
     return Status::OK();
 }
 
-Status AnalyticSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::open(state));
+Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::prepare(state));
     DCHECK(_child->row_desc().is_prefix_of(_row_descriptor));
     return Status::OK();
 }

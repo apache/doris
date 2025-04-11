@@ -45,7 +45,7 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
 
     auto output_data_types = vectorized::VectorizedUtils::get_data_types(
-            _parent->cast<SetSourceOperatorX<is_intersect>>()._row_descriptor);
+            _parent->cast<SetSourceOperatorX<is_intersect>>().row_descriptor());
     auto column_nums = child_exprs_lists[0].size();
     DCHECK_EQ(output_data_types.size(), column_nums)
             << output_data_types.size() << " " << column_nums;
@@ -77,6 +77,8 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
+
     _create_mutable_cols(local_state, block);
     {
         SCOPED_TIMER(local_state._get_data_timer);

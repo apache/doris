@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
@@ -200,9 +199,11 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         if (hasUnboundChild || hasUnboundExpression()) {
             return UnboundLogicalProperties.INSTANCE;
         } else {
-            Supplier<List<Slot>> outputSupplier = Suppliers.memoize(this::computeOutput);
-            Supplier<DataTrait> fdSupplier = () -> computeDataTrait();
-            return new LogicalProperties(outputSupplier, fdSupplier);
+            if (this instanceof DiffOutputInAsterisk) {
+                return new LogicalProperties(this::computeOutput, this::computeAsteriskOutput, this::computeDataTrait);
+            } else {
+                return new LogicalProperties(this::computeOutput, this::computeDataTrait);
+            }
         }
     }
 

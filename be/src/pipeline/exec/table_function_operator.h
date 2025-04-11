@@ -83,7 +83,7 @@ public:
     TableFunctionOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(doris::RuntimeState* state) override;
+    Status prepare(doris::RuntimeState* state) override;
 
     bool need_more_input_data(RuntimeState* state) const override {
         auto& local_state = state->get_local_state(operator_id())->cast<TableFunctionLocalState>();

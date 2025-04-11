@@ -179,7 +179,7 @@ public class DorisOptions {
             Preconditions.checkArgument(database != null, "Database must not be null");
             Preconditions.checkArgument(table != null, "Table must not be null");
             Preconditions.checkArgument(bufferFlushMaxRows >= 10000, "BufferFlushMaxRows must be greater than 10000");
-            Preconditions.checkArgument(bufferFlushMaxBytes >= 10 * 1024 * 1024, "BufferFlushMaxBytes must be greater than 10MB");
+            Preconditions.checkArgument(bufferFlushMaxBytes >= 10 * 1024 * 1024, "BufferFlushMaxBytes must be greater than 10485760(10MB)");
             Preconditions.checkArgument(maxRetries >= 0, "MaxRetries must be greater than 0");
             return new DorisOptions(fenodes, username, password, database, table, bufferFlushMaxRows, bufferFlushMaxBytes, streamLoadProp, maxRetries, deletable);
         }

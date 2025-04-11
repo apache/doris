@@ -46,15 +46,17 @@ suite("test_mysql_all_types_ctas", "p0,external,mysql,external_docker,external_d
 
         sql """create table all_types_non_nullable properties("replication_num" = "1") as select * from mysql_all_type_ctas_test.doris_test.all_types_non_nullable;"""
 
-        qt_select_all_types_non_nullable """select * from internal.test_mysql_all_types_ctas.all_types_non_nullable order by 1;"""
+        if (!isCloudMode()) {
+            qt_select_all_types_non_nullable """select * from internal.test_mysql_all_types_ctas.all_types_non_nullable order by 1;"""
 
-        sql """create table t_varchar properties("replication_num" = "1") as select * from mysql_all_type_ctas_test.doris_test.t_varchar;"""
+            sql """create table t_varchar properties("replication_num" = "1") as select * from mysql_all_type_ctas_test.doris_test.t_varchar;"""
 
-        qt_select_varchar """select * from internal.test_mysql_all_types_ctas.t_varchar order by 1;"""
+            qt_select_varchar """select * from internal.test_mysql_all_types_ctas.t_varchar order by 1;"""
 
-        sql """create table t_char properties("replication_num" = "1") as select * from mysql_all_type_ctas_test.doris_test.t_char;"""
+            sql """create table t_char properties("replication_num" = "1") as select * from mysql_all_type_ctas_test.doris_test.t_char;"""
 
-        qt_select_char """select * from internal.test_mysql_all_types_ctas.t_char order by 1;"""
+            qt_select_char """select * from internal.test_mysql_all_types_ctas.t_char order by 1;"""
+        }
 
         sql """drop database if exists test_mysql_all_types_ctas;"""
     }

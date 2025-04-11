@@ -26,6 +26,18 @@ import java.sql.ResultSet
 import java.sql.ResultSetMetaData
 
 class JdbcUtils {
+    static String replaceHostUrl(String originUri, String newHost) {
+        def prefix = originUri.substring(0, originUri.indexOf("://") + 3)
+        def postIndex = originUri.indexOf(":", originUri.indexOf("://") + 3)
+        if (postIndex == -1) {
+            postIndex = originUri.indexOf("/", originUri.indexOf("://") + 3)
+        }
+        if (postIndex == -1) {
+            postIndex = originUri.length()
+        }
+        return prefix + newHost + originUri.substring(postIndex)
+    }
+
     static Tuple2<List<List<Object>>, ResultSetMetaData> executeToList(Connection conn, String sql) {
         conn.prepareStatement(sql).withCloseable { stmt ->
             boolean hasResultSet = stmt.execute()

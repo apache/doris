@@ -24,6 +24,7 @@ import java.io.File
 suite("stress_test_same_date_range", "p2,nonConcurrent") {
 
     sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '10000000')"""
+    sql """ADMIN SET FRONTEND CONFIG ('enable_cloud_txn_lazy_commit' = 'true')"""
 
     // get doris-db from s3
     def dirPath = context.file.parent

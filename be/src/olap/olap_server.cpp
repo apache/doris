@@ -57,6 +57,7 @@
 #include "olap/base_tablet.h"
 #include "olap/cold_data_compaction.h"
 #include "olap/compaction_permit_limiter.h"
+#include "olap/cumulative_compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
@@ -243,60 +244,29 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
     auto single_replica_compaction_threads =
             get_single_replica_compaction_threads_num(data_dirs.size());
 
-    if (wg_sptr->get_cgroup_cpu_ctl_wptr().lock()) {
-        RETURN_IF_ERROR(ThreadPoolBuilder("gBaseCompactionTaskThreadPool")
-                                .set_min_threads(base_compaction_threads)
-                                .set_max_threads(base_compaction_threads)
-                                .set_cgroup_cpu_ctl(wg_sptr->get_cgroup_cpu_ctl_wptr())
-                                .build(&_base_compaction_thread_pool));
-        RETURN_IF_ERROR(ThreadPoolBuilder("gCumuCompactionTaskThreadPool")
-                                .set_min_threads(cumu_compaction_threads)
-                                .set_max_threads(cumu_compaction_threads)
-                                .set_cgroup_cpu_ctl(wg_sptr->get_cgroup_cpu_ctl_wptr())
-                                .build(&_cumu_compaction_thread_pool));
-        RETURN_IF_ERROR(ThreadPoolBuilder("gSingleReplicaCompactionTaskThreadPool")
-                                .set_min_threads(single_replica_compaction_threads)
-                                .set_max_threads(single_replica_compaction_threads)
-                                .set_cgroup_cpu_ctl(wg_sptr->get_cgroup_cpu_ctl_wptr())
-                                .build(&_single_replica_compaction_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
+                            .set_min_threads(base_compaction_threads)
+                            .set_max_threads(base_compaction_threads)
+                            .build(&_base_compaction_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+                            .set_min_threads(cumu_compaction_threads)
+                            .set_max_threads(cumu_compaction_threads)
+                            .build(&_cumu_compaction_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("SingleReplicaCompactionTaskThreadPool")
+                            .set_min_threads(single_replica_compaction_threads)
+                            .set_max_threads(single_replica_compaction_threads)
+                            .build(&_single_replica_compaction_thread_pool));
 
-        if (config::enable_segcompaction) {
-            RETURN_IF_ERROR(ThreadPoolBuilder("gSegCompactionTaskThreadPool")
-                                    .set_min_threads(config::segcompaction_num_threads)
-                                    .set_max_threads(config::segcompaction_num_threads)
-                                    .set_cgroup_cpu_ctl(wg_sptr->get_cgroup_cpu_ctl_wptr())
-                                    .build(&_seg_compaction_thread_pool));
-        }
-        RETURN_IF_ERROR(ThreadPoolBuilder("gColdDataCompactionTaskThreadPool")
-                                .set_min_threads(config::cold_data_compaction_thread_num)
-                                .set_max_threads(config::cold_data_compaction_thread_num)
-                                .set_cgroup_cpu_ctl(wg_sptr->get_cgroup_cpu_ctl_wptr())
-                                .build(&_cold_data_compaction_thread_pool));
-    } else {
-        RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
-                                .set_min_threads(base_compaction_threads)
-                                .set_max_threads(base_compaction_threads)
-                                .build(&_base_compaction_thread_pool));
-        RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
-                                .set_min_threads(cumu_compaction_threads)
-                                .set_max_threads(cumu_compaction_threads)
-                                .build(&_cumu_compaction_thread_pool));
-        RETURN_IF_ERROR(ThreadPoolBuilder("SingleReplicaCompactionTaskThreadPool")
-                                .set_min_threads(single_replica_compaction_threads)
-                                .set_max_threads(single_replica_compaction_threads)
-                                .build(&_single_replica_compaction_thread_pool));
-
-        if (config::enable_segcompaction) {
-            RETURN_IF_ERROR(ThreadPoolBuilder("SegCompactionTaskThreadPool")
-                                    .set_min_threads(config::segcompaction_num_threads)
-                                    .set_max_threads(config::segcompaction_num_threads)
-                                    .build(&_seg_compaction_thread_pool));
-        }
-        RETURN_IF_ERROR(ThreadPoolBuilder("ColdDataCompactionTaskThreadPool")
-                                .set_min_threads(config::cold_data_compaction_thread_num)
-                                .set_max_threads(config::cold_data_compaction_thread_num)
-                                .build(&_cold_data_compaction_thread_pool));
+    if (config::enable_segcompaction) {
+        RETURN_IF_ERROR(ThreadPoolBuilder("SegCompactionTaskThreadPool")
+                                .set_min_threads(config::segcompaction_num_threads)
+                                .set_max_threads(config::segcompaction_num_threads)
+                                .build(&_seg_compaction_thread_pool));
     }
+    RETURN_IF_ERROR(ThreadPoolBuilder("ColdDataCompactionTaskThreadPool")
+                            .set_min_threads(config::cold_data_compaction_thread_num)
+                            .set_max_threads(config::cold_data_compaction_thread_num)
+                            .build(&_cold_data_compaction_thread_pool));
 
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
@@ -380,6 +350,12 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
             "StorageEngine", "async_publish_version_thread",
             [this]() { this->_async_publish_callback(); }, &_async_publish_thread));
     LOG(INFO) << "async publish thread started";
+
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "check_tablet_delete_bitmap_score_thread",
+            [this]() { this->_check_tablet_delete_bitmap_score_callback(); },
+            &_check_delete_bitmap_score_thread));
+    LOG(INFO) << "check tablet delete bitmap score thread started";
 
     LOG(INFO) << "all storage engine's background threads are started.";
     return Status::OK();
@@ -678,7 +654,8 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
         if (!config::disable_auto_compaction &&
-            !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+            (!config::enable_compaction_pause_on_high_memory ||
+             !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE))) {
             _adjust_compaction_thread_num();
 
             bool check_score = false;
@@ -1063,13 +1040,68 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
                                             compaction_type, permits, force, this]() {
+            bool is_large_task = true;
             Defer defer {[&]() {
+                DBUG_EXECUTE_IF("StorageEngine._submit_compaction_task.sleep", { sleep(5); })
                 if (!force) {
                     _permit_limiter.release(permits);
                 }
                 _pop_tablet_from_submitted_compaction(tablet, compaction_type);
                 tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
+                if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+                    std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
+                    _cumu_compaction_thread_pool_used_threads--;
+                    if (!is_large_task) {
+                        _cumu_compaction_thread_pool_small_tasks_running--;
+                    }
+                }
             }};
+            do {
+                if (compaction->compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+                    std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
+                    _cumu_compaction_thread_pool_used_threads++;
+                    if (config::large_cumu_compaction_task_min_thread_num > 1 &&
+                        _cumu_compaction_thread_pool->max_threads() >=
+                                config::large_cumu_compaction_task_min_thread_num) {
+                        // Determine if this is a large task based on configured thresholds
+                        is_large_task =
+                                (compaction->calc_input_rowsets_total_size() >
+                                         config::large_cumu_compaction_task_bytes_threshold ||
+                                 compaction->calc_input_rowsets_row_num() >
+                                         config::large_cumu_compaction_task_row_num_threshold);
+
+                        // Small task. No delay needed
+                        if (!is_large_task) {
+                            _cumu_compaction_thread_pool_small_tasks_running++;
+                            break;
+                        }
+                        // Deal with large task
+                        if (_should_delay_large_task()) {
+                            LOG_WARNING(
+                                    "failed to do CumulativeCompaction, cumu thread pool is "
+                                    "intensive, delay large task.")
+                                    .tag("tablet_id", tablet->tablet_id())
+                                    .tag("input_rows", compaction->calc_input_rowsets_row_num())
+                                    .tag("input_rowsets_total_size",
+                                         compaction->calc_input_rowsets_total_size())
+                                    .tag("config::large_cumu_compaction_task_bytes_threshold",
+                                         config::large_cumu_compaction_task_bytes_threshold)
+                                    .tag("config::large_cumu_compaction_task_row_num_threshold",
+                                         config::large_cumu_compaction_task_row_num_threshold)
+                                    .tag("remaining threads",
+                                         _cumu_compaction_thread_pool_used_threads)
+                                    .tag("small_tasks_running",
+                                         _cumu_compaction_thread_pool_small_tasks_running);
+                            // Delay this task and sleep 5s for this tablet
+                            long now = duration_cast<std::chrono::milliseconds>(
+                                               std::chrono::system_clock::now().time_since_epoch())
+                                               .count();
+                            tablet->set_last_cumu_compaction_failure_time(now);
+                            return;
+                        }
+                    }
+                }
+            } while (false);
             if (!tablet->can_do_compaction(tablet->data_dir()->path_hash(), compaction_type)) {
                 LOG(INFO) << "Tablet state has been changed, no need to begin this compaction "
                              "task, tablet_id="
@@ -1310,7 +1342,7 @@ void StorageEngine::do_remove_unused_remote_files() {
             }
             cooldown_meta_id = t->tablet_meta()->cooldown_meta_id();
         }
-        auto [cooldown_replica_id, cooldown_term] = t->cooldown_conf();
+        auto [cooldown_term, cooldown_replica_id] = t->cooldown_conf();
         if (cooldown_replica_id != t->replica_id()) {
             return;
         }
@@ -1485,6 +1517,12 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                                          << t->tablet_id();
                             return;
                         }
+                        if (t->get_cumulative_compaction_policy() == nullptr ||
+                            t->get_cumulative_compaction_policy()->name() !=
+                                    t->tablet_meta()->compaction_policy()) {
+                            t->set_cumulative_compaction_policy(_cumulative_compaction_policies.at(
+                                    t->tablet_meta()->compaction_policy()));
+                        }
 
                         auto st = compaction->prepare_compact();
                         if (!st.ok()) {
@@ -1639,6 +1677,28 @@ void StorageEngine::_process_async_publish() {
 void StorageEngine::_async_publish_callback() {
     while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(30))) {
         _process_async_publish();
+    }
+}
+
+void StorageEngine::_check_tablet_delete_bitmap_score_callback() {
+    LOG(INFO) << "try to start check tablet delete bitmap score!";
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::check_tablet_delete_bitmap_interval_seconds))) {
+        if (!config::enable_check_tablet_delete_bitmap_score) {
+            return;
+        }
+        uint64_t max_delete_bitmap_score = 0;
+        uint64_t max_base_rowset_delete_bitmap_score = 0;
+        std::vector<CloudTabletSPtr> tablets;
+        _tablet_manager.get()->get_topn_tablet_delete_bitmap_score(
+                &max_delete_bitmap_score, &max_base_rowset_delete_bitmap_score);
+        if (max_delete_bitmap_score > 0) {
+            _tablet_max_delete_bitmap_score_metrics->set_value(max_delete_bitmap_score);
+        }
+        if (max_base_rowset_delete_bitmap_score > 0) {
+            _tablet_max_base_rowset_delete_bitmap_score_metrics->set_value(
+                    max_base_rowset_delete_bitmap_score);
+        }
     }
 }
 

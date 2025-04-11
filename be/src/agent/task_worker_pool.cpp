@@ -268,39 +268,46 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
     TTabletId new_tablet_id = 0;
-    if (status.ok()) {
-        new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
-        auto mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::SCHEMA_CHANGE,
-                fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
-                            std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
-                            std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
-                            engine.memory_limitation_bytes_per_thread_for_schema_change()));
-        SCOPED_ATTACH_TASK(mem_tracker);
-        DorisMetrics::instance()->create_rollup_requests_total->increment(1);
-        Status res = Status::OK();
-        try {
-            LOG_INFO("start {}", process_name)
-                    .tag("signature", agent_task_req.signature)
-                    .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
-                    .tag("new_tablet_id", new_tablet_id)
-                    .tag("mem_limit",
-                         engine.memory_limitation_bytes_per_thread_for_schema_change());
-            DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
-            CloudSchemaChangeJob job(engine,
-                                     std::to_string(agent_task_req.alter_tablet_req_v2.job_id),
-                                     agent_task_req.alter_tablet_req_v2.expiration);
-            status = job.process_alter_tablet(agent_task_req.alter_tablet_req_v2);
-        } catch (const Exception& e) {
-            status = e.to_status();
-        }
-        if (!status.ok()) {
-            DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
-        }
-    }
+    new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
+    auto mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::SCHEMA_CHANGE,
+            fmt::format("EngineAlterTabletTask#baseTabletId={}:newTabletId={}",
+                        std::to_string(agent_task_req.alter_tablet_req_v2.base_tablet_id),
+                        std::to_string(agent_task_req.alter_tablet_req_v2.new_tablet_id),
+                        engine.memory_limitation_bytes_per_thread_for_schema_change()));
+    SCOPED_ATTACH_TASK(mem_tracker);
+    DorisMetrics::instance()->create_rollup_requests_total->increment(1);
+
+    LOG_INFO("start {}", process_name)
+            .tag("signature", agent_task_req.signature)
+            .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+            .tag("new_tablet_id", new_tablet_id)
+            .tag("mem_limit", engine.memory_limitation_bytes_per_thread_for_schema_change());
+    DCHECK(agent_task_req.alter_tablet_req_v2.__isset.job_id);
+    CloudSchemaChangeJob job(engine, std::to_string(agent_task_req.alter_tablet_req_v2.job_id),
+                             agent_task_req.alter_tablet_req_v2.expiration);
+    status = [&]() {
+        HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(
+                job.process_alter_tablet(agent_task_req.alter_tablet_req_v2),
+                [&](const doris::Exception& ex) {
+                    DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
+                    job.clean_up_on_failed();
+                });
+        return Status::OK();
+    }();
 
     if (status.ok()) {
         increase_report_version();
+        LOG_INFO("successfully {}", process_name)
+                .tag("signature", agent_task_req.signature)
+                .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                .tag("new_tablet_id", new_tablet_id);
+    } else {
+        LOG_WARNING("failed to {}", process_name)
+                .tag("signature", agent_task_req.signature)
+                .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
+                .tag("new_tablet_id", new_tablet_id)
+                .error(status);
     }
 
     // Return result to fe
@@ -308,19 +315,6 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
     finish_task_request->__set_report_version(s_report_version);
     finish_task_request->__set_task_type(task_type);
     finish_task_request->__set_signature(signature);
-
-    if (!status.ok() && !status.is<NOT_IMPLEMENTED_ERROR>()) {
-        LOG_WARNING("failed to {}", process_name)
-                .tag("signature", agent_task_req.signature)
-                .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
-                .tag("new_tablet_id", new_tablet_id)
-                .error(status);
-    } else {
-        LOG_INFO("successfully {}", process_name)
-                .tag("signature", agent_task_req.signature)
-                .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)
-                .tag("new_tablet_id", new_tablet_id);
-    }
     finish_task_request->__set_task_status(status.to_thrift());
 }
 
@@ -1881,14 +1875,17 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 .error(status);
     } else {
         if (!config::disable_auto_compaction &&
-            !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+            (!config::enable_compaction_pause_on_high_memory ||
+             !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE))) {
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
                     if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                         tablet->published_count.fetch_add(1);
                         int64_t published_count = tablet->published_count.load();
-                        if (tablet->exceed_version_limit(config::max_tablet_version_num * 2 / 3) &&
+                        if (tablet->exceed_version_limit(
+                                    config::max_tablet_version_num *
+                                    config::load_trigger_compaction_version_percent / 100) &&
                             published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
                                     tablet, CompactionType::CUMULATIVE_COMPACTION, true, false);

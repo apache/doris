@@ -72,7 +72,7 @@ public class TableRefInfo {
     public void analyze(ConnectContext ctx) throws UserException {
         tableNameInfo.analyze(ctx);
         if (partitionNamesInfo != null) {
-            partitionNamesInfo.validate(ctx);
+            partitionNamesInfo.validate();
         }
     }
 }

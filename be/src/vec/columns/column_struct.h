@@ -82,7 +82,6 @@ public:
     }
 
     std::string get_name() const override;
-    bool is_column_struct() const override { return true; }
     MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
@@ -157,6 +156,7 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override;
     void for_each_subcolumn(ColumnCallback callback) override;
     bool structure_equals(const IColumn& rhs) const override;
 

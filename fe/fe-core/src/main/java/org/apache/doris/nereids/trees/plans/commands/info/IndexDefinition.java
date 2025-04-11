@@ -23,6 +23,7 @@ import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
@@ -52,6 +53,8 @@ public class IndexDefinition {
     private boolean isBuildDeferred = false;
 
     private boolean ifNotExists = false;
+
+    private PartitionNamesInfo partitionNames;
 
     /**
      * constructor for IndexDefinition
@@ -94,12 +97,23 @@ public class IndexDefinition {
     }
 
     /**
+     * constructor for build index
+     */
+    public IndexDefinition(String name, PartitionNamesInfo partitionNames) {
+        this.name = name;
+        this.indexType = IndexType.INVERTED;
+        this.partitionNames = partitionNames;
+        this.isBuildDeferred = true;
+        this.cols = null;
+        this.comment = null;
+    }
+
+    /**
      * checkColumn
      */
     public void checkColumn(ColumnDefinition column, KeysType keysType,
             boolean enableUniqueKeyMergeOnWrite,
-            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat,
-            boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
                 || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -115,7 +129,15 @@ public class IndexDefinition {
 
             // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
             // when the subcolumn type changes, it may result in missing files, causing link file failure.
-            if (colType.isVariantType() && disableInvertedIndexV1ForVariant) {
+            // There are two cases in which the inverted index format v1 is not supported:
+            // 1. in cloud mode
+            // 2. enable_inverted_index_v1_for_variant = false
+            boolean notSupportInvertedIndexForVariant =
+                    (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
+                        || invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT)
+                            && (Config.isCloudMode() || !Config.enable_inverted_index_v1_for_variant);
+
+            if (colType.isVariantType() && notSupportInvertedIndexForVariant) {
                 throw new AnalysisException(colType + " is not supported in inverted index format V1,"
                         + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
                         + "or upgrade to a newer version");
@@ -167,6 +189,9 @@ public class IndexDefinition {
      * validate
      */
     public void validate() {
+        if (partitionNames != null) {
+            partitionNames.validate();
+        }
         if (isBuildDeferred && indexType == IndexDef.IndexType.INVERTED) {
             if (Strings.isNullOrEmpty(name)) {
                 throw new AnalysisException("index name cannot be blank.");
@@ -216,11 +241,19 @@ public class IndexDefinition {
 
     public Index translateToCatalogStyle() {
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
-                comment, null);
+                comment);
     }
 
+    /**
+     * translateToLegacyIndexDef
+     */
     public IndexDef translateToLegacyIndexDef() {
-        return new IndexDef(name, ifNotExists, cols, indexType, properties, comment);
+        if (isBuildDeferred) {
+            return new IndexDef(name, partitionNames != null ? partitionNames.translateToLegacyPartitionNames() : null,
+                    true);
+        } else {
+            return new IndexDef(name, ifNotExists, cols, indexType, properties, comment);
+        }
     }
 
     public String toSql() {

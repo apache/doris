@@ -23,10 +23,12 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -225,7 +227,12 @@ public class MTMVTask extends AbstractTask {
                 // need get names before exec
                 Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots = MTMVPartitionUtil
                         .generatePartitionSnapshots(context, relation.getBaseTablesOneLevel(), execPartitionNames);
-                exec(execPartitionNames, tableWithPartKey);
+                try {
+                    executeWithRetry(execPartitionNames, tableWithPartKey);
+                } catch (Exception e) {
+                    LOG.error("Execution failed after retries: {}", e.getMessage());
+                    throw new JobException(e.getMessage(), e);
+                }
                 completedPartitions.addAll(execPartitionNames);
                 partitionSnapshots.putAll(execPartitionSnapshots);
             }
@@ -236,6 +243,43 @@ public class MTMVTask extends AbstractTask {
             } else {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
                 LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
+            }
+        }
+    }
+
+    private void executeWithRetry(Set<String> execPartitionNames, Map<TableIf, String> tableWithPartKey)
+            throws Exception {
+        int retryCount = 0;
+        int retryTime = Config.max_query_retry_time;
+        retryTime = retryTime <= 0 ? 1 : retryTime + 1;
+        Exception lastException = null;
+        while (retryCount < retryTime) {
+            try {
+                exec(execPartitionNames, tableWithPartKey);
+                break; // Exit loop if execution is successful
+            } catch (Exception e) {
+                if (!(Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230))) {
+                    throw e; // Re-throw if it's not a retryable exception
+                }
+                lastException = e;
+
+                int randomMillis = 10 + (int) (Math.random() * 10);
+                if (retryCount > retryTime / 2) {
+                    randomMillis = 20 + (int) (Math.random() * 10);
+                }
+                if (DebugPointUtil.isEnable("MTMVTask.retry.longtime")) {
+                    randomMillis = 1000;
+                }
+
+                retryCount++;
+                LOG.warn("Retrying execution due to exception: {}. Attempt {}/{}, "
+                        + "taskId {} execPartitionNames {} lastQueryId {}, randomMillis {}",
+                        e.getMessage(), retryCount, retryTime, getTaskId(),
+                        execPartitionNames, lastQueryId, randomMillis);
+                if (retryCount >= retryTime) {
+                    throw new Exception("Max retry attempts reached, original: " + lastException);
+                }
+                Thread.sleep(randomMillis);
             }
         }
     }
@@ -284,24 +328,53 @@ public class MTMVTask extends AbstractTask {
     }
 
     @Override
-    public synchronized void onFail() throws JobException {
+    public synchronized boolean onFail() throws JobException {
         LOG.info("mtmv task onFail, taskId: {}", super.getTaskId());
-        super.onFail();
+        boolean res = super.onFail();
+        if (!res) {
+            return false;
+        }
         after();
+        return true;
     }
 
     @Override
-    public synchronized void onSuccess() throws JobException {
+    public synchronized boolean onSuccess() throws JobException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("mtmv task onSuccess, taskId: {}", super.getTaskId());
         }
-        super.onSuccess();
+        boolean res = super.onSuccess();
+        if (!res) {
+            return false;
+        }
         after();
+        return true;
+    }
+
+    /**
+     * The reason for overriding the parent class is to add synchronized protection
+     */
+    @Override
+    public synchronized boolean cancel(boolean needWaitCancelComplete) throws JobException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmv task cancel, taskId: {}", super.getTaskId());
+        }
+        return super.cancel(needWaitCancelComplete);
     }
 
     @Override
-    protected synchronized void executeCancelLogic(boolean needWaitCancelComplete) {
-        LOG.info("mtmv task cancel, taskId: {}", super.getTaskId());
+    protected void executeCancelLogic(boolean needWaitCancelComplete) {
+        try {
+            // Mtmv is initialized in the before method.
+            // If the task has not yet run, the before method will not be used, so mtmv will be empty,
+            // which prevents the canceled task from being added to the history list
+            if (mtmv == null) {
+                mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
+            }
+        } catch (UserException e) {
+            LOG.warn("executeCancelLogic failed:", e);
+            return;
+        }
         if (executor != null) {
             executor.cancel(new Status(TStatusCode.CANCELLED, "mtmv task cancelled"), needWaitCancelComplete);
         }

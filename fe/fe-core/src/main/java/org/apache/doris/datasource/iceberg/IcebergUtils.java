@@ -51,11 +51,14 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -64,10 +67,13 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.Not;
 import org.apache.iceberg.expressions.Or;
+import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.hive.HiveCatalog;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.LocationUtil;
@@ -697,10 +703,45 @@ public class IcebergUtils {
         hiveCatalog.setConf(externalCatalog.getConfiguration());
 
         Map<String, String> catalogProperties = externalCatalog.getProperties();
+        if (!catalogProperties.containsKey(HiveCatalog.LIST_ALL_TABLES)) {
+            // This configuration will display all tables (including non-Iceberg type tables),
+            // which can save the time of obtaining table objects.
+            // Later, type checks will be performed when loading the table.
+            catalogProperties.put(HiveCatalog.LIST_ALL_TABLES, "true");
+        }
         String metastoreUris = catalogProperties.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
 
         hiveCatalog.initialize(name, catalogProperties);
         return hiveCatalog;
+    }
+
+    // Retrieve the manifest files that match the query based on partitions in filter
+    public static CloseableIterable<ManifestFile> getMatchingManifest(
+                List<ManifestFile> dataManifests,
+                Map<Integer, PartitionSpec> specsById,
+                Expression dataFilter) {
+        LoadingCache<Integer, ManifestEvaluator> evalCache = Caffeine.newBuilder()
+                .build(
+                        specId -> {
+                            PartitionSpec spec = specsById.get(specId);
+                            return ManifestEvaluator.forPartitionFilter(
+                                    Expressions.and(
+                                            Expressions.alwaysTrue(),
+                                            Projections.inclusive(spec, true).project(dataFilter)),
+                                    spec,
+                                    true);
+                        });
+
+        CloseableIterable<ManifestFile> matchingManifests = CloseableIterable.filter(
+                CloseableIterable.withNoopClose(dataManifests),
+                manifest -> evalCache.get(manifest.partitionSpecId()).eval(manifest));
+
+        matchingManifests =
+                CloseableIterable.filter(
+                        matchingManifests,
+                        manifest -> manifest.hasAddedFiles() || manifest.hasExistingFiles());
+
+        return matchingManifests;
     }
 }

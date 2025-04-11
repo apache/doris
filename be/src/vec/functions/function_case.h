@@ -25,7 +25,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -174,16 +173,9 @@ public:
                         break;
                     }
                 } else {
-                    if constexpr (when_null) {
-                        if (!then_idx_ptr[row_idx] && when_column_ptr->get_bool(row_idx)) {
-                            then_idx_ptr[row_idx] = i;
-                            break;
-                        }
-                    } else {
-                        if (!then_idx_ptr[row_idx]) {
-                            then_idx_ptr[row_idx] = i;
-                            break;
-                        }
+                    if (!then_idx_ptr[row_idx] && when_column_ptr->get_bool(row_idx)) {
+                        then_idx_ptr[row_idx] = i;
+                        break;
                     }
                 }
             }

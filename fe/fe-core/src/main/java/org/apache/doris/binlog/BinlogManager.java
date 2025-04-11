@@ -107,10 +107,36 @@ public class BinlogManager {
         }
     }
 
+    private boolean isAsyncMvBinlog(TBinlog binlog) {
+        if (!binlog.isSetTableIds()) {
+            return false;
+        }
+
+        // Filter the binlogs belong to async materialized view, since we don't support async mv right now.
+        for (long tableId : binlog.getTableIds()) {
+            if (binlogConfigCache.isAsyncMvTable(binlog.getDbId(), tableId)) {
+                LOG.debug("filter the async mv binlog, db {}, table {}, commit seq {}, ts {}, type {}, data {}",
+                        binlog.getDbId(), binlog.getTableIds(), binlog.getCommitSeq(), binlog.getTimestamp(),
+                        binlog.getType(), binlog.getData());
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void addBinlog(TBinlog binlog, Object raw) {
         if (!Config.enable_feature_binlog) {
             return;
         }
+
+        if (isAsyncMvBinlog(binlog)) {
+            return;
+        }
+
+        LOG.debug("add binlog, db {}, table {}, commitSeq {}, timestamp {}, type {}, data {}",
+                binlog.getDbId(), binlog.getTableIds(), binlog.getCommitSeq(), binlog.getTimestamp(), binlog.getType(),
+                binlog.getData());
 
         DBBinlog dbBinlog;
         lock.writeLock().lock();
@@ -474,6 +500,15 @@ public class BinlogManager {
 
     // get binlog by dbId, return first binlog.version > version
     public Pair<TStatus, TBinlog> getBinlog(long dbId, long tableId, long prevCommitSeq) {
+        Pair<TStatus, List<TBinlog>> result = getBinlog(dbId, tableId, prevCommitSeq, 1);
+        if (result.second != null && result.second.size() > 0) {
+            return Pair.of(result.first, result.second.get(0));
+        }
+        return Pair.of(result.first, null);
+    }
+
+    // get binlogs by dbId, return the first N binlogs, which first binlog.version > prevCommitSeq
+    public Pair<TStatus, List<TBinlog>> getBinlog(long dbId, long tableId, long prevCommitSeq, long numAcquired) {
         TStatus status = new TStatus(TStatusCode.OK);
         lock.readLock().lock();
         try {
@@ -484,7 +519,7 @@ public class BinlogManager {
                 return Pair.of(status, null);
             }
 
-            return dbBinlog.getBinlog(tableId, prevCommitSeq);
+            return dbBinlog.getBinlog(tableId, prevCommitSeq, numAcquired);
         } finally {
             lock.readLock().unlock();
         }
@@ -528,7 +563,7 @@ public class BinlogManager {
     }
 
     // get the dropped partitions of the db.
-    public List<Long> getDroppedPartitions(long dbId) {
+    public List<Pair<Long, Long>> getDroppedPartitions(long dbId) {
         lock.readLock().lock();
         try {
             DBBinlog dbBinlog = dbBinlogMap.get(dbId);
@@ -542,7 +577,7 @@ public class BinlogManager {
     }
 
     // get the dropped tables of the db.
-    public List<Long> getDroppedTables(long dbId) {
+    public List<Pair<Long, Long>> getDroppedTables(long dbId) {
         lock.readLock().lock();
         try {
             DBBinlog dbBinlog = dbBinlogMap.get(dbId);
@@ -556,7 +591,7 @@ public class BinlogManager {
     }
 
     // get the dropped indexes of the db.
-    public List<Long> getDroppedIndexes(long dbId) {
+    public List<Pair<Long, Long>> getDroppedIndexes(long dbId) {
         lock.readLock().lock();
         try {
             DBBinlog dbBinlog = dbBinlogMap.get(dbId);
@@ -595,7 +630,6 @@ public class BinlogManager {
 
         return tombstones;
     }
-
 
     public void replayGc(BinlogGcInfo binlogGcInfo) {
         lock.writeLock().lock();

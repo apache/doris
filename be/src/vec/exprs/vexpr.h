@@ -129,6 +129,8 @@ public:
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                     uint32_t segment_num_rows);
 
+    virtual size_t estimate_memory(const size_t rows);
+
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
     virtual Status execute_runtime_fitler(VExprContext* context, Block* block,
@@ -259,6 +261,12 @@ public:
     virtual bool equals(const VExpr& other);
     void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
     uint32_t index_unique_id() const { return _index_unique_id; }
+
+    virtual void collect_slot_column_ids(std::set<int>& column_ids) const {
+        for (auto child : _children) {
+            child->collect_slot_column_ids(column_ids);
+        }
+    }
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information

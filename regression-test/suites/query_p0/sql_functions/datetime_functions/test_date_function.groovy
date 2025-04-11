@@ -105,7 +105,7 @@ suite("test_date_function") {
             (1, "2019-08-01 13:21:03", "Asia/Shanghai", "Asia/Shanghai"),
             (2, "2019-08-01 13:21:03", "Asia/Singapore", "Asia/Shanghai"),
             (3, "2019-08-01 13:21:03", "Asia/Taipei", "Asia/Shanghai"),
-            (4, "2019-08-02 13:21:03", "Australia/Queensland", "Asia/Shanghai"),
+            (4, "2019-08-02 13:21:03", "Australia/Melbourne", "Asia/Shanghai"),
             (5, "2019-08-02 13:21:03", "Australia/Lindeman", "Asia/Shanghai"),
             (6, "2019-08-03 13:21:03", "America/Aruba", "Asia/Shanghai"),
             (7, "2019-08-03 13:21:03", "America/Blanc-Sablon", "Asia/Shanghai"),
@@ -114,7 +114,7 @@ suite("test_date_function") {
             (10, "2019-08-05 13:21:03", "Asia/Shanghai", "Asia/Shanghai"),
             (11, "2019-08-05 13:21:03", "Asia/Shanghai", "Asia/Singapore"),
             (12, "2019-08-05 13:21:03", "Asia/Shanghai", "Asia/Taipei"),
-            (13, "2019-08-06 13:21:03", "Asia/Shanghai", "Australia/Queensland"),
+            (13, "2019-08-06 13:21:03", "Asia/Shanghai", "Australia/Melbourne"),
             (14, "2019-08-06 13:21:03", "Asia/Shanghai", "Australia/Lindeman"),
             (15, "2019-08-07 13:21:03", "Asia/Shanghai", "America/Aruba"),
             (16, "2019-08-07 13:21:03", "Asia/Shanghai", "America/Blanc-Sablon"),
@@ -144,7 +144,7 @@ suite("test_date_function") {
     qt_sql3 """
         SELECT
             convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
-            convert_tz(`test_datetime`, "Australia/Queensland", `target_tz`),
+            convert_tz(`test_datetime`, "Australia/Melbourne", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
         FROM
             ${timezoneCachedTableName}
@@ -182,7 +182,7 @@ suite("test_date_function") {
     qt_sql_vec3 """
         SELECT
             convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
-            convert_tz(`test_datetime`, "Australia/Queensland", `target_tz`),
+            convert_tz(`test_datetime`, "Australia/Melbourne", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
         FROM
             ${timezoneCachedTableName}
@@ -474,6 +474,30 @@ suite("test_date_function") {
     qt_sql """ select year('1987-01-01') """
     qt_sql """ select year('2050-01-01') """
     qt_sql """ select test_datetime, year(test_datetime) from ${tableName} order by test_datetime """
+
+    // YEAROFWEEK
+    qt_sql """ select year_of_week('1987-01-01') """
+    qt_sql """ select year_of_week('2050-01-01') """
+    qt_sql """ select test_datetime, year_of_week(test_datetime) from ${tableName} order by test_datetime """
+
+    qt_sql """ select yow('1987-01-01') """
+
+    qt_sql "select year_of_week('2005-01-01')" // 2004-W53-6 
+    qt_sql "select year_of_week('2005-01-02')" // 2004-W53-7 
+    qt_sql "select year_of_week('2005-12-31')" // 2005-W52-6 
+    qt_sql "select year_of_week('2007-01-01')" // 2007-W01-1 
+    qt_sql "select year_of_week('2007-12-30')" // 2007-W52-7 
+    qt_sql "select year_of_week('2007-12-31')" // 2008-W01-1 
+    qt_sql "select year_of_week('2008-01-01')" // 2008-W01-2 
+    qt_sql "select year_of_week('2008-12-28')" // 2008-W52-7 
+    qt_sql "select year_of_week('2008-12-29')" // 2009-W01-1 
+    qt_sql "select year_of_week('2008-12-30')" // 2009-W01-2 
+    qt_sql "select year_of_week('2008-12-31')" // 2009-W01-3 
+    qt_sql "select year_of_week('2009-01-01')" // 2009-W01-4 
+    qt_sql "select year_of_week('2009-12-31')" // 2009-W53-4 
+    qt_sql "select year_of_week('2010-01-01')" // 2009-W53-5 
+    qt_sql "select year_of_week('2010-01-02')" // 2009-W53-6 
+    qt_sql "select year_of_week('2010-01-03')" // 2009-W53-7 
 
     // YEARWEEK
     qt_sql """ select yearweek('2021-1-1') """

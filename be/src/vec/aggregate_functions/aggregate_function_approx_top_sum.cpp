@@ -23,6 +23,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <size_t N>
 AggregateFunctionPtr create_aggregate_function_multi_top_sum_impl(
@@ -68,4 +69,5 @@ void register_aggregate_function_approx_top_sum(AggregateFunctionSimpleFactory& 
     factory.register_function_both("approx_top_sum", create_aggregate_function_approx_top_sum);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
