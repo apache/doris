@@ -514,7 +514,8 @@ Status PipelineTask::execute(bool* done) {
             Status status = Status::OK();
             DEFER_RELEASE_RESERVED();
             COUNTER_UPDATE(_memory_reserve_times, 1);
-            if (_state->get_query_ctx()->enable_reserve_memory() && workload_group) {
+            if (_state->get_query_ctx()->enable_reserve_memory() && workload_group &&
+                !(_wake_up_early || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
                 status = sink_reserve_size != 0
                                  ? thread_context()->thread_mem_tracker_mgr->try_reserve(
