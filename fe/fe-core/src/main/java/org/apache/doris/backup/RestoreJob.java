@@ -885,13 +885,25 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         String srcDbName = jobInfo.dbName;
                         remoteView.resetViewDefForRestore(srcDbName, db.getName());
                         if (!localViewSignature.equals(remoteView.getSignature(BackupHandler.SIGNATURE_VERSION))) {
-                            status = new Status(ErrCode.COMMON_ERROR, "View "
-                                    + jobInfo.getAliasByOriginNameIfSet(backupViewName)
-                                    + " already exist but with different schema");
-                            return;
+                            if (isForceReplace) {
+                                LOG.info("View {} already exist but with different schema, will force replace, "
+                                        + "local view: {}, remote view: {}",
+                                        backupViewName, localViewSignature,
+                                        remoteView.getSignature(BackupHandler.SIGNATURE_VERSION));
+                            } else {
+                                LOG.warn("View {} already exist but with different schema, will force replace, "
+                                        + "local view: {}, remote view: {}",
+                                        backupViewName, localViewSignature,
+                                        remoteView.getSignature(BackupHandler.SIGNATURE_VERSION));
+                                status = new Status(ErrCode.COMMON_ERROR, "View "
+                                        + jobInfo.getAliasByOriginNameIfSet(backupViewName)
+                                        + " already exist but with different schema");
+                                return;
+                            }
                         }
                     }
-                } else {
+                }
+                if (localTbl == null || isAtomicRestore) {
                     String srcDbName = jobInfo.dbName;
                     remoteView.resetViewDefForRestore(srcDbName, db.getName());
                     remoteView.resetIdsForRestore(env);
@@ -971,7 +983,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 if (Env.isStoredTableNamesLowerCase()) {
                     tableName = tableName.toLowerCase();
                 }
-                if (restoreTbl.getType() == TableType.OLAP && isAtomicRestore) {
+                if ((restoreTbl.getType() == TableType.OLAP || restoreTbl
+                        .getType() == TableType.VIEW) && isAtomicRestore) {
                     tableName = tableAliasWithAtomicRestore(tableName);
                 }
                 restoreTbl.setName(tableName);
@@ -2359,7 +2372,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             // remove restored tbls
             for (Table restoreTbl : restoredTbls) {
-                if (isAtomicRestore && restoreTbl.getType() == TableType.OLAP
+                if (isAtomicRestore
+                        && (restoreTbl.getType() == TableType.OLAP || restoreTbl.getType() == TableType.VIEW)
                         && !restoreTbl.getName().startsWith(ATOMIC_RESTORE_TABLE_PREFIX)) {
                     // In atomic restore, a table registered to db must have a name with the prefix,
                     // otherwise, it has not been registered and can be ignored here.
@@ -2379,6 +2393,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                         }
                                     }
                                 }
+                                db.unregisterTable(restoreTbl.getName());
+                            } finally {
+                                restoreTbl.writeUnlock();
+                            }
+                        } else if (restoreTbl.getType() == TableType.VIEW) {
+                            restoreTbl.writeLock();
+                            try {
                                 db.unregisterTable(restoreTbl.getName());
                             } finally {
                                 restoreTbl.writeUnlock();
@@ -2523,6 +2544,70 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     } finally {
                         originOlapTbl.writeUnlock();
                     }
+                }
+            } finally {
+                db.writeUnlock();
+            }
+        }
+        for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
+            String originName = jobInfo.getAliasByOriginNameIfSet(backupViewInfo.name);
+            if (Env.isStoredTableNamesLowerCase()) {
+                originName = originName.toLowerCase();
+            }
+            String aliasName = tableAliasWithAtomicRestore(originName);
+
+            if (!db.writeLockIfExist()) {
+                return Status.OK;
+            }
+            try {
+                Table newTbl = db.getTableNullable(aliasName);
+                if (newTbl == null) {
+                    LOG.warn("replace view from {} to {}, but the temp view is not found" + " isAtomicRestore: {}",
+                            aliasName, originName, isAtomicRestore);
+                    return new Status(ErrCode.COMMON_ERROR, "replace view failed, the temp view "
+                            + aliasName + " is not found");
+                }
+                if (newTbl.getType() != TableType.VIEW) {
+                    LOG.warn(
+                            "replace view from {} to {}, but the temp view is not VIEW, it type is {}"
+                                    + " isAtomicRestore: {}",
+                            aliasName, originName, newTbl.getType(), isAtomicRestore);
+                    return new Status(ErrCode.COMMON_ERROR, "replace view failed, the temp view " + aliasName
+                            + " is not OLAP, it is " + newTbl.getType());
+                }
+
+                View originViewTbl = null;
+                Table originTbl = db.getTableNullable(originName);
+                if (originTbl != null) {
+                    if (originTbl.getType() != TableType.VIEW) {
+                        LOG.warn(
+                                "replace view from {} to {}, but the origin view is not VIEW, it type is {}"
+                                        + " isAtomicRestore: {}",
+                                aliasName, originName, originTbl.getType(), isAtomicRestore);
+                        return new Status(ErrCode.COMMON_ERROR, "replace view failed, the origin view "
+                                + originName + " is not VIEW, it is " + originTbl.getType());
+                    }
+                    originViewTbl = (View) originTbl; // save the origin view, then drop it.
+                }
+
+                // replace the view.
+                View newViewTbl = (View) newTbl;
+                newViewTbl.writeLock();
+                try {
+                    // rename new view name to origin view name and add the new view to database.
+                    db.unregisterTable(aliasName);
+                    db.unregisterTable(originName);
+                    newViewTbl.setName(originName);
+                    db.registerTable(newViewTbl);
+
+                    LOG.info(
+                            "restore with replace view {} name to {}, origin view={}"
+                                    + " isAtomicRestore: {}",
+                            newViewTbl.getId(), originName,
+                            originViewTbl == null ? -1L : originViewTbl.getId(),
+                            isAtomicRestore);
+                } finally {
+                    newViewTbl.writeUnlock();
                 }
             } finally {
                 db.writeUnlock();
