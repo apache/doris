@@ -1062,12 +1062,25 @@ Status OrcReader::set_fill_columns(
         visit_slot(conjunct->root().get());
     }
 
+    if (_is_acid) {
+        _lazy_read_ctx.predicate_orc_columns.insert(
+                _lazy_read_ctx.predicate_orc_columns.end(),
+                TransactionalHive::READ_ROW_COLUMN_NAMES.begin(),
+                TransactionalHive::READ_ROW_COLUMN_NAMES.end());
+    }
+
     for (auto& read_col : _read_cols_lower_case) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_col);
         if (!predicate_columns.empty()) {
             auto iter = predicate_columns.find(read_col);
             if (iter == predicate_columns.end()) {
-                _lazy_read_ctx.lazy_read_columns.emplace_back(read_col);
+                if (!_is_acid ||
+                    std::find(TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
+                              TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end(),
+                              read_col) ==
+                            TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end()) {
+                    _lazy_read_ctx.lazy_read_columns.emplace_back(read_col);
+                }
             } else {
                 _lazy_read_ctx.predicate_columns.first.emplace_back(iter->first);
                 _lazy_read_ctx.predicate_columns.second.emplace_back(iter->second.second);
@@ -1124,8 +1137,10 @@ Status OrcReader::set_fill_columns(
         _lazy_read_ctx.can_lazy_read = true;
     }
 
-    if (_lazy_read_ctx.conjuncts.empty() || !_init_search_argument(_lazy_read_ctx.conjuncts)) {
+    if (_lazy_read_ctx.conjuncts.empty()) {
         _lazy_read_ctx.can_lazy_read = false;
+    } else {
+        _init_search_argument(_lazy_read_ctx.conjuncts);
     }
     try {
         _row_reader_options.range(_range_start_offset, _range_size);
