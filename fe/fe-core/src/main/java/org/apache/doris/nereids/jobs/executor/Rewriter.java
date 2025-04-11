@@ -587,7 +587,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
     private static List<RewriteJob> getWholeTreeRewriteJobs(
             boolean needSubPathPushDown,
             boolean needOrExpansion,
-            List<RewriteJob> beforePushDownAndAfterMvJobs,
+            List<RewriteJob> beforePushDownJobs,
             List<RewriteJob> afterPushDownJobs) {
 
         return notTraverseChildrenOf(
@@ -608,7 +608,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         ),
                         topic("rewrite cte sub-tree before sub path push down",
                                 custom(RuleType.REWRITE_CTE_CHILDREN,
-                                        () -> new RewriteCteChildren(beforePushDownAndAfterMvJobs))
+                                        () -> new RewriteCteChildren(beforePushDownJobs))
                         )));
                 if (needOrExpansion) {
                     rewriteJobs.addAll(jobs(topic("or expansion",

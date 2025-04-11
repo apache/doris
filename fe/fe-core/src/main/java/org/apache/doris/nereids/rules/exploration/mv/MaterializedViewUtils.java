@@ -28,6 +28,8 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
 import org.apache.doris.nereids.rules.RuleType;
@@ -251,9 +253,10 @@ public class MaterializedViewUtils {
         // origin plan slot order
         List<ExprId> originalRewrittenPlanExprIds =
                 rewrittenPlan.getOutput().stream().map(Slot::getExprId).collect(Collectors.toList());
-        // run rbo job on mv rewritten plan
+        // run rbo job on mv rewritten plan, should new StatementContext to clear the status
         CascadesContext rewrittenPlanContext = CascadesContext.initContext(
-                cascadesContext.getStatementContext(), rewrittenPlan,
+                new StatementContext(cascadesContext.getConnectContext(),
+                        cascadesContext.getStatementContext().getOriginStatement()), rewrittenPlan,
                 cascadesContext.getCurrentJobContext().getRequiredProperties());
         // Tmp old disable rule variable
         Set<String> oldDisableRuleNames = rewrittenPlanContext.getStatementContext().getConnectContext()
@@ -297,6 +300,19 @@ public class MaterializedViewUtils {
         List<Expression> nondeterministicFunctions = new ArrayList<>();
         plan.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
         return nondeterministicFunctions;
+    }
+
+    /**
+     * Decide the statementContext if contain materialized view hook or not
+     */
+    public static boolean containMaterializedViewHook(StatementContext statementContext) {
+        for (PlannerHook plannerHook : statementContext.getPlannerHooks()) {
+            // only collect when InitMaterializationContextHook exists in planner hooks
+            if (plannerHook instanceof InitMaterializationContextHook) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

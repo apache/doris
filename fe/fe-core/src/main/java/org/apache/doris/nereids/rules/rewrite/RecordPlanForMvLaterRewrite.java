@@ -42,6 +42,11 @@ public class RecordPlanForMvLaterRewrite extends DefaultPlanRewriter<Void> imple
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         CascadesContext cascadesContext = jobContext.getCascadesContext();
         StatementContext statementContext = cascadesContext.getStatementContext();
+        boolean containMaterializedViewHook =
+                MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext());
+        if (!containMaterializedViewHook) {
+            return plan;
+        }
         List<RewriteJob> recordMvBeforeJobs =
                 new ArrayList<>(Rewriter.CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN_STAGE_1);
         recordMvBeforeJobs.addAll(
