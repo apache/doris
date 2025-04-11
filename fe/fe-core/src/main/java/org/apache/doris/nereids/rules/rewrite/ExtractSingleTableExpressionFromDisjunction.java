@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -28,10 +29,12 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Paper: Quantifying TPC-H Choke Points and Their Optimizations
@@ -106,18 +109,20 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
             // only check table in first disjunct.
             // In our example, qualifiers = { n1, n2 }
             // try to extract
-            for (Slot inputSlot : disjuncts.get(0).getInputSlots()) {
-                String qualifier = String.join(".", inputSlot.getQualifier());
+            Set<String> qualifiers = disjuncts.get(0).getInputSlots().stream()
+                    .map(slot -> String.join(".", slot.getQualifier()))
+                    .collect(Collectors.toCollection(Sets::newLinkedHashSet));
+            for (String qualifier : qualifiers) {
                 List<Expression> extractForAll = Lists.newArrayList();
                 boolean success = true;
-                for (Expression expr : ExpressionUtils.extractDisjunction(conjunct)) {
+                for (Expression expr : disjuncts) {
                     Optional<Expression> extracted = extractSingleTableExpression(expr, qualifier);
                     if (!extracted.isPresent()) {
                         // extract failed
                         success = false;
                         break;
                     } else {
-                        extractForAll.add(extracted.get());
+                        extractForAll.addAll(ExpressionUtils.extractDisjunction(extracted.get()));
                     }
                 }
                 if (success) {
@@ -137,6 +142,23 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
         for (Expression conjunct : conjuncts) {
             if (isSingleTableExpression(conjunct, qualifier)) {
                 output.add(conjunct);
+            } else if (conjunct instanceof Or) {
+                List<Expression> disjuncts = ExpressionUtils.extractDisjunction(conjunct);
+                List<Expression> extracted = Lists.newArrayListWithExpectedSize(disjuncts.size());
+                boolean success = true;
+                for (Expression disjunct : disjuncts) {
+                    Optional<Expression> extractedDisjunct = extractSingleTableExpression(disjunct, qualifier);
+                    if (extractedDisjunct.isPresent()) {
+                        extracted.add(extractedDisjunct.get());
+                    } else {
+                        // extract failed
+                        success = false;
+                        break;
+                    }
+                }
+                if (success) {
+                    output.add(ExpressionUtils.or(extracted));
+                }
             }
         }
         if (output.isEmpty()) {
