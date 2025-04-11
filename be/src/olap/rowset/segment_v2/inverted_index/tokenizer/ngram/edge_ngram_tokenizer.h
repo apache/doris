@@ -17,31 +17,21 @@
 
 #pragma once
 
-#include <unicode/utext.h>
+#include "ngram_tokenizer.h"
 
-#include "CLucene.h" // IWYU pragma: keep
-#include "CLucene/analysis/AnalysisHeader.h"
+namespace doris::segment_v2::inverted_index {
 
-using namespace lucene::analysis;
-
-namespace doris::segment_v2 {
-
-class BasicTokenizer : public Tokenizer {
+class EdgeNGramTokenizer : public NGramTokenizer {
 public:
-    BasicTokenizer();
-    BasicTokenizer(bool lowercase, bool ownReader);
-    ~BasicTokenizer() override = default;
+    EdgeNGramTokenizer() : NGramTokenizer(DEFAULT_MAX_GRAM_SIZE, DEFAULT_MIN_GRAM_SIZE, true) {}
 
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
+    EdgeNGramTokenizer(int32_t min_gram, int32_t max_gram)
+            : NGramTokenizer(min_gram, max_gram, true) {}
 
-    void cut();
+    ~EdgeNGramTokenizer() override = default;
 
-private:
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
+    static constexpr int32_t DEFAULT_MAX_GRAM_SIZE = 1;
+    static constexpr int32_t DEFAULT_MIN_GRAM_SIZE = 1;
 };
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index
