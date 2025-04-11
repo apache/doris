@@ -609,6 +609,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             return;
         }
 
+        Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
+        Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(tableId);
+        Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
+
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
@@ -617,7 +621,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
-            Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
             for (Map.Entry<Long, List<Long>> entry : failedTabletBackends.entrySet()) {
                 long tabletId = entry.getKey();
@@ -658,7 +661,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     } // end for tablets
                 }
             } // end for partitions
-            Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(tableId);
             commitShadowIndex();
             // all partitions are good
             onFinished(tbl);
@@ -676,7 +678,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             Env.getCurrentEnv().getEditLog().logAlterJob(this);
         } finally {
             tbl.writeUnlock();
-            Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
         }
         postProcessOriginIndex();
         // Drop table column stats after schema change finished.
