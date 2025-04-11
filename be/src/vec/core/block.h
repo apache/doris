@@ -561,9 +561,8 @@ public:
                                        dump_names(), dump_types(), block.dump_names(),
                                        block.dump_types());
             }
-            _columns[i]->insert_range_from_ignore_overflow(
-                    *block.get_by_position(i).column->convert_to_full_column_if_const().get(), 0,
-                    block.rows());
+            auto src = block.get_by_position(i).column->convert_to_full_column_if_const();
+            _columns[i]->insert_range_from_ignore_overflow(*src, 0, block.rows());
         }
         return Status::OK();
     }
@@ -571,7 +570,7 @@ public:
     template <typename T>
     [[nodiscard]] Status merge_impl(T&& block) {
         // merge is not supported in dynamic block
-        if (_columns.size() == 0 && _data_types.size() == 0) {
+        if (_columns.empty() && _data_types.empty()) {
             _data_types = block.get_data_types();
             _names = block.get_names();
             _columns.resize(block.columns());
@@ -595,6 +594,7 @@ public:
                         block.dump_names(), block.dump_types());
             }
             for (int i = 0; i < _columns.size(); ++i) {
+                auto src = block.get_by_position(i).column->convert_to_full_column_if_const();
                 if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
                     DCHECK(_data_types[i]->is_nullable())
                             << " target type: " << _data_types[i]->get_name()
@@ -603,15 +603,9 @@ public:
                                    ->get_nested_type()
                                    ->equals(*block.get_by_position(i).type));
                     DCHECK(!block.get_by_position(i).type->is_nullable());
-                    _columns[i]->insert_range_from(*make_nullable(block.get_by_position(i).column)
-                                                            ->convert_to_full_column_if_const(),
-                                                   0, block.rows());
+                    _columns[i]->insert_range_from(*make_nullable(src), 0, block.rows());
                 } else {
-                    _columns[i]->insert_range_from(
-                            *block.get_by_position(i)
-                                     .column->convert_to_full_column_if_const()
-                                     .get(),
-                            0, block.rows());
+                    _columns[i]->insert_range_from(*src, 0, block.rows());
                 }
             }
         }
