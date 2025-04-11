@@ -44,5 +44,5 @@ public:
     friend class OlapScanLocalState;
     MockScanOperatorX() = default;
 };
-#endif
 } // namespace doris::pipeline
+#endif
