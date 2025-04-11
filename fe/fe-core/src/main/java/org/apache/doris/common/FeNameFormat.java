@@ -114,6 +114,12 @@ public class FeNameFormat {
         }
     }
 
+    public static void checkJobName(String jobName) throws AnalysisException {
+        if (Strings.isNullOrEmpty(jobName) || !jobName.matches(getLabelRegex())) {
+            throw new AnalysisException("jobName format error. regex: " + getLabelRegex() + ", jobName: " + jobName);
+        }
+    }
+
     public static void checkUserName(String userName) throws AnalysisException {
         if (Strings.isNullOrEmpty(userName) || !userName.matches(getUserNameRegex())) {
             throw new AnalysisException("invalid user name: " + userName);

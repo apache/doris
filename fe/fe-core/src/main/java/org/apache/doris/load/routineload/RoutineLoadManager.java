@@ -44,6 +44,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
@@ -877,6 +878,31 @@ public class RoutineLoadManager implements Writable {
                 .add("current_state", operation.getJobState())
                 .add("msg", "replay change routine load job")
                 .build());
+    }
+
+    /**
+     * Enter of altering a routine load job
+     */
+    public void alterRoutineLoadJob(AlterRoutineLoadCommand command) throws UserException {
+        RoutineLoadJob job;
+        // it needs lock when getting routine load job,
+        // otherwise, it may cause the editLog out of order in the following scenarios:
+        // thread A: create job and record job meta
+        // thread B: change job state and persist in editlog according to meta
+        // thread A: persist in editlog
+        // which will cause the null pointer exception when replaying editLog
+        readLock();
+        try {
+            job = checkPrivAndGetJob(command.getDbName(), command.getJobName());
+        } finally {
+            readUnlock();
+        }
+        if (command.hasDataSourceProperty()
+                && !command.getDataSourceProperties().getDataSourceType().equalsIgnoreCase(job.dataSourceType.name())) {
+            throw new DdlException("The specified job type is not: "
+                + command.getDataSourceProperties().getDataSourceType());
+        }
+        job.modifyProperties(command);
     }
 
     /**

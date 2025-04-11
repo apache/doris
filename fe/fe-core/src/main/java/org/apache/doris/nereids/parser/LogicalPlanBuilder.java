@@ -533,6 +533,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
@@ -758,6 +759,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
+import org.apache.doris.nereids.trees.plans.commands.info.LoadLabel;
 import org.apache.doris.nereids.trees.plans.commands.info.MTMVPartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
@@ -6465,6 +6467,33 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitKillAnalyzeJob(DorisParser.KillAnalyzeJobContext ctx) {
         long jobId = Long.parseLong(ctx.jobId.getText());
         return new KillAnalyzeJobCommand(jobId);
+    }
+
+    @Override
+    public LogicalPlan visitAlterRoutineLoad(DorisParser.AlterRoutineLoadContext ctx) {
+        String dbName = null;
+        String jobName;
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        if (nameParts.size() == 2) {
+            dbName = nameParts.get(0);
+            jobName = nameParts.get(1);
+        } else if (nameParts.size() == 1) {
+            jobName = nameParts.get(0);
+        } else {
+            throw new ParseException("invalid load label!");
+        }
+        LoadLabel loadLabel = new LoadLabel(dbName, jobName);
+
+        Map<String, String> properties = new HashMap<>();
+        if (ctx.properties != null) {
+            properties.putAll(visitPropertyClause(ctx.properties));
+        }
+
+        Map<String, String> dataSourceMapProperties = new HashMap<>();
+        if (ctx.propertyItemList() != null) {
+            dataSourceMapProperties.putAll(visitPropertyItemList(ctx.propertyItemList()));
+        }
+        return new AlterRoutineLoadCommand(loadLabel, properties, dataSourceMapProperties);
     }
 }
 
