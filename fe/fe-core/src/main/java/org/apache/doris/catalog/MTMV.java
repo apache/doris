@@ -566,37 +566,26 @@ public class MTMV extends OlapTable {
      * The logic here is to be compatible with older versions by converting ID to name
      */
     public void compatible(CatalogMgr catalogMgr) {
-        Optional<String> errMsg = compatibleInternal(catalogMgr);
-        if (errMsg.isPresent()) {
-            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getDBName(), name, errMsg.get());
-            status.setState(MTMVState.SCHEMA_CHANGE);
-            status.setSchemaChangeDetail("compatible failed, please refresh or recreate it, reason: " + errMsg.get());
-        } else {
+        try {
+            compatibleInternal(catalogMgr);
             Env.getCurrentEnv().getMtmvService().deregisterMTMV(this);
             Env.getCurrentEnv().getMtmvService().registerMTMV(this, this.getDatabase().getId());
+        } catch (Exception e) {
+            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getDBName(), name, e.getMessage());
+            status.setState(MTMVState.SCHEMA_CHANGE);
+            status.setSchemaChangeDetail("compatible failed, please refresh or recreate it, reason: " + e.getMessage());
         }
     }
 
-    private Optional<String> compatibleInternal(CatalogMgr catalogMgr) {
-        Optional<String> errMsg = Optional.empty();
+    private void compatibleInternal(CatalogMgr catalogMgr) throws Exception {
         if (mvPartitionInfo != null) {
-            errMsg = mvPartitionInfo.compatible(catalogMgr);
-            if (errMsg.isPresent()) {
-                return errMsg;
-            }
+            mvPartitionInfo.compatible(catalogMgr);
         }
         if (relation != null) {
-            errMsg = relation.compatible(catalogMgr);
-            if (errMsg.isPresent()) {
-                return errMsg;
-            }
+            relation.compatible(catalogMgr);
         }
         if (refreshSnapshot != null) {
-            errMsg = refreshSnapshot.compatible(this);
-            if (errMsg.isPresent()) {
-                return errMsg;
-            }
+            refreshSnapshot.compatible(this);
         }
-        return errMsg;
     }
 }

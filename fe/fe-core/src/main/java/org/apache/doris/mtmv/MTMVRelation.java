@@ -22,7 +22,6 @@ import org.apache.doris.datasource.CatalogMgr;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 
-import java.util.Optional;
 import java.util.Set;
 
 public class MTMVRelation {
@@ -66,32 +65,18 @@ public class MTMVRelation {
                 + '}';
     }
 
-    public Optional<String> compatible(CatalogMgr catalogMgr) {
-        Optional<String> errMsg = compatible(catalogMgr, baseTables);
-        if (errMsg.isPresent()) {
-            return errMsg;
-        }
-        errMsg = compatible(catalogMgr, baseViews);
-        if (errMsg.isPresent()) {
-            return errMsg;
-        }
-        errMsg = compatible(catalogMgr, baseTablesOneLevel);
-        if (errMsg.isPresent()) {
-            return errMsg;
-        }
-        return Optional.empty();
+    public void compatible(CatalogMgr catalogMgr) throws Exception {
+        compatible(catalogMgr, baseTables);
+        compatible(catalogMgr, baseViews);
+        compatible(catalogMgr, baseTablesOneLevel);
     }
 
-    private Optional<String> compatible(CatalogMgr catalogMgr, Set<BaseTableInfo> infos) {
+    private void compatible(CatalogMgr catalogMgr, Set<BaseTableInfo> infos) throws Exception {
         if (CollectionUtils.isEmpty(infos)) {
-            return Optional.empty();
+            return;
         }
         for (BaseTableInfo baseTableInfo : infos) {
-            Optional<String> errMsg = baseTableInfo.compatible(catalogMgr);
-            if (errMsg.isPresent()) {
-                return errMsg;
-            }
+            baseTableInfo.compatible(catalogMgr);
         }
-        return Optional.empty();
     }
 }

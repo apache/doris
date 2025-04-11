@@ -180,30 +180,14 @@ public class AlterMTMV implements Writable {
     }
 
 
-    private void compatible() {
+    private void compatible() throws Exception {
         if (relation != null) {
-            Optional<String> errMsg = relation.compatible(Env.getCurrentEnv().getCatalogMgr());
-            if (errMsg.isPresent()) {
-                LOG.info("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", mvName.getDb(),
-                        mvName.getTbl(),
-                        errMsg.get());
-            }
+            relation.compatible(Env.getCurrentEnv().getCatalogMgr());
         }
         if (!MapUtils.isEmpty(partitionSnapshots)) {
-            MTMV mtmv = null;
-            try {
-                mtmv = getMTMV(mvName);
-            } catch (DdlException | MetaNotFoundException e) {
-                LOG.info("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", mvName.getDb(), mvName.getTbl(),
-                        e.getMessage());
-                return;
-            }
+            MTMV mtmv = getMTMV(mvName);
             for (MTMVRefreshPartitionSnapshot snapshot : partitionSnapshots.values()) {
-                Optional<String> errMsg = snapshot.compatible(mtmv);
-                if (errMsg.isPresent()) {
-                    LOG.info("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", mvName.getDb(),
-                            mvName.getTbl(), errMsg.get());
-                }
+                snapshot.compatible(mtmv);
             }
         }
     }
