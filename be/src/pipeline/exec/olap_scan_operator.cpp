@@ -518,6 +518,12 @@ Status OlapScanLocalState::hold_tablets() {
         if (!PipelineXLocalState<>::_state->skip_delete_predicate()) {
             _read_sources[i].fill_delete_predicates();
         }
+        if (config::enable_mow_verbose_log &&
+            _tablets[i].tablet->enable_unique_key_merge_on_write()) {
+            LOG_INFO("finish capture_rs_readers for tablet={}, query_id={}",
+                     _tablets[i].tablet->tablet_id(),
+                     print_id(PipelineXLocalState<>::_state->query_id()));
+        }
     }
     timer.stop();
     double cost_secs = static_cast<double>(timer.elapsed_time()) / NANOS_PER_SEC;
