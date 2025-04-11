@@ -169,7 +169,7 @@ import java.util.stream.Collectors;
  */
 public class Rewriter extends AbstractBatchJobExecutor {
 
-    public static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN_STAGE_1 =
+    public static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_1 =
              notTraverseChildrenOf(
             ImmutableSet.of(LogicalCTEAnchor.class),
             () -> jobs(
@@ -356,7 +356,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
         )
     );
 
-    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN_STAGE_2 =
+    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_2 =
             notTraverseChildrenOf(
                     ImmutableSet.of(LogicalCTEAnchor.class),
                     () -> jobs(
@@ -558,12 +558,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
     private static List<RewriteJob> getWholeTreeRewriteJobs(boolean withCostBased) {
         if (!withCostBased) {
-            List<RewriteJob> beforeSubPathAndMvJobsStage1 = CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN_STAGE_1
+            List<RewriteJob> beforeSubPathAndMvJobsStage1 = CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_1
                     .stream()
                     .filter(j -> !(j instanceof CostBasedRewriteJob))
                     .collect(Collectors.toList());
 
-            List<RewriteJob> beforeSubPathAndMvJobsStage2 = CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN_STAGE_2
+            List<RewriteJob> beforeSubPathAndMvJobsStage2 = CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_2
                     .stream()
                     .filter(j -> !(j instanceof CostBasedRewriteJob))
                     .collect(Collectors.toList());
@@ -573,8 +573,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN);
         }
         List<RewriteJob> copiedRewriteJobs
-                = new ArrayList<>(CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN_STAGE_1);
-        copiedRewriteJobs.addAll(CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN_STAGE_2);
+                = new ArrayList<>(CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_1);
+        copiedRewriteJobs.addAll(CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_2);
         return getWholeTreeRewriteJobs(true, true, copiedRewriteJobs,
                 CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN);
     }
