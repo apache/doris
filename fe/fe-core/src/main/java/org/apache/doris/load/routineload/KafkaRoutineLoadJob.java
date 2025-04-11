@@ -41,7 +41,9 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.transaction.TransactionState;
@@ -485,6 +487,34 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return KafkaUtil.getAllKafkaPartitions(brokerList, topic, convertedCustomProperties);
     }
 
+    public static KafkaRoutineLoadJob fromCreateInfo(CreateRoutineLoadInfo info, ConnectContext ctx)
+            throws UserException {
+        // check db and table
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getDBName());
+
+        long id = Env.getCurrentEnv().getNextId();
+        KafkaDataSourceProperties kafkaProperties = (KafkaDataSourceProperties) info.getDataSourceProperties();
+        KafkaRoutineLoadJob kafkaRoutineLoadJob;
+        if (kafkaProperties.isMultiTable()) {
+            kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, info.getName(),
+                db.getId(),
+                kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), ctx.getUserIdentity(), true);
+        } else {
+            OlapTable olapTable = db.getOlapTableOrDdlException(info.getTableName());
+            checkMeta(olapTable, info.getRoutineLoadDesc());
+            long tableId = olapTable.getId();
+            // init kafka routine load job
+            kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, info.getName(),
+                db.getId(), tableId,
+                kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), ctx.getUserIdentity());
+        }
+        kafkaRoutineLoadJob.setOptional(info);
+        kafkaRoutineLoadJob.checkCustomProperties();
+        kafkaRoutineLoadJob.checkCustomPartition();
+
+        return kafkaRoutineLoadJob;
+    }
+
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
         // check db and table
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDBName());
@@ -591,6 +621,20 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             throw new UserException(e);
         }
         return partitionOffsets;
+    }
+
+    protected void setOptional(CreateRoutineLoadInfo info) throws UserException {
+        super.setOptional(info);
+        KafkaDataSourceProperties kafkaDataSourceProperties
+                = (KafkaDataSourceProperties) info.getDataSourceProperties();
+        if (CollectionUtils.isNotEmpty(kafkaDataSourceProperties.getKafkaPartitionOffsets())) {
+            setCustomKafkaPartitions(kafkaDataSourceProperties);
+        }
+        if (MapUtils.isNotEmpty(kafkaDataSourceProperties.getCustomKafkaProperties())) {
+            setCustomKafkaProperties(kafkaDataSourceProperties.getCustomKafkaProperties());
+        }
+        // set group id if not specified
+        this.customProperties.putIfAbsent(PROP_GROUP_ID, name + "_" + UUID.randomUUID());
     }
 
     @Override
