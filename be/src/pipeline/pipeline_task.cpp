@@ -339,6 +339,7 @@ Status PipelineTask::execute(bool* done) {
     int64_t time_spent = 0;
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();
+    SCOPED_ATTACH_TASK(_state);
     Defer running_defer {[&]() {
         if (_task_queue) {
             _task_queue->update_statistics(this, time_spent);
@@ -380,7 +381,6 @@ Status PipelineTask::execute(bool* done) {
 
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
-    SCOPED_ATTACH_TASK(_state);
 
     DBUG_EXECUTE_IF("fault_inject::PipelineXTask::execute", {
         Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");

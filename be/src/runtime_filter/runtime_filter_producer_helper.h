@@ -57,7 +57,7 @@ public:
     // send local size to remote to sync global rf size if needed
     MOCK_FUNCTION Status
     send_filter_size(RuntimeState* state, uint64_t hash_table_size,
-                     std::shared_ptr<pipeline::CountedFinishDependency> dependency);
+                     const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
 
     // skip all runtime filter process, send size and rf to remote imeediately, mainly used to make join spill instance do not block other instance
     MOCK_FUNCTION Status skip_process(RuntimeState* state);

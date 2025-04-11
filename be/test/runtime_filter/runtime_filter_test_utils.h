@@ -48,12 +48,8 @@ public:
                     TUniqueId(), 0, _query_options, _query_ctx->query_globals,
                     ExecEnv::GetInstance(), _query_ctx.get());
 
-            _local_mgrs[i] = std::make_unique<RuntimeFilterMgr>(
-                    TUniqueId(), RuntimeFilterParamsContext::create(_query_ctx.get()),
-                    _query_ctx->query_mem_tracker(), false);
+            _local_mgrs[i] = std::make_unique<RuntimeFilterMgr>(false);
             _runtime_states[i]->set_runtime_filter_mgr(_local_mgrs[i].get());
-            _runtime_states[i]->local_runtime_filter_mgr()->_state->set_state(
-                    _runtime_states[i].get());
             _runtime_states[i]->set_desc_tbl(&_tbl);
         }
     }

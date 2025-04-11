@@ -27,7 +27,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress* addr) {
     std::shared_ptr<PBackendService_Stub> stub(
-            _state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(*addr));
+            state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(*addr));
     if (!stub) {
         return Status::InternalError(
                 fmt::format("Get rpc stub failed, host={}, port={}", addr->hostname, addr->port));
@@ -45,15 +45,15 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
     int len = 0;
 
     auto* pquery_id = merge_filter_request->mutable_query_id();
-    pquery_id->set_hi(_state->get_query_ctx()->query_id().hi);
-    pquery_id->set_lo(_state->get_query_ctx()->query_id().lo);
+    pquery_id->set_hi(state->get_query_ctx()->query_id().hi);
+    pquery_id->set_lo(state->get_query_ctx()->query_id().lo);
 
     auto* pfragment_instance_id = merge_filter_request->mutable_fragment_instance_id();
     pfragment_instance_id->set_hi(BackendOptions::get_local_backend().id);
     pfragment_instance_id->set_lo((int64_t)this);
 
     merge_filter_callback->cntl_->set_timeout_ms(
-            get_execution_rpc_timeout_ms(_state->get_query_ctx()->execution_timeout()));
+            get_execution_rpc_timeout_ms(state->get_query_ctx()->execution_timeout()));
     if (config::execution_ignore_eovercrowded) {
         merge_filter_callback->cntl_->ignore_eovercrowded();
     }
@@ -133,15 +133,8 @@ void RuntimeFilter::_check_wrapper_state(std::vector<RuntimeFilterWrapper::State
     try {
         _wrapper->check_state(assumed_states);
     } catch (const Exception& e) {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "rf wrapper meet invalid state, {}, {}. Instance ID: {}, Query Info: [{}]",
-                        e.what(), debug_string(),
-                        print_id(_state && _state->get_runtime_state()
-                                         ? _state->get_runtime_state()->fragment_instance_id()
-                                         : TUniqueId()),
-                        _state && _state->get_query_ctx()
-                                ? _state->get_query_ctx()->print_all_pipeline_context()
-                                : "");
+        throw Exception(ErrorCode::INTERNAL_ERROR, "rf wrapper meet invalid state, {}, {}",
+                        e.what(), debug_string());
     }
 }
 
