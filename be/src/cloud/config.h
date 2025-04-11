@@ -102,6 +102,8 @@ DECLARE_mInt32(sync_load_for_tablets_thread);
 
 DECLARE_mInt32(delete_bitmap_lock_expiration_seconds);
 
+DECLARE_mInt32(get_delete_bitmap_lock_max_retry_times);
+
 // enable large txn lazy commit in meta-service `commit_txn`
 DECLARE_mBool(enable_cloud_txn_lazy_commit);
 

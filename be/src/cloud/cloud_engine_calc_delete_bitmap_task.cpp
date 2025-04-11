@@ -71,7 +71,11 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
     std::unique_ptr<ThreadPoolToken> token =
             _engine.calc_tablet_delete_bitmap_task_thread_pool().new_token(
                     ThreadPool::ExecutionMode::CONCURRENT);
-    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.execute.enable_wait", { sleep(3); });
+    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.execute.enable_wait", {
+        auto sleep_time = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "CloudEngineCalcDeleteBitmapTask.execute.enable_wait", "sleep_time", 3);
+        sleep(sleep_time);
+    });
     for (const auto& partition : _cal_delete_bitmap_req.partitions) {
         int64_t version = partition.version;
         bool has_compaction_stats = partition.__isset.base_compaction_cnts &&
