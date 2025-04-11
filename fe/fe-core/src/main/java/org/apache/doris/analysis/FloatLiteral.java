@@ -178,15 +178,6 @@ public class FloatLiteral extends NumericLiteralExpr {
         return ret;
     }
 
-    @Override
-    public String getStringValueForStreamLoad(FormatOptions options) {
-        String ret = this.getStringValueForQuery(options);
-        if (type == Type.TIME || type == Type.TIMEV2) {
-            ret = options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
-        }
-        return ret;
-    }
-
     public static Type getDefaultTimeType(Type type) throws AnalysisException {
         switch (type.getPrimitiveType()) {
             case TIME:

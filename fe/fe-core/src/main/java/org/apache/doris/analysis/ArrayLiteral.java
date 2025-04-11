@@ -145,7 +145,7 @@ public class ArrayLiteral extends LiteralExpr {
     public String getStringValueForStreamLoad(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> {
-            list.add(v.getStringValueInComplexTypeForStreamLoad(options));
+            list.add(v.getStringValueInComplexTypeForQuery(options));
         });
         return "[" + StringUtils.join(list, options.getCollectionDelim()) + "]";
     }

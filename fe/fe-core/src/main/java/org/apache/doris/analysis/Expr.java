@@ -2214,16 +2214,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return getStringValueForQuery(options);
     }
 
-    /**
-     * This method is to return the string value of this expr in a complex type for stream load
-     * It is only used for "getStringValueForStreamLoad()"
-     * There is a little different from "getStringValueInComplexTypeForQuery()",
-     * eg, for StructLiteral, the value should not contain sub column's name.
-     */
-    protected String getStringValueInComplexTypeForStreamLoad(FormatOptions options) {
-        return getStringValueInComplexTypeForQuery(options);
-    }
-
     public final TExpr normalize(Normalizer normalizer) {
         TExpr result = new TExpr();
         treeToThriftHelper(result, (expr, texprNode) -> expr.normalize(texprNode, normalizer));
