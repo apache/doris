@@ -195,11 +195,13 @@ public class ExprIdRewriter extends ExpressionRewrite {
                 List<List<SlotReference>> slotsList = setOperation.getRegularChildrenOutputs();
                 List<List<SlotReference>> newSlotsList = new ArrayList<>();
                 ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                boolean changed = false;
                 for (List<SlotReference> slots : slotsList) {
-                    List<SlotReference> newSlots = rewriteAll(slots, rewriter, context);
-                    newSlotsList.add(newSlots);
+                    RewriteResult<SlotReference> result = rewriteAll(slots, rewriter, context);
+                    changed |= result.changed;
+                    newSlotsList.add(result.result);
                 }
-                if (newSlotsList.equals(slotsList)) {
+                if (!changed) {
                     return setOperation;
                 }
                 return setOperation.withChildrenAndTheirOutputs(setOperation.children(), newSlotsList);
@@ -215,11 +217,11 @@ public class ExprIdRewriter extends ExpressionRewrite {
                 LogicalWindow<Plan> window = ctx.root;
                 List<NamedExpression> windowExpressions = window.getWindowExpressions();
                 ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
-                List<NamedExpression> newWindowExpressions = rewriteAll(windowExpressions, rewriter, context);
-                if (newWindowExpressions.equals(windowExpressions)) {
+                RewriteResult<NamedExpression> result = rewriteAll(windowExpressions, rewriter, context);
+                if (!result.changed) {
                     return window;
                 }
-                return window.withExpressionsAndChild(newWindowExpressions, window.child());
+                return window.withExpressionsAndChild(result.result, window.child());
             })
             .toRule(RuleType.REWRITE_WINDOW_EXPRESSION);
         }
@@ -260,14 +262,13 @@ public class ExprIdRewriter extends ExpressionRewrite {
                     OrderKey newOrderKey = new OrderKey(expr, orderKey.isAsc(), orderKey.isNullFirst());
                     newOrderExpressions.add(new OrderExpression(newOrderKey));
                 }
-                List<Expression> newPartitionKeys = rewriteAll(partitionTopN.getPartitionKeys(), rewriter, context);
-                if (!newPartitionKeys.equals(partitionTopN.getPartitionKeys())) {
-                    changed = true;
-                }
+                RewriteResult<Expression> result = rewriteAll(partitionTopN.getPartitionKeys(),
+                        rewriter, context);
+                changed |= result.changed;
                 if (!changed) {
                     return partitionTopN;
                 }
-                return partitionTopN.withPartitionKeysAndOrderKeys(newPartitionKeys, newOrderExpressions);
+                return partitionTopN.withPartitionKeysAndOrderKeys(result.result, newOrderExpressions);
             }).toRule(RuleType.REWRITE_PARTITION_TOPN_EXPRESSION);
         }
     }
@@ -276,10 +277,10 @@ public class ExprIdRewriter extends ExpressionRewrite {
         LogicalSink<Plan> sink = ctx.root;
         ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
         List<NamedExpression> outputExprs = sink.getOutputExprs();
-        List<NamedExpression> newOutputExprs = rewriteAll(outputExprs, rewriter, context);
-        if (outputExprs.equals(newOutputExprs)) {
+        RewriteResult<NamedExpression> result = rewriteAll(outputExprs, rewriter, context);
+        if (!result.changed) {
             return sink;
         }
-        return sink.withOutputExprs(newOutputExprs);
+        return sink.withOutputExprs(result.result);
     }
 }

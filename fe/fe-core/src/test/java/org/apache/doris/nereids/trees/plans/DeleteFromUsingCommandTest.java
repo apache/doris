@@ -85,11 +85,14 @@ public class DeleteFromUsingCommandTest extends TestWithFeService implements Pla
                                 logicalProject(
                                         logicalJoin(
                                                 logicalProject(
+                                                        logicalFilter(
+                                                                logicalOlapScan()
+                                                        )
+                                                ),
+                                                logicalProject(
                                                         logicalJoin(
                                                                 logicalProject(
-                                                                        logicalFilter(
-                                                                                logicalOlapScan()
-                                                                        )
+                                                                        logicalOlapScan()
                                                                 ),
                                                                 logicalProject(
                                                                         logicalFilter(
@@ -97,9 +100,6 @@ public class DeleteFromUsingCommandTest extends TestWithFeService implements Pla
                                                                         )
                                                                 )
                                                         )
-                                                ),
-                                                logicalProject(
-                                                        logicalOlapScan()
                                                 )
                                         )
                                 )
