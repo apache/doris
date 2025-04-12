@@ -16,7 +16,9 @@
 // under the License.
 
 suite("test_nereids_drop_resource") {
-
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
+	
     sql """  
      CREATE RESOURCE test_drop_hive_resource PROPERTIES (
     'type'='hms',
