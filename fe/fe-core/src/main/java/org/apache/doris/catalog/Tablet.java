@@ -305,7 +305,7 @@ public class Tablet extends MetaObject {
 
     // for query
     public List<Replica> getQueryableReplicas(long visibleVersion, Map<Long, Set<Long>> backendAlivePathHashs,
-            boolean allowFailedVersion) {
+            boolean allowMissingVersion) {
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
         List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
         List<Replica> deadPathReplica = Lists.newArrayList();
@@ -314,12 +314,7 @@ public class Tablet extends MetaObject {
                 continue;
             }
 
-            // Skip the missing version replica
-            if (replica.getLastFailedVersion() > 0 && !allowFailedVersion) {
-                continue;
-            }
-
-            if (!replica.checkVersionCatchUp(visibleVersion, false)) {
+            if (!replica.checkVersionCatchUp(visibleVersion, false) && !allowMissingVersion) {
                 continue;
             }
 
