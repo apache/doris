@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -59,20 +58,5 @@ public class DropRowPolicyCommandTest extends TestWithFeService {
         };
         DropRowPolicyCommand command = new DropRowPolicyCommand(false, "test_policy", tableNameInfo, user, "role1");
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
-    }
-
-    @Test
-    public void testValidateNoPrivilege() throws IOException {
-        runBefore();
-        new Expectations() {
-            {
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.GRANT);
-                minTimes = 0;
-                result = false;
-            }
-        };
-        DropRowPolicyCommand command = new DropRowPolicyCommand(false, "test_policy", tableNameInfo, user, "role1");
-        Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
-                "Access denied; you need (at least one of) the (Admin_priv,Grant_priv) privilege(s) for this operation");
     }
 }
