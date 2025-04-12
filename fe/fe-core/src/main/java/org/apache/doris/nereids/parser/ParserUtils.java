@@ -42,9 +42,9 @@ public class ParserUtils {
     }
 
     /**
-     * convertSecond
+     * getSecond
      */
-    public static long convertSecond(long value, String s) {
+    public static long getSecond(long value, String s) {
         switch (s) {
             case "DAY":
                 return value * 24 * 60 * 60;

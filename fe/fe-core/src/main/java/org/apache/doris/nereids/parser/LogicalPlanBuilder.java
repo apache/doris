@@ -6359,73 +6359,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public UserDesc visitGrantUserIdentify(DorisParser.GrantUserIdentifyContext ctx) {
-        UserIdentity userIdentity = (UserIdentity) visit(ctx.userIdentify());
-        if (ctx.IDENTIFIED() == null) {
-            return new UserDesc(userIdentity);
-        }
-        String password = stripQuotes(ctx.STRING_LITERAL().getText());
-        boolean isPlain = ctx.PASSWORD() == null;
-        return new UserDesc(userIdentity, new PassVar(password, isPlain));
-    }
-
-    @Override
-    public PasswordOptions visitPasswordOption(DorisParser.PasswordOptionContext ctx) {
-        int unset = -2;
-        int passwordHistory = unset;
-        long passwordExpire = unset;
-        int passwordReuse = unset;
-        int failedLoginAttempts = unset;
-        long passwordLockTime = unset;
-        int accountUnlocked = unset;
-
-        if (ctx.historyDefault != null) {
-            passwordHistory = -1;
-        } else if (ctx.historyValue != null) {
-            passwordHistory = Integer.parseInt(ctx.historyValue.getText());
-        }
-
-        if (ctx.expireDefault != null) {
-            passwordExpire = -1;
-        } else if (ctx.expireNever != null) {
-            passwordExpire = 0;
-        } else if (ctx.expireValue != null) {
-            long value = Long.parseLong(ctx.expireValue.getText());
-            passwordExpire = ParserUtils.convertSecond(value, ctx.expireTimeUnit.getText());
-        }
-
-        if (ctx.reuseDefault != null) {
-            passwordReuse = -1;
-        } else if (ctx.reuseValue != null) {
-            passwordReuse = Integer.parseInt(ctx.reuseValue.getText());
-        }
-
-        if (ctx.attemptsValue != null) {
-            failedLoginAttempts = Integer.parseInt(ctx.attemptsValue.getText());
-        }
-
-        if (ctx.lockUnbounded != null) {
-            passwordLockTime = -1;
-        } else if (ctx.lockValue != null) {
-            long value = Long.parseLong(ctx.lockValue.getText());
-            passwordLockTime = ParserUtils.convertSecond(value, ctx.lockTimeUint.getText());
-        }
-
-        if (ctx.ACCOUNT_LOCK() != null) {
-            accountUnlocked = -1;
-        } else if (ctx.ACCOUNT_UNLOCK() != null) {
-            accountUnlocked = 1;
-        }
-
-        return new PasswordOptions(passwordExpire,
-            passwordHistory,
-            passwordReuse,
-            failedLoginAttempts,
-            passwordLockTime,
-            accountUnlocked);
-    }
-
-    @Override
     public LogicalPlan visitAlterUser(DorisParser.AlterUserContext ctx) {
         boolean ifExist = ctx.EXISTS() != null;
         UserDesc userDesc = (UserDesc) visit(ctx.grantUserIdentify());
@@ -6574,7 +6507,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             expirePolicySecond = 0;
         } else if (ctx.expireValue != null) {
             long value = Long.parseLong(ctx.expireValue.getText());
-            expirePolicySecond = getSecond(value, ctx.expireTimeUnit.getText());
+            expirePolicySecond = ParserUtils.getSecond(value, ctx.expireTimeUnit.getText());
         }
 
         if (ctx.reuseValue != null) {
@@ -6589,7 +6522,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             passwordLockSecond = -1;
         } else if (ctx.lockValue != null) {
             long value = Long.parseLong(ctx.lockValue.getText());
-            passwordLockSecond = getSecond(value, ctx.lockTimeUint.getText());
+            passwordLockSecond = ParserUtils.getSecond(value, ctx.lockTimeUint.getText());
         }
 
         if (ctx.ACCOUNT_LOCK() != null) {
@@ -6604,22 +6537,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             loginAttempts,
             passwordLockSecond,
             accountUnlocked);
-    }
-
-    private long getSecond(long value, String s) {
-        long ans = 0;
-
-        switch (s) {
-            case "DAY":
-                ans = value * 24 * 60 * 60;
-                break;
-            case "HOUR":
-                ans = value * 60 * 60;
-                break;
-            default:
-                ans = value;
-        }
-        return ans;
     }
 
     @Override
@@ -6656,4 +6573,3 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new UserDesc(userIdentity, new PassVar(password, isPlain));
     }
 }
-
