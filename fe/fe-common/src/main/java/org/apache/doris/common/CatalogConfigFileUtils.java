@@ -52,7 +52,7 @@ public class CatalogConfigFileUtils {
         // Iterate over the comma-separated list of resource files.
         for (String resource : resourcesPath.split(",")) {
             // Construct the full path to the resource file.
-            String resourcePath = configDir + File.separator + resource.trim();
+            String resourcePath = configDir + resource.trim();
             File file = new File(resourcePath);
 
             // Check if the file exists and is a regular file; if not, throw an exception.
