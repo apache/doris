@@ -1004,12 +1004,6 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
         // "Touches" equivalent to boundary contact  but no internal overlap
         std::unique_ptr<S2Polygon> intersection(new S2Polygon());
         intersection->InitToIntersection(*polygon1, *polygon2);
-        // if (intersection->GetArea() >= S1Angle::Radians(TOLERANCE).radians() ||
-        //     !polygon_touch_polygon(polygon1, polygon2)) {
-        //     return false;
-        // }
-        // return true;
-
         return (intersection->GetArea() < S1Angle::Radians(TOLERANCE).radians() &&
                 polygon_touch_polygon(polygon1, polygon2));
     }
@@ -1039,22 +1033,7 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
         const GeoPoint* point = (const GeoPoint*)rhs;
-        if (!_polygon->Contains(*point->point())) {
-            return false;
-        }
-
-        // Point on the edge of polygon doesn't count as "Contians"
-        for (int i = 0; i < _polygon->num_loops(); ++i) {
-            const S2Loop* loop = _polygon->loop(i);
-            for (int j = 0; j < loop->num_vertices(); ++j) {
-                const S2Point& p1 = loop->vertex(j);
-                const S2Point& p2 = loop->vertex((j + 1) % loop->num_vertices());
-                if (compute_distance_to_line(*point->point(), p1, p2) < TOLERANCE) {
-                    return false;
-                }
-            }
-        }
-        return true;
+        return _polygon->Contains(*point->point());
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
