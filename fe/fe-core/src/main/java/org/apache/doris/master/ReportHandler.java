@@ -1262,7 +1262,8 @@ public class ReportHandler extends Daemon {
                                 // Because last failed version should always larger than replica's version.
                                 long newLastFailedVersion = replica.getLastFailedVersion();
                                 if (newLastFailedVersion < 0) {
-                                    newLastFailedVersion = replica.getVersion() + 1;
+                                    newLastFailedVersion = Math.min(partition.getCommittedVersion(),
+                                            replica.getVersion() + 1);
                                     replica.updateLastFailedVersion(newLastFailedVersion);
                                     LOG.warn("set missing version for replica {} of tablet {} on backend {}, "
                                             + "version in fe {}, version in be {}, be missing {}",
