@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -52,5 +53,28 @@ public class DropResourceCommandTest extends TestWithFeService {
         };
         DropResourceCommand command = new DropResourceCommand(false, "test_resource");
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+    }
+
+    @Test
+    public void testValidateNoPrivilege() throws IOException {
+        runBefore();
+        new Expectations() {
+            {
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getAccessManager();
+                minTimes = 0;
+                result = accessControllerManager;
+
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = false;
+            }
+        };
+        DropResourceCommand command = new DropResourceCommand(false, "test_resource");
+        Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
+            "Access denied; you need (at least one of) the (ADMIN) privilege(s) for this operation");
     }
 }
