@@ -103,6 +103,8 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
 std::string FileFactory::_get_fs_name(const io::FileDescription& file_description) {
     // If the destination path contains a schema, use the schema directly.
     // If not, use origin file_description.fs_name
+    // Because the default fsname in file_description.fs_name maybe different from
+    // file's.
     // example:
     //    hdfs://host:port/path1/path2  --> hdfs://host:port
     //    hdfs://nameservice/path1/path2 --> hdfs://nameservice
