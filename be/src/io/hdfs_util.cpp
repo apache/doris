@@ -44,28 +44,13 @@ bvar::LatencyRecorder hdfs_hsync_latency("hdfs_hsync");
 }; // namespace hdfs_bvar
 
 Path convert_path(const Path& path, const std::string& namenode) {
-    // If the destination path contains a scheme, use the scheme directly.
-    // If not, use defaultFS(pass-in namenode).
-    // Otherwise a write error will occur.
-    // example:
-    //    hdfs://host:port/path1/path2  --> hdfs://host:port
-    //    hdfs://nameservice/path1/path2 --> hdfs://nameservice
-    std::string final_namenode = namenode;
-    std::string path_str = path.string();
-    std::string::size_type idx = path_str.find("://");
-    if (idx != std::string::npos) {
-        idx = path_str.find("/", idx + 3);
-        if (idx != std::string::npos) {
-            final_namenode = path_str.substr(0, idx);
-        }
-    }
-
     std::string fs_path;
-    if (path_str.starts_with(final_namenode)) {
+    if (path.native().find(namenode) != std::string::npos) {
         // `path` is uri format, remove the namenode part in `path`
-        fs_path = path_str.substr(final_namenode.size());
+        // FIXME(plat1ko): Not robust if `namenode` doesn't appear at the beginning of `path`
+        fs_path = path.native().substr(namenode.size());
     } else {
-        fs_path = path_str;
+        fs_path = path;
     }
 
     // Always use absolute path (start with '/') in hdfs
