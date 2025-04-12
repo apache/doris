@@ -6484,9 +6484,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new KillAnalyzeJobCommand(jobId);
     }
 
-    /**
-     * PasswordOption
-     */
+    @Override
     public PasswordOptions visitPasswordOption(DorisParser.PasswordOptionContext ctx) {
         int historyPolicy = PasswordOptions.UNSET;
         long expirePolicySecond = PasswordOptions.UNSET;
@@ -6542,7 +6540,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitCreateUser(CreateUserContext ctx) {
         String comment = visitCommentSpec(ctx.commentSpec());
-        PasswordOptions passwordOptions = (PasswordOptions) ctx.passwordOption().accept(this);
+        PasswordOptions passwordOptions = visitPasswordOption(ctx.passwordOption());
         UserDesc userDesc = (UserDesc) ctx.grantUserIdentify().accept(this);
 
         String role = null;
@@ -6561,15 +6559,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public UserDesc visitGrantUserIdentify(DorisParser.GrantUserIdentifyContext ctx) {
-        UserIdentity userIdentity = (UserIdentity) ctx.userIdentify().accept(this);
-
+        UserIdentity userIdentity = visitUserIdentify(ctx.userIdentify());
         if (ctx.IDENTIFIED() == null) {
             return new UserDesc(userIdentity);
         }
-
         String password = stripQuotes(ctx.STRING_LITERAL().getText());
-        boolean isPlain = !(ctx.PASSWORD() != null);
-
+        boolean isPlain = ctx.PASSWORD() == null;
         return new UserDesc(userIdentity, new PassVar(password, isPlain));
     }
 }
