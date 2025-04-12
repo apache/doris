@@ -97,7 +97,7 @@ public class AzureObjStorageTest {
 
         List<I> inputs = genInputs();
         inputs.stream().forEach(i -> {
-            AzureObjStorage azs = new AzureObjStorage(props);
+            AzureObjStorage azs = new AzureObjStorage(null);
             List<RemoteFile> result = new ArrayList<RemoteFile>();
             boolean fileNameOnly = false;
             // FIXME(gavin): Mock the result returned from azure blob to make this UT work when no aksk and network
@@ -199,7 +199,7 @@ public class AzureObjStorageTest {
         props.put(S3Properties.SECRET_KEY, "sksksksksksksk");
         props.put(S3Properties.ENDPOINT, "https://blob.azure.windows.net");
         props.put(S3Properties.BUCKET, "gavin-test-us");
-        AzureObjStorage azs = new AzureObjStorage(props);
+        AzureObjStorage azs = new AzureObjStorage(null);
         List<String> allBlobKeys = genObjectKeys();
         final Integer[] batchIndex = {0}; // from 0 to numBatch
         new MockUp<AzureObjStorage>(AzureObjStorage.class) {

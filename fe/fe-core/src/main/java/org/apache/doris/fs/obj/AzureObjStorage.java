@@ -21,8 +21,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
-import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import com.azure.core.http.rest.PagedIterable;
@@ -56,21 +55,21 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
 
 public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     private static final Logger LOG = LogManager.getLogger(AzureObjStorage.class);
     private static final String URI_TEMPLATE = "https://%s.blob.core.windows.net";
-    protected Map<String, String> properties;
+
+    protected AzureProperties azureProperties;
     private BlobServiceClient client;
-    private boolean isUsePathStyle = false;
+    private boolean isUsePathStyle;
 
-    private boolean forceParsingByStandardUri = false;
+    private boolean forceParsingByStandardUri;
 
-    public AzureObjStorage(Map<String, String> properties) {
-        this.properties = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        setProperties(properties);
+    public AzureObjStorage(AzureProperties azureProperties) {
+        this.azureProperties = azureProperties;
+        this.isUsePathStyle = Boolean.parseBoolean(azureProperties.getUsePathStyle());
+        this.forceParsingByStandardUri = Boolean.parseBoolean(azureProperties.getForceParsingByStandardUrl());
     }
 
     // To ensure compatibility with S3 usage, the path passed by the user still starts with 'S3://${containerName}'.
@@ -86,39 +85,13 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         return remotePath.substring(firstSlashIndex + 1);
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
-    protected void setProperties(Map<String, String> properties) {
-        this.properties.putAll(properties);
-        try {
-            S3Properties.requiredS3Properties(this.properties);
-        } catch (DdlException e) {
-            throw new IllegalArgumentException(e);
-        }
-        // Virtual hosted-style is recommended in the s3 protocol.
-        // The path-style has been abandoned, but for some unexplainable reasons,
-        // the s3 client will determine whether the endpiont starts with `s3`
-        // when generating a virtual hosted-sytle request.
-        // If not, it will not be converted ( https://github.com/aws/aws-sdk-java-v2/pull/763),
-        // but the endpoints of many cloud service providers for object storage do not start with s3,
-        // so they cannot be converted to virtual hosted-sytle.
-        // Some of them, such as aliyun's oss, only support virtual hosted-style,
-        // and some of them(ceph) may only support
-        // path-style, so we need to do some additional conversion.
-        isUsePathStyle = this.properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false")
-                .equalsIgnoreCase("true");
-        forceParsingByStandardUri = this.properties.getOrDefault(PropertyConverter.FORCE_PARSING_BY_STANDARD_URI,
-                "false").equalsIgnoreCase("true");
-    }
 
     @Override
     public BlobServiceClient getClient() throws UserException {
         if (client == null) {
-            String uri = String.format(URI_TEMPLATE, properties.get(S3Properties.ACCESS_KEY));
-            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(properties.get(S3Properties.ACCESS_KEY),
-                    properties.get(S3Properties.SECRET_KEY));
+            String uri = String.format(URI_TEMPLATE, azureProperties.getAccessKey());
+            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(azureProperties.getAccessKey(),
+                    azureProperties.getSecretKey());
             BlobServiceClientBuilder builder = new BlobServiceClientBuilder();
             builder.credential(cred);
             builder.endpoint(uri);
@@ -275,8 +248,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     public RemoteObjects listObjects(String remotePath, String continuationToken) throws DdlException {
         try {
             ListBlobsOptions options = new ListBlobsOptions().setPrefix(remotePath);
-            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
-            PagedIterable<BlobItem> pagedBlobs = getClient().getBlobContainerClient(uri.getBucket())
+            //S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            PagedIterable<BlobItem> pagedBlobs = getClient().getBlobContainerClient("selectdb-qa-datalake-test")
                     .listBlobs(options, continuationToken, null);
             PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
             List<RemoteObject> remoteObjects = new ArrayList<>();
