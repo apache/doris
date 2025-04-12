@@ -75,6 +75,6 @@ public class DropResourceCommandTest extends TestWithFeService {
         };
         DropResourceCommand command = new DropResourceCommand(false, "test_resource");
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
-            "Access denied; you need (at least one of) the (ADMIN) privilege(s) for this operation");
+                "Access denied; you need (at least one of) the (ADMIN) privilege(s) for this operation");
     }
 }
