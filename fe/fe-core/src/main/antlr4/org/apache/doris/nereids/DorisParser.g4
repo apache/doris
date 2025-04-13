@@ -638,8 +638,6 @@ unsupportedAlterStatement
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
     | ALTER STORAGE POLICY name=identifierOrText
         properties=propertyClause                                                   #alterStoragePlicy
-    | ALTER USER (IF EXISTS)? grantUserIdentify
-        passwordOption (COMMENT STRING_LITERAL)?                                    #alterUser
     ;
 
 alterSystemClause
