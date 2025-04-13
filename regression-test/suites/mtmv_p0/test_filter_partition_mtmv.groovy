@@ -73,9 +73,7 @@ suite("test_filter_partition_mtmv") {
     waitingMTMVTaskFinished(jobName)
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    // The partition of the base olap table related to the materialized view has no data,
-    // so the materialized view has no partition.
-    assertEquals(0, showPartitionsResult.size())
+    assertEquals(2, showPartitionsResult.size())
     order_qt_date_list0 "SELECT * FROM ${mvName} order by k1,k2"
 
     sql """
@@ -90,8 +88,7 @@ suite("test_filter_partition_mtmv") {
     waitingMTMVTaskFinished(jobName)
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    // only p_20250103 has data, so the materialized view has partition: p_20250103.
-    assertEquals(1, showPartitionsResult.size())
+    assertEquals(2, showPartitionsResult.size())
     assertTrue(showPartitionsResult.toString().contains("p_20250103"))
     order_qt_date_list1 "SELECT * FROM ${mvName} order by k1,k2"
 
@@ -107,7 +104,6 @@ suite("test_filter_partition_mtmv") {
     waitingMTMVTaskFinished(jobName)
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    // only p_20250103 p_20250104 has data, so the materialized view has partition: p_20250103 p_20250104.
     assertEquals(2, showPartitionsResult.size())
     assertTrue(showPartitionsResult.toString().contains("p_20250103"))
     assertTrue(showPartitionsResult.toString().contains("p_20250104"))
@@ -130,7 +126,7 @@ suite("test_filter_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_20250104"))
     order_qt_date_list3 "SELECT * FROM ${mvName} order by k1,k2"
 
-    // Even if partition p_20250105 has data, partition p_20250105 is not included
+    // partition p_20250105 is not included
     // because the query statement of the materialized view filters k2 > "2025-01-02" AND k2 <= "2025-01-04".
     try {
         sql """
