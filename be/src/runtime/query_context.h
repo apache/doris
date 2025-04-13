@@ -149,7 +149,7 @@ public:
 
     void init_query_task_controller();
 
-    ExecEnv* exec_env() { return _exec_env; }
+    ExecEnv* exec_env() const { return _exec_env; }
 
     bool is_timeout(timespec now) const {
         if (_timeout_second <= 0) {

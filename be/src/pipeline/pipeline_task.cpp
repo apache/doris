@@ -79,8 +79,8 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
           _shared_state_map(std::move(shared_state_map)),
           _task_idx(task_idx),
           _execution_dep(state->get_query_ctx()->get_execution_dependency()),
-          _memory_sufficient_dependency(
-                  state->get_query_ctx()->get_memory_sufficient_dependency()) {
+          _memory_sufficient_dependency(state->get_query_ctx()->get_memory_sufficient_dependency()),
+          _pipeline_name(_pipeline->name()) {
     _pipeline_task_watcher.start();
 
     if (!_shared_state_map.contains(_sink->dests_id().front())) {
@@ -291,24 +291,19 @@ void PipelineTask::terminate() {
     auto fragment = _fragment_context.lock();
     if (!is_finalized() && fragment) {
         DCHECK(_wake_up_early || fragment->is_canceled());
-        for (auto* dep : _spill_dependencies) {
-            dep->set_always_ready();
-        }
-
-        for (auto* dep : _filter_dependencies) {
-            dep->set_always_ready();
-        }
-        for (auto& deps : _read_dependencies) {
-            for (auto* dep : deps) {
-                dep->set_always_ready();
-            }
-        }
-        for (auto* dep : _write_dependencies) {
-            dep->set_always_ready();
-        }
-        for (auto* dep : _finish_dependencies) {
-            dep->set_always_ready();
-        }
+        std::for_each(_spill_dependencies.begin(), _spill_dependencies.end(),
+                      [&](Dependency* dep) { dep->set_always_ready(); });
+        std::for_each(_filter_dependencies.begin(), _filter_dependencies.end(),
+                      [&](Dependency* dep) { dep->set_always_ready(); });
+        std::for_each(_write_dependencies.begin(), _write_dependencies.end(),
+                      [&](Dependency* dep) { dep->set_always_ready(); });
+        std::for_each(_finish_dependencies.begin(), _finish_dependencies.end(),
+                      [&](Dependency* dep) { dep->set_always_ready(); });
+        std::for_each(_read_dependencies.begin(), _read_dependencies.end(),
+                      [&](std::vector<Dependency*>& deps) {
+                          std::for_each(deps.begin(), deps.end(),
+                                        [&](Dependency* dep) { dep->set_always_ready(); });
+                      });
         _execution_dep->set_ready();
         _memory_sufficient_dependency->set_ready();
     }
@@ -339,6 +334,7 @@ Status PipelineTask::execute(bool* done) {
     int64_t time_spent = 0;
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();
+    SCOPED_ATTACH_TASK(_state);
     Defer running_defer {[&]() {
         if (_task_queue) {
             _task_queue->update_statistics(this, time_spent);
@@ -380,7 +376,6 @@ Status PipelineTask::execute(bool* done) {
 
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
-    SCOPED_ATTACH_TASK(_state);
 
     DBUG_EXECUTE_IF("fault_inject::PipelineXTask::execute", {
         Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");
@@ -696,16 +691,16 @@ std::string PipelineTask::debug_string() {
                    print_id(_state->fragment_instance_id()));
 
     fmt::format_to(debug_string_buffer,
-                   "PipelineTask[this = {}, id = {}, open = {}, eos = {}, state = {}, dry run = "
+                   "PipelineTask[id = {}, open = {}, eos = {}, state = {}, dry run = "
                    "{}, _wake_up_early = {}, time elapsed since last state changing = {}s, spilling"
                    " = {}, is running = {}]",
-                   (void*)this, _index, _opened, _eos, _to_string(_exec_state), _dry_run,
-                   _wake_up_early.load(), _state_change_watcher.elapsed_time() / NANOS_PER_SEC,
-                   _spilling, is_running());
+                   _index, _opened, _eos, _to_string(_exec_state), _dry_run, _wake_up_early.load(),
+                   _state_change_watcher.elapsed_time() / NANOS_PER_SEC, _spilling, is_running());
     std::unique_lock<std::mutex> lc(_dependency_lock);
     auto* cur_blocked_dep = _blocked_dep;
     auto fragment = _fragment_context.lock();
     if (is_finalized() || !fragment) {
+        fmt::format_to(debug_string_buffer, " pipeline name = {}", _pipeline_name);
         return fmt::to_string(debug_string_buffer);
     }
     auto elapsed = fragment->elapsed_time() / NANOS_PER_SEC;
