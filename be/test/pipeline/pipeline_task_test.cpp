@@ -39,6 +39,7 @@ public:
     PipelineTaskTest() : _obj_pool(new ObjectPool()) {}
     ~PipelineTaskTest() override = default;
     void SetUp() override {
+        _thread_mem_tracker_mgr = std::move(thread_context()->thread_mem_tracker_mgr);
         thread_context()->thread_mem_tracker_mgr = std::make_unique<MockThreadMemTrackerMgr>();
         _query_options = TQueryOptionsBuilder()
                                  .set_enable_local_exchange(true)
@@ -54,7 +55,10 @@ public:
         _task_queue = std::make_unique<DummyTaskQueue>(1);
         _build_fragment_context();
     }
-    void TearDown() override {}
+    void TearDown() override {
+        // Origin `thread_mem_tracker_mgr` must be restored otherwise `ThreadContextTest` will fail.
+        thread_context()->thread_mem_tracker_mgr = std::move(_thread_mem_tracker_mgr);
+    }
 
 private:
     void _build_fragment_context() {
@@ -76,6 +80,7 @@ private:
     std::unique_ptr<RuntimeState> _runtime_state;
     std::shared_ptr<QueryContext> _query_ctx;
     TUniqueId _query_id = TUniqueId();
+    std::unique_ptr<ThreadMemTrackerMgr> _thread_mem_tracker_mgr;
     TQueryOptions _query_options;
     std::unique_ptr<DummyTaskQueue> _task_queue;
     const std::string LOCALHOST = BackendOptions::get_localhost();
