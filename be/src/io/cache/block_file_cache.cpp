@@ -1759,7 +1759,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
 
 void BlockFileCache::run_background_monitor() {
     while (!_close) {
-        size_t interval_ms = config::file_cache_background_monitor_interval_ms;
+        int64_t interval_ms = config::file_cache_background_monitor_interval_ms;
         TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_sleep_time", &interval_ms);
         check_disk_resource_limit();
         if (config::enable_evict_file_cache_in_advance) {
@@ -1816,7 +1816,7 @@ void BlockFileCache::run_background_monitor() {
 
 void BlockFileCache::run_background_ttl_gc() { // TODO(zhengyu): fix!
     while (!_close) {
-        size_t interval_ms = config::file_cache_background_ttl_gc_interval_ms;
+        int64_t interval_ms = config::file_cache_background_ttl_gc_interval_ms;
         TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_sleep_time", &interval_ms);
         {
             std::unique_lock close_lock(_close_mtx);
@@ -1843,7 +1843,7 @@ void BlockFileCache::run_background_gc() {
     FileCacheKey key;
     size_t batch_count = 0;
     while (!_close) {
-        size_t interval_ms = config::file_cache_background_gc_interval_ms;
+        int64_t interval_ms = config::file_cache_background_gc_interval_ms;
         size_t batch_limit = config::file_cache_remove_block_qps_limit * interval_ms / 1000;
         {
             std::unique_lock close_lock(_close_mtx);
