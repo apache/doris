@@ -47,6 +47,8 @@ constexpr std::string_view PARTIAL_UPDATE_INFO_PREFIX = "pui_";
 
 // Helper class for managing rowset meta of one root path.
 class RowsetMetaManager {
+    ENABLE_FACTORY_CREATOR(RowsetMetaManager);
+
 public:
     static bool check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
     static Status exists(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);

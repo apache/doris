@@ -95,6 +95,8 @@ private:
 };
 
 class SegmentFlusher {
+    ENABLE_FACTORY_CREATOR(SegmentFlusher);
+
 public:
     SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files,
                    InvertedIndexFileCollection& idx_files);
@@ -118,6 +120,7 @@ public:
 
 public:
     class Writer {
+        ENABLE_FACTORY_CREATOR(Writer)
         friend class SegmentFlusher;
 
     public:
@@ -177,6 +180,8 @@ private:
 };
 
 class SegmentCreator {
+    ENABLE_FACTORY_CREATOR(SegmentCreator);
+
 public:
     SegmentCreator(RowsetWriterContext& context, SegmentFileCollection& seg_files,
                    InvertedIndexFileCollection& idx_files);
