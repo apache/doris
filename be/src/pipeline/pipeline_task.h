@@ -218,6 +218,8 @@ private:
     void _fresh_profile_counter();
     Status _open();
 
+    bool _try_to_reserve_memory(const size_t reserve_size, OperatorBase* op);
+
     const TUniqueId _query_id;
     const uint32_t _index;
     PipelinePtr _pipeline;
