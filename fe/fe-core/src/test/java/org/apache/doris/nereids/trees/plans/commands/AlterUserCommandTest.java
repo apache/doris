@@ -22,6 +22,7 @@ import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -40,8 +41,6 @@ public class AlterUserCommandTest {
     private AccessControllerManager accessControllerManager;
     @Mocked
     private ConnectContext connectContext;
-    private AlterUserCommand alterUserCommand;
-    private AlterUserInfo alterUserInfo;
     private UserDesc userDesc;
     private PasswordOptions passwordOptions;
 
@@ -72,11 +71,51 @@ public class AlterUserCommandTest {
         };
         // init
         UserIdentity userIdentity = new UserIdentity(Auth.ROOT_USER, "%");
+        connectContext.setQualifiedUser("root");
         PassVar passVar = new PassVar("", true);
         userDesc = new UserDesc(userIdentity, passVar);
         passwordOptions = PasswordOptions.UNSET_OPTION;
-        alterUserInfo = new AlterUserInfo(true, userDesc, passwordOptions, null);
-        alterUserCommand = new AlterUserCommand(alterUserInfo);
+        AlterUserInfo alterUserInfo = new AlterUserInfo(true, userDesc, passwordOptions, null);
+        AlterUserCommand alterUserCommand = new AlterUserCommand(alterUserInfo);
         Assertions.assertDoesNotThrow(() -> alterUserCommand.validate());
+
+        //test ops.size() > 1
+        AlterUserInfo alterUserInfo02 = new AlterUserInfo(true, userDesc, passwordOptions, "alterUserInfo02");
+        AlterUserCommand alterUserCommand02 = new AlterUserCommand(alterUserInfo02);
+        Assertions.assertThrows(AnalysisException.class, () -> alterUserCommand02.validate(),
+                "Only support doing one type of operation at one time,actual number of type is 2");
+
+        //testUser to modify root user
+        connectContext.setQualifiedUser("testUser");
+        Assertions.assertThrows(AnalysisException.class, () -> alterUserCommand.validate(), "Only root user can modify root user");
+    }
+
+    @Test
+    void testValidateNoPrivilege() {
+        new Expectations() {
+            {
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getAccessManager();
+                minTimes = 0;
+                result = accessControllerManager;
+
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.GRANT);
+                minTimes = 0;
+                result = false;
+            }
+        };
+
+        UserIdentity userIdentity = new UserIdentity(Auth.ROOT_USER, "%");
+        connectContext.setQualifiedUser("root");
+        PassVar passVar = new PassVar("", true);
+        userDesc = new UserDesc(userIdentity, passVar);
+        passwordOptions = PasswordOptions.UNSET_OPTION;
+        AlterUserInfo alterUserInfo = new AlterUserInfo(true, userDesc, passwordOptions, null);
+        AlterUserCommand alterUserCommand = new AlterUserCommand(alterUserInfo);
+        Assertions.assertThrows(AnalysisException.class, () -> alterUserCommand.validate(),
+                "Access denied; you need (at least one of) the (GRANT) privilege(s) for this operation");
     }
 }
