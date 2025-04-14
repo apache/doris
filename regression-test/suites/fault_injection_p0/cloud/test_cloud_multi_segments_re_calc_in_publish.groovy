@@ -58,10 +58,10 @@ suite("test_cloud_multi_segments_re_calc_in_publish", "nonConcurrent") {
         assert lastRowsetSegmentNum == Integer.parseInt(segmentNumStr)
     }
 
-    def loadMultiSegmentData = { tableName, rows ->
+    def loadMultiSegmentData = { tableName, rows, succ, String err="" ->
         // load data that will have multi segments and there are duplicate keys between segments
         String content = ""
-        (1..4096).each {
+        (1..rows).each {
             content += "${it},${it},${it}\n"
         }
         content += content
@@ -76,9 +76,14 @@ suite("test_cloud_multi_segments_re_calc_in_publish", "nonConcurrent") {
                     throw exception
                 }
                 def json = parseJson(result)
-                assert "success" == json.Status.toLowerCase()
-                assert rows == json.NumberTotalRows
-                assert 0 == json.NumberFilteredRows
+                if (succ) {
+                    assert "success" == json.Status.toLowerCase()
+                    assert rows*2 == json.NumberTotalRows
+                    assert 0 == json.NumberFilteredRows
+                } else {
+                    assert "fail" == json.Status.toLowerCase()
+                    assert json.Message.contains(err)
+                }
             }
         }
     }
@@ -100,7 +105,7 @@ suite("test_cloud_multi_segments_re_calc_in_publish", "nonConcurrent") {
 
             Thread.sleep(1000)
 
-            loadMultiSegmentData(table1, 8192)
+            loadMultiSegmentData(table1, 4096, true)
 
             GetDebugPoint().clearDebugPointsForAllBEs()
             Thread.sleep(2000)
@@ -150,7 +155,7 @@ suite("test_cloud_multi_segments_re_calc_in_publish", "nonConcurrent") {
 
             Thread.sleep(1000)
 
-            loadMultiSegmentData(table2, 8192)
+            loadMultiSegmentData(table2, 4096, false, "injected MemoryLimitExceeded error")
 
             GetDebugPoint().clearDebugPointsForAllBEs()
             Thread.sleep(2000)
@@ -158,9 +163,6 @@ suite("test_cloud_multi_segments_re_calc_in_publish", "nonConcurrent") {
             qt_sql "select count() from ${table2};"
 
             qt_dup_key_count "select count() from (select k1,count() as cnt from ${table2} group by k1 having cnt > 1) A;"
-
-            // ensure that we really write multi segments
-            checkSegmentNum(4, 3)
         } catch(Exception e) {
             logger.info(e.getMessage())
             throw e
