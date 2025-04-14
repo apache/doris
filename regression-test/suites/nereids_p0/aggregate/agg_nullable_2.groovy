@@ -874,7 +874,7 @@ suite("agg_nullable_2") {
     qt_select_topn_array """select topn_array(kvchrs1, 3) from agg_nullable_test_2;"""
     explain {
         sql("verbose select topn_array(kvchrs1, 3) from agg_nullable_test_2;")
-        contains "colUniqueId=null, type=array<varchar(10)>, nullable=true"
+        contains "colUniqueId=null, type=array<varchar(10)>, nullable=false"
     }
 
     qt_select_topn_array2 """select topn_array(kvchrs1, 3) from agg_nullable_test_2 group by id;"""
@@ -886,13 +886,13 @@ suite("agg_nullable_2") {
     qt_select_topn_array_n """select topn_array(knvchrs1, 3) from agg_nullable_test_2;"""
     explain {
         sql("verbose select topn_array(knvchrs1, 3) from agg_nullable_test_2;")
-        contains "colUniqueId=null, type=array<varchar(10)>, nullable=true"
+        contains "colUniqueId=null, type=array<varchar(10)>, nullable=false"
     }
 
     qt_select_topn_weighted """select topn_weighted(kvchrs1, ktint, 3) from agg_nullable_test_2;"""
     explain {
         sql("verbose select topn_weighted(kvchrs1, ktint, 3) from agg_nullable_test_2;")
-        contains ">, nullable=true"
+        contains ">, nullable=false"
     }
 
     qt_select_topn_weighted2 """select topn_weighted(kvchrs1, ktint, 3) from agg_nullable_test_2 group by id;"""
@@ -904,7 +904,7 @@ suite("agg_nullable_2") {
     qt_select_topn_weighted_n """select topn_weighted(knvchrs1, kntint, 3) from agg_nullable_test_2;"""
     explain {
         sql("verbose select topn_weighted(knvchrs1, kntint, 3) from agg_nullable_test_2;")
-        contains ">, nullable=true"
+        contains ">, nullable=false"
     }
 
     qt_select_variance """select variance(kint) from agg_nullable_test_2;"""
