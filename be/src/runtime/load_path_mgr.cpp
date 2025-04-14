@@ -33,7 +33,6 @@
 #include <memory>
 #include <ostream>
 #include <string>
-#include <sys/statvfs.h>
 
 #include "common/config.h"
 #include "io/fs/file_system.h"
@@ -88,34 +87,32 @@ Status LoadPathMgr::init() {
 
 Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label,
                                  std::string* prefix, int64_t file_bytes) {
-    Status status = _init_once.call([this, file_bytes] {
+    Status status = _init_once.call([this] {
         for (auto& store_path : _exec_env->store_paths()) {
-            // 检查磁盘空间
-            struct statvfs vfs;
-            if (statvfs(store_path.path.c_str(), &vfs) == 0) {
-                int64_t available_bytes = static_cast<int64_t>(vfs.f_bavail) * vfs.f_frsize;
-                int64_t total_bytes = static_cast<int64_t>(vfs.f_blocks) * vfs.f_frsize;
-                int64_t remaining_bytes = available_bytes - file_bytes;
-                double used_ratio = 1.0 - static_cast<double>(remaining_bytes) / total_bytes;
-                if (used_ratio >= config::storage_flood_stage_usage_percent / 100.0 &&
-                        remaining_bytes <= config::storage_flood_stage_left_capacity_bytes) {  // 剩余空间少于10%
-                    LOG(WARNING) << "Store path " << store_path.path
-                                 << " has less than 10% free space, skip it";
-                    continue;
-                }
-            }
             _path_vec.push_back(store_path.path + "/" + MINI_PREFIX);
         }
         return Status::OK();
     });
-    if (_path_vec.empty()) {
-        return Status::BufferAllocFailed("Store path has less than 10% free space");
-    }
     std::string path;
     auto size = _path_vec.size();
     auto retry = size;
+    auto path_vec_num = 0;
     while (retry--) {
         {
+            size_t _disk_capacity_bytes = 0;
+            size_t _available_bytes = 0;
+
+            RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path_vec[_idx], &_disk_capacity_bytes,
+                                                                          &_available_bytes));
+            int64_t remaining_bytes = _available_bytes - file_bytes;
+            double used_ratio = 1.0 - static_cast<double>(remaining_bytes) / _disk_capacity_bytes;
+            if (used_ratio >= config::storage_flood_stage_usage_percent / 100.0 &&
+                remaining_bytes <= config::storage_flood_stage_left_capacity_bytes) {  // 剩余空间少于10%
+                LOG(WARNING) << "Store path " << _path_vec[_idx]
+                             << " has less than 10% free space, skip it";
+                ++path_vec_num;
+                continue;
+            }
             // add SHARD_PREFIX for compatible purpose
             std::lock_guard<std::mutex> l(_lock);
             std::string shard = SHARD_PREFIX + std::to_string(_next_shard++ % MAX_SHARD_NUM);
@@ -128,7 +125,9 @@ Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label
             return Status::OK();
         }
     }
-
+    if (path_vec_num == size) {
+        return Status::BufferAllocFailed("Store path has less than 10% free space");
+    }
     return status;
 }
 
