@@ -544,12 +544,13 @@ Status PipelineTask::execute(bool* done) {
 bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBase* op) {
     auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(reserve_size);
     COUNTER_UPDATE(_memory_reserve_times, 1);
-    auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
+    auto sink_revocable_mem_size =
+            reserve_size > 0 ? _sink->revocable_mem_size(_state) : Status::OK();
     if (st.ok() && _state->enable_force_spill() && _sink->is_spillable() &&
         sink_revocable_mem_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
         st = Status(ErrorCode::QUERY_MEMORY_EXCEEDED, "Force Spill");
     }
-    if (!st.ok() && !_state->enable_force_spill()) {
+    if (!st.ok()) {
         COUNTER_UPDATE(_memory_reserve_failed_times, 1);
         auto debug_msg = fmt::format(
                 "Query: {} , try to reserve: {}, operator name: {}, operator "
