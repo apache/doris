@@ -593,7 +593,7 @@ suite("aggregate_without_roll_up") {
     order_qt_query17_0_before "${query17_0}"
     async_mv_rewrite_success(db, mv17_0, query17_0, "mv17_0")
     order_qt_query17_0_after "${query17_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv17_0"""
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv17_0"""
 
 
     def mv17_1 = "select L_ORDERKEY, O_SHIPPRIORITY, O_COMMENT, " +
