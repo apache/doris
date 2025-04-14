@@ -1280,6 +1280,22 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
 }
 
 ColumnPtr ColumnObject::permute(const Permutation& perm, size_t limit) const {
+    if (limit == 0)
+        limit = num_rows;
+    else
+        limit = std::min(num_rows, limit);
+
+    if (perm.size() < limit) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
+        __builtin_unreachable();
+    }
+
+    if (limit == 0) {
+        return ColumnObject::create(_max_subcolumns_count);
+    }
+
     return apply_for_columns([&](const ColumnPtr column) { return column->permute(perm, limit); });
 }
 
@@ -1558,6 +1574,7 @@ bool ColumnObject::Subcolumn::is_empty_nested(size_t row) const {
         DCHECK(type->equals(*ColumnObject::NESTED_TYPE));
         Field field;
         get(row, field);
+        field = get_field_from_variant_field(field);
         if (field.get_type() == Field::Types::Array) {
             const auto& array = field.get<Array>();
             bool only_nulls_inside = true;
@@ -1943,20 +1960,13 @@ bool ColumnObject::empty() const {
     return subcolumns.empty() || subcolumns.begin()->get()->path.get_path() == COLUMN_NAME_DUMMY;
 }
 
-ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
-    if (const auto* column_array = check_and_get_column<ColumnArray>(column.get())) {
-        return column_array->get_data_ptr();
-    }
-    return column;
-}
-
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     if (!is_finalized()) {
         auto finalized = clone_finalized();
         auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
         return finalized_object.filter(filter, count);
     }
-    if (subcolumns.empty()) {
+    if (num_rows == 0) {
         auto res = ColumnObject::create(_max_subcolumns_count, count_bytes_in_filter(filter));
         ENABLE_CHECK_CONSISTENCY(res.get());
         return res;
@@ -1979,6 +1989,9 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
 
 ColumnPtr ColumnObject::replicate(const IColumn::Offsets& offsets) const {
     column_match_offsets_size(num_rows, offsets.size());
+    if (num_rows == 0) {
+        return ColumnObject::create(_max_subcolumns_count);
+    }
     return apply_for_columns([&](const ColumnPtr column) { return column->replicate(offsets); });
 }
 
@@ -2162,8 +2175,9 @@ Status ColumnObject::sanitize() const {
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_finalized()) {
             auto column = subcolumn->data.get_least_common_type()->create_column();
-            std::string original = subcolumn->data.get_finalized_column().get_name();
-            std::string expected = column->get_name();
+            std::string original =
+                    remove_nullable(subcolumn->data.get_finalized_column().get_ptr())->get_name();
+            std::string expected = remove_nullable(column->get_ptr())->get_name();
             if (original != expected) {
                 return Status::InternalError("Incompatible type between {} and {}, debug_info:",
                                              original, expected, debug_string());
