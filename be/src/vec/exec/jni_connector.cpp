@@ -90,15 +90,12 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
         batch_size = _state->batch_size();
     }
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    MonotonicStopWatch _watch;
-    _watch.start();
     _scanner_params.emplace("time_zone", _state->timezone());
     RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
     // Call org.apache.doris.common.jni.JniScanner#open
-    env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_open);
+    SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
+    env->CallLongMethod(_jni_scanner_obj, _jni_scanner_open);
     RETURN_ERROR_IF_EXC(env);
-    _watch.stop();
-    _jni_scanner_open_watcher = _watch.elapsed_time();
     _scanner_opened = true;
     return Status::OK();
 }
@@ -124,14 +121,11 @@ Status JniConnector::get_next_block(Block* block, size_t* read_rows, bool* eof) 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     long meta_address = 0;
-
-    MonotonicStopWatch _watch;
-    _watch.start();
-    meta_address = env->CallLongMethod(_jni_scanner_obj, _jni_scanner_get_next_batch);
+    {
+        SCOPED_RAW_TIMER(&_java_scan_watcher);
+        meta_address = env->CallLongMethod(_jni_scanner_obj, _jni_scanner_get_next_batch);
+    }
     RETURN_ERROR_IF_EXC(env);
-    _watch.stop();
-    _java_scan_watcher += _watch.elapsed_time();
-
     if (meta_address == 0) {
         // Address == 0 when there's no data in scanner
         *read_rows = 0;
@@ -309,8 +303,7 @@ Status JniConnector::fill_block(Block* block, const ColumnNumbers& arguments, lo
 }
 
 Status JniConnector::_fill_block(Block* block, size_t num_rows) {
-    MonotonicStopWatch _watch;
-    _watch.start();
+    SCOPED_RAW_TIMER(&_fill_block_watcher);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     for (int i = 0; i < _column_names.size(); ++i) {
@@ -322,8 +315,6 @@ Status JniConnector::_fill_block(Block* block, size_t num_rows) {
         env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_column, i);
         RETURN_ERROR_IF_EXC(env);
     }
-    _watch.stop();
-    _fill_block_watcher = _watch.elapsed_time();
     return Status::OK();
 }
 
