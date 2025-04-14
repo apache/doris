@@ -145,9 +145,6 @@ public class LoadAction extends RestBaseController {
                 }
             }
         }
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
 
         String authToken = request.getHeader("token");
         // if auth token is not null, check it first
