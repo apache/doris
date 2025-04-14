@@ -28,38 +28,32 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class AlterUserCommandTest {
-    @Mocked
-    private Env env;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
-    @Mocked
+import java.io.IOException;
+
+public class AlterUserCommandTest extends TestWithFeService {
     private ConnectContext connectContext;
+    private Env env;
+    private AccessControllerManager accessControllerManager;
     private UserDesc userDesc;
     private PasswordOptions passwordOptions;
 
+    private void runBefore() throws IOException {
+        connectContext = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
+    }
+
     @Test
     public void testValidateNormal() throws Exception {
+        runBefore();
         new Expectations() {
             {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
                 connectContext.isSkipAuth();
                 minTimes = 0;
                 result = true;
@@ -91,17 +85,10 @@ public class AlterUserCommandTest {
     }
 
     @Test
-    void testValidateNoPrivilege() {
+    void testValidateNoPrivilege() throws IOException {
+        runBefore();
         new Expectations() {
             {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
                 accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.GRANT);
                 minTimes = 0;
                 result = false;
