@@ -43,7 +43,7 @@ public class LimitSortToTopN implements RewriteRuleFactory {
                             return new LogicalTopN<>(sort.getOrderKeys(),
                                     limit.getLimit(),
                                     limit.getOffset(),
-                                    sort.child(0));
+                                    sort.child(0), false);
                         }).toRule(RuleType.LIMIT_SORT_TO_TOP_N),
                 // limit -> proj -> sort ==> proj -> topN
                 logicalLimit(logicalProject(logicalSort()))
@@ -53,7 +53,7 @@ public class LimitSortToTopN implements RewriteRuleFactory {
                             LogicalTopN<Plan> topN = new LogicalTopN<>(sort.getOrderKeys(),
                                     limit.getLimit(),
                                     limit.getOffset(),
-                                    sort.child(0));
+                                    sort.child(0), false);
                             return project.withChildren(Lists.newArrayList(topN));
                         }).toRule(RuleType.LIMIT_SORT_TO_TOP_N)
         );
