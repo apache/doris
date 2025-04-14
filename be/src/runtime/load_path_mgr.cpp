@@ -107,7 +107,7 @@ Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label
             int64_t remaining_bytes = _available_bytes - file_bytes;
             double used_ratio = 1.0 - static_cast<double>(remaining_bytes) / _disk_capacity_bytes;
             if (used_ratio >= config::storage_flood_stage_usage_percent / 100.0 &&
-                remaining_bytes <= config::storage_flood_stage_left_capacity_bytes) {  // 剩余空间少于10%
+                remaining_bytes <= config::storage_flood_stage_left_capacity_bytes) {
                 LOG(WARNING) << "Store path " << _path_vec[_idx]
                              << " has less than 10% free space, skip it";
                 ++path_vec_num;
