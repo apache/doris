@@ -97,6 +97,7 @@ private:
     RuntimeProfile::Counter* _mgr_add_batch_timer = nullptr;
     RuntimeProfile::Counter* _handle_mem_limit_timer = nullptr;
     RuntimeProfile::Counter* _handle_eos_timer = nullptr;
+    RuntimeProfile::Counter* _file_close_timer = nullptr;
 
     // lock protect the tablets channel map
     std::mutex _lock;
