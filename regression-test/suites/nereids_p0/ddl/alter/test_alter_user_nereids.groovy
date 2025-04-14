@@ -19,10 +19,10 @@ suite("test_alter_user_nereids") {
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
 	
-    sql """CREATE USER 'jack';"""
+    sql """CREATE USER 'fjytf';"""
 	
-    sql """ALTER USER jack@'%' IDENTIFIED BY "12345";"""
-    sql """ALTER USER jack@'%' FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;"""
-    sql """ALTER USER jack@'%' ACCOUNT_UNLOCK;"""
-	sql """ALTER USER jack@'%' COMMENT "this is my first user";"""
+    sql """ALTER USER fjytf@'%' IDENTIFIED BY "12345";"""
+    sql """ALTER USER fjytf@'%' FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;"""
+    sql """ALTER USER fjytf@'%' ACCOUNT_UNLOCK;"""
+	sql """ALTER USER fjytf@'%' COMMENT "this is my first user";"""
 }
