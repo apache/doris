@@ -62,8 +62,6 @@ public:
     Status delete_and_create_directory(const Path& dir);
     // return disk available space where the given path is.
     Status get_space_info(const Path& path, size_t* capacity, size_t* available);
-    // Copy src path to dest path. If `src` is a directory, this method will call recursively for each directory entry.
-    Status copy_path(const Path& src, const Path& dest);
     // return true if parent path contain sub path
     static bool contain_path(const Path& parent, const Path& sub);
     // delete dir or file
@@ -100,6 +98,8 @@ protected:
                      bool* exists) override;
     Status rename_impl(const Path& orig_name, const Path& new_name) override;
     Status rename_dir_impl(const Path& orig_name, const Path& new_name) override;
+    Status copy_path_impl(const Path& src, const Path& dest) override;
+
     Status link_file_impl(const Path& src, const Path& dest);
     Status md5sum_impl(const Path& file, std::string* md5sum);
     Status iterate_directory_impl(const std::string& dir,
@@ -107,7 +107,6 @@ protected:
     Status mtime_impl(const Path& file, time_t* m_time);
     Status delete_and_create_directory_impl(const Path& dir);
     Status get_space_info_impl(const Path& path, size_t* capacity, size_t* available);
-    Status copy_path_impl(const Path& src, const Path& dest);
     Status delete_directory_or_file_impl(const Path& path);
     Status permission_impl(const Path& file, std::filesystem::perms prms);
 

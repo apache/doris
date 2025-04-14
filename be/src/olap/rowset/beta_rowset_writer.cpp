@@ -33,6 +33,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_options.h"
@@ -49,6 +50,7 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
 #include "runtime/thread_context.h"
 #include "segcompaction.h"
@@ -448,7 +450,20 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
 
 Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
-    RETURN_IF_ERROR(rowset->link_files_to(_context.rowset_dir, _context.rowset_id));
+    if (rowset->is_local()) {
+        RETURN_IF_ERROR(rowset->link_files_to(_context.rowset_dir, _context.rowset_id));
+    } else {
+        // use old rowset id for remote rowset
+        _rowset_meta->set_rowset_id(rowset->rowset_meta()->rowset_id());
+        _context.rowset_id = rowset->rowset_meta()->rowset_id();
+        TabletSharedPtr tablet =
+                StorageEngine::instance()->tablet_manager()->get_tablet(rowset->rowset_meta()->tablet_id());
+        if (tablet->cooldown_conf().first == tablet->replica_id()) {
+            RETURN_IF_ERROR(rowset->copy_files_to(_context.rowset_dir, _context.rowset_id));
+        } else {
+            LOG(INFO) << "tablet is not cooldown replica, skip copy remote file. tablet: " << _context.tablet_id;
+        }
+    }
     _num_rows_written += rowset->num_rows();
     _total_data_size += rowset->rowset_meta()->data_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();

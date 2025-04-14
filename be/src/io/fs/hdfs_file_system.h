@@ -139,6 +139,7 @@ protected:
                                      const std::string& checksum) override;
     Status download_impl(const Path& remote_file, const Path& local_file) override;
     Status direct_download_impl(const Path& remote_file, std::string* content) override;
+    Status copy_path_impl(const Path& src, const Path& dest) override;
 
 private:
     Status delete_internal(const Path& path, int is_recursive);
