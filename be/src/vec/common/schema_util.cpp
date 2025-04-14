@@ -1142,6 +1142,8 @@ void get_field_info(const Field& field, FieldInfo* info) {
     } else {
         get_field_info_impl<SimpleFieldVisitorToScalarType>(field, info);
     }
+}
+
 bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                               const PathInData& path, SubColumnInfo* sub_column_info) {
     const auto& parent_column = schema.column_by_uid(col_unique_id);
