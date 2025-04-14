@@ -61,6 +61,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.BiMap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -77,6 +78,7 @@ import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -592,7 +594,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         } else if (dlaType.equals(DLAType.HUDI)) {
             return getHudiSchema();
         } else {
-            return getHiveSchema();
+            return getHiveSchema2();
         }
     }
 
@@ -616,6 +618,26 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         HudiSchemaCacheValue hudiSchemaCacheValue = new HudiSchemaCacheValue(tmpSchema, partitionColumns);
         hudiSchemaCacheValue.setColTypes(colTypes);
         return Optional.of(hudiSchemaCacheValue);
+    }
+
+    private static List<FieldSchema> getSchemaFromTable(Table table) {
+        ImmutableList.Builder<FieldSchema> schema = ImmutableList.builder();
+        schema.addAll(table.getSd().getCols());
+        schema.addAll(table.getPartitionKeys());
+        return schema.build();
+    }
+
+    private Optional<SchemaCacheValue> getHiveSchema2() {
+        List<FieldSchema> schema = getSchemaFromTable(this.remoteTable);
+        List<Column> columns = Lists.newArrayListWithCapacity(schema.size());
+        for (FieldSchema field : schema) {
+            String fieldName = field.getName().toLowerCase(Locale.ROOT);
+            columns.add(new Column(fieldName,
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
+                    true, null, field.getComment(), true, -1));
+        }
+        List<Column> partitionColumns = initPartitionColumns(columns);
+        return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }
 
     private Optional<SchemaCacheValue> getHiveSchema() {
