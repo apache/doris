@@ -98,6 +98,7 @@ public class MTMVCache {
         if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
             mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
         }
+        mvSqlStatementContext.setForceCollect(true);
         LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(defSql);
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
         boolean originalRewriteFlag = createCacheContext.getSessionVariable().enableMaterializedViewRewrite;
