@@ -74,6 +74,18 @@ public class FunctionRegistry {
         afterRegisterBuiltinFunctions(name2BuiltinBuilders);
     }
 
+    public Map<String, List<FunctionBuilder>> getName2BuiltinBuilders() {
+        return name2BuiltinBuilders;
+    }
+
+    public String getGlobalFunctionDbName() {
+        return GLOBAL_FUNCTION;
+    }
+
+    public Map<String, Map<String, List<FunctionBuilder>>> getName2UdfBuilders() {
+        return name2UdfBuilders;
+    }
+
     // this function is used to test.
     // for example, you can create child class of FunctionRegistry and clear builtin functions or add more functions
     // in this method
@@ -284,6 +296,11 @@ public class FunctionRegistry {
             Map<String, List<FunctionBuilder>> builders = name2UdfBuilders.getOrDefault(dbName, ImmutableMap.of());
             builders.getOrDefault(name, Lists.newArrayList())
                     .removeIf(builder -> ((UdfBuilder) builder).getArgTypes().equals(argTypes));
+
+            // the name will be used when show functions, so remove the name when it's dropped
+            if (builders.getOrDefault(name, Lists.newArrayList()).isEmpty()) {
+                builders.remove(name);
+            }
         }
     }
 
