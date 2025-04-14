@@ -334,6 +334,7 @@ build_libbacktrace() {
 
 # libevent
 build_libevent() {
+    echo "===== TEST begin build libevent"       
     check_if_source_exist "${LIBEVENT_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LIBEVENT_SOURCE}"
 
