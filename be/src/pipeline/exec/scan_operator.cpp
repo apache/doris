@@ -633,10 +633,11 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
         while (iter->has_next()) {
             // column in (nullptr) is always false so continue to
             // dispose next item
-            if (nullptr == iter->get_value()) {
-                iter->next();
-                continue;
-            }
+            DCHECK(iter->get_value() != nullptr);
+            // if (nullptr == iter->get_value()) {
+            //     iter->next();
+            //     continue;
+            // }
             auto* value = const_cast<void*>(iter->get_value());
             RETURN_IF_ERROR(_change_value_range<true>(
                     temp_range, value, ColumnValueRange<T>::add_fixed_value_range, ""));
