@@ -334,8 +334,8 @@ public class Memo {
     public static boolean needInitMultiPlanMemo(CascadesContext cascadesContext, Plan rboFinalPlan) {
         StatementContext statementContext = cascadesContext.getStatementContext();
         List<Plan> tmpPlanForLaterMvRewrite = statementContext.getTmpPlanForLaterMvRewrite();
-        boolean containMaterializedViewHook =
-                MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext());
+        boolean containMaterializedViewHook = MaterializedViewUtils
+                .containMaterializedViewHook(cascadesContext.getStatementContext());
         return !cascadesContext.getMaterializationContexts().isEmpty()
                 && containMaterializedViewHook
                 && !tmpPlanForLaterMvRewrite.isEmpty() && rboFinalPlan instanceof LogicalResultSink
