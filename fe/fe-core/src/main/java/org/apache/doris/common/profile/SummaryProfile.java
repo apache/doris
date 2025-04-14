@@ -37,10 +37,12 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.stream.Collectors;
 
 /**
  * SummaryProfile is part of a query profile.
@@ -125,9 +127,7 @@ public class SummaryProfile {
     public static final String RPC_QUEUE_TIME = "RPC Work Queue Time";
     public static final String RPC_WORK_TIME = "RPC Work Time";
     public static final String LATENCY_FROM_BE_TO_FE = "RPC Latency From BE To FE";
-    public static final String SPLITS_ASSIGNMENT = "Splits Assignment";
-    public static final String SPLITS_ASSIGNMENT_WEIGHT = "Weight";
-    public static final String SPLITS_ASSIGNMENT_SPLIT_INFO = "Split Info";
+    public static final String SPLITS_ASSIGNMENT_WEIGHT = "Splits Assignment Weight";
 
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
@@ -188,9 +188,7 @@ public class SummaryProfile {
             EXECUTED_BY_FRONTEND,
             NEREIDS_BE_FOLD_CONST_TIME,
             NEREIDS_GARBAGE_COLLECT_TIME,
-            SPLITS_ASSIGNMENT,
-            SPLITS_ASSIGNMENT_WEIGHT,
-            SPLITS_ASSIGNMENT_SPLIT_INFO
+            SPLITS_ASSIGNMENT_WEIGHT
     );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
@@ -226,8 +224,6 @@ public class SummaryProfile {
             .put(HMS_ADD_PARTITION_CNT, 2)
             .put(HMS_UPDATE_PARTITION_TIME, 1)
             .put(HMS_UPDATE_PARTITION_CNT, 2)
-            .put(SPLITS_ASSIGNMENT_WEIGHT, 1)
-            .put(SPLITS_ASSIGNMENT_SPLIT_INFO, 1)
             .build();
 
     @SerializedName(value = "summaryProfile")
@@ -348,13 +344,12 @@ public class SummaryProfile {
     @SerializedName(value = "transactionType")
     private TransactionType transactionType = TransactionType.UNKNOWN;
 
-    private final Map<String, List<String>> splitProfileInfoMap = new HashMap<>();
-    private final Map<String, Long> splitWeightProfileInfoMap = new HashMap<>();
-
     // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
     // to FE)
     private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
     private Map<TNetworkAddress, List<Long>> rpcPhase2Latency;
+
+    Map<Backend, Long> assignedWeightPerBackend;
 
     public SummaryProfile() {
         init();
@@ -416,12 +411,19 @@ public class SummaryProfile {
     }
 
     public void queryFinished() {
-        executionSummaryProfile.addInfoString(
-                SPLITS_ASSIGNMENT_WEIGHT,
-                new GsonBuilder().disableHtmlEscaping().create().toJson(splitWeightProfileInfoMap));
-        executionSummaryProfile.addInfoString(
-                SPLITS_ASSIGNMENT_SPLIT_INFO,
-                new GsonBuilder().disableHtmlEscaping().create().toJson(splitProfileInfoMap));
+        if (assignedWeightPerBackend != null) {
+            Map<String, Long> m = assignedWeightPerBackend.entrySet().stream()
+                    .sorted(Map.Entry.comparingByValue())
+                    .collect(Collectors.toMap(
+                        entry -> entry.getKey().getAddress(),
+                        Entry::getValue,
+                        (v1, v2) -> v1,
+                        LinkedHashMap::new
+                ));
+            executionSummaryProfile.addInfoString(
+                    SPLITS_ASSIGNMENT_WEIGHT,
+                    new GsonBuilder().create().toJson(m));
+        }
     }
 
     private void updateSummaryProfile(Map<String, String> infos) {
@@ -977,12 +979,7 @@ public class SummaryProfile {
         Text.writeString(output, GsonUtils.GSON.toJson(this));
     }
 
-    public void setSplitWeightProfileInfoMap(Backend backend, Long weight) {
-        splitWeightProfileInfoMap.merge(backend.getAddress(), weight, Long::sum);
-    }
-
-    public void setSplitProfileInfo(Backend backend, String splitProfileInfo) {
-        List<String> infos = splitProfileInfoMap.computeIfAbsent(backend.getAddress(), k -> new ArrayList<>());
-        infos.add(splitProfileInfo);
+    public void setAssignedWeightPerBackend(Map<Backend, Long> assignedWeightPerBackend) {
+        this.assignedWeightPerBackend = assignedWeightPerBackend;
     }
 }

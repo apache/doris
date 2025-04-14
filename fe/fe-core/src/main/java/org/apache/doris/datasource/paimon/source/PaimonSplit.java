@@ -18,12 +18,9 @@
 package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.AssignmentSplitInfoIf;
 import org.apache.doris.datasource.FileSplit;
-import org.apache.doris.datasource.PaimonSplitProfileInfo;
 import org.apache.doris.datasource.SplitCreator;
 import org.apache.doris.datasource.TableFormatType;
-import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.collect.Maps;
 import org.apache.paimon.io.DataFileMeta;
@@ -127,10 +124,5 @@ public class PaimonSplit extends FileSplit {
             split.setTargetSplitSize(fileSplitSize);
             return split;
         }
-    }
-
-    @Override
-    public AssignmentSplitInfoIf toAssignmentSplitInfo(TScanRangeLocations scanRangeLocations) {
-        return PaimonSplitProfileInfo.create(this, scanRangeLocations);
     }
 }

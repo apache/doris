@@ -90,11 +90,11 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
         batch_size = _state->batch_size();
     }
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
     _scanner_params.emplace("time_zone", _state->timezone());
     RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
     // Call org.apache.doris.common.jni.JniScanner#open
-    SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
-    env->CallLongMethod(_jni_scanner_obj, _jni_scanner_open);
+    env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_open);
     RETURN_ERROR_IF_EXC(env);
     _scanner_opened = true;
     return Status::OK();
@@ -194,7 +194,7 @@ Status JniConnector::close() {
 
             _max_time_split_id_counter->conditional_update(
                     _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
-                    _split_id);
+                    _self_split_weight);
 
             // _fill_block may be failed and returned, we should release table in close.
             // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent

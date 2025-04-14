@@ -18,7 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -38,7 +37,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * When file splits are supplied in batch mode, splits are generated lazily and assigned in each call of `getNextBatch`.
@@ -49,7 +47,7 @@ public class SplitAssignment {
     private final Set<Long> sources = new HashSet<>();
     private final FederationBackendPolicy backendPolicy;
     private final SplitGenerator splitGenerator;
-    private final ConcurrentHashMap<Backend, BlockingQueue<Collection<AssignmentSplitInfoIf>>> assignment
+    private final ConcurrentHashMap<Backend, BlockingQueue<Collection<TScanRangeLocations>>> assignment
             = new ConcurrentHashMap<>();
     private final SplitToScanRange splitToScanRange;
     private final Map<String, String> locationProperties;
@@ -58,25 +56,21 @@ public class SplitAssignment {
     private Split sampleSplit = null;
     private final AtomicBoolean isStopped = new AtomicBoolean(false);
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
-    private final AtomicInteger splitId = new AtomicInteger(0);
 
     private UserException exception = null;
     private final List<Closeable> closeableResources = new ArrayList<>();
-    private final SessionVariable sv;
 
     public SplitAssignment(
             FederationBackendPolicy backendPolicy,
             SplitGenerator splitGenerator,
             SplitToScanRange splitToScanRange,
             Map<String, String> locationProperties,
-            List<String> pathPartitionKeys,
-            SessionVariable sessionVariable) {
+            List<String> pathPartitionKeys) {
         this.backendPolicy = backendPolicy;
         this.splitGenerator = splitGenerator;
         this.splitToScanRange = splitToScanRange;
         this.locationProperties = locationProperties;
         this.pathPartitionKeys = pathPartitionKeys;
-        this.sv = sessionVariable;
     }
 
     public void init() throws UserException {
@@ -102,22 +96,11 @@ public class SplitAssignment {
     private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
         for (Backend backend : batch.keySet()) {
             Collection<Split> splits = batch.get(backend);
-            List<AssignmentSplitInfoIf> assignmentSplitInfoIfs = new ArrayList<>(splits.size());
+            List<TScanRangeLocations> locations = new ArrayList<>(splits.size());
             for (Split split : splits) {
-                TScanRangeLocations scanRange = splitToScanRange.getScanRange(
-                        backend, locationProperties, split, pathPartitionKeys);
-                AssignmentSplitInfoIf assignmentEmptySplitInfo;
-                if (sv.showSplitProfileInfo()) {
-                    assignmentEmptySplitInfo = split.toAssignmentSplitInfo(scanRange);
-                } else {
-                    assignmentEmptySplitInfo = AssignmentEmptySplitInfo.create(scanRange);
-                }
-                assignmentSplitInfoIfs.add(assignmentEmptySplitInfo);
+                locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys));
             }
-            if (!assignment.computeIfAbsent(
-                    backend,
-                    be -> new LinkedBlockingQueue<>())
-                    .offer(assignmentSplitInfoIfs)) {
+            if (!assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>()).offer(locations)) {
                 throw new UserException("Failed to offer batch split");
             }
         }
@@ -166,11 +149,11 @@ public class SplitAssignment {
         }
     }
 
-    public BlockingQueue<Collection<AssignmentSplitInfoIf>> getAssignedSplits(Backend backend) throws UserException {
+    public BlockingQueue<Collection<TScanRangeLocations>> getAssignedSplits(Backend backend) throws UserException {
         if (exception != null) {
             throw exception;
         }
-        BlockingQueue<Collection<AssignmentSplitInfoIf>> splits = assignment.computeIfAbsent(backend,
+        BlockingQueue<Collection<TScanRangeLocations>> splits = assignment.computeIfAbsent(backend,
                 be -> new LinkedBlockingQueue<>());
         if (scheduleFinished.get() && splits.isEmpty() || isStopped.get()) {
             return null;
@@ -210,9 +193,5 @@ public class SplitAssignment {
 
     public void addCloseable(Closeable resource) {
         closeableResources.add(resource);
-    }
-
-    public int getSplitId() {
-        return splitId.getAndIncrement();
     }
 }
