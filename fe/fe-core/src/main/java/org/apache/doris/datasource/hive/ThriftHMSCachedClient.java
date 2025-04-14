@@ -668,12 +668,19 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
         @Override
         public void close() throws Exception {
+            boolean retured = false;
             synchronized (clientPool) {
-                if (isClosed || throwable != null || clientPool.size() > poolSize) {
-                    client.close();
-                } else {
+                if (throwable == null && clientPool.size() <= poolSize) {
                     clientPool.offer(this);
+                    retured = true;
+                } else {
+                    LOG.info("failed to return client to pool, close it. has throwable: {}, pool size: {}",
+                            (throwable != null), clientPool.size());
                 }
+            }
+            // close the client outside the lock because it may be time-consuming
+            if (!retured) {
+                client.close();
             }
         }
     }
