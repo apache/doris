@@ -78,4 +78,21 @@ suite("fold_constant_date_arithmatic") {
     testFoldConst("select next_day('2020-02-29', 'MON');") // 2020-03-02 (leap year to next month)
     testFoldConst("select next_day('2019-02-26', 'THU');") // 2019-02-28 (non-leap year)
     testFoldConst("select next_day('2019-02-28', 'SUN');") // 2019-03-03 (non-leap year to next month)
+    
+    // test unix_timestamp
+    testFoldConst("select unix_timestamp('2023/04/31');")
+    testFoldConst("select unix_timestamp('1970/01/01 00:00:00');")
+    testFoldConst("select unix_timestamp('1970-01-01T00:00:00');")
+    testFoldConst("select unix_timestamp('1970-01-01');")
+    testFoldConst("select unix_timestamp('31/Apr/2023','%d/%b/%Y');")
+    testFoldConst("select unix_timestamp('00-00-0000');")
+    testFoldConst("select unix_timestamp('3000/02/29','%Y/%m/%d');")
+    testFoldConst("select unix_timestamp('01.Jan.1970','%d.%b.%Y');")
+    testFoldConst("select unix_timestamp('0000-00-00 00:00:00');")
+    testFoldConst("select unix_timestamp();")
+    testFoldConst("select unix_timestamp('2021-02-29', '%Y-%m-%d');")
+    testFoldConst("select unix_timestamp('2023/04/31', '%Y/%m/%d');")
+    testFoldConst("select unix_timestamp('2023-04-31 12:00:00');")
+    testFoldConst("select unix_timestamp('1970-01-01','%Y-%m-%d');")
+    testFoldConst("select unix_timestamp('0');")
 }
