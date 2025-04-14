@@ -67,7 +67,7 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         if (group == null) {
             return visit(groupPlan, context);
         }
-        Collection<StructInfo> structInfos = group.getstructInfoMap().getStructInfos();
+        Collection<StructInfo> structInfos = group.getStructInfoMap().getStructInfos();
         if (structInfos.isEmpty()) {
             return visit(groupPlan, context);
         }

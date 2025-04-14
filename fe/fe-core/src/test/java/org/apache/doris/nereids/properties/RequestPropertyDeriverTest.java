@@ -22,16 +22,21 @@ import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -56,8 +61,19 @@ import java.util.Optional;
 
 class RequestPropertyDeriverTest {
 
-    @Mocked
-    GroupPlan groupPlan;
+    GroupExpression ge = new GroupExpression(
+            new LogicalOneRowRelation(
+                    new RelationId(1),
+                    ImmutableList.of(new Alias(Literal.of(1)))
+            ),
+            ImmutableList.of()
+    );
+
+    GroupPlan groupPlan = new GroupPlan(
+            new Group(GroupId.createGenerator().getNextId(),
+                    ge.getPlan().getLogicalProperties()
+            )
+    );
 
     @Mocked
     LogicalProperties logicalProperties;

@@ -35,7 +35,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
 // NOTE: not using a lock for beToQueryStatsMap's update because it should void global lock for all be
 // this may cause in some corner case missing statistics update,for example:
@@ -48,8 +49,12 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(WorkloadRuntimeStatusMgr.class);
     private Map<Long, BeReportInfo> beToQueryStatsMap = Maps.newConcurrentMap();
-    private final ReentrantReadWriteLock queryAuditEventLock = new ReentrantReadWriteLock();
+    private final ReentrantLock queryAuditEventLock = new ReentrantLock();
+    // private final Semaphore semaphore = new Semaphore(1);
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
+    private final AtomicBoolean lock = new AtomicBoolean(false);
+    private volatile long lastWarnTime;
+    // private AtomicBoolean spinLock = new AtomicBoolean();
 
     private class BeReportInfo {
         volatile long beLastReportTime;
@@ -112,9 +117,14 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         queryAuditEventLogWriteLock();
         try {
             if (queryAuditEventList.size() > Config.audit_event_log_queue_size) {
-                LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
-                                + "you can check whether qps is too high or reset audit_event_log_queue_size",
-                        queryAuditEventList.size());
+                long now = System.currentTimeMillis();
+
+                if (now - lastWarnTime >= 1000) {
+                    lastWarnTime = now;
+                    LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
+                                    + "you can check whether qps is too high or reset audit_event_log_queue_size",
+                            queryAuditEventList.size());
+                }
                 Env.getCurrentAuditEventProcessor().handleAuditEvent(event, true);
                 return;
             }
@@ -234,10 +244,20 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     }
 
     private void queryAuditEventLogWriteLock() {
-        queryAuditEventLock.writeLock().lock();
+        queryAuditEventLock.lock();
+        // int waitCount = 0;
+        // while (true) {
+        //     if (lock.compareAndSet(false, true)) {
+        //         break;
+        //     }
+        //     if ((++waitCount % 100) == 0) {
+        //         Uninterruptibles.sleepUninterruptibly(10, TimeUnit.MILLISECONDS);
+        //     }
+        // }
     }
 
     private void queryAuditEventLogWriteUnlock() {
-        queryAuditEventLock.writeLock().unlock();
+        queryAuditEventLock.unlock();
+        // lock.compareAndSet(true, false);
     }
 }
