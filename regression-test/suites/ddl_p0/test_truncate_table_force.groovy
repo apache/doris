@@ -16,8 +16,8 @@
 // under the License.
 
 
-suite("test_truncate_table") {
-    def testTable = "test_truncate_table"
+suite("test_truncate_table_force") {
+    def testTable = "test_truncate_table_force"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
 
@@ -53,23 +53,24 @@ suite("test_truncate_table") {
     sql "insert into ${testTable} values ('2020-03-10', 1.0, 'a', 1)"
     order_qt_select_1 "SELECT * FROM ${testTable}"
 
-    // if truncate without force, empty partions also kept in recycle bin.
-    sql """truncate table ${testTable};"""
+    sql """truncate table ${testTable} force;"""
+    // if we use force, the empty partitions skiped, 
+    // so that partition ID doesnt change.
     def partitionIds2 = getPartitionIds()
     assertEquals(["p1", "p2", "p3"].toSet(), partitionIds2.keySet())
     assertNotEquals(partitionIds1.get("p1"), partitionIds2.get("p1"))
-    assertNotEquals(partitionIds1.get("p2"), partitionIds2.get("p2"))
+    assertEquals(partitionIds1.get("p2"), partitionIds2.get("p2"))
     assertNotEquals(partitionIds1.get("p3"), partitionIds2.get("p3"))
     order_qt_select_2 "SELECT * FROM ${testTable}"
 
     sql "insert into ${testTable} values ('2020-02-10', 1.0, 'a', 1)"
     order_qt_select_3 "SELECT * FROM ${testTable}"
-    sql """truncate table ${testTable} partitions (p1, p2);"""
+    sql """truncate table ${testTable} partitions (p1, p2) force;"""
     order_qt_select_4 "SELECT * FROM ${testTable}"
 
     def partitionIds3 = getPartitionIds()
     assertEquals(["p1", "p2", "p3"].toSet(), partitionIds3.keySet())
-    assertNotEquals(partitionIds2.get("p1"), partitionIds3.get("p1"))
+    assertEquals(partitionIds2.get("p1"), partitionIds3.get("p1"))
     assertNotEquals(partitionIds2.get("p2"), partitionIds3.get("p2"))
     assertEquals(partitionIds2.get("p3"), partitionIds3.get("p3"))
 
