@@ -639,6 +639,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
         while (iter->has_next()) {
             // column in (nullptr) is always false so continue to
             // dispose next item
+            /// TODO: This should not return nullptr, consider removing it.
             if (nullptr == iter->get_value()) {
                 iter->next();
                 continue;
@@ -786,6 +787,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         }
         while (iter->has_next()) {
             // column not in (nullptr) is always true
+            /// TODO: This should not return nullptr, consider removing it.
             if (nullptr == iter->get_value()) {
                 continue;
             }
