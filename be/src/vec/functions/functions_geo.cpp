@@ -25,6 +25,8 @@
 
 #include "geo/geo_common.h"
 #include "geo/geo_types.h"
+#include "geo/kml_parse.h"
+#include "geo/kml_parse_ctx.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
@@ -920,6 +922,74 @@ struct StAsBinary {
     }
 };
 
+struct StGeomFromKML {
+    static constexpr auto NEED_CONTEXT = true;
+    static constexpr auto NAME = "st_geomfromkml";
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeString;
+
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+        auto return_type = block.get_data_type(result);
+        const auto& kml_col = block.get_by_position(arguments[0]).column;
+
+        const size_t num_rows = kml_col->size();
+        auto res = ColumnString::create();
+        auto null_map = ColumnUInt8::create(num_rows, 0);
+        auto& null_map_data = null_map->get_data();
+        res->reserve(num_rows);
+        std::string buf;
+        KmlParseContext parse_ctx;
+
+        for (size_t row_idx = 0; row_idx < num_rows; ++row_idx) {
+            // 1. Retrieve the KML input data for the current row
+            const auto kml_data_ref = kml_col->get_data_at(row_idx);
+            const std::string kml_input(kml_data_ref.data, kml_data_ref.size);
+
+            // 2. Initialize the KML parsing context
+            parse_ctx.reset();
+
+            // 3. Perform KML parsing
+            const GeoParseStatus parse_status = KmlParser::parse(kml_input, parse_ctx);
+
+            // 4. Handle the parsing result
+            if (parse_status != GEO_PARSE_OK || parse_ctx.shape == nullptr) {
+                // If parsing fails or the result is empty, mark the row as NULL
+                null_map_data[row_idx] = 1;
+                res->insert_default();
+                continue;
+            }
+
+            // 5. Validate the geometry type (based on Doris supported types)
+            if (parse_ctx.current_shape_type == GEO_SHAPE_ANY) {
+                // If the geometry type is not supported, mark the row as NULL
+                null_map_data[row_idx] = 1;
+                res->insert_default();
+                continue;
+            }
+
+            // 6. Insert the parsed result into the result column
+            buf.clear();
+            parse_ctx.shape->encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
+        }
+
+        // 7. Update the result column in the block with the nullable column
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+
+    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        return Status::OK();
+    }
+
+    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        return Status::OK();
+    }
+};
+
 void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StPoint>>();
     factory.register_function<GeoFunction<StAsText<StAsWktName>>>();
@@ -947,6 +1017,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StGeoFromWkb<StGeometryFromWKB>>>();
     factory.register_function<GeoFunction<StGeoFromWkb<StGeomFromWKB>>>();
     factory.register_function<GeoFunction<StAsBinary>>();
+    factory.register_function<GeoFunction<StGeomFromKML>>();
 }
 
 } // namespace doris::vectorized

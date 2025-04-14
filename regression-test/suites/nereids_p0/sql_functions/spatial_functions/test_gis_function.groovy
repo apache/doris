@@ -204,6 +204,14 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_AsText(ST_GeomFromWKB(ST_AsBinary(ST_GeometryFromText(\"LINESTRING (1 1, 2 2)\"))));"
     qt_sql "SELECT ST_AsText(ST_GeomFromWKB(ST_AsBinary(ST_Polygon(\"POLYGON ((114.104486 22.547119,114.093758 22.547753,114.096504 22.532057,114.104229 22.539826,114.106203 22.542680,114.104486 22.547119))\"))));"
 
+    qt_sql "SELECT ST_AsText(ST_GeomFromWKB(ST_AsBinary(ST_GeomFromKML('<Point><coordinates>24.7,56.7</coordinates></Point>'))));"
+    qt_sql "SELECT ST_AsText(ST_GeomFromKML('<LineString><coordinates>1.0,1.0 2.0,2.0 3.5,4.7</coordinates></LineString>'));"
+    qt_sql "SELECT ST_GeomFromKML('<Point><coordinates>24.7</coordinates></Point>');"
+    qt_sql "SELECT ST_AsText(ST_GeomFromKML('<Polygon><outerBoundaryIs><coordinates>0,0 10,0 10,10 0,10 0,0</coordinates></outerBoundaryIs></Polygon>'));"
+    qt_sql "SELECT ST_AsText(ST_GeomFromKML('<Polygon><outerBoundaryIs><coordinates>0,0 10,0 10,10 0,10 0,0</coordinates></outerBoundaryIs><innerBoundaryIs><coordinates>3,3 7,3 7,7 3,7 3,3</coordinates></innerBoundaryIs></Polygon>'));"
+    qt_sql "SELECT ST_AsText(ST_GeomFromKML('<Polygon><outerBoundaryIs><coordinates>0,0 10,0 10,10 0,10 0,0</coordinates></outerBoundaryIs><innerBoundaryIs><coordinates>3,3 7,3 7,7 3,7 3,3</coordinates></innerBoundaryIs><innerBoundaryIs><coordinates>1,1 2,3 3,3 3,2 1,1</coordinates></innerBoundaryIs></Polygon>'));"
+    qt_sql "SELECT ST_AsText(ST_GeomFromKML('<Polygon><innerBoundaryIs><coordinates>3,3 7,3 7,7 3,7 3,3.3</coordinates></innerBoundaryIs><outerBoundaryIs><coordinates>0,0 10,0 10,10 0,10 0,0</coordinates></outerBoundaryIs></Polygon>'));"
+
     // test const
     sql "drop table if exists test_gis_const"
     sql """

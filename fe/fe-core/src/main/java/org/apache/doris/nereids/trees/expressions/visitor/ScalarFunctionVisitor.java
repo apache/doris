@@ -410,6 +410,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDisjoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromKML;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
@@ -495,7 +496,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 
-/** ScalarFunctionVisitor. */
+/**
+ * ScalarFunctionVisitor.
+ */
 public interface ScalarFunctionVisitor<R, C> {
 
     R visitScalarFunction(ScalarFunction scalarFunction, C context);
@@ -941,7 +944,7 @@ public interface ScalarFunctionVisitor<R, C> {
     }
 
     default R visitCutToFirstSignificantSubdomain(CutToFirstSignificantSubdomain cutToFirstSignificantSubdomain,
-            C context) {
+                                                  C context) {
         return visitScalarFunction(cutToFirstSignificantSubdomain, context);
     }
 
@@ -2079,6 +2082,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStGeomfromwkb(StGeomFromWKB stGeomfromwkb, C context) {
         return visitScalarFunction(stGeomfromwkb, context);
+    }
+
+    default R visitStGeomfromkml(StGeomFromKML stGeomfromkml, C context) {
+        return visitScalarFunction(stGeomfromkml, context);
     }
 
     default R visitStAsBinary(StAsBinary stAsBinary, C context) {
