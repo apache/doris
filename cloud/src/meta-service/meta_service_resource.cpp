@@ -421,25 +421,37 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string external_endpoint = obj->has_external_endpoint() ? obj->external_endpoint() : "";
     std::string region = obj->has_region() ? obj->region() : "";
 
-    // ATTN: prefix may be empty
-    if (plain_ak.empty() || plain_sk.empty() || bucket.empty() || endpoint.empty() ||
-        region.empty() || !obj->has_provider() || external_endpoint.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "s3 conf info err, please check it";
-        return;
-    }
-    EncryptionInfoPB encryption_info;
-    AkSkPair cipher_ak_sk_pair;
-    auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
-                                    msg);
-    TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ret, &code, &msg);
-    if (ret != 0) {
-        return;
+    if (obj->has_role_arn()) {
+        if (!obj->has_cred_provider_type() ||
+            obj->cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
+            !obj->has_provider() || obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() ||
+            endpoint.empty() || region.empty()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "s3 conf info err with role_arn, please check it";
+            return;
+        }
+    } else {
+        // ATTN: prefix may be empty
+        if (plain_ak.empty() || plain_sk.empty() || bucket.empty() || endpoint.empty() ||
+            region.empty() || !obj->has_provider() || external_endpoint.empty()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "s3 conf info err, please check it";
+            return;
+        }
+
+        EncryptionInfoPB encryption_info;
+        AkSkPair cipher_ak_sk_pair;
+        auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
+                                        code, msg);
+        TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ret, &code, &msg);
+        if (ret != 0) {
+            return;
+        }
+        obj->set_ak(std::move(cipher_ak_sk_pair.first));
+        obj->set_sk(std::move(cipher_ak_sk_pair.second));
+        obj->mutable_encryption_info()->CopyFrom(encryption_info);
     }
 
-    obj->set_ak(std::move(cipher_ak_sk_pair.first));
-    obj->set_sk(std::move(cipher_ak_sk_pair.second));
-    obj->mutable_encryption_info()->CopyFrom(encryption_info);
     obj->set_bucket(bucket);
     obj->set_prefix(prefix);
     obj->set_endpoint(endpoint);
