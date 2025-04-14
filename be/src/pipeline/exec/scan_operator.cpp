@@ -458,8 +458,8 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
         return false;
     }
 
-    /// TODO: child_contains_slot and slot_ref actually point to the same location, only one should be retained
-    DCHECK_EQ(child_contains_slot.get(), slot_ref.get());
+    // slot_ref is a specific expr
+    // child_contains_slot may include a cast expr
 
     auto entry = _slot_id_to_value_range.find(slot_ref->slot_id());
     if (_slot_id_to_value_range.end() == entry) {

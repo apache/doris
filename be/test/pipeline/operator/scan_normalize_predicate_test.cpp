@@ -500,4 +500,52 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot6) {
             output_range);
 }
 
+TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot7) {
+    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+
+    // case
+    //  slot not in (null,1,10,100)
+
+    const int SlotId = 0;
+
+    SlotDescriptor slot_desc;
+
+    ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
+    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+
+    {
+        auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
+        auto ctx = MockInExpr::create_with_ctx(
+                ColumnHelper::create_column<DataTypeInt64>({1, 10, 100}), true);
+        auto fn_in = ctx->root();
+
+        fn_in->add_child(slot_ref);
+        fn_in->_node_type = TExprNodeType::IN_PRED;
+        slot_ref->_slot_id = SlotId;
+
+        ctx->_prepared = true;
+        ctx->_opened = true;
+
+        auto* state = reinterpret_cast<vectorized::InState*>(
+                ctx->fn_context(fn_in->fn_context_index())
+                        ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+
+        state->use_set = true;
+        state->hybrid_set->insert(nullptr, 0);
+
+        local_state->_scan_dependency = Dependency::create_shared(0, 0, "DEPENDENCY");
+
+        EXPECT_FALSE(local_state->_scan_dependency->ready());
+        EXPECT_FALSE(local_state->_eos);
+
+        vectorized::VExprSPtr new_root;
+        auto conjunct_expr_root = ctx;
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
+                                                      conjunct_expr_root.get(), new_root));
+    }
+
+    EXPECT_TRUE(local_state->_scan_dependency->ready());
+    EXPECT_TRUE(local_state->_eos);
+}
+
 } // namespace doris::pipeline

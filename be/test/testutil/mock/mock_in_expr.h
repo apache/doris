@@ -41,7 +41,7 @@ public:
 
     static std::shared_ptr<MockInExpr> create() { return std::make_shared<MockInExpr>(); }
 
-    static VExprContextSPtr create_with_ctx(ColumnPtr column);
+    static VExprContextSPtr create_with_ctx(ColumnPtr column, bool is_not_in = false);
 };
 
 } // namespace doris::vectorized

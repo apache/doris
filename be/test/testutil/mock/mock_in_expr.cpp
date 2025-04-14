@@ -65,10 +65,11 @@ TEST(MockInExprTest, create_with_ctx) {
     EXPECT_TRUE(state->use_set);
 }
 
-VExprContextSPtr MockInExpr::create_with_ctx(ColumnPtr column) {
+VExprContextSPtr MockInExpr::create_with_ctx(ColumnPtr column, bool is_not_in) {
     auto in = std::make_shared<MockInExpr>();
     auto expr_ctx = std::make_shared<VExprContext>(in);
     MockRowDescriptor desc;
+    in->_is_not_in = is_not_in;
     EXPECT_TRUE(in->prepare(nullptr, desc, expr_ctx.get()));
     auto* fn_ctx = expr_ctx->fn_context(in->fn_context_index());
     std::shared_ptr<InState> state = std::make_shared<InState>();
