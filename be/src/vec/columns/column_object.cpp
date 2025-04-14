@@ -1099,7 +1099,7 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
 }
 
 ColumnPtr ColumnObject::replicate(const Offsets& offsets) const {
-    if (subcolumns.empty()) {
+    if (num_rows == 0 || subcolumns.empty()) {
         // Add an emtpy column with offsets.back rows
         auto res = ColumnObject::create(true, false);
         res->set_num_rows(offsets.back());
@@ -1109,7 +1109,7 @@ ColumnPtr ColumnObject::replicate(const Offsets& offsets) const {
 }
 
 ColumnPtr ColumnObject::permute(const Permutation& perm, size_t limit) const {
-    if (subcolumns.empty()) {
+    if (num_rows == 0 || subcolumns.empty()) {
         if (limit == 0) {
             limit = num_rows;
         } else {
@@ -1740,7 +1740,7 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
         auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
         return finalized_object.filter(filter, count);
     }
-    if (subcolumns.empty()) {
+    if (num_rows == 0 || subcolumns.empty()) {
         // Add an emtpy column with filtered rows
         auto res = ColumnObject::create(true, false);
         res->set_num_rows(count_bytes_in_filter(filter));
@@ -1759,7 +1759,7 @@ Status ColumnObject::filter_by_selector(const uint16_t* sel, size_t sel_size, IC
     if (!is_finalized()) {
         finalize();
     }
-    if (subcolumns.empty()) {
+    if (num_rows == 0 || subcolumns.empty()) {
         assert_cast<ColumnObject*>(col_ptr)->insert_many_defaults(sel_size);
         return Status::OK();
     }
