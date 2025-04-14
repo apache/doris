@@ -326,6 +326,10 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
             // delete bitmap cache missed, should re-calculate delete bitmaps between segments
             std::vector<segment_v2::SegmentSharedPtr> segments;
             RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
+            DBUG_EXECUTE_IF("_handle_rowset.inject.before.calc_between_segments", {
+                LOG_INFO("inject error when CloudTabletCalcDeleteBitmapTask::_handle_rowset");
+                return Status::MemoryLimitExceeded("injected MemoryLimitExceeded error");
+            });
             RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(rowset->rowset_id(),
                                                                         segments, delete_bitmap));
         }
