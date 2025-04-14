@@ -134,7 +134,7 @@ Status convert_and_write_column(vectorized::OlapBlockDataConvertor* converter,
     const uint8_t* nullmap = converted_column->get_nullmap();
     RETURN_IF_ERROR(writer->append(nullmap, converted_column->get_data(), num_rows));
 
-    converter->clear_source_content();
+    converter->clear_source_content(column_id);
     return Status::OK();
 }
 
@@ -291,8 +291,8 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnObject* p
                               .data()
                     : nullptr;
     RETURN_IF_ERROR(_root_writer->append(nullmap, column->get_data(), num_rows));
+    converter->clear_source_content(column_id);
     ++column_id;
-    converter->clear_source_content();
 
     _opts.meta->set_num_rows(num_rows);
     return Status::OK();
@@ -408,8 +408,8 @@ Status VariantColumnWriterImpl::_process_sparse_column(
                           vectorized::ColumnObject::get_sparse_column_type());
     RETURN_IF_ERROR(
             _sparse_column_writer->append(column->get_nullmap(), column->get_data(), num_rows));
+    converter->clear_source_content(column_id);
     ++column_id;
-    converter->clear_source_content();
 
     // get stastics
     // todo: reuse the statics from collected stastics from compaction stage
