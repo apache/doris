@@ -83,4 +83,52 @@ public class BooleanUtils {
         }
         return expressionList;
     }
+
+    /**
+     * rewrite equal predicate element to be consistent with presto.
+     */
+    public static Expression processEqualPredicate(Expression equalPredicate) {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().getSqlDialect().equalsIgnoreCase(
+                "presto")) {
+            Expression compareExpr = equalPredicate.child(0);
+            if (compareExpr instanceof Cast && compareExpr.getDataType() instanceof CharacterType
+                    && compareExpr.children().get(0).getDataType() instanceof BooleanType) {
+                List<Expression> rewrittenExpressions = Lists.newArrayList();
+                rewrittenExpressions.add(compareExpr);
+                if (equalPredicate.child(1) instanceof CharLiteral) {
+                    CharLiteral originLiteral = (CharLiteral) equalPredicate.child(1);
+                    if (originLiteral.getValue().equalsIgnoreCase("true")) {
+                        rewrittenExpressions.add(new CharLiteral("1", 1));
+                    } else if (originLiteral.getValue().equalsIgnoreCase("false")) {
+                        rewrittenExpressions.add(new CharLiteral("0", 1));
+                    } else {
+                        rewrittenExpressions.add(equalPredicate.child(1));
+                    }
+                } else if (equalPredicate.child(1) instanceof VarcharLiteral) {
+                    VarcharLiteral originLiteral = (VarcharLiteral) equalPredicate.child(1);
+                    if (originLiteral.getValue().equalsIgnoreCase("true")) {
+                        rewrittenExpressions.add(new VarcharLiteral("1"));
+                    } else if (originLiteral.getValue().equalsIgnoreCase("false")) {
+                        rewrittenExpressions.add(new VarcharLiteral("0"));
+                    } else {
+                        rewrittenExpressions.add(equalPredicate.child(1));
+                    }
+                } else if (equalPredicate.child(1) instanceof StringLiteral) {
+                    StringLiteral originLiteral = (StringLiteral) equalPredicate.child(1);
+                    if (originLiteral.getValue().equalsIgnoreCase("true")) {
+                        rewrittenExpressions.add(new StringLiteral("1"));
+                    } else if (originLiteral.getValue().equalsIgnoreCase("false")) {
+                        rewrittenExpressions.add(new StringLiteral("0"));
+                    } else {
+                        rewrittenExpressions.add(equalPredicate.child(1));
+                    }
+                } else {
+                    rewrittenExpressions.add(equalPredicate.child(1));
+                }
+                return equalPredicate.withChildren(rewrittenExpressions);
+            }
+        }
+        return equalPredicate;
+    }
+
 }

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.util.BooleanUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -53,7 +54,7 @@ public class NullSafeEqual extends EqualPredicate implements AlwaysNotNullable {
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitNullSafeEqual(this, context);
+        return visitor.visitNullSafeEqual((NullSafeEqual) BooleanUtils.processEqualPredicate(this), context);
     }
 
     @Override
