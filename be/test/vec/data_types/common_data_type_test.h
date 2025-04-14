@@ -23,8 +23,8 @@
 #include <iostream>
 
 #include "agent/be_exec_version_manager.h"
-#include "olap/schema.h"
 #include "vec/columns/column.h"
+#include "vec/core/block.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -50,8 +50,6 @@
 // 4. compare: equals (const IDataType &rhs), is_comparable
 
 namespace doris::vectorized {
-
-static bool gen_check_data_in_assert = true;
 
 class CommonDataTypeTest : public ::testing::Test {
 public:
@@ -116,7 +114,7 @@ public:
         PColumnMeta* pColumnMeta = nullptr;
         DataTypeSerDeSPtr serde = nullptr;
         bool is_value_unambiguously_represented_in_contiguous_memory_region = false;
-        Field default_field;
+        vectorized::Field default_field;
     };
     void SetUp() override {}
 
@@ -184,7 +182,7 @@ public:
                     << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
                     << " field: " << assert_field.get_type() << std::endl;
         } else {
-            Field field = data_type->get_field(node);
+            vectorized::Field field = data_type->get_field(node);
             ASSERT_EQ(field, assert_field)
                     << "get_field_assert: "
                     << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
