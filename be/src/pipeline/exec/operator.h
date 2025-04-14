@@ -104,6 +104,7 @@ public:
     [[nodiscard]] virtual Status prepare(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status terminate(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
+    [[nodiscard]] virtual int node_id() const = 0;
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
         if (_child && child != nullptr) {
@@ -625,7 +626,7 @@ public:
 
     [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
-    [[nodiscard]] int node_id() const { return _node_id; }
+    [[nodiscard]] int node_id() const override { return _node_id; }
 
     [[nodiscard]] std::string get_name() const override { return _name; }
 
@@ -887,7 +888,7 @@ public:
     [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
 
     [[nodiscard]] int operator_id() const { return _operator_id; }
-    [[nodiscard]] int node_id() const { return _node_id; }
+    [[nodiscard]] int node_id() const override { return _node_id; }
     [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
     [[nodiscard]] int64_t limit() const { return _limit; }
