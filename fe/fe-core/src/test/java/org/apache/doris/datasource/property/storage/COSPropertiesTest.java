@@ -1,0 +1,140 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.datasource.property.storage;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class COSPropertiesTest {
+    private Map<String, String> origProps;
+
+    private static String secretKey = "";
+    private static String accessKey = "";
+    private static String hdfsPath = "";
+
+    @BeforeEach
+    public void setUp() {
+        origProps = new HashMap<>();
+    }
+
+    @Test
+    public void testCOSProperties() {
+        origProps.put("cos.endpoint", "https://cos.example.com");
+        origProps.put("cos.access_key", "myCOSAccessKey");
+        origProps.put("cos.secret_key", "myCOSSecretKey");
+        origProps.put("cos.region", "us-west-1");
+        origProps.put("connection.maximum", "88");
+        origProps.put("connection.request.timeout", "100");
+        origProps.put("connection.timeout", "1000");
+        origProps.put("use_path_style", "true");
+        origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
+        origProps.put("test_non_storage_param", "6000");
+
+        COSProperties cosProperties = (COSProperties) StorageProperties.create(origProps).get(1);
+        Map<String, String> cosConfig = cosProperties.getMatchedProperties();
+        Assertions.assertTrue(!cosConfig.containsKey("test_non_storage_param"));
+
+        origProps.forEach((k, v) -> {
+            if (!k.equals("test_non_storage_param") && !k.equals(StorageProperties.FS_COS_SUPPORT)) {
+                Assertions.assertEquals(v, cosConfig.get(k));
+            }
+        });
+        origProps = new HashMap<>();
+        origProps.put("cos.endpoint", "https://cos.example.com");
+        origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.create(origProps), "Property cos.access_key is required.");
+        origProps.put("cos.access_key", "myCOSAccessKey");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.create(origProps), "Property cos.secret_key is required.");
+        origProps.put("cos.secret_key", "myCOSSecretKey");
+        //no any exception
+        StorageProperties.create(origProps);
+    }
+
+    @Test
+    public void testToNativeS3Configuration() {
+        origProps.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
+        origProps.put("cos.access_key", "myCOSAccessKey");
+        origProps.put("cos.secret_key", "myCOSSecretKey");
+        origProps.put("test_non_storage_param", "6000");
+        origProps.put("connection.maximum", "88");
+        origProps.put("connection.request.timeout", "100");
+        origProps.put("connection.timeout", "1000");
+        origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
+        //origProps.put("cos.region", "ap-beijing");
+
+        COSProperties cosProperties = (COSProperties) StorageProperties.create(origProps).get(1);
+        Map<String, String> s3Props = new HashMap<>();
+        cosProperties.toNativeS3Configuration(s3Props);
+        Map<String, String> cosConfig = cosProperties.getMatchedProperties();
+        Assertions.assertTrue(!cosConfig.containsKey("test_non_storage_param"));
+
+        origProps.forEach((k, v) -> {
+            if (!k.equals("test_non_storage_param") && !k.equals(StorageProperties.FS_COS_SUPPORT)) {
+                Assertions.assertEquals(v, cosConfig.get(k));
+            }
+        });
+        // Validate the S3 properties
+        Assertions.assertEquals("cos.ap-beijing.myqcloud.com", s3Props.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("ap-beijing", s3Props.get("AWS_REGION"));
+        Assertions.assertEquals("myCOSAccessKey", s3Props.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("myCOSSecretKey", s3Props.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("88", s3Props.get("AWS_MAX_CONNECTIONS"));
+        Assertions.assertEquals("100", s3Props.get("AWS_REQUEST_TIMEOUT_MS"));
+        Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
+        Assertions.assertEquals("false", s3Props.get("use_path_style"));
+        origProps.put("use_path_style", "true");
+        cosProperties = (COSProperties) StorageProperties.create(origProps).get(1);
+        cosProperties.toNativeS3Configuration(s3Props);
+        Assertions.assertEquals("true", s3Props.get("use_path_style"));
+        // Add any additional assertions for other properties if needed
+    }
+
+    @Test
+    public void testGetRegion() {
+        origProps.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
+        origProps.put("cos.access_key", "myCOSAccessKey");
+        origProps.put("cos.secret_key", "myCOSSecretKey");
+        COSProperties cosProperties = (COSProperties) StorageProperties.createStorageProperties(origProps);
+        Assertions.assertEquals("ap-beijing", cosProperties.getRegion());
+        Assertions.assertEquals("myCOSAccessKey", cosProperties.getAccessKey());
+        Assertions.assertEquals("myCOSSecretKey", cosProperties.getSecretKey());
+        Assertions.assertEquals("cos.ap-beijing.myqcloud.com", cosProperties.getEndpoint());
+    }
+
+    @Test
+    public void testGetRegionWithDefault() {
+        origProps.put("uri", "https://examplebucket-1250000000.cos.ap-beijing.myqcloud.com/test/file.txt");
+        origProps.put("cos.access_key", "myCOSAccessKey");
+        origProps.put("cos.secret_key", "myCOSSecretKey");
+        COSProperties cosProperties = (COSProperties) StorageProperties.createStorageProperties(origProps);
+        Assertions.assertEquals("ap-beijing", cosProperties.getRegion());
+        Assertions.assertEquals("myCOSAccessKey", cosProperties.getAccessKey());
+        Assertions.assertEquals("myCOSSecretKey", cosProperties.getSecretKey());
+        Assertions.assertEquals("cos.ap-beijing.myqcloud.com", cosProperties.getEndpoint());
+        Map<String, String> cosNoEndpointProps = new HashMap<>();
+        cosNoEndpointProps.put("cos.access_key", "myCOSAccessKey");
+        cosNoEndpointProps.put("cos.secret_key", "myCOSSecretKey");
+        cosNoEndpointProps.put("cos.region", "ap-beijing");
+        origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
+        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createStorageProperties(cosNoEndpointProps), "Property cos.endpoint is required.");
+    }
+}
