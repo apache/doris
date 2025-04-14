@@ -29,6 +29,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename A, typename B>
 struct MultiplyImpl {
@@ -37,7 +38,7 @@ struct MultiplyImpl {
 
     template <typename Result = ResultType>
     static inline Result apply(A a, B b) {
-        return static_cast<Result>(a) * b;
+        return static_cast<Result>(a) * static_cast<Result>(b);
     }
 
     template <typename Result = DecimalV2Value>
