@@ -947,4 +947,10 @@ class Syncer {
         )
         """
     }
+
+    void disableDbBinlog() {
+        suite.sql """
+            ALTER DATABASE ${context.dbName} SET properties ("binlog.enable" = "false")
+            """
+    }
 }
