@@ -430,10 +430,6 @@ public class StringArithmetic {
         return new IntegerLiteral(first.getValue().codePointCount(0, first.getValue().length()));
     }
 
-    private static boolean isAlphabetic(int c) {
-        return Character.isLetterOrDigit(c);
-    }
-
     /**
      * Executable arithmetic functions initCap
      */
@@ -443,7 +439,7 @@ public class StringArithmetic {
         boolean capitalizeNext = true;
 
         for (char c : first.getValue().toCharArray()) {
-            if (!isAlphabetic(c)) {
+            if (!Character.isLetterOrDigit(c)) {
                 result.append(c);
                 capitalizeNext = true;  // Next character should be capitalized
             } else if (capitalizeNext) {
