@@ -215,8 +215,8 @@ public class TableFunctionNode extends PlanNode {
         output.append("\n");
 
         if (!conjuncts.isEmpty()) {
-            output.append(prefix).append("PREDICATES: ").append(
-                    getExplainString(conjuncts)).append("\n");
+            output.append(prefix).append("predicates:\n").append(
+                    getExplainString(conjuncts, prefix)).append("\n");
         }
         output.append(prefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         return output.toString();

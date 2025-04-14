@@ -824,8 +824,8 @@ public class HashJoinNode extends JoinNodeBase {
             output.append(detailPrefix).append(
                     String.format("cardinality=%,d", cardinality)).append("\n");
             if (!runtimeFilters.isEmpty()) {
-                output.append(detailPrefix).append("runtime filters: ");
-                output.append(getRuntimeFilterExplainString(true, true));
+                output.append(detailPrefix).append("runtime filters:\n");
+                output.append(getRuntimeFilterExplainString(true, true, detailPrefix));
             }
             return output.toString();
         }
@@ -834,19 +834,20 @@ public class HashJoinNode extends JoinNodeBase {
             output.append(detailPrefix).append("equal join conjunct: ").append(eqJoinPredicate.toSql()).append("\n");
         }
         if (!otherJoinConjuncts.isEmpty()) {
-            output.append(detailPrefix).append("other join predicates: ")
-                    .append(getExplainString(otherJoinConjuncts)).append("\n");
+            output.append(detailPrefix).append("other join predicates:\n")
+                    .append(getExplainString(otherJoinConjuncts, detailPrefix)).append("\n");
         }
         if (markJoinConjuncts != null && !markJoinConjuncts.isEmpty()) {
-            output.append(detailPrefix).append("mark join predicates: ")
-                    .append(getExplainString(markJoinConjuncts)).append("\n");
+            output.append(detailPrefix).append("mark join predicates:\n")
+                    .append(getExplainString(markJoinConjuncts, detailPrefix)).append("\n");
         }
         if (!conjuncts.isEmpty()) {
-            output.append(detailPrefix).append("other predicates: ").append(getExplainString(conjuncts)).append("\n");
+            output.append(detailPrefix).append("other predicates:\n")
+                    .append(getExplainString(conjuncts, detailPrefix)).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
-            output.append(detailPrefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(true));
+            output.append(detailPrefix).append("runtime filters:\n");
+            output.append(getRuntimeFilterExplainString(true, detailPrefix));
         }
         output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         if (outputTupleDesc != null) {

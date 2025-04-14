@@ -191,7 +191,8 @@ public class RepeatNode extends PlanNode {
         output.append(repeatSlotIdList.size() - 1);
         output.append(" lines ");
         output.append(repeatSlotIdList).append("\n");
-        output.append(detailPrefix).append("exprs: ").append(getExplainString(groupingInfo.getPreRepeatExprs()));
+        output.append(detailPrefix).append("exprs:\n")
+                .append(getExplainString(groupingInfo.getPreRepeatExprs(), detailPrefix));
         output.append("\n");
         if (CollectionUtils.isNotEmpty(outputTupleDesc.getSlots())) {
             output.append(detailPrefix + "output slots: ");
