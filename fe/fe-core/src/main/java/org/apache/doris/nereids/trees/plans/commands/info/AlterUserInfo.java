@@ -17,14 +17,17 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PasswordPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -42,7 +45,7 @@ public class AlterUserInfo {
     private UserDesc userDesc;
     private PasswordOptions passwordOptions;
     private String comment;
-    private Set<AlterOpType> ops = Sets.newHashSet();
+    private Set<AlterUserOpType> ops = Sets.newHashSet();
 
     public AlterUserInfo(boolean ifExist, UserDesc userDesc, PasswordOptions passwordOptions, String comment) {
         this.ifExist = ifExist;
@@ -70,7 +73,7 @@ public class AlterUserInfo {
         return passwordOptions;
     }
 
-    public AlterOpType getOpType() {
+    public AlterUserOpType getOpType() {
         Preconditions.checkState(ops.size() == 1);
         return ops.iterator().next();
     }
@@ -87,28 +90,34 @@ public class AlterUserInfo {
         userDesc.getPassVar().analyze();
 
         if (userDesc.hasPassword()) {
-            ops.add(AlterOpType.SET_PASSWORD);
+            ops.add(AlterUserOpType.SET_PASSWORD);
         }
 
         // may be set comment to "", so not use `Strings.isNullOrEmpty`
         if (comment != null) {
-            ops.add(AlterOpType.MODIFY_COMMENT);
+            ops.add(AlterUserOpType.MODIFY_COMMENT);
         }
         passwordOptions.analyze();
         if (passwordOptions.getAccountUnlocked() == PasswordPolicy.FailedLoginPolicy.LOCK_ACCOUNT) {
             throw new org.apache.doris.common.AnalysisException("Not support lock account now");
         } else if (passwordOptions.getAccountUnlocked() == PasswordPolicy.FailedLoginPolicy.UNLOCK_ACCOUNT) {
-            ops.add(AlterOpType.UNLOCK_ACCOUNT);
+            ops.add(AlterUserOpType.UNLOCK_ACCOUNT);
         } else if (passwordOptions.getExpirePolicySecond() != PasswordOptions.UNSET
                 || passwordOptions.getHistoryPolicy() != PasswordOptions.UNSET
                 || passwordOptions.getPasswordLockSecond() != PasswordOptions.UNSET
                 || passwordOptions.getLoginAttempts() != PasswordOptions.UNSET) {
-            ops.add(AlterOpType.SET_PASSWORD_POLICY);
+            ops.add(AlterUserOpType.SET_PASSWORD_POLICY);
         }
 
         if (ops.size() != 1) {
             throw new org.apache.doris.common.AnalysisException("Only support doing one type of operation at one time,"
                 + "actual number of type is " + ops.size());
+        }
+
+        if (userDesc.getUserIdent().getQualifiedUser().equals(Auth.ROOT_USER)
+                && !ClusterNamespace.getNameFromFullName(ConnectContext.get().getQualifiedUser())
+                .equals(Auth.ROOT_USER)) {
+            throw new AnalysisException("Only root user can modify root user");
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {

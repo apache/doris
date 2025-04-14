@@ -17,7 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterUserStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
@@ -1866,7 +1866,7 @@ public class Auth implements Writable {
 
     public void alterUser(AlterUserInfo info) throws DdlException {
         alterUserInternal(info.isIfExist(), info.getOpType(), info.getUserIdent(), info.getPassword(),
-                AlterOpType.SET_ROLE.toString(), info.getPasswordOptions(), info.getComment(), false);
+                null, info.getPasswordOptions(), info.getComment(), false);
     }
 
     public void replayAlterUser(AlterUserOperationLog log) {
@@ -1878,7 +1878,7 @@ public class Auth implements Writable {
         }
     }
 
-    private void alterUserInternal(boolean ifExists, AlterOpType opType, UserIdentity userIdent, byte[] password,
+    private void alterUserInternal(boolean ifExists, AlterUserOpType opType, UserIdentity userIdent, byte[] password,
                                    String role, PasswordOptions passwordOptions, String comment,
                                    boolean isReplay) throws DdlException {
         writeLock();
@@ -1908,7 +1908,7 @@ public class Auth implements Writable {
                 default:
                     throw new DdlException("Unknown alter user operation type: " + opType.name());
             }
-            if (opType != AlterOpType.SET_PASSWORD && !isReplay) {
+            if (opType != AlterUserOpType.SET_PASSWORD && !isReplay) {
                 // For SET_PASSWORD:
                 //      the edit log is wrote in "setPasswordInternal"
                 AlterUserOperationLog log = new AlterUserOperationLog(opType, userIdent, password, role,

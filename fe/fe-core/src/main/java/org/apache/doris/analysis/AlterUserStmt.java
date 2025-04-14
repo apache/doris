@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -49,7 +49,7 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
 
     private String comment;
 
-    private Set<AlterOpType> ops = Sets.newHashSet();
+    private Set<AlterUserOpType> ops = Sets.newHashSet();
 
     public AlterUserStmt(boolean ifExist, UserDesc userDesc, String role, PasswordOptions passwordOptions,
             String comment) {
@@ -83,7 +83,7 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
         return passwordOptions;
     }
 
-    public AlterOpType getOpType() {
+    public AlterUserOpType getOpType() {
         Preconditions.checkState(ops.size() == 1);
         return ops.iterator().next();
     }
@@ -99,27 +99,27 @@ public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
         userDesc.getPassVar().analyze();
 
         if (userDesc.hasPassword()) {
-            ops.add(AlterOpType.SET_PASSWORD);
+            ops.add(AlterUserOpType.SET_PASSWORD);
         }
 
         if (!Strings.isNullOrEmpty(role)) {
-            ops.add(AlterOpType.SET_ROLE);
+            ops.add(AlterUserOpType.SET_ROLE);
         }
 
         // may be set comment to "", so not use `Strings.isNullOrEmpty`
         if (comment != null) {
-            ops.add(AlterOpType.MODIFY_COMMENT);
+            ops.add(AlterUserOpType.MODIFY_COMMENT);
         }
         passwordOptions.analyze();
         if (passwordOptions.getAccountUnlocked() == FailedLoginPolicy.LOCK_ACCOUNT) {
             throw new AnalysisException("Not support lock account now");
         } else if (passwordOptions.getAccountUnlocked() == FailedLoginPolicy.UNLOCK_ACCOUNT) {
-            ops.add(AlterOpType.UNLOCK_ACCOUNT);
+            ops.add(AlterUserOpType.UNLOCK_ACCOUNT);
         } else if (passwordOptions.getExpirePolicySecond() != PasswordOptions.UNSET
                 || passwordOptions.getHistoryPolicy() != PasswordOptions.UNSET
                 || passwordOptions.getPasswordLockSecond() != PasswordOptions.UNSET
                 || passwordOptions.getLoginAttempts() != PasswordOptions.UNSET) {
-            ops.add(AlterOpType.SET_PASSWORD_POLICY);
+            ops.add(AlterUserOpType.SET_PASSWORD_POLICY);
         }
 
         if (ops.size() != 1) {
