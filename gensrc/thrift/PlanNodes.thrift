@@ -482,7 +482,7 @@ struct TFileRangeDesc {
     // so fs_name should be with TFileRangeDesc
     12: optional string fs_name
     13: optional TFileFormatType format_type;
-    14: optional i32 split_id
+    14: optional i64 self_split_weight
 }
 
 struct TSplitSource {

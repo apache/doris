@@ -187,11 +187,11 @@ public:
      * @param column_names Fields to read, also the required_fields in scanner_params
      */
     JniConnector(std::string connector_class, std::map<std::string, std::string> scanner_params,
-                 std::vector<std::string> column_names, int32_t split_id = -1)
+                 std::vector<std::string> column_names, int64_t self_split_weight = -1)
             : _connector_class(std::move(connector_class)),
               _scanner_params(std::move(scanner_params)),
               _column_names(std::move(column_names)),
-              _split_id(split_id) {
+              _self_split_weight(self_split_weight) {
         // Use java class name as connector name
         _connector_name = split(_connector_class, "/").back();
     }
@@ -283,7 +283,7 @@ private:
     std::string _connector_class;
     std::map<std::string, std::string> _scanner_params;
     std::vector<std::string> _column_names;
-    int32_t _split_id;
+    int32_t _self_split_weight;
     bool _is_table_schema = false;
 
     RuntimeState* _state = nullptr;

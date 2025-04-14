@@ -275,8 +275,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     @Override
     public void createScanRangeLocations() throws UserException {
-        StmtExecutor executor = ConnectContext.get().getExecutor();
         long start = System.currentTimeMillis();
+        StmtExecutor executor = ConnectContext.get().getExecutor();
         if (executor != null) {
             executor.getSummaryProfile().setGetSplitsStartTime();
         }
@@ -327,8 +327,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
             splitAssignment = new SplitAssignment(
-                    backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys,
-                    sessionVariable);
+                    backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
             splitAssignment.init();
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
@@ -350,7 +349,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // and finally numSplitsPerBE is 0, resulting in no data being queried.
             int numSplitsPerBE = Math.max(selectedSplitNum / backendPolicy.numBackends(), 1);
             for (Backend backend : backendPolicy.getBackends()) {
-                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime, sessionVariable);
+                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
                 splitSources.add(splitSource);
                 Env.getCurrentEnv().getSplitSourceManager().registerSplitSource(splitSource);
                 TScanRangeLocations curLocations = newLocations();
@@ -371,39 +370,19 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
         } else {
             List<Split> inputSplits = getSplits(numBackends);
-            if (executor != null) {
-                executor.getSummaryProfile().setGetSplitsFinishTime();
+            if (ConnectContext.get().getExecutor() != null) {
+                ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
             selectedSplitNum = inputSplits.size();
             if (inputSplits.isEmpty() && !isFileStreamType()) {
                 return;
             }
             Multimap<Backend, Split> assignment =  backendPolicy.computeScanRangeAssignment(inputSplits);
-            int splitId = 0;
             for (Backend backend : assignment.keySet()) {
                 Collection<Split> splits = assignment.get(backend);
                 for (Split split : splits) {
-                    TScanRangeLocations tScanRangeLocations =
-                            splitToScanRange(backend, locationProperties, split, pathPartitionKeys);
-                    scanRangeLocations.add(tScanRangeLocations);
+                    scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys));
                     totalFileSize += split.getLength();
-                    if (sessionVariable.showSplitProfileInfo() && executor != null) {
-                        AssignmentSplitInfoIf assignmentSplitInfo = split.toAssignmentSplitInfo(tScanRangeLocations);
-                        int id = splitId;
-                        tScanRangeLocations.getScanRange().getExtScanRange()
-                                .getFileScanRange().getRanges().forEach(range -> range.setSplitId(id));
-                        assignmentSplitInfo.setSplitId(id);
-                        splitId++;
-
-                        executor.getSummaryProfile()
-                                .setSplitProfileInfo(
-                                    backend,
-                                    assignmentSplitInfo.getSplitProfileInfo());
-                        executor.getSummaryProfile()
-                                .setSplitWeightProfileInfoMap(
-                                    backend,
-                                    assignmentSplitInfo.getSplitWeight());
-                    }
                 }
                 scanBackendIds.add(backend.getId());
             }
@@ -413,6 +392,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         if (executor != null) {
             executor.getSummaryProfile().setCreateScanRangeFinishTime();
+            if (sessionVariable.showSplitProfileInfo()) {
+                executor.getSummaryProfile().setAssignedWeightPerBackend(backendPolicy.getAssignedWeightPerBackend());
+            }
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("create #{} ScanRangeLocations cost: {} ms",
