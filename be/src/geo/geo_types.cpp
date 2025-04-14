@@ -48,7 +48,7 @@
 
 namespace doris {
 
-constexpr double TOLERANCE = 1e-6;
+constexpr double TOLERANCE = 1e-8;
 
 GeoPoint::GeoPoint() : _point(new S2Point()) {}
 GeoPoint::~GeoPoint() = default;
@@ -1004,7 +1004,7 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
         // "Touches" equivalent to boundary contact  but no internal overlap
         std::unique_ptr<S2Polygon> intersection(new S2Polygon());
         intersection->InitToIntersection(*polygon1, *polygon2);
-        return (intersection->GetArea() < S1Angle::Radians(TOLERANCE).radians() &&
+        return (intersection->GetArea() < S1Angle::Radians(1e-6).radians() &&
                 polygon_touch_polygon(polygon1, polygon2));
     }
     case GEO_SHAPE_MULTI_POLYGON: {
@@ -1081,17 +1081,6 @@ GeoParseStatus GeoMultiPolygon::from_coords(const std::vector<GeoCoordinateListL
     }
 
     return check_self_intersection();
-}
-
-bool have_point_touches(const S2Point& p1, const S2Point& p2, const S2Point p3, const S2Point p4) {
-    return (compute_distance_to_point(p1, p3) < TOLERANCE ||
-            compute_distance_to_point(p1, p4) < TOLERANCE ||
-            compute_distance_to_point(p2, p3) < TOLERANCE ||
-            compute_distance_to_point(p2, p4) < TOLERANCE ||
-            compute_distance_to_line(p1, p3, p4) < TOLERANCE ||
-            compute_distance_to_line(p2, p3, p4) < TOLERANCE ||
-            compute_distance_to_line(p3, p1, p2) < TOLERANCE ||
-            compute_distance_to_line(p4, p1, p2) < TOLERANCE);
 }
 
 GeoParseStatus GeoMultiPolygon::check_self_intersection() {

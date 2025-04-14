@@ -1524,6 +1524,13 @@ TEST_F(GeoTypesTest, multipolygon_parse_fail) {
         EXPECT_EQ(GEO_PARSE_MULTIPOLYGON_OVERLAP, status);
         EXPECT_EQ(nullptr, multipolygon.get());
     }
+    {
+        const char* wkt = "MULTIPOLYGON((()))";
+        GeoParseStatus status;
+        std::unique_ptr<GeoShape> multipolygon(GeoShape::from_wkt(wkt, strlen(wkt), &status));
+        EXPECT_EQ(GEO_PARSE_WKT_SYNTAX_ERROR, status);
+        EXPECT_EQ(nullptr, multipolygon.get());
+    }
 }
 
 TEST_F(GeoTypesTest, circle) {

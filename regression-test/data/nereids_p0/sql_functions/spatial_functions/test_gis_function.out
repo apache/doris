@@ -25,22 +25,16 @@ true
 false
 
 -- ST_Intersects --
--- POINT
+-- POINT_Intersects
 -- !sql --
 true
 
 -- !sql --
 false
 
--- LINESTRING
+-- LINESTRING_Intersects
 -- !sql --
 true
-
--- !sql --
-true
-
--- !sql --
-false
 
 -- !sql --
 true
@@ -61,32 +55,10 @@ true
 false
 
 -- !sql --
+true
+
+-- !sql --
 false
-
--- !sql --
-true
-
--- POLYGON
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-true
-
--- !sql --
-true
 
 -- !sql --
 false
@@ -94,16 +66,22 @@ false
 -- !sql --
 true
 
+-- POLYGON_Intersects
 -- !sql --
 true
 
 -- !sql --
-false
+true
 
 -- !sql --
 true
 
--- MULTIPOLYGON
+-- !sql --
+true
+
+-- !sql --
+true
+
 -- !sql --
 true
 
@@ -116,7 +94,93 @@ false
 -- !sql --
 true
 
--- CIRCLE
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- MULTIPOLYGON_Intersects_POINT
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- MULTIPOLYGON_Intersects_LINESTRING
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- MULTIPOLYGON_Intersects_POLYGON
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- MULTIPOLYGON_Intersects_MULTIPOLYGON
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- MULTIPOLYGON_Intersects_CIRCLE
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- CIRCLE_Intersects
 -- !sql --
 true
 
@@ -223,7 +287,51 @@ true
 -- !sql --
 true
 
--- MULTIPOLYGON
+-- MULTIPOLYGON_TOUCH_POINT
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- MULTIPOLYGON_TOUCH_LINESTRING
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- MULTIPOLYGON_TOUCH_POLYGON
+-- !sql --
+false
+
 -- !sql --
 true
 
@@ -235,6 +343,53 @@ false
 
 -- !sql --
 true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- MULTIPOLYGON_TOUCH_MULTIPOLYGON
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- MULTIPOLYGON_TOUCH_CIRCLE
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
 
 -- !sql --
 false
@@ -340,12 +495,79 @@ true
 -- !sql --
 false
 
--- MULTIPOLYGON
+-- MULTIPOLYGON_Disjoint_POINT
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- MULTIPOLYGON_Disjoint_LINESTRING
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- MULTIPOLYGON_Disjoint_POLYGON
+-- !sql --
+true
+
+-- !sql --
+false
+
 -- !sql --
 true
 
 -- !sql --
 true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- MULTIPOLYGON_Disjoint_MULTIPOLYGON
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- MULTIPOLYGON_Disjoint_CIRCLE
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
 
 -- !sql --
 true
@@ -450,6 +672,15 @@ MULTIPOLYGON (((0 0, 20 0, 20 20, 0 20, 0 0), (5 5, 15 5, 15 15, 5 15, 5 5)), ((
 
 -- !sql --
 MULTIPOLYGON (((0 0, 4 1, 2 4, 0 0)), ((2 4, 5 6, 3 8, 2 4)))
+
+-- !sql --
+MULTIPOLYGON (((0 0, 1e-08 0, 1e-08 1e-08, 0 1e-08, 0 0)))
+
+-- !sql --
+MULTIPOLYGON (((0 0, 1e-08 0, 1e-08 1e-08, 0 1e-08, 0 0)), ((1e-07 0, 1 0, 1 1e-07, 1e-07 1e-07, 1e-07 0)))
+
+-- !sql --
+MULTIPOLYGON (((0 0, 1e-06 0, 1e-06 1e-06, 0 1e-06, 0 0), (1e-08 1e-08, 1e-07 1e-08, 1e-07 1e-07, 1e-08 1e-07, 1e-08 1e-08)))
 
 -- !sql --
 1.0
