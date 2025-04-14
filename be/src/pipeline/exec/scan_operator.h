@@ -65,9 +65,7 @@ struct FilterPredicates {
 class ScanLocalStateBase : public PipelineXLocalState<> {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<>(state, parent),
-              _helper(parent->node_id(), parent->runtime_filter_descs(), parent->row_descriptor()) {
-    }
+            : PipelineXLocalState<>(state, parent), _helper(parent->runtime_filter_descs()) {}
     ~ScanLocalStateBase() override = default;
 
     [[nodiscard]] virtual bool should_run_serial() const = 0;
@@ -338,7 +336,7 @@ protected:
 
     std::mutex _block_lock;
 
-    std::vector<std::shared_ptr<RuntimeFilterDependency>> _filter_dependencies;
+    std::vector<std::shared_ptr<Dependency>> _filter_dependencies;
 
     // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> _scanners;

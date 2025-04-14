@@ -486,7 +486,6 @@ protected:
     // close().
     bool _closed = false;
     bool _terminated = false;
-    std::atomic<bool> _eos = false;
     //NOTICE: now add a faker profile, because sometimes the profile record is useless
     //so we want remove some counters and timers, eg: in join node, if it's broadcast_join
     //and shared hash table, some counter/timer about build hash table is useless,
@@ -1101,12 +1100,15 @@ public:
                                                        "DummyOperatorDependency", true);
         _filter_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                        "DummyOperatorDependency", true);
+        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                      "DummyOperatorDependency", true);
     }
     Dependency* finishdependency() override { return _finish_dependency.get(); }
     ~DummyOperatorLocalState() = default;
 
     std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
     std::vector<Dependency*> filter_dependencies() override { return {_filter_dependency.get()}; }
+    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
 private:
     std::shared_ptr<Dependency> _tmp_dependency;
@@ -1125,11 +1127,16 @@ public:
         return Status::OK();
     }
     void set_low_memory_mode(RuntimeState* state) override { _low_memory_mode = true; }
+    Status terminate(RuntimeState* state) override {
+        _terminated = true;
+        return Status::OK();
+    }
 
 private:
     friend class AssertNumRowsLocalState;
     bool _eos = false;
     bool _low_memory_mode = false;
+    bool _terminated = false;
 };
 
 class DummySinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
@@ -1141,14 +1148,19 @@ public:
                                                     "DummyOperatorDependency", true);
         _finish_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                        "DummyOperatorDependency", true);
+        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                      "DummyOperatorDependency", true);
     }
 
     std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
     Dependency* finishdependency() override { return _finish_dependency.get(); }
+    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
+    bool is_finished() const override { return _is_finished; }
 
 private:
     std::shared_ptr<Dependency> _tmp_dependency;
     std::shared_ptr<Dependency> _finish_dependency;
+    std::atomic_bool _is_finished = false;
 };
 
 class DummySinkOperatorX final : public DataSinkOperatorX<DummySinkLocalState> {
@@ -1156,12 +1168,19 @@ public:
     DummySinkOperatorX(int op_id, int node_id, int dest_id)
             : DataSinkOperatorX<DummySinkLocalState>(op_id, node_id, dest_id) {}
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
-        return Status::OK();
+        return _return_eof ? Status::Error<ErrorCode::END_OF_FILE>("source have closed")
+                           : Status::OK();
     }
     void set_low_memory_mode(RuntimeState* state) override { _low_memory_mode = true; }
+    Status terminate(RuntimeState* state) override {
+        _terminated = true;
+        return Status::OK();
+    }
 
 private:
     bool _low_memory_mode = false;
+    bool _terminated = false;
+    std::atomic_bool _return_eof = false;
 };
 #endif
 

@@ -114,13 +114,6 @@ std::string CountedFinishDependency::debug_string(int indentation_level) {
     return fmt::to_string(debug_string_buffer);
 }
 
-std::string RuntimeFilterDependency::debug_string(int indentation_level) {
-    fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}, runtime filter: {}",
-                   Dependency::debug_string(indentation_level), _runtime_filter->debug_string());
-    return fmt::to_string(debug_string_buffer);
-}
-
 void RuntimeFilterTimer::call_timeout() {
     _parent->set_ready();
 }
