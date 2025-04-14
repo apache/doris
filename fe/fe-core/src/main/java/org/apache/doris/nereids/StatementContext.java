@@ -226,6 +226,8 @@ public class StatementContext implements Closeable {
 
     private List<Plan> tmpPlanForLaterMvRewrite = new ArrayList<>();
 
+    private boolean forceCollect = false;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -833,5 +835,13 @@ public class StatementContext implements Closeable {
 
     public boolean isPrepareStage() {
         return prepareStage;
+    }
+
+    public boolean isForceCollect() {
+        return forceCollect;
+    }
+
+    public void setForceCollect(boolean forceCollect) {
+        this.forceCollect = forceCollect;
     }
 }
