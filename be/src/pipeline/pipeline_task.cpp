@@ -460,7 +460,7 @@ Status PipelineTask::execute(bool* done) {
 
             if (workload_group && _state->get_query_ctx()->enable_reserve_memory() &&
                 reserve_size > 0) {
-                if (_try_to_reserve_memory(reserve_size, _root)) {
+                if (!_try_to_reserve_memory(reserve_size, _root)) {
                     continue;
                 }
             }
@@ -478,7 +478,7 @@ Status PipelineTask::execute(bool* done) {
             if (_state->get_query_ctx()->enable_reserve_memory() && workload_group &&
                 !(_wake_up_early || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
-                if (_try_to_reserve_memory(sink_reserve_size, _sink.get())) {
+                if (!_try_to_reserve_memory(sink_reserve_size, _sink.get())) {
                     continue;
                 }
             }
@@ -575,7 +575,7 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
             ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                     _state->get_query_ctx()->shared_from_this(), reserve_size, st);
             _spilling = true;
-            return true;
+            return false;
         } else {
             // If reserve failed, not add this query to paused list, because it is very small, will not
             // consume a lot of memory. But need set low memory mode to indicate that the system should
@@ -583,7 +583,7 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
             _state->get_query_ctx()->set_low_memory_mode();
         }
     }
-    return false;
+    return true;
 }
 
 void PipelineTask::stop_if_finished() {
