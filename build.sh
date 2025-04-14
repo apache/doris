@@ -70,6 +70,7 @@ Usage: $0 <options>
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
+    ENABLE_BUILD_FAISS          If set BUILD_FAISS=ON, it will link BE with faiss.
 
   Eg.
     $0                                      build all
@@ -173,6 +174,7 @@ PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
+BUILD_FAISS='OFF'
 BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
@@ -287,7 +289,7 @@ else
         BUILD_CLOUD=1
         BUILD_BROKER=1
         BUILD_META_TOOL='ON'
-        BUILD_FILE_CACHE_MICROBENCH_TOOL='ON'
+        BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
         BUILD_INDEX_TOOL='ON'
         BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
@@ -472,6 +474,10 @@ if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
     BUILD_AZURE='OFF'
 fi
 
+if [[ -n "${ENABLE_BUILD_FAISS}" ]]; then
+    BUILD_FAISS='ON'
+fi
+
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
 fi
@@ -640,6 +646,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
+        -DBUILD_FAISS="${BUILD_FAISS}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -681,6 +688,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
+        -DBUILD_FAISS="${BUILD_FAISS}" \
         "${DORIS_HOME}/cloud/"
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -768,11 +776,12 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
 
     # copy jindofs jars, only support for Linux x64 or arm
     if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'x86_64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-6.3.4.jar" "${DORIS_OUTPUT}/fe/lib"/
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-sdk-6.3.4.jar" "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
     elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'aarch64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-linux-el7-aarch64-6.3.4.jar" "${DORIS_OUTPUT}/fe/lib"/
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-sdk-6.3.4.jar" "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
     fi
 
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
@@ -915,11 +924,12 @@ EOF
 
     # copy jindofs jars, only support for Linux x64 or arm
     if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'x86_64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-sdk-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
     elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'aarch64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-linux-el7-aarch64-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-sdk-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
     fi
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/

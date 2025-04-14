@@ -466,6 +466,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
+    public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
+
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
     /**
@@ -1252,7 +1254,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeBloomFilterMinSize = 1048576;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
-    private int runtimeBloomFilterMaxSize = 16777216;
+    private int runtimeBloomFilterMaxSize = 67108864;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS, needForward = true)
     private int runtimeFilterWaitTimeMs = 1000;
@@ -1268,7 +1270,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFilterType = 12;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM, needForward = true, fuzzy = true)
-    private int runtimeFilterMaxInNum = 1024;
+    private int runtimeFilterMaxInNum = 40960;
 
     @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true, fuzzy = true)
     private boolean enableSyncRuntimeFilterSize = true;
@@ -1794,6 +1796,13 @@ public class SessionVariable implements Serializable, Writable {
     public int numPartitionsInBatchMode = 1024;
 
     @VariableMgr.VarAttr(
+            name = NUM_FILES_IN_BATCH_MODE,
+            description = {"如果文件数量超过阈值，BE将通过batch方式获取scan ranges",
+                    "If the number of files exceeds the threshold, scan ranges will be got through batch mode."},
+            needForward = true)
+    public int numFilesInBatchMode = 1024;
+
+    @VariableMgr.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,
             description = {"batch方式中BE获取splits的最大等待时间",
                     "The max wait time of getting splits in batch mode."},
@@ -2174,6 +2183,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
+    public static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
+    @VariableMgr.VarAttr(
+            name = ENABLE_EXTERNAL_TABLE_BATCH_MODE,
+            description = {"使能外表的batch mode功能", "Enable the batch mode function of the external table."},
+            needForward = true)
+    public boolean enableExternalTableBatchMode = true;
+
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
         if (ignoreRuntimeFilterIds.isEmpty()) {
@@ -2252,6 +2268,12 @@ public class SessionVariable implements Serializable, Writable {
             description = { "当开启use_fix_replica时遇到故障，是否漂移到其他健康的副本",
                 "use other health replica when the use_fix_replica meet error" })
     public boolean fallbackOtherReplicaWhenFixedCorrupt = false;
+
+    public static final String FE_DEBUG = "fe_debug";
+    @VariableMgr.VarAttr(name = FE_DEBUG, needForward = true, fuzzy = true,
+            description = {"when set true, FE will throw exceptions instead swallow them. This is used for test",
+                    "when set true, FE will throw exceptions instead swallow them. This is used for test"})
+    public boolean feDebug = false;
 
     @VariableMgr.VarAttr(name = SHOW_ALL_FE_CONNECTION,
             description = {"when it's true show processlist statement list all fe's connection",
@@ -2480,6 +2502,7 @@ public class SessionVariable implements Serializable, Writable {
     @SuppressWarnings("checkstyle:Indentation")
     public void initFuzzyModeVariables() {
         Random random = new SecureRandom();
+        this.feDebug = true;
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
@@ -2503,40 +2526,24 @@ public class SessionVariable implements Serializable, Writable {
             this.enableSyncRuntimeFilterSize = false;
         }
 
-        /*
-        switch (randomInt) {
-            case 0:
-                this.spillSortBytesThreshold = 0;
-                break;
-            case 1:
-                this.spillSortBytesThreshold = 1;
-                this.spillAggregationPartitionCount = 6;
-                break;
-            case 2:
-                this.spillSortBytesThreshold = 1024 * 1024;
-                this.spillAggregationPartitionCount = 8;
-                break;
-            default:
-                this.spillSortBytesThreshold = 100 * 1024 * 1024 * 1024;
-                this.spillAggregationPartitionCount = 4;
-                break;
-        }
-        */
         switch (random.nextInt(4)) {
             case 0:
-                this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                this.runtimeFilterType = TRuntimeFilterType.IN.getValue();
                 break;
             case 1:
-                this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                this.runtimeFilterType = TRuntimeFilterType.BLOOM.getValue();
                 break;
             case 2:
-                this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                this.runtimeFilterType = TRuntimeFilterType.IN_OR_BLOOM.getValue();
                 break;
             case 3:
-                this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
                 break;
             default:
                 break;
+        }
+
+        if (random.nextBoolean()) {
+            this.runtimeFilterType |= TRuntimeFilterType.MIN_MAX.getValue();
         }
 
         switch (random.nextInt(3)) {
@@ -2551,7 +2558,6 @@ public class SessionVariable implements Serializable, Writable {
                 this.fragmentTransmissionCompressionCodec = "none";
         }
 
-        this.runtimeFilterType = 1 << randomInt;
         this.enableParallelScan = random.nextInt(2) == 0;
         this.enableRuntimeFilterPrune = (randomInt % 10) == 0;
         this.enableRuntimeFilterPartitionPrune = (randomInt % 2) == 0;
@@ -3307,11 +3313,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean allowedRuntimeFilterType(TRuntimeFilterType type) {
-        return (runtimeFilterType & type.getValue()) != 0;
-    }
-
-    public boolean isRuntimeFilterTypeEnabled(TRuntimeFilterType type) {
-        return (runtimeFilterType & type.getValue()) == type.getValue();
+        return RuntimeFilterTypeHelper.allowedRuntimeFilterType(runtimeFilterType, type);
     }
 
     public void setRuntimeFilterType(int runtimeFilterType) {
@@ -3368,6 +3370,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setNumSplitsInBatchMode(int numPartitionsInBatchMode) {
         this.numPartitionsInBatchMode = numPartitionsInBatchMode;
+    }
+
+    public int getNumFilesInBatchMode() {
+        return numFilesInBatchMode;
     }
 
     public long getFetchSplitsMaxWaitTime() {
@@ -4464,9 +4470,11 @@ public class SessionVariable implements Serializable, Writable {
             throw new UnsupportedOperationException("serdeDialect value is empty");
         }
 
-        if (!serdeDialect.equalsIgnoreCase("doris") && !serdeDialect.equalsIgnoreCase("presto")
-                && !serdeDialect.equalsIgnoreCase("trino")) {
-            LOG.warn("serdeDialect value is invalid, the invalid value is {}", serdeDialect);
+        if (!serdeDialect.equalsIgnoreCase("doris")
+                && !serdeDialect.equalsIgnoreCase("presto")
+                && !serdeDialect.equalsIgnoreCase("trino")
+                && !serdeDialect.equalsIgnoreCase("hive")) {
+            LOG.warn("serde dialect value is invalid, the invalid value is {}", serdeDialect);
             throw new UnsupportedOperationException(
                     "sqlDialect value is invalid, the invalid value is " + serdeDialect);
         }
@@ -4638,6 +4646,8 @@ public class SessionVariable implements Serializable, Writable {
             case "presto":
             case "trino":
                 return TSerdeDialect.PRESTO;
+            case "hive":
+                return TSerdeDialect.HIVE;
             default:
                 throw new IllegalArgumentException("Unknown serde dialect: " + serdeDialect);
         }
@@ -4682,5 +4692,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableLocalMergeSort() {
         return enableLocalMergeSort;
+    }
+
+    public boolean getEnableExternalTableBatchMode() {
+        return enableExternalTableBatchMode;
     }
 }

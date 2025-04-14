@@ -82,6 +82,7 @@ import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.analysis.WarmUpClusterStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.FsBroker;
@@ -150,6 +151,8 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -161,6 +164,7 @@ import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
+import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
@@ -734,7 +738,8 @@ public class StmtExecutor {
         if (context.isTxnModel()) {
             if (!(logicalPlan instanceof BatchInsertIntoTableCommand || logicalPlan instanceof InsertIntoTableCommand
                     || logicalPlan instanceof UpdateCommand || logicalPlan instanceof DeleteFromUsingCommand
-                    || logicalPlan instanceof DeleteFromCommand || logicalPlan instanceof UnsupportedCommand)) {
+                    || logicalPlan instanceof DeleteFromCommand || logicalPlan instanceof TransactionCommand
+                    || logicalPlan instanceof UnsupportedCommand)) {
                 String errMsg = "This is in a transaction, only insert, update, delete, "
                         + "commit, rollback is acceptable.";
                 throw new NereidsException(errMsg, new AnalysisException(errMsg));
@@ -2867,7 +2872,7 @@ public class StmtExecutor {
         return exprs.stream().map(e -> PrimitiveType.STRING).collect(Collectors.toList());
     }
 
-    public void sendStmtPrepareOK(int stmtId, List<String> labels) throws IOException {
+    public void sendStmtPrepareOK(int stmtId, List<String> labels, List<Slot> output) throws IOException {
         Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
         serializer.reset();
@@ -2876,13 +2881,19 @@ public class StmtExecutor {
         // statement_id
         serializer.writeInt4(stmtId);
         // num_columns
-        int numColumns = 0;
+        int numColumns = output == null ? 0 : output.size();
         serializer.writeInt2(numColumns);
         // num_params
         int numParams = labels.size();
         serializer.writeInt2(numParams);
         // reserved_1
         serializer.writeInt1(0);
+        if (numParams > 0 || numColumns > 0) {
+            // warning_count
+            serializer.writeInt2(0);
+            // metadata_follows
+            serializer.writeInt1(1);
+        }
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         if (numParams > 0) {
             // send field one by one
@@ -2894,6 +2905,33 @@ public class StmtExecutor {
                 serializer.reset();
                 // serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
                 serializer.writeField(colNames.get(i), Type.STRING);
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
+            serializer.reset();
+            if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+                MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
+                eofPacket.writeTo(serializer);
+            } else {
+                MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
+                okPacket.writeTo(serializer);
+            }
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        }
+        if (numColumns > 0) {
+            for (Slot slot : output) {
+                serializer.reset();
+                if (slot instanceof SlotReference
+                        && ((SlotReference) slot).getColumn().isPresent()
+                        && ((SlotReference) slot).getTable().isPresent()) {
+                    SlotReference slotReference = (SlotReference) slot;
+                    TableIf table = slotReference.getTable().get();
+                    Column column = slotReference.getColumn().get();
+                    DatabaseIf database = table.getDatabase();
+                    String dbName = database == null ? "" : database.getFullName();
+                    serializer.writeField(dbName, table.getName(), column, false);
+                } else {
+                    serializer.writeField(slot.getName(), slot.getDataType().toCatalogDataType());
+                }
                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
             serializer.reset();
@@ -3470,6 +3508,16 @@ public class StmtExecutor {
         this.parsedStmt = parsedStmt;
         this.statementContext.setParsedStatement(parsedStmt);
         return parsedStmt;
+    }
+
+    public List<Slot> planPrepareStatementSlots() throws Exception {
+        parseByNereids();
+        Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
+                "Nereids only process LogicalPlanAdapter,"
+                        + " but parsedStmt is " + parsedStmt.getClass().getName());
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+        nereidsPlanner.plan(parsedStmt, context.getSessionVariable().toThrift());
+        return nereidsPlanner.getPhysicalPlan().getOutput();
     }
 
     public List<ResultRow> executeInternalQuery() {

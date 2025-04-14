@@ -88,6 +88,7 @@ endif()
 
 if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_definitions(-DBE_TEST)
+    add_definitions(-DBUILD_FILE_CACHE_MICROBENCH_TOOL)
     add_definitions(-DBE_BENCHMARK)
 endif()
 
@@ -180,6 +181,9 @@ endif()
 
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
+
+option(BUILD_FAISS "Link doris with faiss for vector similarity search" OFF)
+message(STATUS "build faiss: ${BUILD_FAISS}")
 
 include (cmake/thirdparty.cmake)
 

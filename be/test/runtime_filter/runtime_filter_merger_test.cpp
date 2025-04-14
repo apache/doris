@@ -33,11 +33,11 @@ public:
                          RuntimeFilterWrapper::State second_expected_state) {
         std::shared_ptr<RuntimeFilterMerger> merger;
         auto desc = TRuntimeFilterDescBuilder().build();
-        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(
-                RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, &merger, &_profile));
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+                RuntimeFilterMerger::create(_query_ctx.get(), &desc, &merger));
         merger->set_expected_producer_num(2);
         ASSERT_FALSE(merger->ready());
-        ASSERT_EQ(merger->_wrapper->_state, RuntimeFilterWrapper::State::IGNORED);
+        ASSERT_EQ(merger->_wrapper->_state, RuntimeFilterWrapper::State::UNINITED);
 
         std::shared_ptr<RuntimeFilterProducer> producer;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -61,8 +61,8 @@ public:
                                                           .set_type(TRuntimeFilterType::IN_OR_BLOOM)
                                                           .build()) {
         std::shared_ptr<RuntimeFilterMerger> merger;
-        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(
-                RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, &merger, &_profile));
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+                RuntimeFilterMerger::create(_query_ctx.get(), &desc, &merger));
         merger->set_expected_producer_num(1);
         ASSERT_FALSE(merger->ready());
 
@@ -80,9 +80,8 @@ public:
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->serialize(&request, &data, &len));
 
         std::shared_ptr<RuntimeFilterProducer> deserialized_producer;
-        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterProducer::create(RuntimeFilterParamsContext::create(_query_ctx.get()),
-                                              &desc, &deserialized_producer, &_profile));
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
+                _query_ctx.get(), &desc, &deserialized_producer, &_profile));
         butil::IOBuf buf;
         buf.append(data, len);
         butil::IOBufAsZeroCopyInputStream stream(buf);
@@ -99,8 +98,7 @@ TEST_F(RuntimeFilterMergerTest, basic) {
 TEST_F(RuntimeFilterMergerTest, add_rf_size) {
     std::shared_ptr<RuntimeFilterMerger> merger;
     auto desc = TRuntimeFilterDescBuilder().build();
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(
-            RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, &merger, &_profile));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(_query_ctx.get(), &desc, &merger));
     merger->set_expected_producer_num(2);
 
     ASSERT_FALSE(merger->add_rf_size(123));
@@ -119,11 +117,10 @@ TEST_F(RuntimeFilterMergerTest, add_rf_size) {
 TEST_F(RuntimeFilterMergerTest, invalid_merge) {
     std::shared_ptr<RuntimeFilterMerger> merger;
     auto desc = TRuntimeFilterDescBuilder().build();
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(
-            RuntimeFilterParamsContext::create(_query_ctx.get()), &desc, &merger, &_profile));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(_query_ctx.get(), &desc, &merger));
     merger->set_expected_producer_num(1);
     ASSERT_FALSE(merger->ready());
-    ASSERT_EQ(merger->_wrapper->_state, RuntimeFilterWrapper::State::IGNORED);
+    ASSERT_EQ(merger->_wrapper->_state, RuntimeFilterWrapper::State::UNINITED);
 
     std::shared_ptr<RuntimeFilterProducer> producer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -140,16 +137,6 @@ TEST_F(RuntimeFilterMergerTest, invalid_merge) {
     ASSERT_EQ(st.code(), ErrorCode::INTERNAL_ERROR);
 }
 
-TEST_F(RuntimeFilterMergerTest, merge_from_ready_and_ignored) {
-    test_merge_from(RuntimeFilterWrapper::State::READY, RuntimeFilterWrapper::State::READY,
-                    RuntimeFilterWrapper::State::IGNORED, RuntimeFilterWrapper::State::READY);
-}
-
-TEST_F(RuntimeFilterMergerTest, merge_from_ignored_and_ready) {
-    test_merge_from(RuntimeFilterWrapper::State::IGNORED, RuntimeFilterWrapper::State::IGNORED,
-                    RuntimeFilterWrapper::State::READY, RuntimeFilterWrapper::State::READY);
-}
-
 TEST_F(RuntimeFilterMergerTest, merge_from_ready_and_disabled) {
     test_merge_from(RuntimeFilterWrapper::State::READY, RuntimeFilterWrapper::State::READY,
                     RuntimeFilterWrapper::State::DISABLED, RuntimeFilterWrapper::State::DISABLED);
@@ -160,26 +147,12 @@ TEST_F(RuntimeFilterMergerTest, merge_from_disabled_and_ready) {
                     RuntimeFilterWrapper::State::READY, RuntimeFilterWrapper::State::DISABLED);
 }
 
-TEST_F(RuntimeFilterMergerTest, merge_from_disabled_and_ignored) {
-    test_merge_from(RuntimeFilterWrapper::State::DISABLED, RuntimeFilterWrapper::State::DISABLED,
-                    RuntimeFilterWrapper::State::IGNORED, RuntimeFilterWrapper::State::DISABLED);
-}
-
-TEST_F(RuntimeFilterMergerTest, merge_from_ignored_and_disabled) {
-    test_merge_from(RuntimeFilterWrapper::State::IGNORED, RuntimeFilterWrapper::State::IGNORED,
-                    RuntimeFilterWrapper::State::DISABLED, RuntimeFilterWrapper::State::DISABLED);
-}
-
 TEST_F(RuntimeFilterMergerTest, serialize_ready) {
     test_serialize(RuntimeFilterWrapper::State::READY);
 }
 
 TEST_F(RuntimeFilterMergerTest, serialize_disabled) {
     test_serialize(RuntimeFilterWrapper::State::DISABLED);
-}
-
-TEST_F(RuntimeFilterMergerTest, serialize_ignored) {
-    test_serialize(RuntimeFilterWrapper::State::IGNORED);
 }
 
 TEST_F(RuntimeFilterMergerTest, serialize_bloom) {

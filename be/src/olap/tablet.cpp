@@ -224,6 +224,7 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
             std::unique_lock<std::mutex> lck {_latch};
             _pending_tablets.erase(t->tablet_id());
         }
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
         auto s = t->write_cooldown_meta();
         if (s.ok()) {
             return;
@@ -1090,17 +1091,17 @@ uint32_t Tablet::_calc_cumulative_compaction_score(
     if (cumulative_compaction_policy == nullptr) [[unlikely]] {
         return 0;
     }
-    DBUG_EXECUTE_IF("Tablet._calc_cumulative_compaction_score.return", {
-        LOG_WARNING("Tablet._calc_cumulative_compaction_score.return")
-                .tag("tablet id", tablet_id());
-        return 0;
-    });
 #ifndef BE_TEST
     if (_cumulative_compaction_policy == nullptr ||
         _cumulative_compaction_policy->name() != cumulative_compaction_policy->name()) {
         _cumulative_compaction_policy = cumulative_compaction_policy;
     }
 #endif
+    DBUG_EXECUTE_IF("Tablet._calc_cumulative_compaction_score.return", {
+        LOG_WARNING("Tablet._calc_cumulative_compaction_score.return")
+                .tag("tablet id", tablet_id());
+        return 0;
+    });
     return _cumulative_compaction_policy->calc_cumulative_compaction_score(this);
 }
 
@@ -2534,7 +2535,8 @@ CalcDeleteBitmapExecutor* Tablet::calc_delete_bitmap_executor() {
 
 Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                   DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                                  const RowsetIdUnorderedSet& cur_rowset_ids, int64_t lock_id) {
+                                  const RowsetIdUnorderedSet& cur_rowset_ids, int64_t lock_id,
+                                  int64_t next_visible_version) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
 

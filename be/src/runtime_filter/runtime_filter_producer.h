@@ -22,7 +22,6 @@
 #include "pipeline/dependency.h"
 #include "runtime/query_context.h"
 #include "runtime_filter/runtime_filter.h"
-#include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -46,19 +45,20 @@ public:
         PUBLISHED = 4 // Publish is complete, entering the final state of rf
     };
 
-    static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
+    static Status create(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
                          std::shared_ptr<RuntimeFilterProducer>* res,
                          RuntimeProfile* parent_profile) {
         *res = std::shared_ptr<RuntimeFilterProducer>(
-                new RuntimeFilterProducer(state, desc, parent_profile));
-        RETURN_IF_ERROR((*res)->_init_with_desc(desc, &state->get_query_ctx()->query_options()));
+                new RuntimeFilterProducer(query_ctx, desc, parent_profile));
+        RETURN_IF_ERROR((*res)->_init_with_desc(desc, &query_ctx->query_options()));
         return Status::OK();
     }
 
     Status init(size_t local_size);
 
-    Status send_size(RuntimeState* state, uint64_t local_filter_size,
-                     const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
+    Status send_size(RuntimeState* state, uint64_t local_filter_size);
+
+    void latch_dependency(const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
 
     // insert data to build filter
     Status insert(vectorized::ColumnPtr column, size_t start) {
@@ -69,6 +69,7 @@ public:
         _check_state({State::WAITING_FOR_DATA});
         return _wrapper->insert(column, start);
     }
+
     Status publish(RuntimeState* state, bool build_hash_table);
 
     std::string debug_string() const override {
@@ -109,15 +110,6 @@ public:
         }
     }
 
-    void copy_to_shared_context(const vectorized::SharedHashTableContextPtr& context) {
-        DCHECK(!context->runtime_filters.contains(_wrapper->filter_id()));
-        context->runtime_filters[_wrapper->filter_id()] = _wrapper;
-    }
-    void copy_from_shared_context(const vectorized::SharedHashTableContextPtr& context) {
-        DCHECK(context->runtime_filters.contains(_wrapper->filter_id()));
-        _wrapper = context->runtime_filters[_wrapper->filter_id()];
-    }
-
     bool set_state(State state) {
         std::unique_lock<std::mutex> l(_mtx);
         if (_rf_state == State::PUBLISHED ||
@@ -129,10 +121,13 @@ public:
         return true;
     }
 
+    std::shared_ptr<RuntimeFilterWrapper> wrapper() const { return _wrapper; }
+    void set_wrapper(std::shared_ptr<RuntimeFilterWrapper> wrapper) { _wrapper = wrapper; }
+
 private:
-    RuntimeFilterProducer(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
+    RuntimeFilterProducer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
                           RuntimeProfile* parent_profile)
-            : RuntimeFilter(state, desc),
+            : RuntimeFilter(desc),
               _is_broadcast_join(desc->is_broadcast_join),
               _profile(new RuntimeProfile(fmt::format("RF{}", desc->filter_id))) {
         if (parent_profile) { //tmp filter for mgr has no profile
@@ -141,7 +136,7 @@ private:
     }
 
     Status _send_to_remote_targets(RuntimeState* state, RuntimeFilter* merger_filter);
-    Status _send_to_local_targets(RuntimeFilter* merger_filter, bool global);
+    Status _send_to_local_targets(RuntimeState* state, RuntimeFilter* merger_filter, bool global);
 
     void _check_state(std::vector<State> assumed_states) {
         if (!check_state_impl<RuntimeFilterProducer>(_rf_state, assumed_states)) {
@@ -167,6 +162,9 @@ private:
 
     std::atomic<State> _rf_state;
     std::unique_ptr<RuntimeProfile> _profile;
+
+    // only used to lock set_state() to make _rf_state is protected
+    // set_synced_size and RuntimeFilterProducerHelper::terminate may called in different threads at the same time
     std::mutex _mtx;
 };
 #include "common/compile_check_end.h"

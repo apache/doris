@@ -483,6 +483,16 @@ DEFINE_Validator(low_priority_compaction_task_num_per_disk,
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 DEFINE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
+// Minimum number of threads required in the thread pool to activate the large cumu compaction delay strategy.
+// The delay strategy is only applied when the thread pool has at least this many threads.
+// Default -1 means disable.
+DEFINE_mInt32(large_cumu_compaction_task_min_thread_num, "-1");
+// Maximum size threshold (in bytes) for input rowsets. Compaction tasks with input size
+// exceeding this threshold will be delayed when thread pool is near capacity. Default 512MB.
+DEFINE_mInt32(large_cumu_compaction_task_bytes_threshold, "536870912");
+// Maximum row count threshold for compaction input. Compaction tasks with row count
+// exceeding this threshold will be delayed when thread pool is near capacity. Default 1 million.
+DEFINE_mInt32(large_cumu_compaction_task_row_num_threshold, "1000000");
 
 // Not compact the invisible versions, but with some limitations:
 // if not timeout, keep no more than compaction_keep_invisible_version_max_count versions;
@@ -635,7 +645,7 @@ DEFINE_Int32(num_cores, "0");
 DEFINE_Bool(ignore_broken_disk, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
-DEFINE_mInt32(memory_maintenance_sleep_time_ms, "20");
+DEFINE_mInt32(memory_maintenance_sleep_time_ms, "50");
 
 // After full gc, no longer full gc and minor gc during sleep.
 // After minor gc, no minor gc during sleep, but full gc is possible.
@@ -814,8 +824,7 @@ DEFINE_mInt32(zone_map_row_num_threshold, "20");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-// Default to turn off aws sdk log, because aws sdk errors that need to be cared will be output through Doris logs
-DEFINE_Int32(aws_log_level, "0");
+DEFINE_Int32(aws_log_level, "2");
 
 // the buffer size when read data from remote storage like s3
 DEFINE_mInt32(remote_storage_read_buffer_mb, "16");
@@ -1113,6 +1122,8 @@ DEFINE_mBool(inverted_index_compaction_enable, "true");
 DEFINE_mBool(debug_inverted_index_compaction, "false");
 // index by RAM directory
 DEFINE_mBool(inverted_index_ram_dir_enable, "true");
+// wheather index by RAM directory when base compaction
+DEFINE_mBool(inverted_index_ram_dir_enable_when_base_compaction, "true");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1259,6 +1270,9 @@ DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 
 // Ingest binlog with persistent connection
 DEFINE_Bool(enable_ingest_binlog_with_persistent_connection, "false");
+
+// Log ingest binlog elapsed threshold, -1 is disabled
+DEFINE_mInt64(ingest_binlog_elapsed_threshold_ms, "-1");
 
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
@@ -1452,7 +1466,7 @@ DEFINE_Bool(enable_table_size_correctness_check, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 DEFINE_mBool(enable_sleep_between_delete_cumu_compaction, "false");
 
-DEFINE_mInt32(compaction_num_per_round, "1");
+DEFINE_mInt32(compaction_num_per_round, "4");
 
 DEFINE_mInt32(check_tablet_delete_bitmap_interval_seconds, "300");
 DEFINE_mInt32(check_tablet_delete_bitmap_score_top_n, "10");
@@ -1464,6 +1478,11 @@ DEFINE_mInt32(schema_dict_cache_capacity, "4096");
 DEFINE_mBool(enable_prune_delete_sign_when_base_compaction, "true");
 
 DEFINE_mBool(enable_mow_verbose_log, "false");
+
+DEFINE_mInt32(tablet_sched_delay_time_ms, "5000");
+DEFINE_mInt32(load_trigger_compaction_version_percent, "66");
+DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
+DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
 // clang-format off
 #ifdef BE_TEST
