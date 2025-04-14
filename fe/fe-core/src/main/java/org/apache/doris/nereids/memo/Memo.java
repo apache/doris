@@ -34,6 +34,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
 import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
@@ -333,8 +334,10 @@ public class Memo {
     public static boolean needInitMultiPlanMemo(CascadesContext cascadesContext, Plan rboFinalPlan) {
         StatementContext statementContext = cascadesContext.getStatementContext();
         List<Plan> tmpPlanForLaterMvRewrite = statementContext.getTmpPlanForLaterMvRewrite();
+        boolean containMaterializedViewHook =
+                MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext());
         return !cascadesContext.getMaterializationContexts().isEmpty()
-                && !statementContext.getPlannerHooks().isEmpty()
+                && containMaterializedViewHook
                 && !tmpPlanForLaterMvRewrite.isEmpty() && rboFinalPlan instanceof LogicalResultSink
                 && tmpPlanForLaterMvRewrite.stream()
                 .anyMatch(tmpPlan -> rboFinalPlan.getLogicalProperties().equals(tmpPlan.getLogicalProperties()))
