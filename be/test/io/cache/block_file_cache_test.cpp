@@ -4475,65 +4475,85 @@ TEST_F(BlockFileCacheTest, test_check_disk_reource_limit_3) {
 }
 
 TEST_F(BlockFileCacheTest, test_align_size) {
-    const size_t total_size = 10_mb + 10086;
-    {
-        auto [offset, size] = CachedRemoteFileReader::s_align_size(0, 100, total_size);
-        EXPECT_EQ(offset, 0);
-        EXPECT_EQ(size, 1_mb);
+    size_t block_size = static_cast<size_t>(config::file_cache_each_block_size);
+
+    //===========================================================================
+    // boundary test
+    //===========================================================================
+    // clang-format off
+    struct I { size_t request_offset; size_t request_size; size_t file_size; size_t aligned_offset; size_t aligned_request_size; };
+    std::vector<I> boundary_inputs {
+    // request_offset, request_size, file_size, aligned_offset, aligned_request_size
+        {0            , 0         , 0              , 0           , 0}           ,
+        {10           , 10        , 0              , 0           , 0}           ,
+        {10           , 10        , 10             , 0           , 10}          ,
+        {block_size   , 10        , block_size+10  , block_size  , 10}          , // offset = multiple block_size
+        {2*block_size , 10        , 2*block_size+10, 2*block_size, 10}          , // offset = multiple block_size
+        {block_size+1 , 10        , block_size+11  , block_size  , 11}          , //
+        {block_size+1 , 10        , 2*block_size+11, block_size  , block_size}  , // request align size = block size
+        {0            , 100       , 10_mb+10086    , 0           , block_size}  ,
+        {1_mb-1       , 2         , 10_mb+10086    , 0           , 2*block_size},
+        {0            , 1_mb+10086, 10_mb+10086    , 0           , 2*block_size},
+        {10_mb+1      , 1086      , 10_mb+10086    , 10_mb       , 10086}       ,
+        {10_mb+1      , 108600    , 10_mb+10086    , 10_mb       , 10086}       , // buggy input but it works
+        {4_mb+108600  , 108600    , 10_mb+10086    , 4_mb        , block_size}  ,
+        {4_mb         , 1_mb      , 10_mb+10086    , 4_mb        , block_size}  ,
+        {4_mb         , 1         , 10_mb+10086    , 4_mb        , block_size}  ,
+        {4_mb+108600  , 1_mb      , 10_mb+10086    , 4_mb        , 2*block_size},
+        // {block_size, 10        , 10             , block_size  , 10}          , // offset > file_size, illegal input
+    };
+    auto to_string = [](const I& i) {
+        std::stringstream ss;
+        ss << "(" << i.request_offset << "," << i.request_size << "," << i.file_size << ") -> (" << i.aligned_offset << "," << i.aligned_request_size << ")";
+        return ss.str();
+    };
+    // clang-format on
+
+    int idx = 0;
+    for (auto& i : boundary_inputs) {
+        std::cout << i.request_offset << std::endl;
+        auto [aligned_offset, aligned_request_size] =
+                CachedRemoteFileReader::s_align_size(i.request_offset, i.request_size, i.file_size);
+        EXPECT_EQ(aligned_offset, i.aligned_offset) << " idx=" << idx << " " << to_string(i);
+        EXPECT_EQ(aligned_request_size, i.aligned_request_size)
+                << " idx=" << idx << " " << to_string(i);
+        idx++;
     }
-    {
-        auto [offset, size] = CachedRemoteFileReader::s_align_size(1_mb - 1, 2, total_size);
-        EXPECT_EQ(offset, 0);
-        EXPECT_EQ(size, 2_mb);
-    }
-    {
-        auto [offset, size] = CachedRemoteFileReader::s_align_size(0, 1_mb + 10086, total_size);
-        EXPECT_EQ(offset, 0);
-        EXPECT_EQ(size, 2_mb);
-    }
-    {
-        auto [offset, size] = CachedRemoteFileReader::s_align_size(10_mb + 1, 1086, total_size);
-        EXPECT_EQ(offset, 9_mb);
-        EXPECT_EQ(size, 1_mb + 10086);
-    }
-    {
-        auto [offset, size] = CachedRemoteFileReader::s_align_size(10_mb + 1, 108600, total_size);
-        EXPECT_EQ(offset, 9_mb);
-        EXPECT_EQ(size, 1_mb + 10086);
-    }
-    {
-        auto [offset, size] =
-                CachedRemoteFileReader::s_align_size(4_mb + 108600, 108600, total_size);
-        EXPECT_EQ(offset, 4_mb);
-        EXPECT_EQ(size, 1_mb);
-    }
-    {
-        auto [offset, size] = CachedRemoteFileReader::s_align_size(4_mb, 1_mb, total_size);
-        EXPECT_EQ(offset, 4_mb);
-        EXPECT_EQ(size, 1_mb);
-    }
-    {
-        auto [offset, size] = CachedRemoteFileReader::s_align_size(4_mb, 1, total_size);
-        EXPECT_EQ(offset, 4_mb);
-        EXPECT_EQ(size, 1_mb);
-    }
-    {
-        auto [offset, size] = CachedRemoteFileReader::s_align_size(4_mb + 108600, 1_mb, total_size);
-        EXPECT_EQ(offset, 4_mb);
-        EXPECT_EQ(size, 2_mb);
-    }
-    std::random_device rd;  // a seed source for the random number engine
-    std::mt19937 gen(rd()); // mersenne_twister_engine seeded with rd()
-    std::uniform_int_distribution<> distrib(0, 10_mb + 10086);
-    std::ranges::for_each(std::ranges::iota_view {0, 1000}, [&](int) {
-        size_t read_size = distrib(gen) % 1_mb;
-        size_t read_offset = distrib(gen);
-        auto [offset, size] =
-                CachedRemoteFileReader::s_align_size(read_offset, read_size, total_size);
-        EXPECT_EQ(offset % 1_mb, 0);
-        EXPECT_GE(size, 1_mb);
-        EXPECT_LE(size, 2_mb);
-    });
+
+    //===========================================================================
+    // test different file sizes
+    //===========================================================================
+    std::vector<std::uniform_int_distribution<size_t>> rand_file_sizes {
+            std::uniform_int_distribution<size_t>(0, 1_mb),
+            std::uniform_int_distribution<size_t>(0, 10_mb),
+            std::uniform_int_distribution<size_t>(0, 100_mb),
+            std::uniform_int_distribution<size_t>(0, 1000_mb),
+            std::uniform_int_distribution<size_t>(0, 10000_mb),
+            std::uniform_int_distribution<size_t>(0, 100000_mb),
+    };
+    auto file_size_test = [&block_size](std::uniform_int_distribution<size_t>& file_size_dist) {
+        std::random_device rd;
+        std::mt19937_64 gen(rd());
+        size_t file_size = file_size_dist(gen);
+        std::uniform_int_distribution<size_t> offset_dist(0, file_size - 1);
+        std::uniform_int_distribution<size_t> size_dist(0, file_size);
+        for (int i = 0; i < 10000; ++i) {
+            size_t req_offset = offset_dist(gen);
+            size_t req_size = size_dist(gen) % (file_size - req_offset); // prevent overflow
+            auto [off, sz] = CachedRemoteFileReader::s_align_size(req_offset, req_size, file_size);
+            std::stringstream ss;
+            ss << "file_size=" << file_size << " req_offset=" << req_offset
+               << " req_size=" << req_size << " aligned_offset=" << off << " aligned_size=" << sz;
+            // aligned offset must be mutiples of block_size
+            EXPECT_EQ(off % block_size, 0) << ss.str();
+            EXPECT_GE(off, 0) << ss.str();
+            // aligned offset must LE than file_size - 1
+            EXPECT_LE(off, (file_size - 1)) << ss.str();
+            EXPECT_LE(sz, file_size) << ss.str();
+            EXPECT_GE(sz, req_size) << ss.str();
+        }
+    };
+    for (auto& i : rand_file_sizes) file_size_test(i);
 }
 
 TEST_F(BlockFileCacheTest, remove_if_cached_when_isnt_releasable) {

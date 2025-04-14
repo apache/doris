@@ -91,20 +91,16 @@ Status CachedRemoteFileReader::close() {
     return _remote_file_reader->close();
 }
 
-std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, size_t read_size,
-                                                               size_t length) {
+std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, size_t req_size,
+                                                               size_t file_size) {
     size_t left = offset;
-    size_t right = offset + read_size - 1;
+    size_t right = offset + req_size - 1;
     size_t align_left =
             (left / config::file_cache_each_block_size) * config::file_cache_each_block_size;
     size_t align_right =
             (right / config::file_cache_each_block_size + 1) * config::file_cache_each_block_size;
-    align_right = align_right < length ? align_right : length;
+    align_right = align_right < file_size ? align_right : file_size;
     size_t align_size = align_right - align_left;
-    if (align_size < config::file_cache_each_block_size && align_left != 0) {
-        align_size += config::file_cache_each_block_size;
-        align_left -= config::file_cache_each_block_size;
-    }
     return std::make_pair(align_left, align_size);
 }
 
@@ -119,6 +115,11 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     }
     size_t bytes_req = result.size;
     bytes_req = std::min(bytes_req, size() - offset);
+    if (bytes_req != result.size) {
+        LOG(WARNING) << "request bytes exceeds data size from offset, "
+                     << "req_size= " << result.size << " offset=" << offset
+                     << " file_size=" << size() << " path=" << path().native();
+    }
     if (UNLIKELY(bytes_req == 0)) {
         *bytes_read = 0;
         return Status::OK();
