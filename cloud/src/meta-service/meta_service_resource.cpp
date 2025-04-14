@@ -793,6 +793,9 @@ struct ObjectStorageDesc {
     std::string& external_endpoint;
     std::string& region;
     bool& use_path_style;
+
+    std::string role_arn;
+    std::string external_id;
 };
 
 static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
@@ -805,7 +808,7 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
         msg = "s3 obj info err " + proto_to_json(*request);
         return -1;
     }
-    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style] = obj_desc;
+
     const auto& obj = request->has_obj() ? request->obj() : request->vault().obj_info();
     // Prepare data
     if (!obj.has_ak() || !obj.has_sk()) {
@@ -814,30 +817,37 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
         return -1;
     }
 
-    std::string plain_ak = obj.has_ak() ? obj.ak() : "";
-    std::string plain_sk = obj.has_sk() ? obj.sk() : "";
-
-    auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
-                                    msg);
-    if (ret != 0) {
-        return -1;
-    }
-    TEST_SYNC_POINT_CALLBACK("extract_object_storage_info:get_aksk_pair", &cipher_ak_sk_pair);
-
-    ak = cipher_ak_sk_pair.first;
-    sk = cipher_ak_sk_pair.second;
-    bucket = obj.has_bucket() ? obj.bucket() : "";
-    prefix = obj.has_prefix() ? obj.prefix() : "";
-    endpoint = obj.has_endpoint() ? obj.endpoint() : "";
-    external_endpoint = obj.has_external_endpoint() ? obj.external_endpoint() : "";
-    region = obj.has_region() ? obj.region() : "";
-    use_path_style = obj.use_path_style();
     //  obj size > 1k, refuse
     if (obj.ByteSizeLong() > 1024) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "s3 obj info greater than 1k " + proto_to_json(*request);
         return -1;
     };
+
+    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style, role_arn,
+           external_id] = obj_desc;
+
+    if (!obj.has_role_arn()) {
+        std::string plain_ak = obj.has_ak() ? obj.ak() : "";
+        std::string plain_sk = obj.has_sk() ? obj.sk() : "";
+        auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
+                                        code, msg);
+        if (ret != 0) {
+            return -1;
+        }
+
+        ak = cipher_ak_sk_pair.first;
+        sk = cipher_ak_sk_pair.second;
+    }
+    TEST_SYNC_POINT_CALLBACK("extract_object_storage_info:get_aksk_pair", &cipher_ak_sk_pair);
+    bucket = obj.has_bucket() ? obj.bucket() : "";
+    prefix = obj.has_prefix() ? obj.prefix() : "";
+    endpoint = obj.has_endpoint() ? obj.endpoint() : "";
+    external_endpoint = obj.has_external_endpoint() ? obj.external_endpoint() : "";
+    region = obj.has_region() ? obj.region() : "";
+    use_path_style = obj.use_path_style();
+    role_arn = obj.has_role_arn() ? obj.role_arn() : "";
+    external_id = obj.has_external_id() ? obj.external_id() : "";
     return 0;
 }
 
@@ -847,7 +857,8 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
                                                 EncryptionInfoPB& encryption_info,
                                                 AkSkPair& cipher_ak_sk_pair) {
     ObjectStoreInfoPB last_item;
-    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style] = obj_desc;
+    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style, role_arn,
+           external_id] = obj_desc;
     auto now_time = std::chrono::system_clock::now();
     uint64_t time =
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
@@ -857,9 +868,15 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
     if (obj.has_user_id()) {
         last_item.set_user_id(obj.user_id());
     }
-    last_item.set_ak(std::move(cipher_ak_sk_pair.first));
-    last_item.set_sk(std::move(cipher_ak_sk_pair.second));
-    last_item.mutable_encryption_info()->CopyFrom(encryption_info);
+
+    if (!obj.has_role_arn()) {
+        last_item.set_ak(std::move(cipher_ak_sk_pair.first));
+        last_item.set_sk(std::move(cipher_ak_sk_pair.second));
+        last_item.mutable_encryption_info()->CopyFrom(encryption_info);
+    } else {
+        last_item.set_role_arn(role_arn);
+        last_item.set_external_id(external_id);
+    }
     last_item.set_bucket(bucket);
     // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
     trim(prefix);
@@ -870,6 +887,7 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
     last_item.set_provider(obj.provider());
     last_item.set_sse_enabled(instance.sse_enabled());
     last_item.set_use_path_style(use_path_style);
+
     return last_item;
 }
 
@@ -877,7 +895,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
                                           const AlterObjStoreInfoRequest* request,
                                           AlterObjStoreInfoResponse* response,
                                           ::google::protobuf::Closure* done) {
-    std::string ak, sk, bucket, prefix, endpoint, external_endpoint, region;
+    std::string ak, sk, bucket, prefix, endpoint, external_endpoint, region, role_arn, external_id;
     bool use_path_style;
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
@@ -1007,7 +1025,8 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             return;
         }
         // ATTN: prefix may be empty
-        if (ak.empty() || sk.empty() || bucket.empty() || endpoint.empty() || region.empty()) {
+        if (((ak.empty() || sk.empty()) && role_arn.empty()) || bucket.empty() ||
+            endpoint.empty() || region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err, please check it";
             return;
@@ -1025,8 +1044,11 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             }
         }
         // calc id
-        auto tmp_tuple = ObjectStorageDesc {
-                ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style};
+        auto tmp_tuple = ObjectStorageDesc {ak,       sk,
+                                            bucket,   prefix,
+                                            endpoint, external_endpoint,
+                                            region,   use_path_style,
+                                            role_arn, external_id};
         ObjectStoreInfoPB last_item = object_info_pb_factory(tmp_tuple, obj, instance,
                                                              encryption_info, cipher_ak_sk_pair);
         if (instance.storage_vault_names().end() !=

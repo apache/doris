@@ -8983,4 +8983,73 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
     }
 }
 
+TEST(MetaServiceTest, CreateS3VaultWithIamRoleTest) {
+    auto meta_service = get_meta_service();
+
+    // std::unique_ptr<Transaction> txn;
+    // ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    // std::string key;
+    // std::string val;
+    // InstanceKeyInfo key_info {"test_instance"};
+    // instance_key(key_info, &key);
+
+    // ObjectStoreInfoPB obj_info;
+    // obj_info.set_id("1");
+    // obj_info.set_ak("ak");
+    // obj_info.set_sk("sk");
+
+    // StorageVaultPB vault;
+    // constexpr char vault_name[] = "test_alter_s3_vault";
+    // vault.mutable_obj_info()->MergeFrom(obj_info);
+    // vault.set_name(vault_name);
+    // vault.set_id("2");
+    // InstanceInfoPB instance;
+    // instance.add_storage_vault_names(vault.name());
+    // instance.add_resource_ids(vault.id());
+    // instance.set_instance_id("GetObjStoreInfoTestInstance");
+    // val = instance.SerializeAsString();
+    // txn->put(key, val);
+    // txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
+    // ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    // txn = nullptr;
+
+    // auto get_test_instance = [&](InstanceInfoPB& i) {
+    //     std::string key;
+    //     std::string val;
+    //     std::unique_ptr<Transaction> txn;
+    //     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    //     InstanceKeyInfo key_info {"test_instance"};
+    //     instance_key(key_info, &key);
+    //     ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+    //     i.ParseFromString(val);
+    // };
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_S3_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_ak("new_ak");
+        vault.set_name("CreateS3VaultWithIamRoleTest");
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        // InstanceInfoPB instance;
+        // get_test_instance(instance);
+
+        // std::unique_ptr<Transaction> txn;
+        // ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        // std::string val;
+        // ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "2"}), &val),
+        //           TxnErrorCode::TXN_OK);
+        // StorageVaultPB get_obj;
+        // get_obj.ParseFromString(val);
+        // ASSERT_EQ(get_obj.obj_info().ak(), "ak") << get_obj.obj_info().ak();
+    }
+}
+
 } // namespace doris::cloud
