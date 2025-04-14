@@ -448,7 +448,7 @@ Status PipelineTask::execute(bool* done) {
         // `_dry_run` means sink operator need no more data
         _eos = _dry_run || _eos;
         _spilling = false;
-        auto workload_group = _state->get_query_ctx()->workload_group();
+        auto workload_group = _state->workload_group();
         // If last run is pended by a spilling request, `_block` is produced with some rows in last
         // run, so we will resume execution using the block.
         if (!_eos && _block->empty()) {

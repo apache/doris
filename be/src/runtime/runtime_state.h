@@ -472,7 +472,7 @@ public:
     [[nodiscard]] bool low_memory_mode() const;
 
     std::weak_ptr<QueryContext> get_query_ctx_weak();
-    WorkloadGroupPtr workload_group();
+    MOCK_FUNCTION WorkloadGroupPtr workload_group();
 
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
