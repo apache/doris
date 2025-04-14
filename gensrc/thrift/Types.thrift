@@ -117,6 +117,15 @@ enum TStorageBackendType {
     OFS
 }
 
+// Enumerates the storage formats for inverted indexes in src_backends.
+// This enum is used to distinguish between different organizational methods
+// of inverted index data, affecting how the index is stored and accessed.
+enum TInvertedIndexFileStorageFormat {
+    DEFAULT, // Default format, unspecified storage method.
+    V1,      // Index per idx: Each index is stored separately based on its identifier.
+    V2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+}
+
 struct TScalarType {
     1: required TPrimitiveType type
 
