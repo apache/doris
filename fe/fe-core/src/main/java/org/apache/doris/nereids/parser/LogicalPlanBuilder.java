@@ -329,6 +329,7 @@ import org.apache.doris.nereids.DorisParser.ShowDynamicPartitionContext;
 import org.apache.doris.nereids.DorisParser.ShowEncryptKeysContext;
 import org.apache.doris.nereids.DorisParser.ShowEventsContext;
 import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
+import org.apache.doris.nereids.DorisParser.ShowFunctionsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsForUserContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
@@ -652,6 +653,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand
 import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
@@ -5371,6 +5373,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowFrontends(ShowFrontendsContext ctx) {
         String detail = (ctx.name != null) ? ctx.name.getText() : null;
         return new ShowFrontendsCommand(detail);
+    }
+
+    @Override
+    public LogicalPlan visitShowFunctions(ShowFunctionsContext ctx) {
+        String dbName = null;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            if (nameParts.size() == 1) {
+                dbName = nameParts.get(0);
+            } else if (nameParts.size() == 2) {
+                dbName = nameParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+            }
+        }
+
+        boolean isVerbose = ctx.FULL() != null;
+        boolean isBuiltin = ctx.BUILTIN() != null;
+
+        String wild = null;
+        if (ctx.STRING_LITERAL() != null) {
+            wild = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+        return new ShowFunctionsCommand(dbName, isBuiltin, isVerbose, wild);
     }
 
     @Override
