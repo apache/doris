@@ -52,16 +52,12 @@ public class MTMVCache {
     private final Plan logicalPlan;
     // The original rewritten plan of mv def sql
     private final Plan originalPlan;
-    // The analyzed plan of mv def sql, which is used by tableCollector,should not be optimized by rbo
-    private final Plan analyzedPlan;
     private final Statistics statistics;
     private final StructInfo structInfo;
 
-    public MTMVCache(Plan logicalPlan, Plan originalPlan, Plan analyzedPlan,
-            Statistics statistics, StructInfo structInfo) {
+    public MTMVCache(Plan logicalPlan, Plan originalPlan, Statistics statistics, StructInfo structInfo) {
         this.logicalPlan = logicalPlan;
         this.originalPlan = originalPlan;
-        this.analyzedPlan = analyzedPlan;
         this.statistics = statistics;
         this.structInfo = structInfo;
     }
@@ -72,10 +68,6 @@ public class MTMVCache {
 
     public Plan getOriginalPlan() {
         return originalPlan;
-    }
-
-    public Plan getAnalyzedPlan() {
-        return analyzedPlan;
     }
 
     public Statistics getStatistics() {
@@ -156,7 +148,7 @@ public class MTMVCache {
                 currentContext.setThreadLocalInfo();
             }
         }
-        return new MTMVCache(mvPlan, originPlan, planner.getAnalyzedPlan(), needCost
+        return new MTMVCache(mvPlan, originPlan, needCost
                 ? planner.getCascadesContext().getMemo().getRoot().getStatistics() : null,
                 structInfoOptional.orElse(null));
     }

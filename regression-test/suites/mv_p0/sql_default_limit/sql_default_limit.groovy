@@ -51,11 +51,13 @@ suite ("sql_default_limit") {
 
     sql """set enable_stats=true;"""
     sql """set sql_select_limit = 1;"""
-    mv_rewrite_success("select id1, sum(sale_amt) from sql_default_limit_table group by id1;", "test_mv")
+    mv_rewrite_success("select id1, sum(sale_amt) from sql_default_limit_table group by id1 order by id1;",
+            "test_mv")
     order_qt_query1 """select id1, sum(sale_amt) from sql_default_limit_table group by id1;"""
     sql """set sql_select_limit = -1;"""
 
     sql """set default_order_by_limit = 2;"""
-    mv_rewrite_success("select id1, sum(sale_amt) from sql_default_limit_table group by id1;", "test_mv")
+    mv_rewrite_success("select id1, sum(sale_amt) from sql_default_limit_table group by id1 order by id1;",
+            "test_mv")
     order_qt_query2 """select id1, sum(sale_amt) from sql_default_limit_table group by id1;"""
 }
