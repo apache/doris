@@ -48,7 +48,7 @@
 
 namespace doris {
 
-constexpr double TOLERANCE = 1e-8;
+constexpr double TOLERANCE = 1e-6;
 
 GeoPoint::GeoPoint() : _point(new S2Point()) {}
 GeoPoint::~GeoPoint() = default;
@@ -1004,7 +1004,7 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
         // "Touches" equivalent to boundary contact  but no internal overlap
         std::unique_ptr<S2Polygon> intersection(new S2Polygon());
         intersection->InitToIntersection(*polygon1, *polygon2);
-        return (intersection->GetArea() < S1Angle::Radians(1e-6).radians() &&
+        return (intersection->GetArea() < S1Angle::Radians(TOLERANCE).radians() &&
                 polygon_touch_polygon(polygon1, polygon2));
     }
     case GEO_SHAPE_MULTI_POLYGON: {
