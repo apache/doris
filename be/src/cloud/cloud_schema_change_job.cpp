@@ -440,10 +440,11 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     } else {
         should_clear_stop_token = false;
     }
-    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_convert_historical_rowsets.before.modify_tablet_meta",
-                    DBUG_BLOCK);
     const auto& stats = finish_resp.stats();
     {
+        // to prevent the converted historical rowsets be replaced by rowsets written on new tablet
+        // during double write phase by `CloudMetaMgr::sync_tablet_rowsets` in another thread
+        std::unique_lock lock {_new_tablet->get_sync_meta_lock()};
         std::unique_lock wlock(_new_tablet->get_header_lock());
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock);
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
@@ -474,7 +475,11 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
 
     // step 1, process incremental rowset without delete bitmap update lock
     std::vector<RowsetSharedPtr> incremental_rowsets;
-    RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().sync_tablet_rowsets(tmp_tablet.get()));
+    {
+        std::unique_lock lock {tmp_tablet->get_sync_meta_lock()};
+        RETURN_IF_ERROR(
+                _cloud_storage_engine.meta_mgr().sync_tablet_rowsets(tmp_tablet.get(), lock));
+    }
     int64_t max_version = tmp_tablet->max_version().second;
     LOG(INFO) << "alter table for mow table, calculate delete bitmap of "
               << "incremental rowsets without lock, version: " << start_calc_delete_bitmap_version
@@ -499,7 +504,11 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     // step 2, process incremental rowset with delete bitmap update lock
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().get_delete_bitmap_update_lock(
             *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator));
-    RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().sync_tablet_rowsets(tmp_tablet.get()));
+    {
+        std::unique_lock lock {tmp_tablet->get_sync_meta_lock()};
+        RETURN_IF_ERROR(
+                _cloud_storage_engine.meta_mgr().sync_tablet_rowsets(tmp_tablet.get(), lock));
+    }
     int64_t new_max_version = tmp_tablet->max_version().second;
     LOG(INFO) << "alter table for mow table, calculate delete bitmap of "
               << "incremental rowsets with lock, version: " << max_version + 1 << "-"
