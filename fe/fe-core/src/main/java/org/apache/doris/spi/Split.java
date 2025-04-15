@@ -18,7 +18,6 @@
 package org.apache.doris.spi;
 
 import org.apache.doris.datasource.SplitWeight;
-import org.apache.doris.thrift.TScanRangeLocations;
 
 import java.util.List;
 
