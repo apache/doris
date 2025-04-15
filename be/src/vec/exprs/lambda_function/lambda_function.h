@@ -21,7 +21,10 @@
 
 #include "common/status.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vcolumn_ref.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris::vectorized {
 class VExpr;
@@ -39,6 +42,34 @@ public:
     virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
                                   int* result_column_id, const DataTypePtr& result_type,
                                   const VExprSPtrs& children) = 0;
+
+    static bool _contains_column_id(const std::vector<int>& output_slot_ref_indexs, int id) {
+        const auto it = std::find(output_slot_ref_indexs.begin(), output_slot_ref_indexs.end(), id);
+        return it != output_slot_ref_indexs.end();
+    }
+
+    static void _set_column_ref_column_id(VExprSPtr expr, int gap) {
+        for (const auto& child : expr->children()) {
+            if (child->is_column_ref()) {
+                auto* ref = static_cast<VColumnRef*>(child.get());
+                ref->set_gap(gap);
+            } else {
+                _set_column_ref_column_id(child, gap);
+            }
+        }
+    }
+
+    static void _collect_slot_ref_column_id(VExprSPtr expr,
+                                            std::vector<int>& output_slot_ref_indexs) {
+        for (const auto& child : expr->children()) {
+            if (child->is_slot_ref()) {
+                const auto* ref = static_cast<VSlotRef*>(child.get());
+                output_slot_ref_indexs.push_back(ref->column_id());
+            } else {
+                _collect_slot_ref_column_id(child, output_slot_ref_indexs);
+            }
+        }
+    }
 
     int batch_size;
 };

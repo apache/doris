@@ -309,33 +309,6 @@ public:
     }
 
 private:
-    bool _contains_column_id(const std::vector<int>& output_slot_ref_indexs, int id) {
-        const auto it = std::find(output_slot_ref_indexs.begin(), output_slot_ref_indexs.end(), id);
-        return it != output_slot_ref_indexs.end();
-    }
-
-    void _set_column_ref_column_id(VExprSPtr expr, int gap) {
-        for (const auto& child : expr->children()) {
-            if (child->is_column_ref()) {
-                auto* ref = static_cast<VColumnRef*>(child.get());
-                ref->set_gap(gap);
-            } else {
-                _set_column_ref_column_id(child, gap);
-            }
-        }
-    }
-
-    void _collect_slot_ref_column_id(VExprSPtr expr, std::vector<int>& output_slot_ref_indexs) {
-        for (const auto& child : expr->children()) {
-            if (child->is_slot_ref()) {
-                const auto* ref = static_cast<VSlotRef*>(child.get());
-                output_slot_ref_indexs.push_back(ref->column_id());
-            } else {
-                _collect_slot_ref_column_id(child, output_slot_ref_indexs);
-            }
-        }
-    }
-
     void _extend_data(std::vector<MutableColumnPtr>& columns, Block* block,
                       int current_repeat_times, int size, int64_t current_row_idx,
                       const std::vector<int>& output_slot_ref_indexs) {
