@@ -294,7 +294,7 @@ private:
     RuntimeProfile::Counter* _java_create_vector_table_time = nullptr;
     RuntimeProfile::Counter* _fill_block_time = nullptr;
     std::map<std::string, RuntimeProfile::Counter*> _scanner_profile;
-    RuntimeProfile::ConditionCounter* _max_time_split_id_counter = nullptr;
+    RuntimeProfile::ConditionCounter* _max_time_split_weight_counter = nullptr;
 
     int64_t _jni_scanner_open_watcher = 0;
     int64_t _java_scan_watcher = 0;

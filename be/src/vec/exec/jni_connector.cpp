@@ -78,8 +78,8 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     _java_create_vector_table_time =
             ADD_CHILD_TIMER(_profile, "JavaCreateVectorTableTime", _connector_name.c_str());
     _fill_block_time = ADD_CHILD_TIMER(_profile, "FillBlockTime", _connector_name.c_str());
-    _max_time_split_id_counter = _profile->add_conditition_counter(
-            "MaxTimeSplitId", TUnit::UNIT, [](int64_t _c, int64_t c) { return c > _c; },
+    _max_time_split_weight_counter = _profile->add_conditition_counter(
+            "MaxTimeSplitWeight", TUnit::UNIT, [](int64_t _c, int64_t c) { return c > _c; },
             _connector_name.c_str());
     _java_scan_watcher = 0;
     // cannot put the env into fields, because frames in an env object is limited
@@ -192,7 +192,7 @@ Status JniConnector::close() {
 
             COUNTER_UPDATE(_java_scan_time, _java_scan_watcher - _append - _create);
 
-            _max_time_split_id_counter->conditional_update(
+            _max_time_split_weight_counter->conditional_update(
                     _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
                     _self_split_weight);
 
