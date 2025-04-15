@@ -227,6 +227,13 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 .filter(index -> prunedOutput.contains(originOutput.get(index)))
                 .boxed()
                 .collect(ImmutableList.toImmutableList());
+        // in function `pruneUnionOutput`, the prunedOutput may not come from originOutput,
+        // it's just a new add column slot reference.
+        if (prunedOutputIndexes.isEmpty()) {
+            prunedOutputIndexes = IntStream.range(0, prunedOutput.size())
+                    .boxed()
+                    .collect(ImmutableList.toImmutableList());
+        }
 
         ImmutableList.Builder<Plan> prunedChildren = ImmutableList.builder();
         ImmutableList.Builder<List<SlotReference>> prunedChildrenOutputs = ImmutableList.builder();
@@ -426,7 +433,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         if (prunedOutputs.isEmpty()) {
             // process prune all columns
             NamedExpression originSlot = originOutput.get(0);
-            prunedOutputs = ImmutableList.of(new SlotReference(originSlot.getExprId(), originSlot.getName(),
+            prunedOutputs = ImmutableList.of(new SlotReference(originSlot.getName(),
                     TinyIntType.INSTANCE, false, originSlot.getQualifier()));
             regularChildrenOutputs = Lists.newArrayListWithCapacity(regularChildrenOutputs.size());
             children = Lists.newArrayListWithCapacity(children.size());
