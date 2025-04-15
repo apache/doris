@@ -87,7 +87,7 @@ public class ShowGlobalFunctionsCommandTest extends TestWithFeService {
         sf = new ShowFunctionsCommand(true, where, true);
         List<String> func5 = sf.getFunctions(connectContext);
         List<List<String>> re5 = sf.getResultRowSetByFunctions(func5);
-        Assertions.assertEquals(1, re5.get(0).size());
+        Assertions.assertEquals(5, re5.get(0).size());
         Assertions.assertEquals("test_for_create_function", re5.get(0).get(0));
         Assertions.assertEquals("", re5.get(0).get(1));
         Assertions.assertEquals("", re5.get(0).get(2));
