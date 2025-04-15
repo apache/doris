@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * LikeToEqualRewrite
@@ -47,19 +46,13 @@ public class LikeToEqualRewrite implements ExpressionPatternRuleFactory {
     private static Expression rewriteLikeToEqual(Like like) {
         Expression left = like.child(0);
         Expression right = like.child(1);
-        Optional<Expression> escape = like.getEscape();
         if (!(right instanceof VarcharLiteral)) {
             return like;
         }
         String str = ((VarcharLiteral) right).value;
         StringBuilder sb = new StringBuilder();
         int len = str.length();
-        char escapeChar = escape.isPresent() ? ((VarcharLiteral) escape.get()).value.charAt(0) : '\\';
-        if (escapeChar != '\\') {
-            //replace escapeChar with '\' inside like expression
-            like = replaceEscapeCharInLike(like, escapeChar, '\\');
-            escapeChar = '\\';
-        }
+        char escapeChar = '\\';
 
         for (int i = 0; i < len;) {
             char c = str.charAt(i);
@@ -76,19 +69,5 @@ public class LikeToEqualRewrite implements ExpressionPatternRuleFactory {
             }
         }
         return new EqualTo(left, new VarcharLiteral(sb.toString()));
-    }
-
-    private static Like replaceEscapeCharInLike(Like oldLike, char escapeChar, char replaceChar) {
-        Expression left = oldLike.getLeft();
-        Expression right = oldLike.getRight();
-        Expression escape = oldLike.getEscape().get();
-
-        if (right instanceof VarcharLiteral && escape instanceof VarcharLiteral) {
-            String rightValue = ((VarcharLiteral) right).value.replace(escapeChar, replaceChar);
-            right = new VarcharLiteral(rightValue);
-            String escapeValue = ((VarcharLiteral) escape).value.replace(escapeChar, replaceChar);
-            escape = new VarcharLiteral(escapeValue);
-        }
-        return new Like(left, right, escape);
     }
 }

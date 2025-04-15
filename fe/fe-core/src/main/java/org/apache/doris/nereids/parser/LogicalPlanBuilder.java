@@ -3884,12 +3884,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     }
                     break;
                 case DorisParser.LIKE:
+                    Like like;
                     if (ctx.escape != null) {
-                        outExpression = new Like(valueExpression, getExpression(ctx.pattern),
-                            getExpression(ctx.escape));
+                        Expression escape = getExpression(ctx.escape);
+                        like = new Like(valueExpression, getExpression(ctx.pattern), escape);
+                        char escapeChar = ((VarcharLiteral) escape).value.charAt(0);
+                        if (escapeChar != '\\') {
+                            like = replaceEscapeCharInLike(like, escapeChar, '\\');
+                        }
                     } else {
-                        outExpression = new Like(valueExpression, getExpression(ctx.pattern));
+                        like = new Like(valueExpression, getExpression(ctx.pattern));
                     }
+                    outExpression = like;
                     break;
                 case DorisParser.RLIKE:
                 case DorisParser.REGEXP:
@@ -3965,6 +3971,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             return ctx.NOT() != null ? new Not(outExpression) : outExpression;
         });
+    }
+
+    private Like replaceEscapeCharInLike(Like oldLike, char oldEscapeChar, char newEscapeChar) {
+        Expression left = oldLike.getLeft();
+        Expression right = oldLike.getRight();
+        Expression escape = oldLike.getEscape().get();
+
+        if (right instanceof VarcharLiteral && escape instanceof VarcharLiteral) {
+            String rightValue = ((VarcharLiteral) right).value.replace(oldEscapeChar, newEscapeChar);
+            right = new VarcharLiteral(rightValue);
+            String escapeValue = ((VarcharLiteral) escape).value.replace(oldEscapeChar, newEscapeChar);
+            escape = new VarcharLiteral(escapeValue);
+        }
+        return new Like(left, right, escape);
     }
 
     private List<NamedExpression> getNamedExpressions(NamedExpressionSeqContext namedCtx) {
