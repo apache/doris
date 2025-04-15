@@ -160,7 +160,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -553,7 +552,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
      */
     public static Rewriter getWholeTreeRewriterWithCustomJobs(CascadesContext cascadesContext, List<RewriteJob> jobs) {
         return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(false, false,
-                jobs, ImmutableList.of()));
+                jobs, ImmutableList.of(), ImmutableList.of()));
     }
 
     private static List<RewriteJob> getWholeTreeRewriteJobs(boolean withCostBased) {
@@ -567,21 +566,21 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     .stream()
                     .filter(j -> !(j instanceof CostBasedRewriteJob))
                     .collect(Collectors.toList());
-            beforeSubPathAndMvJobsStage1.addAll(beforeSubPathAndMvJobsStage2);
 
-            return getWholeTreeRewriteJobs(true, true, beforeSubPathAndMvJobsStage1,
+            return getWholeTreeRewriteJobs(true, true,
+                    beforeSubPathAndMvJobsStage1, beforeSubPathAndMvJobsStage2,
                     CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN);
         }
-        List<RewriteJob> copiedRewriteJobs
-                = new ArrayList<>(CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_1);
-        copiedRewriteJobs.addAll(CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_2);
-        return getWholeTreeRewriteJobs(true, true, copiedRewriteJobs,
+        return getWholeTreeRewriteJobs(true, true,
+                CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_1,
+                CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_2,
                 CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN);
     }
 
     private static List<RewriteJob> getWholeTreeRewriteJobs(
             boolean needSubPathPushDown,
             boolean needOrExpansion,
+            List<RewriteJob> beforePushDownJobsStage1,
             List<RewriteJob> beforePushDownJobs,
             List<RewriteJob> afterPushDownJobs) {
 
@@ -598,13 +597,16 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topic("process limit session variables",
                                 custom(RuleType.ADD_DEFAULT_LIMIT, AddDefaultLimit::new)
                         ),
+                        topic("rewrite cte sub-tree before sub path push down stage1",
+                                custom(RuleType.REWRITE_CTE_CHILDREN,
+                                        () -> new RewriteCteChildren(beforePushDownJobsStage1)),
                         topic("record tmp plan for mv later rewrite",
                                 custom(RuleType.RECORD_PLAN_FOR_LATER_MV_REWRITE, RecordPlanForMvLaterRewrite::new)
                         ),
                         topic("rewrite cte sub-tree before sub path push down",
                                 custom(RuleType.REWRITE_CTE_CHILDREN,
                                         () -> new RewriteCteChildren(beforePushDownJobs))
-                        )));
+                        ))));
                 if (needOrExpansion) {
                     rewriteJobs.addAll(jobs(topic("or expansion",
                             custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));

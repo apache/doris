@@ -48,8 +48,9 @@ public class RecordPlanForMvLaterRewrite extends DefaultPlanRewriter<Void> imple
         if (!containMaterializedViewHook) {
             return plan;
         }
-        List<RewriteJob> recordMvBeforeJobs =
-                new ArrayList<>(Rewriter.CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_1);
+        // List<RewriteJob> recordMvBeforeJobs =
+        //         new ArrayList<>(Rewriter.CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_1);
+        List<RewriteJob> recordMvBeforeJobs = new ArrayList<>();
         recordMvBeforeJobs.addAll(
                 Rewriter.notTraverseChildrenOf(
                         ImmutableSet.of(LogicalCTEAnchor.class),
