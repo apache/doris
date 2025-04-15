@@ -54,6 +54,14 @@ public class TrinoConnectorPluginLoader {
 
         static {
             try {
+                // Allow self-attachment for Java agents,this is required for certain debugging and monitoring functions
+                System.setProperty("jdk.attach.allowAttachSelf", "true");
+                // Get the operating system name
+                String osName = System.getProperty("os.name").toLowerCase();
+                // Skip HotSpot SAAttach for Mac/Darwin systems to avoid potential issues
+                if (osName.contains("mac") || osName.contains("darwin")) {
+                    System.setProperty("jol.skipHotspotSAAttach", "true");
+                }
                 // Trino uses jul as its own log system, so the attributes of JUL are configured here
                 System.setProperty("java.util.logging.SimpleFormatter.format",
                         "%1$tY-%1$tm-%1$td %1$tH:%1$tM:%1$tS %4$s: %5$s%6$s%n");
