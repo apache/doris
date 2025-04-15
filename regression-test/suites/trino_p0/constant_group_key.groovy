@@ -35,12 +35,16 @@ suite("constant_group_key") {
 
     explain {
         sql("select 'oneline', sum(n_nationkey) from nation group by 'constant1', 'constant2'")
+<<<<<<< HEAD
         contains "group by: 'constant1'"
     }
 
     explain {
         sql("select a from (select '1' as b, 'abc' as a) T  group by b, a")
         contains "group by: '1', 'abc'"
+=======
+        contains "group by: 1"
+>>>>>>> 0f506f3e32 ([fix](nereids) do eliminate constant group by key in normalizeagg (#49589))
     }
 
     sql "drop table if exists cgk_tbl"
