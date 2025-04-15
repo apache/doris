@@ -75,7 +75,6 @@ github:
           - CheckStyle
           - Build Broker
           - Build Third Party Libraries (Linux)
-          - Build Third Party Libraries (macOS)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Cloud UT (Doris Cloud UT)

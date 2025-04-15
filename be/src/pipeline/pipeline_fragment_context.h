@@ -322,8 +322,6 @@ private:
      */
     std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
 
-    std::vector<RuntimeFilterParamsContext*> _runtime_filter_states;
-
     // Total instance num running on all BEs
     int _total_instances = -1;
     bool _require_bucket_distribution = false;

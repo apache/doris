@@ -222,7 +222,8 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
 
     int arrived_rf_num = 0;
     RETURN_IF_ERROR(_local_state->_helper.try_append_late_arrival_runtime_filter(
-            &arrived_rf_num, _local_state->_conjuncts));
+            _state, &arrived_rf_num, _local_state->_conjuncts,
+            _local_state->_parent->row_descriptor()));
 
     if (arrived_rf_num == _applied_rf_num) {
         // No newly arrived runtime filters, just return;

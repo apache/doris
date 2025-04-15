@@ -42,7 +42,10 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
     std::shared_ptr<QueryContext> ctx;
     RuntimeState state;
     auto profile = std::make_shared<RuntimeProfile>("Test");
-    auto desc = TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build();
+    auto desc = TRuntimeFilterDescBuilder()
+                        .add_planId_to_target_expr(0)
+                        .set_build_bf_by_runtime_size(true)
+                        .build();
     {
         // Create
         auto query_options = TQueryOptionsBuilder().build();
@@ -53,12 +56,8 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
                                    true, fe_address, QuerySource::INTERNAL_FRONTEND);
         state._query_ctx = ctx.get();
 
-        global_runtime_filter_mgr = std::make_shared<RuntimeFilterMgr>(
-                TUniqueId(), RuntimeFilterParamsContext::create(ctx.get()),
-                ctx->query_mem_tracker(), true);
-        local_runtime_filter_mgr = std::make_shared<RuntimeFilterMgr>(
-                TUniqueId(), RuntimeFilterParamsContext::create(&state), ctx->query_mem_tracker(),
-                false);
+        global_runtime_filter_mgr = std::make_shared<RuntimeFilterMgr>(true);
+        local_runtime_filter_mgr = std::make_shared<RuntimeFilterMgr>(false);
     }
 
     {
@@ -66,7 +65,7 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
         EXPECT_TRUE(global_runtime_filter_mgr->get_consume_filters(filter_id).empty());
         std::shared_ptr<RuntimeFilterConsumer> consumer_filter;
         EXPECT_TRUE(global_runtime_filter_mgr
-                            ->register_consumer_filter(desc, 0, &consumer_filter, profile.get())
+                            ->register_consumer_filter(ctx.get(), desc, 0, &consumer_filter)
                             .ok());
         EXPECT_FALSE(global_runtime_filter_mgr->get_consume_filters(filter_id).empty());
     }
@@ -77,28 +76,34 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
         std::shared_ptr<RuntimeFilterProducer> producer_filter;
         // producer_filter should not be nullptr
         EXPECT_FALSE(global_runtime_filter_mgr
-                             ->register_local_merger_producer_filter(desc, producer_filter,
-                                                                     profile.get())
+                             ->register_local_merger_producer_filter(ctx.get(), desc,
+                                                                     producer_filter, profile.get())
                              .ok());
         // local merge filter should not be registered in local mgr
         EXPECT_FALSE(local_runtime_filter_mgr
-                             ->register_local_merger_producer_filter(desc, producer_filter,
-                                                                     profile.get())
+                             ->register_local_merger_producer_filter(ctx.get(), desc,
+                                                                     producer_filter, profile.get())
                              .ok());
         // producer should not registered in global mgr
-        EXPECT_FALSE(global_runtime_filter_mgr
-                             ->register_producer_filter(desc, &producer_filter, profile.get())
-                             .ok());
+        EXPECT_FALSE(
+                global_runtime_filter_mgr
+                        ->register_producer_filter(ctx.get(), desc, &producer_filter, profile.get())
+                        .ok());
         EXPECT_EQ(producer_filter, nullptr);
         // Register in local mgr
-        EXPECT_TRUE(local_runtime_filter_mgr
-                            ->register_producer_filter(desc, &producer_filter, profile.get())
-                            .ok());
+        EXPECT_TRUE(
+                local_runtime_filter_mgr
+                        ->register_producer_filter(ctx.get(), desc, &producer_filter, profile.get())
+                        .ok());
+        auto mocked_dependency = std::make_shared<pipeline::CountedFinishDependency>(
+                0, 0, "MOCKED_FINISH_DEPENDENCY");
+        producer_filter->latch_dependency(mocked_dependency);
         EXPECT_NE(producer_filter, nullptr);
         // Register in local mgr twice
-        EXPECT_FALSE(local_runtime_filter_mgr
-                             ->register_producer_filter(desc, &producer_filter, profile.get())
-                             .ok());
+        EXPECT_FALSE(
+                local_runtime_filter_mgr
+                        ->register_producer_filter(ctx.get(), desc, &producer_filter, profile.get())
+                        .ok());
         EXPECT_NE(producer_filter, nullptr);
 
         LocalMergeContext* local_merge_filters = nullptr;
@@ -110,8 +115,8 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
                              .ok());
         // Register local merge filter
         EXPECT_TRUE(global_runtime_filter_mgr
-                            ->register_local_merger_producer_filter(desc, producer_filter,
-                                                                    profile.get())
+                            ->register_local_merger_producer_filter(ctx.get(), desc,
+                                                                    producer_filter, profile.get())
                             .ok());
         EXPECT_TRUE(global_runtime_filter_mgr
                             ->get_local_merge_producer_filters(filter_id, &local_merge_filters)
@@ -155,9 +160,7 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMergeControllerEntity) {
         fe_address.port = config::brpc_port;
         ctx = QueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options, fe_address,
                                    true, fe_address, QuerySource::INTERNAL_FRONTEND);
-        entity = std::make_shared<RuntimeFilterMergeControllerEntity>(
-                RuntimeFilterParamsContext::create(ctx.get()));
-        entity->_state->set_state(&state);
+        entity = std::make_shared<RuntimeFilterMergeControllerEntity>();
     }
     {
         // Init
@@ -168,7 +171,7 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMergeControllerEntity) {
                                 TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build())
                         .add_rid_to_target_paramv2(rid, {TRuntimeFilterTargetParamsV2()})
                         .build();
-        EXPECT_FALSE(entity->init(query_id, param).ok());
+        EXPECT_FALSE(entity->init(ctx, param).ok());
 
         param = TRuntimeFilterParamsBuilder()
                         .add_rid_to_runtime_filter(
@@ -177,8 +180,7 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMergeControllerEntity) {
                         .add_runtime_filter_builder_num(rid, 1)
                         .add_rid_to_target_paramv2(rid, {TRuntimeFilterTargetParamsV2()})
                         .build();
-        EXPECT_TRUE(entity->init(query_id, param).ok());
-        EXPECT_EQ(entity->query_id(), query_id);
+        EXPECT_TRUE(entity->init(ctx, param).ok());
     }
 }
 

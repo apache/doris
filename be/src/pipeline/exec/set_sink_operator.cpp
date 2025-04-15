@@ -108,7 +108,6 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
                     ->set_ready();
             RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->send_filter_size(
                     state, hash_table_size, local_state._finish_dependency));
-            local_state._eos = true;
         }
     }
     return Status::OK();

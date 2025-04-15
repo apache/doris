@@ -62,6 +62,7 @@ import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
@@ -482,6 +483,12 @@ public class Auth implements Writable {
         createUserInternal(stmt.getUserIdent(), stmt.getQualifiedRole(),
                 stmt.getPassword(), stmt.isIfNotExist(), stmt.getPasswordOptions(),
                 stmt.getComment(), stmt.getUserId(), false);
+    }
+
+    public void createUser(CreateUserInfo info) throws DdlException {
+        createUserInternal(info.getUserIdent(), info.getRole(),
+                info.getPassword(), info.isIfNotExist(), info.getPasswordOptions(),
+                info.getComment(), info.getUserId(), false);
     }
 
     public void replayCreateUser(PrivInfo privInfo) {
@@ -1250,6 +1257,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getExecMemLimit(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public String getInitCatalog(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getInitCatalog(qualifiedUser);
         } finally {
             readUnlock();
         }
