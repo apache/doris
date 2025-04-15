@@ -84,6 +84,14 @@ public abstract class DistributionInfo {
         throw new NotImplementedException("toDistributionDesc not implemented");
     }
 
+    public boolean getAutoBucket() {
+        return autoBucket;
+    }
+
+    public String getColumnsName() {
+        throw new NotImplementedException("getColumnsName not implemented");
+    }
+
     @Deprecated
     public void readFields(DataInput in) throws IOException {
         type = DistributionInfoType.valueOf(Text.readString(in));
