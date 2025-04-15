@@ -24,17 +24,12 @@
 #include <fmt/format.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <algorithm>
-#include <atomic>
 #include <boost/iterator/iterator_facade.hpp>
-#include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <iterator>
-#include <limits>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -47,6 +42,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/type_limit.h"
 #include "udf/udf.h"
+#include "util/binary_cast.hpp"
 #include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
 #include "util/jsonb_writer.h"
@@ -289,8 +285,16 @@ struct ConvertImpl {
                                              IsDateV2Type<ToDataType>) {
                             DataTypeDateTimeV2::cast_to_date_v2(vec_from[i], vec_to[i]);
                         } else {
-                            UInt32 scale = additions;
-                            vec_to[i] = ToFieldType(vec_from[i] / std::pow(10, 6 - scale));
+                            UInt32 to_scale = additions;
+                            DateV2Value<DateTimeV2ValueType> value =
+                                    binary_cast<FromFieldType, DateV2Value<DateTimeV2ValueType>>(
+                                            vec_from[i]);
+                            // scale reduce to 4, means the last 2 digits are 0.
+                            static_cast<void>(value.set_time_unit<TimeUnit::MICROSECOND>(
+                                    value.microsecond() / common::exp10_i64(6 - to_scale) *
+                                    common::exp10_i64(6 - to_scale)));
+                            vec_to[i] = binary_cast<DateV2Value<DateTimeV2ValueType>, ToFieldType>(
+                                    value);
                         }
                     } else if constexpr (IsTimeType<ToDataType>) {
                         if constexpr (IsDateTimeType<ToDataType> && IsDateV2Type<FromDataType>) {

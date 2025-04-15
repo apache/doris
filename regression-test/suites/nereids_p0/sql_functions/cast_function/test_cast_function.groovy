@@ -31,5 +31,9 @@ suite("test_cast_function") {
     qt_sql_to_small """ select cast('1212.31' as smallint);""" 
     qt_sql_to_int """ select cast('1212.31' as int);""" 
     qt_sql_to_big """ select cast('1212.31' as bigint);""" 
+    qt_sql_string_dt_reduce " select cast(cast('2000-10-10 00:00:00.123001' as datetime(6)) as datetime(3));"
+    qt_sql_dt_reduce_1 "select cast(cast('2000-10-10 00:00:00.123001' as datetime(6)) as datetime(3)) = cast('2000-10-10 00:00:00.123000' as datetime(3));"
+    testFoldConst("select cast(cast('2000-10-10 00:00:00.123001' as datetime(6)) as datetime(3)) = cast('2000-10-10 00:00:00.123000' as datetime(3));")
+    qt_sql_dt_reduce_2 "select cast(cast('2000-10-10 00:00:00.123001' as datetime(6)) as datetime(3)) = cast('2000-10-10 00:00:00.123001' as datetime(3));"
+    testFoldConst("select cast(cast('2000-10-10 00:00:00.123001' as datetime(6)) as datetime(3)) = cast('2000-10-10 00:00:00.123001' as datetime(3));")
 }
-
