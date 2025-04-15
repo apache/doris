@@ -144,10 +144,13 @@ struct RpcInstance {
     int64_t seq = 0;
 
     // Queue for regular data transmission requests
-    std::queue<TransmitInfo, std::list<TransmitInfo>> package_queue;
+    std::unordered_map<vectorized::Channel*, std::queue<TransmitInfo, std::list<TransmitInfo>>>
+            package_queue;
 
     // Queue for broadcast data transmission requests
-    std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>> broadcast_package_queue;
+    std::unordered_map<vectorized::Channel*,
+                       std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
+            broadcast_package_queue;
 
     // RPC request parameters for data transmission
     std::shared_ptr<PTransmitDataParams> request;
@@ -341,6 +344,8 @@ private:
     // The ExchangeSinkLocalState in _parents is only used in _turn_off_channel.
     std::vector<ExchangeSinkLocalState*> _parents;
     const int64_t _exchange_sink_num;
+    bool _send_multi_blocks = false;
+    int _send_multi_blocks_byte_size = 256 * 1024;
 };
 
 } // namespace pipeline

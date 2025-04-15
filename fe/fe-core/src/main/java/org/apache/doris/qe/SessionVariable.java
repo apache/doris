@@ -674,6 +674,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ES_PARALLEL_SCROLL = "enable_es_parallel_scroll";
 
+    public static final String EXCHANGE_MULTI_BLOCKS_BYTE_SIZE = "exchange_multi_blocks_byte_size";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -2243,6 +2245,9 @@ public class SessionVariable implements Serializable, Writable {
                     "When processing both \\n and \\r\\n as CSV line separators, should \\r be retained?"})
     public boolean keepCarriageReturn = false;
 
+    @VariableMgr.VarAttr(name = EXCHANGE_MULTI_BLOCKS_BYTE_SIZE,
+            description = {"enable exchange send multi blocks in one rpc, default is 256KB. negatives means disable"})
+    public int exchangeMultiBlocksByteSize = 256 * 1024;
 
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
@@ -4165,6 +4170,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
+        tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
         return tResult;
     }
 
