@@ -21,6 +21,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 
+#include "common/be_mock_util.h"
 #include "workload_group.h"
 
 namespace doris {
@@ -70,7 +71,7 @@ private:
 class WorkloadGroupMgr {
 public:
     WorkloadGroupMgr();
-    ~WorkloadGroupMgr();
+    MOCK_FUNCTION ~WorkloadGroupMgr();
 
     void get_related_workload_groups(const std::function<bool(const WorkloadGroupPtr& ptr)>& pred,
                                      std::vector<WorkloadGroupPtr>* task_groups);
@@ -95,8 +96,8 @@ public:
 
     void refresh_workload_group_metrics();
 
-    void add_paused_query(const std::shared_ptr<QueryContext>& query_ctx, int64_t reserve_size,
-                          const Status& status);
+    MOCK_FUNCTION void add_paused_query(const std::shared_ptr<QueryContext>& query_ctx,
+                                        int64_t reserve_size, const Status& status);
 
     void handle_paused_queries();
 
