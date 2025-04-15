@@ -184,11 +184,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             SyncOptions options;
             options.warmup_delta_data = warmup_data;
             options.sync_delete_bitmap = sync_delete_bitmap;
-            {
-                std::unique_lock lock {tablet->get_sync_meta_lock()};
-                st = _engine.meta_mgr().sync_tablet_rowsets(tablet.get(), lock, options,
-                                                            sync_stats);
-            }
+            st = _engine.meta_mgr().sync_tablet_rowsets(tablet.get(), options, sync_stats);
             if (!st.ok()) {
                 LOG(WARNING) << "failed to sync tablet " << tablet_id << ": " << st;
                 return nullptr;

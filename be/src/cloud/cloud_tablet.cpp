@@ -163,7 +163,7 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* st
         }
     }
 
-    auto st = _engine.meta_mgr().sync_tablet_rowsets(this, lock, options, stats);
+    auto st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, options, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
@@ -215,7 +215,7 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
         _max_version = -1;
     }
 
-    st = _engine.meta_mgr().sync_tablet_rowsets(this, lock, {}, stats);
+    st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, {}, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
@@ -822,10 +822,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     }
 
     // 1. calc delete bitmap for historical data
-    {
-        std::unique_lock lock {get_sync_meta_lock()};
-        RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this, lock));
-    }
+    RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
     Version version = max_version();
     std::size_t missed_rows_size = 0;
     calc_compaction_output_rowset_delete_bitmap(
@@ -863,10 +860,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(
             *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
     int64_t t2 = MonotonicMicros();
-    {
-        std::unique_lock lock {get_sync_meta_lock()};
-        RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this, lock));
-    }
+    RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
     int64_t t3 = MonotonicMicros();
 
     calc_compaction_output_rowset_delete_bitmap(

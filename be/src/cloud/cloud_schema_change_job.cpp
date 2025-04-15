@@ -475,11 +475,7 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
 
     // step 1, process incremental rowset without delete bitmap update lock
     std::vector<RowsetSharedPtr> incremental_rowsets;
-    {
-        std::unique_lock lock {tmp_tablet->get_sync_meta_lock()};
-        RETURN_IF_ERROR(
-                _cloud_storage_engine.meta_mgr().sync_tablet_rowsets(tmp_tablet.get(), lock));
-    }
+    RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().sync_tablet_rowsets(tmp_tablet.get()));
     int64_t max_version = tmp_tablet->max_version().second;
     LOG(INFO) << "alter table for mow table, calculate delete bitmap of "
               << "incremental rowsets without lock, version: " << start_calc_delete_bitmap_version
@@ -504,11 +500,7 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     // step 2, process incremental rowset with delete bitmap update lock
     RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().get_delete_bitmap_update_lock(
             *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, initiator));
-    {
-        std::unique_lock lock {tmp_tablet->get_sync_meta_lock()};
-        RETURN_IF_ERROR(
-                _cloud_storage_engine.meta_mgr().sync_tablet_rowsets(tmp_tablet.get(), lock));
-    }
+    RETURN_IF_ERROR(_cloud_storage_engine.meta_mgr().sync_tablet_rowsets(tmp_tablet.get()));
     int64_t new_max_version = tmp_tablet->max_version().second;
     LOG(INFO) << "alter table for mow table, calculate delete bitmap of "
               << "incremental rowsets with lock, version: " << max_version + 1 << "-"

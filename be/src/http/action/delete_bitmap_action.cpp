@@ -139,10 +139,7 @@ Status DeleteBitmapAction::_handle_show_ms_delete_bitmap_count(HttpRequest* req,
     options.warmup_delta_data = false;
     options.sync_delete_bitmap = true;
     options.full_sync = true;
-    {
-        std::unique_lock lock {tablet->get_sync_meta_lock()};
-        st = _engine.to_cloud().meta_mgr().sync_tablet_rowsets(tablet.get(), lock, options);
-    }
+    st = _engine.to_cloud().meta_mgr().sync_tablet_rowsets(tablet.get(), options);
     if (!st.ok()) {
         LOG(WARNING) << "failed to sync tablet=" << tablet_id << ", st=" << st;
         return st;

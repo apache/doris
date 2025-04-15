@@ -63,10 +63,11 @@ public:
 
     Status get_schema_dict(int64_t index_id, std::shared_ptr<SchemaCloudDictionary>* schema_dict);
 
-    Status sync_tablet_rowsets(CloudTablet* tablet,
-                               std::unique_lock<bthread::Mutex>& lock /* _sync_meta_lock */,
-                               const SyncOptions& options = {},
+    Status sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions& options = {},
                                SyncRowsetStats* sync_stats = nullptr);
+    Status sync_tablet_rowsets_unlocked(
+            CloudTablet* tablet, std::unique_lock<bthread::Mutex>& lock /* _sync_meta_lock */,
+            const SyncOptions& options = {}, SyncRowsetStats* sync_stats = nullptr);
 
     Status prepare_rowset(const RowsetMeta& rs_meta,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);

@@ -317,10 +317,7 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     std::vector<RowsetSharedPtr> tmp_rowsets {};
     DeleteBitmapPtr delete_bitmap =
             std::make_shared<DeleteBitmap>(_tablet->tablet_meta()->tablet_id());
-    {
-        std::unique_lock lock {cloud_tablet()->get_sync_meta_lock()};
-        RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(cloud_tablet(), lock));
-    }
+    RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(cloud_tablet()));
     int64_t max_version = cloud_tablet()->max_version().second;
     DCHECK(max_version >= _output_rowset->version().second);
     if (max_version > _output_rowset->version().second) {
@@ -334,10 +331,7 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
 
     RETURN_IF_ERROR(
             _engine.meta_mgr().get_delete_bitmap_update_lock(*cloud_tablet(), -1, initiator));
-    {
-        std::unique_lock lock {cloud_tablet()->get_sync_meta_lock()};
-        RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(cloud_tablet(), lock));
-    }
+    RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(cloud_tablet()));
     std::lock_guard rowset_update_lock(cloud_tablet()->get_rowset_update_lock());
     std::lock_guard header_lock(_tablet->get_header_lock());
     for (const auto& it : cloud_tablet()->rowset_map()) {
