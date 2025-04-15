@@ -329,6 +329,7 @@ import org.apache.doris.nereids.DorisParser.ShowDynamicPartitionContext;
 import org.apache.doris.nereids.DorisParser.ShowEncryptKeysContext;
 import org.apache.doris.nereids.DorisParser.ShowEventsContext;
 import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
+import org.apache.doris.nereids.DorisParser.ShowFunctionsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsForUserContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
@@ -592,7 +593,9 @@ import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
@@ -653,6 +656,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand
 import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
@@ -5376,6 +5380,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowFunctions(ShowFunctionsContext ctx) {
+        String dbName = null;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            if (nameParts.size() == 1) {
+                dbName = nameParts.get(0);
+            } else if (nameParts.size() == 2) {
+                dbName = nameParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+            }
+        }
+
+        boolean isVerbose = ctx.FULL() != null;
+        boolean isBuiltin = ctx.BUILTIN() != null;
+
+        String wild = null;
+        if (ctx.STRING_LITERAL() != null) {
+            wild = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+        return new ShowFunctionsCommand(dbName, isBuiltin, isVerbose, wild);
+    }
+
+    @Override
     public LogicalPlan visitShowCreateDatabase(ShowCreateDatabaseContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         String databaseName = "";
@@ -6452,6 +6480,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             index,
             columnName,
             properties);
+    }
+
+    @Override
+    public LogicalPlan visitDropResource(DorisParser.DropResourceContext ctx) {
+        boolean ifExist = ctx.EXISTS() != null;
+        String resouceName = visitIdentifierOrText(ctx.identifierOrText());
+        return new DropResourceCommand(ifExist, resouceName);
+    }
+
+    @Override
+    public LogicalPlan visitDropRowPolicy(DorisParser.DropRowPolicyContext ctx) {
+        boolean ifExist = ctx.EXISTS() != null;
+        String policyName = ctx.policyName.getText();
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        UserIdentity userIdentity = ctx.userIdentify() != null ? visitUserIdentify(ctx.userIdentify()) : null;
+        String roleName = ctx.roleName != null ? ctx.roleName.getText() : null;
+        return new DropRowPolicyCommand(ifExist, policyName, tableNameInfo, userIdentity, roleName);
     }
 
     @Override

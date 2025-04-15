@@ -274,6 +274,10 @@ supportedDropStatement
     | DROP statementScope? FUNCTION (IF EXISTS)?
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
     | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
+    | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
+    | DROP ROW POLICY (IF EXISTS)? policyName=identifier
+        ON tableName=multipartIdentifier
+        (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy
     ;
 
 supportedShowStatement
@@ -287,6 +291,8 @@ supportedShowStatement
     | SHOW LAST INSERT                                                              #showLastInsert
     | SHOW ((CHAR SET) | CHARSET)                                                   #showCharset
     | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
+    | SHOW FULL? BUILTIN? FUNCTIONS
+        ((FROM | IN) database=multipartIdentifier)? (LIKE STRING_LITERAL)?          #showFunctions
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
     | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
@@ -417,8 +423,6 @@ unsupportedShowStatement
         wildWhere? sortClause? limitClause?                                         #showPartitions
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
-    | SHOW FULL? BUILTIN? FUNCTIONS
-        ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showFunctions
     | SHOW GLOBAL FULL? FUNCTIONS wildWhere?                                        #showGlobalFunctions
     | SHOW TYPECAST ((FROM | IN) database=multipartIdentifier)?                     #showTypeCast
     | SHOW (KEY | KEYS | INDEX | INDEXES)
@@ -727,10 +731,6 @@ fromRollup
 
 unsupportedDropStatement
     : DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
-    | DROP RESOURCE (IF EXISTS)? name=identifierOrText                          #dropResource
-    | DROP ROW POLICY (IF EXISTS)? policyName=identifier
-        ON tableName=multipartIdentifier
-        (FOR (userIdentify | ROLE roleName=identifierOrText))?                        #dropRowPolicy
     | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
     ;
 
