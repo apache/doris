@@ -566,6 +566,8 @@ public:
 
     std::set<RowsetId> get_rowset_cache_version();
 
+    void traverse_rowset_id_prefix(const std::function<void(const RowsetId& rowsetId)>& func) const;
+
     class AggCachePolicy : public LRUCachePolicy {
     public:
         AggCachePolicy(size_t capacity)
