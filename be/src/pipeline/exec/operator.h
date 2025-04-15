@@ -1132,12 +1132,20 @@ public:
         _terminated = true;
         return Status::OK();
     }
+    size_t revocable_mem_size(RuntimeState* state) const override { return _revocable_mem_size; }
+    size_t get_reserve_mem_size(RuntimeState* state) override {
+        return _disable_reserve_mem
+                       ? 0
+                       : OperatorX<DummyOperatorLocalState>::get_reserve_mem_size(state);
+    }
 
 private:
     friend class AssertNumRowsLocalState;
     bool _eos = false;
     bool _low_memory_mode = false;
     bool _terminated = false;
+    size_t _revocable_mem_size = 0;
+    bool _disable_reserve_mem = false;
 };
 
 class DummySinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
@@ -1177,11 +1185,19 @@ public:
         _terminated = true;
         return Status::OK();
     }
+    size_t revocable_mem_size(RuntimeState* state) const override { return _revocable_mem_size; }
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override {
+        return _disable_reserve_mem
+                       ? 0
+                       : DataSinkOperatorX<DummySinkLocalState>::get_reserve_mem_size(state, eos);
+    }
 
 private:
     bool _low_memory_mode = false;
     bool _terminated = false;
     std::atomic_bool _return_eof = false;
+    size_t _revocable_mem_size = 0;
+    bool _disable_reserve_mem = false;
 };
 #endif
 
