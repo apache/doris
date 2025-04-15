@@ -193,6 +193,7 @@ Status MultiTablePipe::request_and_exec_plans() {
         request.__set_memtable_on_sink_node(_ctx->memtable_on_sink_node);
         request.__set_user(_ctx->qualified_user);
         request.__set_cloud_cluster(_ctx->cloud_cluster);
+        request.__set_max_filter_ratio(1.0);
         // no need to register new_load_stream_mgr coz it is already done in routineload submit task
 
         // plan this load
@@ -271,21 +272,19 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
                     _number_loaded_rows += state->num_rows_load_success();
                     _number_filtered_rows += state->num_rows_load_filtered();
                     _number_unselected_rows += state->num_rows_load_unselected();
-                    _ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-                    // check filtered ratio for this plan fragment
-                    int64_t num_selected_rows =
-                            state->num_rows_load_total() - state->num_rows_load_unselected();
-                    if (num_selected_rows > 0 &&
-                        (double)state->num_rows_load_filtered() / num_selected_rows >
-                                _ctx->max_filter_ratio) {
-                        *status = Status::DataQualityError("too many filtered rows");
-                    }
 
                     // if any of the plan fragment exec failed, set the status to the first failed plan
-                    if (!status->ok()) {
-                        LOG(WARNING)
-                                << "plan fragment exec failed. errmsg=" << *status << _ctx->brief();
-                        _status = *status;
+                    {
+                        std::lock_guard<std::mutex> l(_callback_lock);
+                        if (!state->get_error_log_file_path().empty()) {
+                            _ctx->error_url =
+                                    to_load_error_http_path(state->get_error_log_file_path());
+                        }
+                        if (!status->ok()) {
+                            LOG(WARNING) << "plan fragment exec failed. errmsg=" << *status
+                                         << _ctx->brief();
+                            _status = *status;
+                        }
                     }
 
                     auto inflight_cnt = _inflight_cnt.fetch_sub(1);
