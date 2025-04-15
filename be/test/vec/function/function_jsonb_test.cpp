@@ -2083,4 +2083,89 @@ TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
+
+TEST(FunctionJsonSearchTest, NormalJsonSearchTest) {
+    // json_search json_doc  one/all search_str
+    // json_search(json_doc, one/all, search_str)
+    std::string func_name = "json_search";
+    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+
+    DataSet data_set = {
+            {{STRING(R"({"k1":"v1", "k2": "300"})"), STRING("one"), STRING("v1")},
+             STRING("\"$.k1\"")},
+            {{STRING(R"({"k1":"v1", "k2": "300"})"), STRING("one"), STRING("v2")}, Null()},
+            {{STRING(R"({"k1":"v1", "k2": "300"})"), STRING("one"), STRING("300")},
+             STRING("\"$.k2\"")},
+            {{STRING(R"({"k1":"v1", "k2": 300})"), STRING("one"), STRING("300")}, Null()},
+    };
+
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
+}
+
+TEST(FunctionJsonSearchTest, EscapeJsonSearchTest) {
+    // json_search json_doc one/all search_str escape_char
+    // json_search(json_doc, one/all, search_str, escape_char)
+    std::string func_name = "json_search";
+    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
+                                TypeIndex::String};
+
+    DataSet data_set = {
+            // 测试带特殊字符的搜索（使用默认转义字符\）
+            {{STRING(R"({"k1":"v1%", "k2": "100%"})"), STRING("one"), STRING("v1%"), STRING("\\")},
+             STRING("\"$.k1\"")},
+
+            // 测试带特殊字符的搜索（使用自定义转义字符|）
+            {{STRING(R"({"k1":"v1|%", "k2": "100%"})"), STRING("one"), STRING("v1%"), STRING("|")},
+             STRING("\"$.k1\"")},
+
+            // 测试不匹配的情况
+            {{STRING(R"({"k1":"v1%", "k2": "100%"})"), STRING("one"), STRING("v1"), STRING("\\")},
+             Null()},
+
+            // 测试转义字符本身作为搜索内容
+            {{STRING(R"({"k1":"v1\\", "k2": "100\\"})"), STRING("one"), STRING("v1\\\\"),
+              STRING("\\")},
+             STRING("\"$.k1\"")},
+    };
+
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
+}
+
+TEST(FunctionJsonSearchTest, StartJsonSearchTest) {
+    // json_search json_doc one/all search_str escape_char start_path
+    // json_search(json_doc, one/all, search_str, escape_char, start_path)
+    std::string func_name = "json_search";
+    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
+                                TypeIndex::String, TypeIndex::String};
+
+    DataSet data_set = {
+            // 测试从指定路径开始搜索（找到匹配）
+            {{STRING(R"({"k1":{"k2":"v1"}, "k3": "v1"})"), STRING("one"), STRING("v1"),
+              STRING("\\"), STRING("$.k1")},
+             STRING("\"$.k1.k2\"")},
+
+            // 测试从指定路径开始搜索（无匹配）
+            {{STRING(R"({"k1":{"k2":"v1"}, "k3": "v1"})"), STRING("one"), STRING("v1"),
+              STRING("\\"), STRING("$.k3")},
+             STRING("\"$.k3\"")},
+
+            // 测试从数组路径开始搜索
+            {{STRING(R"({"k1":["a","b","c"], "k2": ["a","d"]})"), STRING("one"), STRING("a"),
+              STRING("\\"), STRING("$.k1")},
+             STRING("\"$.k1[0]\"")},
+
+            // 测试不存在的起始路径
+            {{STRING(R"({"k1":"v1", "k2": "v2"})"), STRING("one"), STRING("v1"), STRING("\\"),
+              STRING("$.not_exist")},
+             Null()},
+
+            // 测试嵌套路径
+            {{STRING(R"({"a":{"b":{"c":"value"}}})"), STRING("one"), STRING("value"), STRING("\\"),
+              STRING("$.a.b")},
+             STRING("\"$.a.b.c\"")},
+    };
+
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
+}
+
 } // namespace doris::vectorized

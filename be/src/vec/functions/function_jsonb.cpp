@@ -1604,8 +1604,9 @@ struct JsonbContainsAndPathImpl {
     }
 };
 
-class FunctionJsonSearch : public IFunction {
-private:
+struct JsonSearchUtil {
+    static constexpr auto one = "one";
+    static constexpr auto all = "all";
     using OneFun = std::function<Status(size_t, bool*)>;
     static Status always_one(size_t i, bool* res) {
         *res = true;
@@ -1621,8 +1622,10 @@ private:
     static bool always_null(size_t) { return true; }
 
     using GetJsonStringRefFun = std::function<StringRef(size_t)>;
+    using GetJsonStartFun = std::function<std::string(size_t)>;
+    using GetJsonEscapeFun = std::function<Status(size_t, char*)>;
 
-    Status matched(const std::string_view& str, LikeState* state, unsigned char* res) const {
+    static Status matched(const std::string_view& str, LikeState* state, unsigned char* res) {
         StringRef pattern; // not used
         StringRef value_val(str.data(), str.size());
         return (state->scalar_function)(&state->search_state, value_val, pattern, res);
@@ -1637,16 +1640,26 @@ private:
      * @param matches The path that has already been matched
      * @return true if matched else false
      */
-    bool find_matches(const SimdJSONParser::Element& element, const bool& one_match,
-                      LikeState* state, JsonbPath* cur_path,
-                      std::unordered_set<std::string>* matches) const {
+    static bool find_matches(const SimdJSONParser::Element& element, const bool& one_match,
+                             LikeState* state, JsonbPath* start_path,
+                             std::unordered_set<std::string>* matches) {
+        static auto cur_path = std::make_unique<JsonbPath>();
+        cur_path->add_leg_to_leg_vector(
+                std::make_unique<leg_info>(const_cast<char*>("$"), 0, 0, MEMBER_CODE));
+
+        return find_matches(element, one_match, state, start_path, cur_path.get(), matches);
+    }
+
+    static bool find_matches(const SimdJSONParser::Element& element, const bool& one_match,
+                             LikeState* state, JsonbPath* start_path, JsonbPath* cur_path,
+                             std::unordered_set<std::string>* matches) {
         if (element.isString()) {
             const std::string_view element_str = element.getString();
             unsigned char res;
             RETURN_IF_ERROR(matched(element_str, state, &res));
             if (res) {
                 std::string str;
-                auto valid = cur_path->to_string(&str);
+                auto valid = start_path->to_string(&str);
                 if (!valid) {
                     return false;
                 }
@@ -1657,16 +1670,24 @@ private:
         } else if (element.isObject()) {
             const SimdJSONParser::Object& object = element.getObject();
             bool find = false;
-            for (size_t i = 0; i < object.size(); ++i) {
-                const SimdJSONParser::KeyValuePair& item = object[i];
+            for (const auto& item : object) {
                 const std::string_view& key = item.first;
                 const SimdJSONParser::Element& child_element = item.second;
                 // construct an object member path leg.
-                auto leg = std::make_unique<leg_info>(const_cast<char*>(key.data()), key.size(), 0,
-                                                      MEMBER_CODE);
-                cur_path->add_leg_to_leg_vector(std::move(leg));
-                find |= find_matches(child_element, one_match, state, cur_path, matches);
-                cur_path->pop_leg_from_leg_vector();
+                auto start_leg = std::make_unique<leg_info>(const_cast<char*>(key.data()),
+                                                            key.size(), 0, MEMBER_CODE);
+                auto cur_leg = std::make_unique<leg_info>(*start_leg);
+                cur_path->add_leg_to_leg_vector(std::move(cur_leg));
+                start_path->add_leg_to_leg_vector(std::move(start_leg));
+
+                if (*cur_path != *start_path) {
+                    cur_path->pop_leg_from_leg_vector();
+                    continue;
+                }
+
+                find |= find_matches(child_element, one_match, state, start_path, cur_path,
+                                     matches);
+                start_path->pop_leg_from_leg_vector();
                 if (one_match && find) {
                     return true;
                 }
@@ -1676,12 +1697,13 @@ private:
             const SimdJSONParser::Array& array = element.getArray();
             bool find = false;
             for (size_t i = 0; i < array.size(); ++i) {
-                auto leg = std::make_unique<leg_info>(nullptr, 0, i, ARRAY_CODE);
-                cur_path->add_leg_to_leg_vector(std::move(leg));
+                auto start_leg = std::make_unique<leg_info>(nullptr, 0, i, ARRAY_CODE);
+                start_path->add_leg_to_leg_vector(std::move(start_leg));
                 const SimdJSONParser::Element& child_element = array[i];
                 // construct an array cell path leg.
-                find |= find_matches(child_element, one_match, state, cur_path, matches);
-                cur_path->pop_leg_from_leg_vector();
+                find |= find_matches(child_element, one_match, state, start_path, cur_path,
+                                     matches);
+                start_path->pop_leg_from_leg_vector();
                 if (one_match && find) {
                     return true;
                 }
@@ -1692,7 +1714,8 @@ private:
         }
     }
 
-    void make_result_str(std::unordered_set<std::string>& matches, ColumnString* result_col) const {
+    static void make_result_str(std::unordered_set<std::string>& matches,
+                                ColumnString* result_col) {
         JsonbWriter writer;
         if (matches.size() == 1) {
             for (const auto& str_ref : matches) {
@@ -1715,11 +1738,14 @@ private:
     }
 
     template <bool search_is_const>
-    Status execute_vector(Block& block, size_t input_rows_count, CheckNullFun json_null_check,
-                          GetJsonStringRefFun col_json_string, CheckNullFun one_null_check,
-                          OneFun one_check, CheckNullFun search_null_check,
-                          const ColumnString* col_search_string, FunctionContext* context,
-                          size_t result) const {
+    static Status execute_vector(
+            Block& block, size_t input_rows_count, CheckNullFun json_null_check,
+            GetJsonStringRefFun col_json_string, CheckNullFun one_null_check, OneFun one_check,
+            CheckNullFun search_null_check, const ColumnString* col_search_string,
+            FunctionContext* context, size_t result, CheckNullFun start_null_check = always_null,
+            GetJsonStartFun get_start_string = [](size_t) { return ""; },
+            CheckNullFun escape_null_check = always_null,
+            GetJsonEscapeFun get_escape_string = [](size_t, char*) { return Status::OK(); }) {
         auto result_col = ColumnString::create();
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
@@ -1758,9 +1784,16 @@ private:
             }
 
             // an error occurs if any path argument is not a valid path expression.
+            // root_path_str = get_start_string(i);
             std::string root_path_str = "$";
+            if (!start_null_check(i)) {
+                root_path_str = get_start_string(i);
+            }
             JsonbPath root_path;
-            root_path.seek(root_path_str.c_str(), root_path_str.size());
+            if (!root_path.seek(root_path_str.c_str(), root_path_str.size())) {
+                return Status::InvalidArgument(
+                        "the start_path argument {} is not a valid json path", root_path_str);
+            }
             std::vector<JsonbPath*> paths;
             paths.push_back(&root_path);
 
@@ -1768,6 +1801,11 @@ private:
                 state_ptr = std::make_shared<LikeState>();
                 state_ptr->is_like_pattern = true;
                 const auto& search_str = col_search_string->get_data_at(i);
+                if (!escape_null_check(i)) {
+                    char escape_char;
+                    RETURN_IF_ERROR(get_escape_string(i, &escape_char));
+                    state_ptr->search_state.escape_char = escape_char;
+                }
                 RETURN_IF_ERROR(FunctionLike::construct_like_const_state(context, search_str,
                                                                          state_ptr, false));
                 state = state_ptr.get();
@@ -1776,8 +1814,8 @@ private:
             // maintain a hashset to deduplicate matches.
             std::unordered_set<std::string> matches;
             for (const auto& item : paths) {
-                auto cur_path = item;
-                auto find = find_matches(root_element, is_one, state, cur_path, &matches);
+                auto* start_path = item;
+                auto find = find_matches(root_element, is_one, state, start_path, &matches);
                 if (is_one && find) {
                     break;
                 }
@@ -1795,22 +1833,25 @@ private:
         block.replace_by_position(result, std::move(result_col_nullable));
         return Status::OK();
     }
+};
 
-    static constexpr auto one = "one";
-    static constexpr auto all = "all";
-
+template <typename Impl>
+class FunctionJsonSearch : public IFunction {
 public:
     static constexpr auto name = "json_search";
-    static FunctionPtr create() { return std::make_shared<FunctionJsonSearch>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionJsonSearch<Impl>>(); }
 
     String get_name() const override { return name; }
-    bool is_variadic() const override { return false; }
-    size_t get_number_of_arguments() const override { return 3; }
-
+    bool is_variadic() const override { return true; }
+    DataTypes get_variadic_argument_types_impl() const override {
+        return Impl::get_variadic_argument_types();
+    }
+    size_t get_number_of_arguments() const override {
+        return get_variadic_argument_types_impl().size();
+    }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeJsonb>());
     }
-
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
@@ -1831,24 +1872,35 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        // the json_doc, one_or_all, and search_str must be given.
-        // and we require the positions are static.
-        if (arguments.size() < 3) {
-            return Status::InvalidArgument("too few arguments for function {}", name);
-        }
-        if (arguments.size() > 3) {
-            return Status::NotSupported("escape and path params are not support now");
+        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
+    }
+};
+
+struct JsonSearchNormal {
+    static DataTypes get_variadic_argument_types() {
+        return {
+                std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>(),
+        };
+    }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, uint32_t result,
+                               size_t input_rows_count) {
+        if (arguments.size() != 3) {
+            return Status::InvalidArgument("wrong arguments for function json_search");
         }
 
-        CheckNullFun json_null_check = always_not_null;
-        GetJsonStringRefFun get_json_fun;
+        JsonSearchUtil::CheckNullFun json_null_check = JsonSearchUtil::always_not_null;
+        JsonSearchUtil::GetJsonStringRefFun get_json_fun;
         ColumnPtr col_json;
         bool json_is_const = false;
         // prepare jsonb data column
         std::tie(col_json, json_is_const) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
-        const ColumnString* col_json_string = check_and_get_column<ColumnString>(col_json.get());
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_json.get())) {
+        const auto* col_json_string = check_and_get_column<ColumnString>(col_json.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_json.get())) {
             col_json_string =
                     check_and_get_column<ColumnString>(nullable->get_nested_column_ptr().get());
         }
@@ -1859,7 +1911,7 @@ public:
         }
         if (json_is_const) {
             if (col_json->is_null_at(0)) {
-                json_null_check = always_null;
+                json_null_check = JsonSearchUtil::always_null;
             } else {
                 const auto& json_str = col_json_string->get_data_at(0);
                 get_json_fun = [json_str](size_t i) { return json_str; };
@@ -1869,16 +1921,15 @@ public:
             get_json_fun = [col_json_string](size_t i) { return col_json_string->get_data_at(i); };
         }
 
-        // one_or_all
-        CheckNullFun one_null_check = always_not_null;
-        OneFun one_check = always_one;
+        JsonSearchUtil::CheckNullFun one_null_check = JsonSearchUtil::always_not_null;
+        JsonSearchUtil::OneFun one_check = JsonSearchUtil::always_one;
         ColumnPtr col_one;
         bool one_is_const = false;
         // prepare jsonb data column
         std::tie(col_one, one_is_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        const ColumnString* col_one_string = check_and_get_column<ColumnString>(col_one.get());
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_one.get())) {
+        const auto* col_one_string = check_and_get_column<ColumnString>(col_one.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_one.get())) {
             col_one_string = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
         }
         if (!col_one_string) {
@@ -1887,13 +1938,13 @@ public:
         }
         if (one_is_const) {
             if (col_one->is_null_at(0)) {
-                one_null_check = always_null;
+                one_null_check = JsonSearchUtil::always_null;
             } else {
                 const auto& one_or_all = col_one_string->get_data_at(0);
                 std::string one_or_all_str = one_or_all.to_string();
-                if (strcasecmp(one_or_all_str.c_str(), all) == 0) {
-                    one_check = always_all;
-                } else if (strcasecmp(one_or_all_str.c_str(), one) == 0) {
+                if (strcasecmp(one_or_all_str.c_str(), JsonSearchUtil::all) == 0) {
+                    one_check = JsonSearchUtil::always_all;
+                } else if (strcasecmp(one_or_all_str.c_str(), JsonSearchUtil::one) == 0) {
                     // nothing
                 } else {
                     // an error occurs if the one_or_all argument is not 'one' nor 'all'.
@@ -1906,9 +1957,9 @@ public:
             one_check = [col_one_string](size_t i, bool* is_one) {
                 const auto& one_or_all = col_one_string->get_data_at(i);
                 std::string one_or_all_str = one_or_all.to_string();
-                if (strcasecmp(one_or_all_str.c_str(), all) == 0) {
+                if (strcasecmp(one_or_all_str.c_str(), JsonSearchUtil::all) == 0) {
                     *is_one = false;
-                } else if (strcasecmp(one_or_all_str.c_str(), one) == 0) {
+                } else if (strcasecmp(one_or_all_str.c_str(), JsonSearchUtil::one) == 0) {
                     *is_one = true;
                 } else {
                     // an error occurs if the one_or_all argument is not 'one' nor 'all'.
@@ -1919,15 +1970,13 @@ public:
             };
         }
 
-        // search_str
         ColumnPtr col_search;
         bool search_is_const = false;
         std::tie(col_search, search_is_const) =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
 
-        const ColumnString* col_search_string =
-                check_and_get_column<ColumnString>(col_search.get());
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_search.get())) {
+        const auto* col_search_string = check_and_get_column<ColumnString>(col_search.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_search.get())) {
             col_search_string =
                     check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
         }
@@ -1936,20 +1985,382 @@ public:
                                         col_search->get_name());
         }
         if (search_is_const) {
-            CheckNullFun search_null_check = always_not_null;
+            JsonSearchUtil::CheckNullFun search_null_check = JsonSearchUtil::always_not_null;
             if (col_search->is_null_at(0)) {
-                search_null_check = always_null;
+                search_null_check = JsonSearchUtil::always_null;
             }
-            RETURN_IF_ERROR(execute_vector<true>(
+            RETURN_IF_ERROR(JsonSearchUtil::execute_vector<true>(
                     block, input_rows_count, json_null_check, get_json_fun, one_null_check,
                     one_check, search_null_check, col_search_string, context, result));
         } else {
-            CheckNullFun search_null_check = [col_search](size_t i) {
+            JsonSearchUtil::CheckNullFun search_null_check = [col_search](size_t i) {
                 return col_search->is_null_at(i);
             };
-            RETURN_IF_ERROR(execute_vector<false>(
+            RETURN_IF_ERROR(JsonSearchUtil::execute_vector<false>(
                     block, input_rows_count, json_null_check, get_json_fun, one_null_check,
                     one_check, search_null_check, col_search_string, context, result));
+        }
+        return Status::OK();
+    }
+};
+
+struct JsonSearchEscape {
+    static DataTypes get_variadic_argument_types() {
+        return {
+                std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>(),
+        };
+    }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, uint32_t result,
+                               size_t input_rows_count) {
+        if (arguments.size() != 4) {
+            return Status::InvalidArgument("wrong arguments for function json_search");
+        }
+
+        JsonSearchUtil::CheckNullFun json_null_check = JsonSearchUtil::always_not_null;
+        JsonSearchUtil::GetJsonStringRefFun get_json_fun;
+        ColumnPtr col_json;
+        bool json_is_const = false;
+        // prepare jsonb data column
+        std::tie(col_json, json_is_const) =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto* col_json_string = check_and_get_column<ColumnString>(col_json.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_json.get())) {
+            col_json_string =
+                    check_and_get_column<ColumnString>(nullable->get_nested_column_ptr().get());
+        }
+
+        if (!col_json_string) {
+            return Status::RuntimeError("Illegal arg json {} should be ColumnString",
+                                        col_json->get_name());
+        }
+        if (json_is_const) {
+            if (col_json->is_null_at(0)) {
+                json_null_check = JsonSearchUtil::always_null;
+            } else {
+                const auto& json_str = col_json_string->get_data_at(0);
+                get_json_fun = [json_str](size_t i) { return json_str; };
+            }
+        } else {
+            json_null_check = [col_json](size_t i) { return col_json->is_null_at(i); };
+            get_json_fun = [col_json_string](size_t i) { return col_json_string->get_data_at(i); };
+        }
+
+        JsonSearchUtil::CheckNullFun one_null_check = JsonSearchUtil::always_not_null;
+        JsonSearchUtil::OneFun one_check = JsonSearchUtil::always_one;
+        ColumnPtr col_one;
+        bool one_is_const = false;
+        // prepare jsonb data column
+        std::tie(col_one, one_is_const) =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        const auto* col_one_string = check_and_get_column<ColumnString>(col_one.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_one.get())) {
+            col_one_string = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        }
+        if (!col_one_string) {
+            return Status::RuntimeError("Illegal arg one {} should be ColumnString",
+                                        col_one->get_name());
+        }
+        if (one_is_const) {
+            if (col_one->is_null_at(0)) {
+                one_null_check = JsonSearchUtil::always_null;
+            } else {
+                const auto& one_or_all = col_one_string->get_data_at(0);
+                std::string one_or_all_str = one_or_all.to_string();
+                if (strcasecmp(one_or_all_str.c_str(), JsonSearchUtil::all) == 0) {
+                    one_check = JsonSearchUtil::always_all;
+                } else if (strcasecmp(one_or_all_str.c_str(), JsonSearchUtil::one) == 0) {
+                    // nothing
+                } else {
+                    // an error occurs if the one_or_all argument is not 'one' nor 'all'.
+                    return Status::InvalidArgument(
+                            "the one_or_all argument {} is not 'one' not 'all'", one_or_all_str);
+                }
+            }
+        } else {
+            one_null_check = [col_one](size_t i) { return col_one->is_null_at(i); };
+            one_check = [col_one_string](size_t i, bool* is_one) {
+                const auto& one_or_all = col_one_string->get_data_at(i);
+                std::string one_or_all_str = one_or_all.to_string();
+                if (strcasecmp(one_or_all_str.c_str(), JsonSearchUtil::all) == 0) {
+                    *is_one = false;
+                } else if (strcasecmp(one_or_all_str.c_str(), JsonSearchUtil::one) == 0) {
+                    *is_one = true;
+                } else {
+                    // an error occurs if the one_or_all argument is not 'one' nor 'all'.
+                    return Status::InvalidArgument(
+                            "the one_or_all argument {} is not 'one' not 'all'", one_or_all_str);
+                }
+                return Status::OK();
+            };
+        }
+
+        JsonSearchUtil::CheckNullFun start_null_check = JsonSearchUtil::always_null;
+        JsonSearchUtil::GetJsonStartFun get_start_path;
+
+        JsonSearchUtil::CheckNullFun escape_null_check = JsonSearchUtil::always_null;
+        JsonSearchUtil::GetJsonEscapeFun get_escape_string;
+
+        ColumnPtr col_escape;
+        bool escape_is_const = false;
+
+        std::tie(col_escape, escape_is_const) =
+                unpack_if_const(block.get_by_position(arguments[3]).column);
+
+        const auto* col_escape_string = check_and_get_column<ColumnString>(col_escape.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_escape.get())) {
+            col_escape_string =
+                    check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        }
+        if (!col_escape_string) {
+            return Status::RuntimeError("Illegal arg pattern {} should be ColumnString",
+                                        col_escape->get_name());
+        }
+        if (escape_is_const) {
+            if (col_escape->is_null_at(0)) {
+                escape_null_check = JsonSearchUtil::always_null;
+            }
+        } else {
+            escape_null_check = [col_escape](size_t i) { return col_escape->is_null_at(i); };
+            get_escape_string = [col_escape_string](size_t i, char* escape_char) {
+                auto escape_string = col_escape_string->get_data_at(i).to_string();
+                if (escape_string.length() != 1) {
+                    return Status::RuntimeError("Illegal arg pattern {} should be char",
+                                                col_escape_string->get_name());
+                }
+                *escape_char = escape_string.at(0);
+                return Status::OK();
+            };
+        }
+
+        ColumnPtr col_search;
+        bool search_is_const = false;
+        std::tie(col_search, search_is_const) =
+                unpack_if_const(block.get_by_position(arguments[2]).column);
+
+        const auto* col_search_string = check_and_get_column<ColumnString>(col_search.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_search.get())) {
+            col_search_string =
+                    check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        }
+        if (!col_search_string) {
+            return Status::RuntimeError("Illegal arg pattern {} should be ColumnString",
+                                        col_search->get_name());
+        }
+        if (search_is_const) {
+            JsonSearchUtil::CheckNullFun search_null_check = JsonSearchUtil::always_not_null;
+            if (col_search->is_null_at(0)) {
+                search_null_check = JsonSearchUtil::always_null;
+            }
+            RETURN_IF_ERROR(JsonSearchUtil::execute_vector<true>(
+                    block, input_rows_count, json_null_check, get_json_fun, one_null_check,
+                    one_check, search_null_check, col_search_string, context, result,
+                    start_null_check, get_start_path, escape_null_check, get_escape_string));
+        } else {
+            JsonSearchUtil::CheckNullFun search_null_check = [col_search](size_t i) {
+                return col_search->is_null_at(i);
+            };
+            RETURN_IF_ERROR(JsonSearchUtil::execute_vector<false>(
+                    block, input_rows_count, json_null_check, get_json_fun, one_null_check,
+                    one_check, search_null_check, col_search_string, context, result,
+                    start_null_check, get_start_path, escape_null_check, get_escape_string));
+        }
+        return Status::OK();
+    }
+};
+
+struct JsonSearchStartPath {
+    static DataTypes get_variadic_argument_types() {
+        return {
+                std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>(),
+        };
+    }
+
+    static Status execute_impl(FunctionContext* context, Block& block,
+                               const ColumnNumbers& arguments, uint32_t result,
+                               size_t input_rows_count) {
+        if (arguments.size() != 5) {
+            return Status::InvalidArgument("wrong arguments for function json_search");
+        }
+
+        JsonSearchUtil::CheckNullFun json_null_check = JsonSearchUtil::always_not_null;
+        JsonSearchUtil::GetJsonStringRefFun get_json_fun;
+        ColumnPtr col_json;
+        bool json_is_const = false;
+        // prepare jsonb data column
+        std::tie(col_json, json_is_const) =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto* col_json_string = check_and_get_column<ColumnString>(col_json.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_json.get())) {
+            col_json_string =
+                    check_and_get_column<ColumnString>(nullable->get_nested_column_ptr().get());
+        }
+
+        if (!col_json_string) {
+            return Status::RuntimeError("Illegal arg json {} should be ColumnString",
+                                        col_json->get_name());
+        }
+        if (json_is_const) {
+            if (col_json->is_null_at(0)) {
+                json_null_check = JsonSearchUtil::always_null;
+            } else {
+                const auto& json_str = col_json_string->get_data_at(0);
+                get_json_fun = [json_str](size_t i) { return json_str; };
+            }
+        } else {
+            json_null_check = [col_json](size_t i) { return col_json->is_null_at(i); };
+            get_json_fun = [col_json_string](size_t i) { return col_json_string->get_data_at(i); };
+        }
+
+        JsonSearchUtil::CheckNullFun one_null_check = JsonSearchUtil::always_not_null;
+        JsonSearchUtil::OneFun one_check = JsonSearchUtil::always_one;
+        ColumnPtr col_one;
+        bool one_is_const = false;
+        // prepare jsonb data column
+        std::tie(col_one, one_is_const) =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        const auto* col_one_string = check_and_get_column<ColumnString>(col_one.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_one.get())) {
+            col_one_string = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        }
+        if (!col_one_string) {
+            return Status::RuntimeError("Illegal arg one {} should be ColumnString",
+                                        col_one->get_name());
+        }
+        if (one_is_const) {
+            if (col_one->is_null_at(0)) {
+                one_null_check = JsonSearchUtil::always_null;
+            } else {
+                const auto& one_or_all = col_one_string->get_data_at(0);
+                std::string one_or_all_str = one_or_all.to_string();
+                if (strcasecmp(one_or_all_str.c_str(), JsonSearchUtil::all) == 0) {
+                    one_check = JsonSearchUtil::always_all;
+                } else if (strcasecmp(one_or_all_str.c_str(), JsonSearchUtil::one) == 0) {
+                    // nothing
+                } else {
+                    // an error occurs if the one_or_all argument is not 'one' nor 'all'.
+                    return Status::InvalidArgument(
+                            "the one_or_all argument {} is not 'one' not 'all'", one_or_all_str);
+                }
+            }
+        } else {
+            one_null_check = [col_one](size_t i) { return col_one->is_null_at(i); };
+            one_check = [col_one_string](size_t i, bool* is_one) {
+                const auto& one_or_all = col_one_string->get_data_at(i);
+                std::string one_or_all_str = one_or_all.to_string();
+                if (strcasecmp(one_or_all_str.c_str(), JsonSearchUtil::all) == 0) {
+                    *is_one = false;
+                } else if (strcasecmp(one_or_all_str.c_str(), JsonSearchUtil::one) == 0) {
+                    *is_one = true;
+                } else {
+                    // an error occurs if the one_or_all argument is not 'one' nor 'all'.
+                    return Status::InvalidArgument(
+                            "the one_or_all argument {} is not 'one' not 'all'", one_or_all_str);
+                }
+                return Status::OK();
+            };
+        }
+
+        JsonSearchUtil::CheckNullFun start_null_check = JsonSearchUtil::always_null;
+        JsonSearchUtil::GetJsonStartFun get_start_path;
+
+        JsonSearchUtil::CheckNullFun escape_null_check = JsonSearchUtil::always_null;
+        JsonSearchUtil::GetJsonEscapeFun get_escape_string;
+
+        ColumnPtr col_escape;
+        bool escape_is_const = false;
+
+        std::tie(col_escape, escape_is_const) =
+                unpack_if_const(block.get_by_position(arguments[3]).column);
+
+        const auto* col_escape_string = check_and_get_column<ColumnString>(col_escape.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_escape.get())) {
+            col_escape_string =
+                    check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        }
+        if (!col_escape_string) {
+            return Status::RuntimeError("Illegal arg pattern {} should be ColumnString",
+                                        col_escape->get_name());
+        }
+        if (escape_is_const) {
+            if (col_escape->is_null_at(0)) {
+                escape_null_check = JsonSearchUtil::always_null;
+            }
+        } else {
+            escape_null_check = [col_escape](size_t i) { return col_escape->is_null_at(i); };
+            get_escape_string = [col_escape_string](size_t i, char* escape_char) {
+                auto escape_string = col_escape_string->get_data_at(i).to_string();
+                if (escape_string.length() != 1) {
+                    return Status::RuntimeError("Illegal arg pattern {} should be char",
+                                                col_escape_string->get_name());
+                }
+                *escape_char = escape_string.at(0);
+                return Status::OK();
+            };
+        }
+
+        ColumnPtr col_start;
+        bool start_is_const = false;
+        std::tie(col_start, start_is_const) =
+                unpack_if_const(block.get_by_position(arguments[4]).column);
+
+        const auto* col_start_string = check_and_get_column<ColumnString>(col_start.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_start.get())) {
+            col_start_string =
+                    check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        }
+        if (!col_start_string) {
+            return Status::RuntimeError("Illegal arg pattern {} should be ColumnString",
+                                        col_start->get_name());
+        }
+        if (start_is_const) {
+            if (col_start->is_null_at(0)) {
+                start_null_check = JsonSearchUtil::always_null;
+            }
+        } else {
+            start_null_check = [col_start](size_t i) { return col_start->is_null_at(i); };
+            get_start_path = [col_start_string](size_t i) {
+                return col_start_string->get_data_at(i).to_string();
+            };
+        }
+
+        ColumnPtr col_search;
+        bool search_is_const = false;
+        std::tie(col_search, search_is_const) =
+                unpack_if_const(block.get_by_position(arguments[2]).column);
+
+        const auto* col_search_string = check_and_get_column<ColumnString>(col_search.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_search.get())) {
+            col_search_string =
+                    check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        }
+        if (!col_search_string) {
+            return Status::RuntimeError("Illegal arg pattern {} should be ColumnString",
+                                        col_search->get_name());
+        }
+        if (search_is_const) {
+            JsonSearchUtil::CheckNullFun search_null_check = JsonSearchUtil::always_not_null;
+            if (col_search->is_null_at(0)) {
+                search_null_check = JsonSearchUtil::always_null;
+            }
+            RETURN_IF_ERROR(JsonSearchUtil::execute_vector<true>(
+                    block, input_rows_count, json_null_check, get_json_fun, one_null_check,
+                    one_check, search_null_check, col_search_string, context, result,
+                    start_null_check, get_start_path, escape_null_check, get_escape_string));
+        } else {
+            JsonSearchUtil::CheckNullFun search_null_check = [col_search](size_t i) {
+                return col_search->is_null_at(i);
+            };
+            RETURN_IF_ERROR(JsonSearchUtil::execute_vector<false>(
+                    block, input_rows_count, json_null_check, get_json_fun, one_null_check,
+                    one_check, search_null_check, col_search_string, context, result,
+                    start_null_check, get_start_path, escape_null_check, get_escape_string));
         }
         return Status::OK();
     }
@@ -2024,7 +2435,10 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbContains<JsonbContainsImpl>>();
     factory.register_function<FunctionJsonbContains<JsonbContainsAndPathImpl>>();
 
-    factory.register_function<FunctionJsonSearch>();
+    // factory.register_function<FunctionJsonSearch>();
+    factory.register_function<FunctionJsonSearch<JsonSearchNormal>>();
+    factory.register_function<FunctionJsonSearch<JsonSearchEscape>>();
+    factory.register_function<FunctionJsonSearch<JsonSearchStartPath>>();
 }
 
 } // namespace doris::vectorized

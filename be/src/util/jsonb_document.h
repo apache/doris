@@ -391,9 +391,13 @@ public:
         return true;
     }
 
-    size_t get_leg_vector_size() { return leg_vector.size(); }
+    bool operator==(const JsonbPath& other) const { return leg_vector == other.leg_vector; }
 
-    leg_info* get_leg_from_leg_vector(size_t i) { return leg_vector[i].get(); }
+    bool operator!=(const JsonbPath& other) const { return !operator==(other); }
+
+    size_t get_leg_vector_size() const { return leg_vector.size(); }
+
+    leg_info* get_leg_from_leg_vector(size_t i) const { return leg_vector[i].get(); }
 
     void clean() { leg_vector.clear(); }
 

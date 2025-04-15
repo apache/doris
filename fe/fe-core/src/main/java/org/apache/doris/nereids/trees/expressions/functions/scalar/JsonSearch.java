@@ -37,11 +37,25 @@ public class JsonSearch extends ScalarFunction implements ExplicitlyCastableSign
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(JsonType.INSTANCE)
-                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(JsonType.INSTANCE)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT,
+                            VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(JsonType.INSTANCE)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT,
+                            VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
     );
 
     public JsonSearch(Expression arg0, Expression arg1, Expression arg2) {
         super("json_search", arg0, arg1, arg2);
+    }
+
+    public JsonSearch(Expression arg0, Expression arg1, Expression arg2, Expression arg3) {
+        super("json_search", arg0, arg1, arg2, arg3);
+    }
+
+    public JsonSearch(Expression arg0, Expression arg1, Expression arg2, Expression arg3, Expression arg4) {
+        super("json_search", arg0, arg1, arg2, arg3, arg4);
     }
 
     @Override
@@ -51,8 +65,14 @@ public class JsonSearch extends ScalarFunction implements ExplicitlyCastableSign
 
     @Override
     public JsonSearch withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 3);
-        return new JsonSearch(children.get(0), children.get(1), children.get(2));
+        Preconditions.checkArgument(children.size() == 3 || children.size() == 4 || children.size() == 5);
+        if (children.size() == 3) {
+            return new JsonSearch(children.get(0), children.get(1), children.get(2));
+        } else if (children.size() == 4) {
+            return new JsonSearch(children.get(0), children.get(1), children.get(2), children.get(3));
+        } else {
+            return new JsonSearch(children.get(0), children.get(1), children.get(2), children.get(3), children.get(4));
+        }
     }
 
     @Override
