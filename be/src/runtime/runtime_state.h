@@ -490,7 +490,7 @@ public:
                        : 0;
     }
 
-    bool enable_share_hash_table_for_broadcast_join() const {
+    MOCK_FUNCTION bool enable_share_hash_table_for_broadcast_join() const {
         return _query_options.__isset.enable_share_hash_table_for_broadcast_join &&
                _query_options.enable_share_hash_table_for_broadcast_join;
     }

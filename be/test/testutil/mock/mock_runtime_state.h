@@ -41,12 +41,17 @@ public:
         return _enable_shared_exchange_sink_buffer;
     }
 
+    bool enable_share_hash_table_for_broadcast_join() const override {
+        return _enable_share_hash_table_for_broadcast_join;
+    }
+
     bool enable_local_exchange() const override { return true; }
     WorkloadGroupPtr workload_group() override { return _workload_group; }
 
     // default batch size
     int batsh_size = 4096;
     bool _enable_shared_exchange_sink_buffer = true;
+    bool _enable_share_hash_table_for_broadcast_join = true;
     std::shared_ptr<MockContext> _mock_context = std::make_shared<MockContext>();
     std::shared_ptr<MockQueryContext> _query_ctx_uptr = std::make_shared<MockQueryContext>();
     WorkloadGroupPtr _workload_group = nullptr;
