@@ -21,7 +21,7 @@ suite("hbo_slow_query_test") {
 
     sql "drop table if exists hbo_slow_query_test;"
     sql """create table hbo_slow_query_test(a int, b int) distributed by hash(a) buckets 32 properties("replication_num"="1");"""
-    sql """insert into hbo_slow_query_test select number, number from numbers("number" = "100000000");"""
+    sql """insert into hbo_slow_query_test select number, number from numbers("number" = "10000000");"""
     sql """analyze table hbo_slow_query_test with full with sync;"""
     
     sql "set hbo_rfsafe_threshold=1.0;"

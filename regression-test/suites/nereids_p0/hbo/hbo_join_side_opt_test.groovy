@@ -21,13 +21,13 @@ suite("hbo_join_side_opt_test") {
 
     sql "drop table if exists hbo_join_side_opt_test1;"
     sql """create table hbo_join_side_opt_test1(a int, b int) distributed by hash(a) buckets 32 properties("replication_num"="1");"""
-    sql """insert into hbo_join_side_opt_test1 select number, number from numbers("number" = "100000");"""
-    sql """insert into hbo_join_side_opt_test1 select 1,1 from numbers("number" = "100000000");"""
+    sql """insert into hbo_join_side_opt_test1 select number, number from numbers("number" = "10000");"""
+    sql """insert into hbo_join_side_opt_test1 select 1,1 from numbers("number" = "10000000");"""
     sql """analyze table hbo_join_side_opt_test1 with full with sync;"""
 
     sql "drop table if exists hbo_join_side_opt_test2;"
     sql """create table hbo_join_side_opt_test2(a int, b int) distributed by hash(a) buckets 32 properties("replication_num"="1");"""
-    sql """insert into hbo_join_side_opt_test2 select number, number from numbers("number" = "100000");"""
+    sql """insert into hbo_join_side_opt_test2 select number, number from numbers("number" = "10000");"""
     sql """analyze table hbo_join_side_opt_test2 with full with sync;"""
     sql "set hbo_rfsafe_threshold=1.0;"
     sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
@@ -81,9 +81,9 @@ suite("hbo_join_side_opt_test") {
      */
     explain {
         sql "physical plan select count(1) from hbo_join_side_opt_test1 s1, hbo_join_side_opt_test2 s2 where s1.b = s2.b and s1.a = 1;"
-        contains("stats=(hbo)100,000,001, predicates=(a#0 = 1)")
-        contains("stats=100,000, distributionSpec=DistributionSpecReplicated")
-        contains("stats=(hbo)100,000,001, type=INNER_JOIN")
+        contains("stats=(hbo)10,000,001, predicates=(a#0 = 1)")
+        contains("stats=10,000, distributionSpec=DistributionSpecReplicated")
+        contains("stats=(hbo)10,000,001, type=INNER_JOIN")
         contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
 

@@ -21,15 +21,15 @@ suite("hbo_skew_shuffle_to_bc_test") {
 
     sql """drop table if exists hbo_skew_shuffle_to_bc_test1;"""
     sql """create table hbo_skew_shuffle_to_bc_test1(a int, b int) distributed by hash(a, b) buckets 32 properties("replication_num"="1");"""
-    sql """insert into hbo_skew_shuffle_to_bc_test1 select number, 1 from numbers("number" = "1000");"""
-    sql """insert into hbo_skew_shuffle_to_bc_test1 select number, number from numbers("number" = "10000000");"""
+    sql """insert into hbo_skew_shuffle_to_bc_test1 select number, 1 from numbers("number" = "100");"""
+    sql """insert into hbo_skew_shuffle_to_bc_test1 select number, number from numbers("number" = "1000000");"""
     sql """analyze table hbo_skew_shuffle_to_bc_test1 with full with sync;"""
 
     sql """drop table if exists hbo_skew_shuffle_to_bc_test2;"""
     sql """create table hbo_skew_shuffle_to_bc_test2(a int, b int) distributed by hash(a, b) buckets 32 properties("replication_num"="1");"""
-    sql """insert into hbo_skew_shuffle_to_bc_test2 select number, number from numbers("number" = "2000000");"""
-    sql """insert into hbo_skew_shuffle_to_bc_test2 select 1, 1 from numbers("number" = "2000000");"""
-    sql """insert into hbo_skew_shuffle_to_bc_test2 select number, number from numbers("number" = "6000000");"""
+    sql """insert into hbo_skew_shuffle_to_bc_test2 select number, number from numbers("number" = "200000");"""
+    sql """insert into hbo_skew_shuffle_to_bc_test2 select 1, 1 from numbers("number" = "200000");"""
+    sql """insert into hbo_skew_shuffle_to_bc_test2 select number, number from numbers("number" = "600000");"""
     sql """analyze table hbo_skew_shuffle_to_bc_test2 with full with sync;"""
 
     // increase the parallel to make enough skew between different instances
@@ -58,8 +58,8 @@ suite("hbo_skew_shuffle_to_bc_test") {
      */
     explain {
         sql "physical plan select count(1) from hbo_skew_shuffle_to_bc_test1 t1, hbo_skew_shuffle_to_bc_test2 t2 where t1.b = t2.b;"
-        contains("stats=10,001,000, distributionSpec=DistributionSpecHash")
-        contains("stats=10,000,000, distributionSpec=DistributionSpecHash")
+        contains("stats=1,000,100, distributionSpec=DistributionSpecHash")
+        contains("stats=1,000,000, distributionSpec=DistributionSpecHash")
     }
 
     sql "select count(1) from hbo_skew_shuffle_to_bc_test1 t1, hbo_skew_shuffle_to_bc_test2 t2 where t1.b = t2.b;"
@@ -85,9 +85,9 @@ suite("hbo_skew_shuffle_to_bc_test") {
      */
     explain {
         sql "physical plan select count(1) from hbo_skew_shuffle_to_bc_test1 t1, hbo_skew_shuffle_to_bc_test2 t2 where t1.b = t2.b;"
-        contains("stats=10,001,000, projects=[b#1]")
-        contains("stats=10,000,000, distributionSpec=DistributionSpecReplicated")
-        contains("stats=(hbo)2,010,002,000, type=INNER_JOIN")
+        contains("stats=1,000,100, projects=[b#1]")
+        contains("stats=1,000,000, distributionSpec=DistributionSpecReplicated")
+        contains("stats=(hbo)21,000,200, type=INNER_JOIN")
         contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
 
