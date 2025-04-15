@@ -74,16 +74,16 @@ Status VExplodeV2TableFunction::_process_init_variant(Block* block, int value_co
 }
 
 Status VExplodeV2TableFunction::process_init(Block* block, RuntimeState* state) {
-    CHECK(_expr_context->root()->children().size() >= 1)
-            << "VExplodeV2TableFunction support one or more child but has "
-            << _expr_context->root()->children().size();
+    auto expr_size = _expr_context->root()->children().size();
+    CHECK(expr_size >= 1) << "VExplodeV2TableFunction support one or more child but has "
+                          << expr_size;
 
     int value_column_idx = -1;
-    _multi_detail.resize(_expr_context->root()->children().size());
-    _array_offsets.resize(_expr_context->root()->children().size());
-    _array_columns.resize(_expr_context->root()->children().size());
+    _multi_detail.resize(expr_size);
+    _array_offsets.resize(expr_size);
+    _array_columns.resize(expr_size);
 
-    for (int i = 0; i < _expr_context->root()->children().size(); i++) {
+    for (int i = 0; i < expr_size; i++) {
         RETURN_IF_ERROR(_expr_context->root()->children()[i]->execute(_expr_context.get(), block,
                                                                       &value_column_idx));
         if (WhichDataType(remove_nullable(block->get_by_position(value_column_idx).type))
@@ -207,31 +207,27 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
                     nullable_column->get_nested_column_ptr()->insert_range_from(*detail.nested_col,
                                                                                 pos, max_step);
                     if (detail.nested_nullmap_data) {
-                        for (int j = 0; j < max_step; j++) {
-                            if (detail.nested_nullmap_data[pos + j]) {
-                                nullmap_column->insert_value(1);
-                            } else {
-                                nullmap_column->insert_value(0);
-                            }
-                        }
+                        size_t old_size = nullmap_column->size();
+                        nullmap_column->resize(old_size + max_step);
+                        memcpy(nullmap_column->get_data().data() + old_size,
+                               detail.nested_nullmap_data + pos, max_step * sizeof(UInt8));
                     } else {
                         nullmap_column->insert_many_defaults(max_step);
                     }
                 } else {
+                    auto current_insert_num = element_size - _cur_offset;
                     nullable_column->get_nested_column_ptr()->insert_range_from(
-                            *detail.nested_col, pos, element_size - _cur_offset);
+                            *detail.nested_col, pos, current_insert_num);
                     if (detail.nested_nullmap_data) {
-                        for (int j = 0; j < element_size - _cur_offset; j++) {
-                            if (detail.nested_nullmap_data[pos + j]) {
-                                nullmap_column->insert_value(1);
-                            } else {
-                                nullmap_column->insert_value(0);
-                            }
-                        }
+                        size_t old_size = nullmap_column->size();
+                        nullmap_column->resize(old_size + current_insert_num);
+                        memcpy(nullmap_column->get_data().data() + old_size,
+                               detail.nested_nullmap_data + pos,
+                               current_insert_num * sizeof(UInt8));
                     } else {
-                        nullmap_column->insert_many_defaults(element_size - _cur_offset);
+                        nullmap_column->insert_many_defaults(current_insert_num);
                     }
-                    nullable_column->insert_many_defaults(max_step - (element_size - _cur_offset));
+                    nullable_column->insert_many_defaults(max_step - current_insert_num);
                 }
             }
         }

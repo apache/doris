@@ -39,9 +39,7 @@ Status TableFunctionLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(_init_timer);
     _init_function_timer = ADD_TIMER(_runtime_profile, "InitTableFunctionTime");
     _process_rows_timer = ADD_TIMER(_runtime_profile, "ProcessRowsTime");
-    _copy_data_timer = ADD_TIMER(_runtime_profile, "CopyDataTime");
     _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
-    _repeat_data_timer = ADD_TIMER(_runtime_profile, "RepeatDataTime");
     return Status::OK();
 }
 
@@ -77,7 +75,6 @@ void TableFunctionLocalState::_copy_output_slots(
     if (!_current_row_insert_times) {
         return;
     }
-    SCOPED_TIMER(_copy_data_timer);
     auto& p = _parent->cast<TableFunctionOperatorX>();
     for (auto index : p._output_slot_indexs) {
         auto src_column = _child_block->get_by_position(index).column;
@@ -167,7 +164,7 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
             _fns[i]->set_nullable();
         }
     }
-
+    SCOPED_TIMER(_process_rows_timer);
     while (columns[p._child_slots.size()]->size() < state->batch_size()) {
         RETURN_IF_CANCELLED(state);
 
@@ -230,7 +227,6 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
 }
 
 void TableFunctionLocalState::process_next_child_row() {
-    SCOPED_TIMER(_process_rows_timer);
     _cur_child_offset++;
 
     if (_cur_child_offset >= _child_block->rows()) {
