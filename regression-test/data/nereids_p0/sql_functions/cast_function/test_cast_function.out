@@ -38,3 +38,12 @@ true
 -- !sql_to_big --
 1212
 
+-- !sql_string_dt_reduce --
+2000-10-10T00:00:00.123
+
+-- !sql_dt_reduce_1 --
+true
+
+-- !sql_dt_reduce_2 --
+true
+
