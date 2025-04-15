@@ -86,23 +86,20 @@ public:
                        : nullptr;
     }
 
-    void inject_shared_state(std::shared_ptr<BasicSharedState> shared_state) {
-        if (!shared_state) {
-            return;
-        }
-        // Shared state is created by upstream task's sink operator and shared by source operator of this task.
-        for (auto& op : _operators) {
-            if (shared_state->related_op_ids.contains(op->operator_id())) {
-                _op_shared_states.insert({op->operator_id(), shared_state});
-                return;
-            }
-        }
-        if (shared_state->related_op_ids.contains(_sink->dests_id().front())) {
-            DCHECK_EQ(_sink_shared_state, nullptr)
-                    << " Sink: " << _sink->get_name() << " dest id: " << _sink->dests_id().front();
-            _sink_shared_state = shared_state;
-        }
-    }
+    /**
+     * `shared_state` is shared by different pipeline tasks. This function aims to establish
+     * connections across related tasks.
+     *
+     * There are 2 kinds of relationships to share state by tasks.
+     * 1. For regular operators, for example, Aggregation, we use the AggSinkOperator to create a
+     *    shared state and then inject it into downstream task which contains the corresponding
+     *    AggSourceOperator.
+     * 2. For multiple-sink-single-source operator, for example, Set operations, the shared state is
+     *    created once and shared by multiple sink operators and single source operator. For this
+     *    case, we use the first sink operator create shared state and then inject into all of other
+     *    tasks.
+     */
+    bool inject_shared_state(std::shared_ptr<BasicSharedState> shared_state);
 
     std::shared_ptr<BasicSharedState> get_sink_shared_state() { return _sink_shared_state; }
 
@@ -152,14 +149,7 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
 
     bool is_running() { return _running.load(); }
-    bool is_revoking() {
-        for (auto* dep : _spill_dependencies) {
-            if (dep->is_blocked_by()) {
-                return true;
-            }
-        }
-        return false;
-    }
+    bool is_revoking() const;
     bool set_running(bool running) { return _running.exchange(running); }
 
     bool is_exceed_debug_timeout() {
@@ -217,6 +207,10 @@ private:
     void _init_profile();
     void _fresh_profile_counter();
     Status _open();
+
+    // Operator `op` try to reserve memory before executing. Return false if reserve failed
+    // otherwise return true.
+    bool _try_to_reserve_memory(const size_t reserve_size, OperatorBase* op);
 
     const TUniqueId _query_id;
     const uint32_t _index;
