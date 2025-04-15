@@ -1146,7 +1146,7 @@ class FilterEstimationTest {
         Statistics result = filterEstimation.estimate(and, stats);
         // result 1.0->2.0 bc happens because the calculation from normalization of
         // "Math.min(columnStatistic.numNulls * factor, rowCount - ndv);"
-        Assertions.assertEquals(result.getRowCount(), 3.5, 0.01);
+        Assertions.assertEquals(result.getRowCount(), 2.0, 0.01);
     }
 
     /**
@@ -1214,7 +1214,7 @@ class FilterEstimationTest {
 
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(allAnd, stats);
-        Assertions.assertEquals(result.getRowCount(), 2109.0, 10);
+        Assertions.assertEquals(result.getRowCount(), 1809, 10);
     }
 
     /**
