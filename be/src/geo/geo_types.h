@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/factory_creator.h"
 #include "geo/geo_common.h"
@@ -137,6 +138,7 @@ private:
 
 class GeoPolygon : public GeoShape {
     ENABLE_FACTORY_CREATOR(GeoPolygon);
+    friend class GeoMultiPolygon;
 
 public:
     GeoPolygon();
@@ -161,6 +163,36 @@ protected:
 
 private:
     std::unique_ptr<S2Polygon> _polygon;
+};
+
+class GeoMultiPolygon : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoMultiPolygon);
+
+public:
+    GeoMultiPolygon();
+    ~GeoMultiPolygon() override;
+
+    GeoParseStatus check_self_intersection();
+    GeoParseStatus from_coords(const std::vector<GeoCoordinateListList>& list);
+    const std::vector<std::unique_ptr<GeoCoordinateListList>> to_coords() const;
+
+    GeoShapeType type() const override { return GEO_SHAPE_MULTI_POLYGON; }
+    const std::vector<std::unique_ptr<GeoPolygon>>& polygons() const { return _polygons; }
+
+    bool intersects(const GeoShape* rhs) const override;
+    bool disjoint(const GeoShape* rhs) const override;
+    bool touches(const GeoShape* rhs) const override;
+    bool contains(const GeoShape* rhs) const override;
+    std::string as_wkt() const override;
+
+    double getArea() const;
+
+protected:
+    void encode(std::string* buf) override;
+    bool decode(const void* data, size_t size) override;
+
+private:
+    std::vector<std::unique_ptr<GeoPolygon>> _polygons;
 };
 
 class GeoCircle : public GeoShape {
