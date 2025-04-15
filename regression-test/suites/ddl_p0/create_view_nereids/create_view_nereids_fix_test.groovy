@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("create_view_nereids_fix_test") {
+suite("create_view_nereids_fix_null") {
     sql "drop view if exists test_null"
     sql "CREATE VIEW test_null COMMENT '测试null类型' AS SELECT  NULL AS `col1`; "
     def res = sql "desc test_null"
@@ -25,5 +25,5 @@ suite("create_view_nereids_fix_test") {
     sql "CREATE VIEW test_null_array COMMENT '测试null类型' AS SELECT  [NULL, NULL] AS `col1`; "
     def res2 = sql "desc test_null_array"
     mustContain(res2[0][1], "array<tinyint>")
-    mustContain(res2[0][2], "Yes")
+    mustContain(res2[0][2], "No")
 }
