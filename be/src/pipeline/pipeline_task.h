@@ -128,7 +128,11 @@ public:
     void set_task_queue(MultiCoreTaskQueue* task_queue) { _task_queue = task_queue; }
     MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
 
+#ifdef BE_TEST
+    unsigned long long THREAD_TIME_SLICE = 100'000'000ULL;
+#else
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
+#endif
 
     // 1 used for update priority queue
     // note(wb) an ugly implementation, need refactor later
@@ -202,7 +206,6 @@ public:
     }
 
 private:
-    friend class RuntimeFilterDependency;
     // Whether this task is blocked before execution (FE 2-phase commit trigger, runtime filters)
     bool _wait_to_start();
     // Whether this task is blocked during execution (read dependency, write dependency)
@@ -214,6 +217,10 @@ private:
     void _init_profile();
     void _fresh_profile_counter();
     Status _open();
+
+    // Operator `op` try to reserve memory before executing. Return false if reserve failed
+    // otherwise return true.
+    bool _try_to_reserve_memory(const size_t reserve_size, OperatorBase* op);
 
     const TUniqueId _query_id;
     const uint32_t _index;
@@ -305,6 +312,12 @@ private:
         FINISHED,
         FINALIZED,
     };
+    const std::vector<std::set<State>> LEGAL_STATE_TRANSITION = {
+            {},                                               // Target state is INITED
+            {State::INITED, State::RUNNABLE, State::BLOCKED}, // Target state is RUNNABLE
+            {State::RUNNABLE, State::FINISHED},               // Target state is BLOCKED
+            {State::RUNNABLE},                                // Target state is FINISHED
+            {State::INITED, State::FINISHED}};                // Target state is FINALIZED
 
     std::string _to_string(State state) const {
         switch (state) {
@@ -327,9 +340,9 @@ private:
     std::atomic<State> _exec_state = State::INITED;
     MonotonicStopWatch _state_change_watcher;
     std::atomic<bool> _spilling = false;
+    const std::string _pipeline_name;
 };
 
 using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;
-using PipelineTaskWPtr = std::weak_ptr<PipelineTask>;
 
 } // namespace doris::pipeline

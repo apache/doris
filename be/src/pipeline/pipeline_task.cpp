@@ -79,8 +79,8 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
           _shared_state_map(std::move(shared_state_map)),
           _task_idx(task_idx),
           _execution_dep(state->get_query_ctx()->get_execution_dependency()),
-          _memory_sufficient_dependency(
-                  state->get_query_ctx()->get_memory_sufficient_dependency()) {
+          _memory_sufficient_dependency(state->get_query_ctx()->get_memory_sufficient_dependency()),
+          _pipeline_name(_pipeline->name()) {
     _pipeline_task_watcher.start();
 
     if (!_shared_state_map.contains(_sink->dests_id().front())) {
@@ -291,24 +291,19 @@ void PipelineTask::terminate() {
     auto fragment = _fragment_context.lock();
     if (!is_finalized() && fragment) {
         DCHECK(_wake_up_early || fragment->is_canceled());
-        for (auto* dep : _spill_dependencies) {
-            dep->set_always_ready();
-        }
-
-        for (auto* dep : _filter_dependencies) {
-            dep->set_always_ready();
-        }
-        for (auto& deps : _read_dependencies) {
-            for (auto* dep : deps) {
-                dep->set_always_ready();
-            }
-        }
-        for (auto* dep : _write_dependencies) {
-            dep->set_always_ready();
-        }
-        for (auto* dep : _finish_dependencies) {
-            dep->set_always_ready();
-        }
+        std::for_each(_spill_dependencies.begin(), _spill_dependencies.end(),
+                      [&](Dependency* dep) { dep->set_always_ready(); });
+        std::for_each(_filter_dependencies.begin(), _filter_dependencies.end(),
+                      [&](Dependency* dep) { dep->set_always_ready(); });
+        std::for_each(_write_dependencies.begin(), _write_dependencies.end(),
+                      [&](Dependency* dep) { dep->set_always_ready(); });
+        std::for_each(_finish_dependencies.begin(), _finish_dependencies.end(),
+                      [&](Dependency* dep) { dep->set_always_ready(); });
+        std::for_each(_read_dependencies.begin(), _read_dependencies.end(),
+                      [&](std::vector<Dependency*>& deps) {
+                          std::for_each(deps.begin(), deps.end(),
+                                        [&](Dependency* dep) { dep->set_always_ready(); });
+                      });
         _execution_dep->set_ready();
         _memory_sufficient_dependency->set_ready();
     }
@@ -339,6 +334,7 @@ Status PipelineTask::execute(bool* done) {
     int64_t time_spent = 0;
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();
+    SCOPED_ATTACH_TASK(_state);
     Defer running_defer {[&]() {
         if (_task_queue) {
             _task_queue->update_statistics(this, time_spent);
@@ -359,10 +355,6 @@ Status PipelineTask::execute(bool* done) {
                    (fragment_context->is_canceled() || !_is_pending_finish())) {
             *done = true;
         }
-        // If this run is pended by a spilling request, the block will be output in next run.
-        if (!_spilling) {
-            _block->clear_column_data(_root->row_desc().num_materialized_slots());
-        }
     }};
     const auto query_id = _state->query_id();
     // If this task is already EOS and block is empty (which means we already output all blocks),
@@ -380,7 +372,6 @@ Status PipelineTask::execute(bool* done) {
 
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
-    SCOPED_ATTACH_TASK(_state);
 
     DBUG_EXECUTE_IF("fault_inject::PipelineXTask::execute", {
         Status status = Status::Error<INTERNAL_ERROR>("fault_inject pipeline_task execute failed");
@@ -408,10 +399,12 @@ Status PipelineTask::execute(bool* done) {
             }
         });
 
+        SCOPED_RAW_TIMER(&time_spent);
         RETURN_IF_ERROR(_open());
     }
 
     while (!fragment_context->is_canceled()) {
+        SCOPED_RAW_TIMER(&time_spent);
         Defer defer {[&]() {
             // If this run is pended by a spilling request, the block will be output in next run.
             if (!_spilling) {
@@ -451,7 +444,7 @@ Status PipelineTask::execute(bool* done) {
         // `_dry_run` means sink operator need no more data
         _eos = _dry_run || _eos;
         _spilling = false;
-        auto workload_group = _state->get_query_ctx()->workload_group();
+        auto workload_group = _state->workload_group();
         // If last run is pended by a spilling request, `_block` is produced with some rows in last
         // run, so we will resume execution using the block.
         if (!_eos && _block->empty()) {
@@ -467,43 +460,8 @@ Status PipelineTask::execute(bool* done) {
 
             if (workload_group && _state->get_query_ctx()->enable_reserve_memory() &&
                 reserve_size > 0) {
-                auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(reserve_size);
-
-                COUNTER_UPDATE(_memory_reserve_times, 1);
-                if (!st.ok() && !_state->enable_force_spill()) {
-                    COUNTER_UPDATE(_memory_reserve_failed_times, 1);
-                    auto sink_revokable_mem_size = _sink->revocable_mem_size(_state);
-                    auto debug_msg = fmt::format(
-                            "Query: {} , try to reserve: {}, operator name: {}, operator "
-                            "id: {}, task id: {}, root revocable mem size: {}, sink revocable mem"
-                            "size: {}, failed: {}",
-                            print_id(query_id), PrettyPrinter::print_bytes(reserve_size),
-                            _root->get_name(), _root->node_id(), _state->task_id(),
-                            PrettyPrinter::print_bytes(_root->revocable_mem_size(_state)),
-                            PrettyPrinter::print_bytes(sink_revokable_mem_size), st.to_string());
-                    // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
-                    if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
-                        debug_msg += fmt::format(", debug info: {}",
-                                                 GlobalMemoryArbitrator::process_mem_log_str());
-                    }
-                    LOG_EVERY_N(INFO, 100) << debug_msg;
-                    // If sink has enough revocable memory, trigger revoke memory
-                    if (sink_revokable_mem_size >= _state->spill_min_revocable_mem()) {
-                        LOG(INFO) << fmt::format(
-                                "Query: {} sink: {}, node id: {}, task id: "
-                                "{}, revocable mem size: {}",
-                                print_id(query_id), _sink->get_name(), _sink->node_id(),
-                                _state->task_id(),
-                                PrettyPrinter::print_bytes(sink_revokable_mem_size));
-                        ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                                _state->get_query_ctx()->shared_from_this(), reserve_size, st);
-                        continue;
-                    } else {
-                        // If reserve failed, not add this query to paused list, because it is very small, will not
-                        // consume a lot of memory. But need set low memory mode to indicate that the system should
-                        // not use too much memory.
-                        _state->get_query_ctx()->set_low_memory_mode();
-                    }
+                if (!_try_to_reserve_memory(reserve_size, _root)) {
+                    continue;
                 }
             }
 
@@ -520,45 +478,8 @@ Status PipelineTask::execute(bool* done) {
             if (_state->get_query_ctx()->enable_reserve_memory() && workload_group &&
                 !(_wake_up_early || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
-                status = sink_reserve_size != 0
-                                 ? thread_context()->thread_mem_tracker_mgr->try_reserve(
-                                           sink_reserve_size)
-                                 : Status::OK();
-
-                auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
-                if (status.ok() && _state->enable_force_spill() && _sink->is_spillable() &&
-                    sink_revocable_mem_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
-                    status = Status(ErrorCode::QUERY_MEMORY_EXCEEDED, "Force Spill");
-                }
-
-                if (!status.ok()) {
-                    COUNTER_UPDATE(_memory_reserve_failed_times, 1);
-                    auto debug_msg = fmt::format(
-                            "Query: {} try to reserve: {}, sink name: {}, node id: {}, task "
-                            "id: "
-                            "{}, sink revocable mem size: {}, failed: {}",
-                            print_id(query_id), PrettyPrinter::print_bytes(sink_reserve_size),
-                            _sink->get_name(), _sink->node_id(), _state->task_id(),
-                            PrettyPrinter::print_bytes(sink_revocable_mem_size),
-                            status.to_string());
-                    // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
-                    if (!status.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
-                        debug_msg += fmt::format(", debug info: {}",
-                                                 GlobalMemoryArbitrator::process_mem_log_str());
-                    }
-                    // If the operator is not spillable or it is spillable but not has much memory to spill
-                    // not need add to paused list, just let it go.
-                    if (sink_revocable_mem_size >=
-                        vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
-                        VLOG_DEBUG << debug_msg;
-                        ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                                _state->get_query_ctx()->shared_from_this(), sink_reserve_size,
-                                status);
-                        _spilling = true;
-                        continue;
-                    } else {
-                        _state->get_query_ctx()->set_low_memory_mode();
-                    }
+                if (!_try_to_reserve_memory(sink_reserve_size, _sink.get())) {
+                    continue;
                 }
             }
 
@@ -620,14 +541,59 @@ Status PipelineTask::execute(bool* done) {
     return Status::OK();
 }
 
+bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBase* op) {
+    auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(reserve_size);
+    COUNTER_UPDATE(_memory_reserve_times, 1);
+    auto sink_revocable_mem_size =
+            reserve_size > 0 ? _sink->revocable_mem_size(_state) : Status::OK();
+    if (st.ok() && _state->enable_force_spill() && _sink->is_spillable() &&
+        sink_revocable_mem_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+        st = Status(ErrorCode::QUERY_MEMORY_EXCEEDED, "Force Spill");
+    }
+    if (!st.ok()) {
+        COUNTER_UPDATE(_memory_reserve_failed_times, 1);
+        auto debug_msg = fmt::format(
+                "Query: {} , try to reserve: {}, operator name: {}, operator "
+                "id: {}, task id: {}, root revocable mem size: {}, sink revocable mem"
+                "size: {}, failed: {}",
+                print_id(_query_id), PrettyPrinter::print_bytes(reserve_size), op->get_name(),
+                op->node_id(), _state->task_id(),
+                PrettyPrinter::print_bytes(op->revocable_mem_size(_state)),
+                PrettyPrinter::print_bytes(sink_revocable_mem_size), st.to_string());
+        // PROCESS_MEMORY_EXCEEDED error msg alread contains process_mem_log_str
+        if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
+            debug_msg +=
+                    fmt::format(", debug info: {}", GlobalMemoryArbitrator::process_mem_log_str());
+        }
+        LOG_EVERY_N(INFO, 100) << debug_msg;
+        // If sink has enough revocable memory, trigger revoke memory
+        if (sink_revocable_mem_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+            LOG(INFO) << fmt::format(
+                    "Query: {} sink: {}, node id: {}, task id: "
+                    "{}, revocable mem size: {}",
+                    print_id(_query_id), _sink->get_name(), _sink->node_id(), _state->task_id(),
+                    PrettyPrinter::print_bytes(sink_revocable_mem_size));
+            ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                    _state->get_query_ctx()->shared_from_this(), reserve_size, st);
+            _spilling = true;
+            return false;
+        } else {
+            // If reserve failed, not add this query to paused list, because it is very small, will not
+            // consume a lot of memory. But need set low memory mode to indicate that the system should
+            // not use too much memory.
+            _state->get_query_ctx()->set_low_memory_mode();
+        }
+    }
+    return true;
+}
+
 void PipelineTask::stop_if_finished() {
     auto fragment = _fragment_context.lock();
     if (!fragment) {
         return;
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
-    auto sink = _sink;
-    if (!is_finalized() && sink) {
+    if (auto sink = _sink) {
         if (sink->is_finished(_state)) {
             set_wake_up_early();
             terminate();
@@ -695,16 +661,16 @@ std::string PipelineTask::debug_string() {
                    print_id(_state->fragment_instance_id()));
 
     fmt::format_to(debug_string_buffer,
-                   "PipelineTask[this = {}, id = {}, open = {}, eos = {}, state = {}, dry run = "
+                   "PipelineTask[id = {}, open = {}, eos = {}, state = {}, dry run = "
                    "{}, _wake_up_early = {}, time elapsed since last state changing = {}s, spilling"
                    " = {}, is running = {}]",
-                   (void*)this, _index, _opened, _eos, _to_string(_exec_state), _dry_run,
-                   _wake_up_early.load(), _state_change_watcher.elapsed_time() / NANOS_PER_SEC,
-                   _spilling, is_running());
+                   _index, _opened, _eos, _to_string(_exec_state), _dry_run, _wake_up_early.load(),
+                   _state_change_watcher.elapsed_time() / NANOS_PER_SEC, _spilling, is_running());
     std::unique_lock<std::mutex> lc(_dependency_lock);
     auto* cur_blocked_dep = _blocked_dep;
     auto fragment = _fragment_context.lock();
     if (is_finalized() || !fragment) {
+        fmt::format_to(debug_string_buffer, " pipeline name = {}", _pipeline_name);
         return fmt::to_string(debug_string_buffer);
     }
     auto elapsed = fragment->elapsed_time() / NANOS_PER_SEC;
@@ -806,37 +772,7 @@ Status PipelineTask::_state_transition(State new_state) {
     }
     _task_profile->add_info_string("TaskState", _to_string(new_state));
     _task_profile->add_info_string("BlockedByDependency", _blocked_dep ? _blocked_dep->name() : "");
-    switch (new_state) {
-    case State::RUNNABLE:
-        if (_exec_state != State::RUNNABLE && _exec_state != State::BLOCKED &&
-            _exec_state != State::INITED) {
-            return Status::InternalError(
-                    "Task state transition from {} to {} is not allowed! Task info: {}",
-                    _to_string(_exec_state), _to_string(new_state), debug_string());
-        }
-        break;
-    case State::BLOCKED:
-        if (_exec_state != State::RUNNABLE && _exec_state != State::FINISHED) {
-            return Status::InternalError(
-                    "Task state transition from {} to {} is not allowed! Task info: {}",
-                    _to_string(_exec_state), _to_string(new_state), debug_string());
-        }
-        break;
-    case State::FINISHED:
-        if (_exec_state != State::RUNNABLE) {
-            return Status::InternalError(
-                    "Task state transition from {} to {} is not allowed! Task info: {}",
-                    _to_string(_exec_state), _to_string(new_state), debug_string());
-        }
-        break;
-    case State::FINALIZED:
-        if (_exec_state != State::FINISHED && _exec_state != State::INITED) {
-            return Status::InternalError(
-                    "Task state transition from {} to {} is not allowed! Task info: {}",
-                    _to_string(_exec_state), _to_string(new_state), debug_string());
-        }
-        break;
-    default:
+    if (!LEGAL_STATE_TRANSITION[(int)new_state].contains(_exec_state)) {
         return Status::InternalError(
                 "Task state transition from {} to {} is not allowed! Task info: {}",
                 _to_string(_exec_state), _to_string(new_state), debug_string());
