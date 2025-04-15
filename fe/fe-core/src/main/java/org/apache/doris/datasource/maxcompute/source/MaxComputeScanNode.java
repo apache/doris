@@ -202,7 +202,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                         .withArrowOptions(
                                 ArrowOptions.newBuilder()
                                         .withDatetimeUnit(TimestampUnit.MILLI)
-                                        .withTimestampUnit(TimestampUnit.NANO)
+                                        .withTimestampUnit(TimestampUnit.MICRO)
                                         .build()
                         ).buildBatchReadSession();
     }
