@@ -155,7 +155,8 @@ public:
     bool need_finalize_variant_column() const { return _need_finalize_variant_column; }
 
     bool is_lazy_materialized_column(int column_id) const {
-        return _have_other_join_conjunct && !_other_conjunct_refer_column_ids.contains(column_id);
+        return _have_other_join_conjunct &&
+               !_should_not_lazy_materialized_column_ids.contains(column_id);
     }
 
 private:
@@ -185,7 +186,7 @@ private:
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
     bool _need_finalize_variant_column = false;
-    std::set<int> _other_conjunct_refer_column_ids;
+    std::set<int> _should_not_lazy_materialized_column_ids;
     std::vector<std::string> _right_table_column_names;
     const std::vector<TExpr> _partition_exprs;
 };

@@ -321,7 +321,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
     auto& sink_local_state =
             _runtime_states.back().front()->get_sink_local_state()->cast<ExchangeSinkLocalState>();
     EXPECT_EQ(sink_local_state.channels.size(), 1);
-    EXPECT_EQ(sink_local_state.only_local_exchange, true);
+    EXPECT_EQ(sink_local_state._only_local_exchange, true);
 
     EXPECT_EQ(local_state.stream_recvr->sender_queues().size(), 1);
 
@@ -906,9 +906,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         int task_id = 0;
         _runtime_filter_mgrs.resize(parallelism);
         for (int j = 0; j < parallelism; j++) {
-            auto runtime_filter_state = RuntimeFilterParamsContext::create(_query_ctx.get());
-            _runtime_filter_mgrs[j] = std::make_unique<RuntimeFilterMgr>(
-                    _query_id, runtime_filter_state, _query_ctx->query_mem_tracker(), false);
+            _runtime_filter_mgrs[j] = std::make_unique<RuntimeFilterMgr>(false);
         }
         for (size_t i = 0; i < _pipelines.size(); i++) {
             EXPECT_EQ(_pipelines[i]->id(), i);
@@ -932,7 +930,6 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                 local_runtime_state->set_task_execution_context(
                         std::static_pointer_cast<TaskExecutionContext>(_context.back()));
                 local_runtime_state->set_runtime_filter_mgr(_runtime_filter_mgrs[j].get());
-                _runtime_filter_mgrs[j]->_state->set_state(local_runtime_state.get());
                 std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
                                         std::vector<std::shared_ptr<Dependency>>>>
                         shared_state_map;
