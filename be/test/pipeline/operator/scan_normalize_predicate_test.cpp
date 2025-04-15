@@ -548,4 +548,381 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot7) {
     EXPECT_TRUE(local_state->_eos);
 }
 
+TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot8) {
+    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+
+    // case
+    // range (1,10,100,1000)
+    //  slot not in (1,10,100)
+
+    const int SlotId = 0;
+
+    SlotDescriptor slot_desc;
+
+    ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
+    EXPECT_TRUE(range.add_fixed_value(1));
+    EXPECT_TRUE(range.add_fixed_value(10));
+    EXPECT_TRUE(range.add_fixed_value(100));
+    EXPECT_TRUE(range.add_fixed_value(1000));
+
+    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+
+    {
+        auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
+        auto ctx = MockInExpr::create_with_ctx(
+                ColumnHelper::create_column<DataTypeInt64>({1, 10, 100}), true);
+        auto fn_in = ctx->root();
+
+        fn_in->add_child(slot_ref);
+        fn_in->_node_type = TExprNodeType::IN_PRED;
+        slot_ref->_slot_id = SlotId;
+
+        ctx->_prepared = true;
+        ctx->_opened = true;
+
+        vectorized::VExprSPtr new_root;
+        auto conjunct_expr_root = ctx;
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
+                                                      conjunct_expr_root.get(), new_root));
+    }
+
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    std::visit(
+            [](auto&& arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_BIGINT>>) {
+                    EXPECT_EQ(arg._fixed_values.size(), 1);
+                    auto it = arg._fixed_values.begin();
+                    EXPECT_EQ(*it, 1000);
+                } else {
+                    FAIL() << "unexpected type";
+                }
+            },
+            output_range);
+}
+
+TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot10) {
+    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+
+    // case
+    // range ()
+    //  slot not in (1,10,100)
+
+    const int SlotId = 0;
+
+    SlotDescriptor slot_desc;
+
+    ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
+
+    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+
+    {
+        auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
+        auto ctx = MockInExpr::create_with_ctx(
+                ColumnHelper::create_column<DataTypeInt64>({1, 10, 100}), true);
+        auto fn_in = ctx->root();
+
+        fn_in->add_child(slot_ref);
+        fn_in->_node_type = TExprNodeType::IN_PRED;
+        slot_ref->_slot_id = SlotId;
+
+        ctx->_prepared = true;
+        ctx->_opened = true;
+
+        vectorized::VExprSPtr new_root;
+        auto conjunct_expr_root = ctx;
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
+                                                      conjunct_expr_root.get(), new_root));
+    }
+
+    auto& output_range = local_state->_not_in_value_ranges.front();
+    std::visit(
+            [](auto&& arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_BIGINT>>) {
+                    EXPECT_EQ(arg._fixed_values.size(), 3);
+                    auto it = arg._fixed_values.begin();
+                    EXPECT_EQ(*it, 1);
+                    ++it;
+                    EXPECT_EQ(*it, 10);
+                    ++it;
+                    EXPECT_EQ(*it, 100);
+                } else {
+                    FAIL() << "unexpected type";
+                }
+            },
+            output_range);
+}
+
+TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot11) {
+    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+
+    // case
+    // range ()
+    //  slot not eq 100
+
+    const int SlotId = 0;
+
+    SlotDescriptor slot_desc;
+
+    ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
+
+    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+
+    {
+        auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
+        auto fn_eq = MockFnCall::create("ne");
+        auto const_val = std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeInt64>({100}));
+
+        fn_eq->add_child(slot_ref);
+        fn_eq->add_child(const_val);
+        fn_eq->_node_type = TExprNodeType::BINARY_PRED;
+        slot_ref->_slot_id = SlotId;
+        EXPECT_FALSE(fn_eq->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_eq);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+
+        vectorized::VExprSPtr new_root;
+        auto conjunct_expr_root = ctx;
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
+                                                      conjunct_expr_root.get(), new_root));
+    }
+
+    auto& output_range = local_state->_not_in_value_ranges.front();
+    std::visit(
+            [](auto&& arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_BIGINT>>) {
+                    EXPECT_EQ(arg._fixed_values.size(), 1);
+                    auto it = arg._fixed_values.begin();
+                    EXPECT_EQ(*it, 100);
+                } else {
+                    FAIL() << "unexpected type";
+                }
+            },
+            output_range);
+}
+
+TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot12) {
+    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+
+    // case
+    // range (1，10，100)
+    //  slot is null
+
+    const int SlotId = 0;
+
+    SlotDescriptor slot_desc;
+
+    ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
+    EXPECT_TRUE(range.add_fixed_value(1));
+    EXPECT_TRUE(range.add_fixed_value(10));
+    EXPECT_TRUE(range.add_fixed_value(100));
+
+    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+
+    {
+        auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
+        auto fn_eq = MockFnCall::create("is_null_pred");
+        auto const_val = std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeInt64>({100}));
+
+        fn_eq->add_child(slot_ref);
+        fn_eq->add_child(const_val);
+        fn_eq->_node_type = TExprNodeType::FUNCTION_CALL;
+        slot_ref->_slot_id = SlotId;
+        EXPECT_FALSE(fn_eq->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_eq);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+
+        vectorized::VExprSPtr new_root;
+        auto conjunct_expr_root = ctx;
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
+                                                      conjunct_expr_root.get(), new_root));
+    }
+
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    std::visit(
+            [](auto&& arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_BIGINT>>) {
+                    EXPECT_EQ(arg._fixed_values.size(), 0);
+                } else {
+                    FAIL() << "unexpected type";
+                }
+            },
+            output_range);
+}
+
+TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot13) {
+    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+
+    // case
+    // range (1，10，100)
+    //  slot is not null
+
+    const int SlotId = 0;
+
+    SlotDescriptor slot_desc;
+
+    ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
+    EXPECT_TRUE(range.add_fixed_value(1));
+    EXPECT_TRUE(range.add_fixed_value(10));
+    EXPECT_TRUE(range.add_fixed_value(100));
+
+    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+
+    {
+        auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
+        auto fn_eq = MockFnCall::create("is_not_null_pred");
+        auto const_val = std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeInt64>({100}));
+
+        fn_eq->add_child(slot_ref);
+        fn_eq->add_child(const_val);
+        fn_eq->_node_type = TExprNodeType::FUNCTION_CALL;
+        slot_ref->_slot_id = SlotId;
+        EXPECT_FALSE(fn_eq->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_eq);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+
+        vectorized::VExprSPtr new_root;
+        auto conjunct_expr_root = ctx;
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
+                                                      conjunct_expr_root.get(), new_root));
+    }
+
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    std::visit(
+            [](auto&& arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_BIGINT>>) {
+                    EXPECT_EQ(arg._fixed_values.size(), 3);
+                } else {
+                    FAIL() << "unexpected type";
+                }
+            },
+            output_range);
+}
+
+TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot14) {
+    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+
+    // case
+    // range (1，10，100)
+    //  slot  <= 10
+
+    const int SlotId = 0;
+
+    SlotDescriptor slot_desc;
+
+    ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
+    EXPECT_TRUE(range.add_fixed_value(1));
+    EXPECT_TRUE(range.add_fixed_value(10));
+    EXPECT_TRUE(range.add_fixed_value(100));
+
+    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+
+    {
+        auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
+        auto fn_eq = MockFnCall::create("le");
+        auto const_val = std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeInt64>({10}));
+
+        fn_eq->add_child(slot_ref);
+        fn_eq->add_child(const_val);
+        fn_eq->_node_type = TExprNodeType::BINARY_PRED;
+        slot_ref->_slot_id = SlotId;
+        EXPECT_FALSE(fn_eq->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_eq);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+
+        vectorized::VExprSPtr new_root;
+        auto conjunct_expr_root = ctx;
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
+                                                      conjunct_expr_root.get(), new_root));
+    }
+
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    std::visit(
+            [](auto&& arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_BIGINT>>) {
+                    EXPECT_EQ(arg._fixed_values.size(), 2);
+                    auto it = arg._fixed_values.begin();
+                    EXPECT_EQ(*it, 1);
+                    ++it;
+                    EXPECT_EQ(*it, 10);
+                } else {
+                    FAIL() << "unexpected type";
+                }
+            },
+            output_range);
+}
+
+TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot15) {
+    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+
+    // case
+    // range (1，10，100)
+    //  slot  <= 10
+
+    const int SlotId = 0;
+
+    SlotDescriptor slot_desc;
+
+    ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
+    EXPECT_TRUE(range.add_fixed_value(1));
+    EXPECT_TRUE(range.add_fixed_value(10));
+    EXPECT_TRUE(range.add_fixed_value(100));
+
+    local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
+
+    {
+        auto slot_ref = std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt64>());
+        auto fn_eq = MockFnCall::create("ge");
+        auto const_val = std::make_shared<MockLiteral>(
+                ColumnHelper::create_column_with_name<DataTypeInt64>({10}));
+
+        fn_eq->add_child(slot_ref);
+        fn_eq->add_child(const_val);
+        fn_eq->_node_type = TExprNodeType::BINARY_PRED;
+        slot_ref->_slot_id = SlotId;
+        EXPECT_FALSE(fn_eq->is_constant());
+
+        auto ctx = VExprContext::create_shared(fn_eq);
+        ctx->_prepared = true;
+        ctx->_opened = true;
+
+        vectorized::VExprSPtr new_root;
+        auto conjunct_expr_root = ctx;
+        EXPECT_TRUE(local_state->_normalize_predicate(conjunct_expr_root->root(),
+                                                      conjunct_expr_root.get(), new_root));
+    }
+
+    auto& output_range = local_state->_slot_id_to_value_range[SlotId].second;
+    std::visit(
+            [](auto&& arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, ColumnValueRange<TYPE_BIGINT>>) {
+                    EXPECT_EQ(arg._fixed_values.size(), 2);
+                    auto it = arg._fixed_values.begin();
+                    EXPECT_EQ(*it, 10);
+                    ++it;
+                    EXPECT_EQ(*it, 100);
+                } else {
+                    FAIL() << "unexpected type";
+                }
+            },
+            output_range);
+}
 } // namespace doris::pipeline
