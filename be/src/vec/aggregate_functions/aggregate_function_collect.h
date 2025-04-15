@@ -875,10 +875,6 @@ public:
             auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
             const auto& col_src = assert_cast<const ColumnNullable&>(*(columns[0]));
 
-            if (to_arr.get_offsets().empty()) {
-                to_arr.get_offsets().push_back(0);
-            }
-
             for (size_t i = 0; i < num_rows; ++i) {
                 col_null->get_null_map_data().push_back(col_src.get_null_map_data()[i]);
                 if constexpr (std::is_same_v<Data, AggregateFunctionArrayAggData<StringRef>>) {
@@ -889,17 +885,8 @@ public:
                                     col_src.get_nested_column());
                     vec.insert_from(vec_src, i);
                 } else if constexpr (std::is_same_v<Data, AggregateFunctionArrayAggData<void>>) {
-                    // safely retrieve nested columns of a source column, ensuring type compatibility
-                    const auto& nested_src = col_src.get_nested_column();
-
-                    if (to_nested_col.get_name() == nested_src.get_name()) {
-                        to_nested_col.insert_from(nested_src, i);
-                    } else {
-                        LOG(WARNING) << "Type mismatch in streaming_agg_serialize_to_column: "
-                                     << "Expected " << to_nested_col.get_name() << ", got "
-                                     << nested_src.get_name();
-                        to_nested_col.insert_default();
-                    }
+                    auto& vec = col_null->get_nested_column();
+                    vec.insert_from(col_src.get_nested_column(), i);
                 } else {
                     using ColVecType = ColumnVectorOrDecimal<typename Data::ElementType>;
                     auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(
