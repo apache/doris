@@ -30,15 +30,15 @@ suite("like_with_escape") {
 
 	sql """insert into test_employees_001 values (1, 'A_%'),(2, 'B_%'),(3, 'C_D'),(4, 'E_F'),(5, 'F_%');"""
 
-	def result = sql """select * from test_employees_001 where name like '%\_\%' escape '\\';"""
+	def result = sql "select * from test_employees_001 where name like '%\_\%' escape '\\';"
 	assertEquals(3, result.size())
 	
-	result = sql """select * from test_employees_001 where name like '%|_|%' escape '|';"""
+	result = sql "select * from test_employees_001 where name like '%|_|%' escape '|';"
 	assertEquals(3, result.size())
 	
-	result = sql """select * from test_employees_001 where name like '%@_@%' escape '@';"""
+	result = sql "select * from test_employees_001 where name like '%@_@%' escape '@';"
 	assertEquals(3, result.size())
 	
-	result = sql """select * from test_employees_001 where name like '%#_#%' escape '#';"""
+	result = sql "select * from test_employees_001 where name like '%#_#%' escape '#';"
 	assertEquals(3, result.size())
 }
