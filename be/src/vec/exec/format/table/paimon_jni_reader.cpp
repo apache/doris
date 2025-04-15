@@ -79,7 +79,7 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
             params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
         }
     }
-    int64_t split_id = range.__isset.self_split_weight ? range.self_split_weight : -1;
+    int64_t self_split_weight = range.__isset.self_split_weight ? range.self_split_weight : -1;
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/paimon/PaimonJniScanner",
                                                     params, column_names, self_split_weight);
 }
