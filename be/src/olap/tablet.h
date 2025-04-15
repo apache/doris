@@ -513,6 +513,9 @@ public:
         _compaction_score -= score;
     }
 
+    uint64_t valid_delete_bitmap_key_count();
+    uint64_t invalid_delete_bitmap_key_count();
+
 private:
     Status _init_once_action();
     bool _contains_rowset(const RowsetId rowset_id);

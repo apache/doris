@@ -1508,6 +1508,9 @@ DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
 
+DEFINE_mBool(enable_report_delete_bitmap_metrics, "false");
+DEFINE_mInt32(report_delete_bitmap_metrics_interval_s, "60");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
