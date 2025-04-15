@@ -634,7 +634,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 .getOrDefault(HMSExternalCatalog.GET_SCHEMA_FROM_TABLE, "false")
                 .equalsIgnoreCase("true");
         List<FieldSchema> schema = null;
-        Map<String, String> colDefaultValues = null;
+        Map<String, String> colDefaultValues = Maps.newHashMap();
         if (getFromTable) {
             schema = getSchemaFromRemoteTable(remoteTable);
         } else {
