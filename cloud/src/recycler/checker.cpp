@@ -193,6 +193,12 @@ int Checker::start() {
                 }
             }
 
+            if (config::enable_compaction_key_check) {
+                if (int ret = checker->do_compaction_key_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
             // If instance checker has been aborted, don't finish this job
             if (!checker->stopped()) {
                 finish_instance_recycle_job(txn_kv_.get(), check_job_key, instance.instance_id(),
@@ -1187,6 +1193,54 @@ int InstanceChecker::do_delete_bitmap_storage_optimize_check() {
             instance_id_, total_tablets_num, failed_tablets_num);
 
     return (failed_tablets_num > 0) ? 1 : 0;
+}
+
+int InstanceChecker::do_compaction_key_check() {
+    std::unique_ptr<RangeGetIterator> it;
+    std::string begin = mow_tablet_compaction_key({instance_id_, 0, 0});
+    std::string end = mow_tablet_compaction_key({instance_id_, INT64_MAX, 0});
+    MowTabletCompactionPB mow_tablet_compaction;
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get mow tablet compaction key, err=" << err;
+            return -1;
+        }
+        int64_t now = duration_cast<std::chrono::seconds>(
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count();
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x01 "mow" ${instance_id} "mow_tablet_comp" ${table_id} ${initiator}
+            auto table_id = std::get<int64_t>(std::get<0>(out[3]));
+            auto initiator = std::get<int64_t>(std::get<0>(out[4]));
+            LOG(INFO) << "table_id=" << table_id << ",initiator=" << initiator;
+            if (!mow_tablet_compaction.ParseFromArray(v.data(), v.size())) [[unlikely]] {
+                LOG(WARNING) << "failed to parse MowTabletCompactionPB";
+                return -1;
+            }
+            int64_t expiration = mow_tablet_compaction.expiration();
+            if (expiration < now - config::compaction_key_check_expiration_diff_seconds) {
+                LOG(WARNING) << fmt::format(
+                        "[compaction key check fails] compaction key check fail for "
+                        "instance_id={}, tablet_id={}, initiator={}, expiration={},now={} ",
+                        instance_id_, table_id, initiator, expiration, now);
+                return -1;
+            }
+        }
+        begin = it->next_begin_key(); // Update to next smallest key for iteration
+    } while (it->more() && !stopped());
+    return 0;
 }
 
 } // namespace doris::cloud
