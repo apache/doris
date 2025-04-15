@@ -610,7 +610,7 @@ static void remove_delete_bitmap_update_lock_v1(std::unique_ptr<Transaction>& tx
             break;
         }
     }
-    if (!found) {
+    if (!found && !initiators->empty()) {
         return;
     }
     if (initiators->empty()) {
