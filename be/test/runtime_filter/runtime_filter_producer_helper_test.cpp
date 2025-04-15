@@ -106,7 +106,7 @@ TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
-    auto helper = RuntimeFilterProducerHelper( true, false);
+    auto helper = RuntimeFilterProducerHelper(true, false);
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
