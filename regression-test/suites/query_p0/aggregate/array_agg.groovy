@@ -354,7 +354,7 @@ suite("array_agg") {
     sql "SET spill_streaming_agg_mem_limit = 1024;"
     sql "SET enable_spill = true;"
 
-    qt_select """ SELECT k1,array_agg(k5) FROM test_user_tags group by k1; """
+    qt_select """ SELECT k1,array_agg(k5) FROM test_user_tags group by k1 order by k1; """
 
     sql "UNSET VARIABLE ALL;"
 }
