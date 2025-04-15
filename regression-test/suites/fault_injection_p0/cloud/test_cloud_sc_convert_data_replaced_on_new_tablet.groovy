@@ -82,6 +82,9 @@ suite("test_cloud_sc_convert_data_replaced_on_new_tablet", "nonConcurrent") {
 
         sql "insert into ${table1} values(1,99,99,1);" // 5
 
+        // let query trigger sync_rowsets to make base tablet's max version be 5
+        sql "select * from ${table1} order by k1;"
+
         Thread.sleep(1000)
         GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::process_alter_tablet.block")
         Thread.sleep(1000)
