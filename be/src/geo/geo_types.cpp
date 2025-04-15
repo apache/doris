@@ -62,6 +62,9 @@ GeoPolygon::~GeoPolygon() = default;
 GeoCircle::GeoCircle() = default;
 GeoCircle::~GeoCircle() = default;
 
+GeoMultiPolygon::GeoMultiPolygon() = default;
+GeoMultiPolygon::~GeoMultiPolygon() = default;
+
 void print_s2point(std::ostream& os, const S2Point& point) {
     S2LatLng coord(point);
     os << std::setprecision(15) << coord.lng().degrees() << " " << coord.lat().degrees();
@@ -259,6 +262,30 @@ bool is_point_in_polygon(const S2Point& point, const S2Polygon* polygon) {
     return (crossings % 2 == 1);
 }
 
+bool is_line_touches_line(const S2Point& Line1_Point1, const S2Point& Line1_Point2,
+                          const S2Point& Line2_Point1, const S2Point& Line2_Point2) {
+    int count = 0;
+    if (compute_distance_to_line(Line1_Point1, Line2_Point1, Line2_Point2) < TOLERANCE) {
+        count++;
+    }
+    if (compute_distance_to_line(Line1_Point2, Line2_Point1, Line2_Point2) < TOLERANCE) {
+        count++;
+    }
+    if (compute_distance_to_line(Line2_Point1, Line1_Point1, Line1_Point2) < TOLERANCE) {
+        count++;
+    }
+    if (compute_distance_to_line(Line2_Point2, Line1_Point1, Line1_Point2) < TOLERANCE) {
+        count++;
+    }
+    // Two intersections are allowed when there is only one intersection, or when the intersection is an endpoint
+    if (count == 1 ||
+        (count == 2 && ((Line1_Point1 == Line2_Point1 || Line1_Point1 == Line2_Point2) +
+                        (Line1_Point2 == Line2_Point1 || Line1_Point2 == Line2_Point2)) == 1)) {
+        return true;
+    }
+    return false;
+}
+
 static inline GeoParseStatus to_s2point(const GeoCoordinate& coord, S2Point* point) {
     return to_s2point(coord.x, coord.y, point);
 }
@@ -418,6 +445,10 @@ std::unique_ptr<GeoShape> GeoShape::from_encoded(const void* ptr, size_t size) {
         shape = GeoCircle::create_unique();
         break;
     }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        shape = GeoMultiPolygon::create_unique();
+        break;
+    }
     default:
         return nullptr;
     }
@@ -483,6 +514,15 @@ const std::unique_ptr<GeoCoordinateListList> GeoPolygon::to_coords() const {
     return coordss;
 }
 
+const std::vector<std::unique_ptr<GeoCoordinateListList>> GeoMultiPolygon::to_coords() const {
+    std::vector<std::unique_ptr<GeoCoordinateListList>> coordss;
+    for (const auto& polygon : _polygons) {
+        std::unique_ptr<GeoCoordinateListList> coords = polygon->to_coords();
+        coordss.push_back(std::move(coords));
+    }
+    return coordss;
+}
+
 bool GeoPoint::intersects(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
@@ -497,6 +537,10 @@ bool GeoPoint::intersects(const GeoShape* rhs) const {
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         return polygon->intersects(this);
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
+        return multi_polygon->intersects(this);
     }
     case GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
@@ -524,6 +568,10 @@ bool GeoPoint::touches(const GeoShape* rhs) const {
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         return polygon->touches(this);
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
+        return multi_polygon->touches(this);
     }
     case GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
@@ -653,6 +701,15 @@ bool GeoLine::intersects(const GeoShape* rhs) const {
         const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         return polygon->polygon()->Intersects(*_polyline);
     }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
+        for (const auto& polygon : multi_polygon->polygons()) {
+            if (polygon->intersects(this)) {
+                return true;
+            }
+        }
+        return false;
+    }
     case GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->intersects(this);
@@ -686,28 +743,15 @@ bool GeoLine::touches(const GeoShape* rhs) const {
 
         const S2Point& p3 = other->polyline()->vertex(0);
         const S2Point& p4 = other->polyline()->vertex(1);
-        int count = 0;
-        if (compute_distance_to_line(p1, p3, p4) < TOLERANCE) {
-            count++;
-        }
-        if (compute_distance_to_line(p2, p3, p4) < TOLERANCE) {
-            count++;
-        }
-        if (compute_distance_to_line(p3, p1, p2) < TOLERANCE) {
-            count++;
-        }
-        if (compute_distance_to_line(p4, p1, p2) < TOLERANCE) {
-            count++;
-        }
-        // Two intersections are allowed when there is only one intersection, or when the intersection is an endpoint
-        if (count == 1 || (count == 2 && ((p1 == p3 || p1 == p4) + (p2 == p3 || p2 == p4)) == 1)) {
-            return true;
-        }
-        return false;
+        return is_line_touches_line(p1, p2, p3, p4);
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* polygon = assert_cast<const GeoPolygon*>(rhs);
         return polygon->touches(this);
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
+        return multi_polygon->touches(this);
     }
     case GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
@@ -833,6 +877,15 @@ bool GeoPolygon::intersects(const GeoShape* rhs) const {
         }
         return true;
     }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
+        for (const auto& other : multi_polygon->polygons()) {
+            if (this->intersects(other.get())) {
+                return true;
+            }
+        }
+        return false;
+    }
     case GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
         return circle->intersects(this);
@@ -862,17 +915,23 @@ bool GeoPolygon::polygon_touch_point(const S2Polygon* polygon, const S2Point* po
 }
 
 bool GeoPolygon::polygon_touch_polygon(const S2Polygon* polygon1, const S2Polygon* polygon2) const {
+    // Dual-check to avoid the following situations
+    // POLYGON((0 0, 20 0, 20 20, 0 20, 0 0), (5 5, 15 5, 15 15, 5 15, 5 5))
+    // POLYGON((5 10, 10 5, 15 10, 10 15, 5 10))
     for (int i = 0; i < polygon1->num_loops(); ++i) {
         const S2Loop* loop = polygon1->loop(i);
         for (int j = 0; j < loop->num_vertices(); ++j) {
-            const S2Point& p = loop->vertex(j);
+            const S2Point& p1 = loop->vertex(j);
+            const S2Point& p2 = loop->vertex((j + 1) % loop->num_vertices());
             for (int k = 0; k < polygon2->num_loops(); ++k) {
                 const S2Loop* innee_loop = polygon2->loop(k);
                 for (int l = 0; l < innee_loop->num_vertices(); ++l) {
-                    const S2Point& p1 = innee_loop->vertex(l);
-                    const S2Point& p2 = innee_loop->vertex((l + 1) % loop->num_vertices());
-                    double distance = compute_distance_to_line(p, p1, p2);
-                    if (distance < TOLERANCE) {
+                    const S2Point& p3 = innee_loop->vertex(l);
+                    const S2Point& p4 = innee_loop->vertex((l + 1) % innee_loop->num_vertices());
+                    if (compute_distance_to_line(p1, p3, p4) < TOLERANCE ||
+                        compute_distance_to_line(p2, p3, p4) < TOLERANCE ||
+                        compute_distance_to_line(p3, p1, p2) < TOLERANCE ||
+                        compute_distance_to_line(p4, p1, p2) < TOLERANCE) {
                         return true;
                     }
                 }
@@ -941,11 +1000,25 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
         const GeoPolygon* other = assert_cast<const GeoPolygon*>(rhs);
         const S2Polygon* polygon1 = _polygon.get();
         const S2Polygon* polygon2 = other->polygon();
-        // when the two polygons do not have overlapping areas, then determine if the touch regulation is met.
-        if (!polygon1->Intersects(polygon2)) {
-            return polygon_touch_polygon(polygon1, polygon2);
+
+        // "Touches" equivalent to boundary contact  but no internal overlap
+        std::unique_ptr<S2Polygon> intersection(new S2Polygon());
+        intersection->InitToIntersection(*polygon1, *polygon2);
+        return (intersection->GetArea() < S1Angle::Radians(TOLERANCE).radians() &&
+                polygon_touch_polygon(polygon1, polygon2));
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
+        bool has_touches = false;
+        for (const auto& other : multi_polygon->polygons()) {
+            if (this->intersects(other.get())) {
+                if (!this->touches(other.get())) {
+                    return false;
+                }
+                has_touches = true;
+            }
         }
-        return false;
+        return has_touches;
     }
     case GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
@@ -970,6 +1043,15 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
         const GeoPolygon* other = (const GeoPolygon*)rhs;
         return _polygon->Contains(*other->polygon());
     }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        const GeoMultiPolygon* multi_polygon = (const GeoMultiPolygon*)rhs;
+        for (const auto& other : multi_polygon->polygons()) {
+            if (!this->contains(other.get())) {
+                return false;
+            }
+        }
+        return true;
+    }
     default:
         return false;
     }
@@ -985,6 +1067,290 @@ int GeoPolygon::numLoops() const {
 
 S2Loop* GeoPolygon::getLoop(int i) const {
     return const_cast<S2Loop*>(_polygon->loop(i));
+}
+
+GeoParseStatus GeoMultiPolygon::from_coords(const std::vector<GeoCoordinateListList>& list) {
+    _polygons.clear();
+    for (const auto& coords_list : list) {
+        std::unique_ptr<GeoPolygon> polygon = GeoPolygon::create_unique();
+        auto status = polygon->from_coords(coords_list);
+        if (status != GEO_PARSE_OK) {
+            return status;
+        }
+        _polygons.push_back(std::move(polygon));
+    }
+
+    return check_self_intersection();
+}
+
+GeoParseStatus GeoMultiPolygon::check_self_intersection() {
+    for (int i = 0; i < _polygons.size(); ++i) {
+        for (int j = i + 1; j < _polygons.size(); ++j) {
+            if (_polygons[i]->intersects(_polygons[j].get())) {
+                if (!_polygons[i]->touches(_polygons[j].get())) {
+                    return GEO_PARSE_MULTIPOLYGON_OVERLAP;
+                }
+            } else {
+                continue;
+            }
+
+            //  Polygons in a multipolygon can only share discrete points, not edges.
+            for (int k = 0; k < _polygons[i]->numLoops(); ++k) {
+                const S2Loop* loop1 = _polygons[i]->getLoop(k);
+                for (int l = 0; l < _polygons[j]->numLoops(); ++l) {
+                    const S2Loop* loop2 = _polygons[j]->getLoop(l);
+                    for (int m = 0; m < loop1->num_vertices(); ++m) {
+                        const S2Point& p1 = loop1->vertex(m);
+                        const S2Point& p2 = loop1->vertex((m + 1) % loop1->num_vertices());
+                        for (int n = 0; n < loop2->num_vertices(); ++n) {
+                            const S2Point& p3 = loop2->vertex(n);
+                            const S2Point& p4 = loop2->vertex((n + 1) % loop2->num_vertices());
+
+                            // 1. At least one endpoint of an edge is near another edge
+                            // 2. Check the edges "touches" each other in a valid way
+                            if ((compute_distance_to_line(p1, p3, p4) < TOLERANCE ||
+                                 compute_distance_to_line(p2, p3, p4) < TOLERANCE ||
+                                 compute_distance_to_line(p3, p1, p2) < TOLERANCE ||
+                                 compute_distance_to_line(p4, p1, p2) < TOLERANCE) &&
+                                !is_line_touches_line(p1, p2, p3, p4)) {
+                                return GEO_PARSE_MULTIPOLYGON_OVERLAP;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return GEO_PARSE_OK;
+}
+
+bool GeoMultiPolygon::intersects(const GeoShape* rhs) const {
+    switch (rhs->type()) {
+    case GEO_SHAPE_POINT: {
+        const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
+        for (const auto& polygon : this->_polygons) {
+            if (polygon->intersects(point)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case GEO_SHAPE_LINE_STRING: {
+        const GeoLine* line = assert_cast<const GeoLine*>(rhs);
+        for (const auto& polygon : this->_polygons) {
+            if (polygon->intersects(line)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case GEO_SHAPE_POLYGON: {
+        const GeoPolygon* other = assert_cast<const GeoPolygon*>(rhs);
+        for (const auto& polygon : this->_polygons) {
+            if (polygon->intersects(other)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
+        for (const auto& other : multi_polygon->polygons()) {
+            for (const auto& polygon : this->_polygons) {
+                if (polygon->intersects(other.get())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    case GEO_SHAPE_CIRCLE: {
+        const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
+        return circle->intersects(this);
+    }
+    default:
+        return false;
+    }
+}
+
+bool GeoMultiPolygon::disjoint(const GeoShape* rhs) const {
+    return !intersects(rhs);
+}
+
+bool GeoMultiPolygon::touches(const GeoShape* rhs) const {
+    switch (rhs->type()) {
+    case GEO_SHAPE_POINT: {
+        const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
+        for (const auto& polygon : this->_polygons) {
+            if (polygon->touches(point)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case GEO_SHAPE_LINE_STRING: {
+        const GeoLine* line = assert_cast<const GeoLine*>(rhs);
+        bool has_touches = false;
+        for (const auto& polygon : this->_polygons) {
+            if (polygon->intersects(line)) {
+                if (!polygon->touches(line)) {
+                    return false;
+                }
+                has_touches = true;
+            }
+        }
+        return has_touches;
+    }
+    case GEO_SHAPE_POLYGON: {
+        const GeoPolygon* other = assert_cast<const GeoPolygon*>(rhs);
+        bool has_touches = false;
+        for (const auto& polygon : this->_polygons) {
+            if (polygon->intersects(other)) {
+                if (!polygon->touches(other)) {
+                    return false;
+                }
+                has_touches = true;
+            }
+        }
+        return has_touches;
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
+        bool has_touches = false;
+        for (const auto& other : multi_polygon->polygons()) {
+            for (const auto& polygon : this->_polygons) {
+                if (polygon->intersects(other.get())) {
+                    if (!polygon->touches(other.get())) {
+                        return false;
+                    }
+                    has_touches = true;
+                }
+            }
+        }
+        return has_touches;
+    }
+    case GEO_SHAPE_CIRCLE: {
+        const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
+        return circle->touches(this);
+    }
+    default:
+        return false;
+    }
+}
+
+bool GeoMultiPolygon::contains(const GeoShape* rhs) const {
+    switch (rhs->type()) {
+    case GEO_SHAPE_POINT: {
+        const GeoPoint* point = assert_cast<const GeoPoint*>(rhs);
+        for (const auto& polygon : this->_polygons) {
+            if (polygon->contains(point)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case GEO_SHAPE_LINE_STRING: {
+        const GeoLine* line = assert_cast<const GeoLine*>(rhs);
+        for (const auto& polygon : this->_polygons) {
+            if (polygon->contains(line)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case GEO_SHAPE_POLYGON: {
+        const GeoPolygon* other = assert_cast<const GeoPolygon*>(rhs);
+        for (const auto& polygon : this->_polygons) {
+            if (polygon->contains(other)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        //All polygons in rhs need to be contained
+        const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
+        for (const auto& other : multi_polygon->polygons()) {
+            for (const auto& polygon : this->_polygons) {
+                if (polygon->contains(other.get())) {
+                    continue;
+                }
+                return false;
+            }
+        }
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+std::string GeoMultiPolygon::as_wkt() const {
+    std::stringstream ss;
+    ss << "MULTIPOLYGON (";
+    for (size_t i = 0; i < _polygons.size(); ++i) {
+        if (i != 0) {
+            ss << ", ";
+        }
+        ss << "(";
+        const S2Polygon* polygon = _polygons[i]->polygon();
+        for (int j = 0; j < polygon->num_loops(); ++j) {
+            if (j != 0) {
+                ss << ", ";
+            }
+            ss << "(";
+            const S2Loop* loop = polygon->loop(j);
+            for (int k = 0; k < loop->num_vertices(); ++k) {
+                if (k != 0) {
+                    ss << ", ";
+                }
+                print_s2point(ss, loop->vertex(k));
+            }
+            ss << ", ";
+            print_s2point(ss, loop->vertex(0));
+            ss << ")";
+        }
+        ss << ")";
+    }
+    ss << ")";
+    return ss.str();
+}
+
+double GeoMultiPolygon::getArea() const {
+    double area = 0;
+    for (const auto& polygon : _polygons) {
+        area += polygon->getArea();
+    }
+    return area;
+}
+
+void GeoMultiPolygon::encode(std::string* buf) {
+    Encoder encoder;
+    encoder.Ensure(sizeof(size_t));
+    encoder.put_varint32(_polygons.size());
+    for (const auto& polygon : _polygons) {
+        polygon->polygon()->Encode(&encoder);
+    }
+    buf->append(encoder.base(), encoder.length());
+}
+
+bool GeoMultiPolygon::decode(const void* data, size_t size) {
+    Decoder decoder(data, size);
+    uint32_t num_polygons;
+    if (!decoder.get_varint32(&num_polygons)) {
+        return false;
+    }
+
+    _polygons.clear();
+    for (uint32_t i = 0; i < num_polygons; ++i) {
+        std::unique_ptr<GeoPolygon> polygon = GeoPolygon::create_unique();
+        polygon->_polygon.reset(new S2Polygon());
+        if (!(polygon->_polygon->Decode(&decoder)) && polygon->_polygon->IsValid()) {
+            return false;
+        }
+        _polygons.push_back(std::move(polygon));
+    }
+    return true;
 }
 
 GeoParseStatus GeoCircle::init(double lng, double lat, double radius_meter) {
@@ -1039,6 +1405,15 @@ bool GeoCircle::intersects(const GeoShape* rhs) const {
                 if (radius + TOLERANCE >= distance) {
                     return true;
                 }
+            }
+        }
+        return false;
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
+        for (const auto& polygon : multi_polygon->polygons()) {
+            if (this->intersects(polygon.get())) {
+                return true;
             }
         }
         return false;
@@ -1105,6 +1480,19 @@ bool GeoCircle::touches(const GeoShape* rhs) const {
         }
 
         return false;
+    }
+    case GEO_SHAPE_MULTI_POLYGON: {
+        const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
+        bool has_touches = false;
+        for (const auto& polygon : multi_polygon->polygons()) {
+            if (this->intersects(polygon.get())) {
+                if (!this->touches(polygon.get())) {
+                    return false;
+                }
+                has_touches = true;
+            }
+        }
+        return has_touches;
     }
     case GEO_SHAPE_CIRCLE: {
         const GeoCircle* circle = assert_cast<const GeoCircle*>(rhs);
