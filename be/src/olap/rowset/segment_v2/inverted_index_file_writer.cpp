@@ -345,6 +345,8 @@ Status InvertedIndexFileWriter::write_v1() {
         FINALLY({
             FINALLY_CLOSE(output);
             FINALLY_CLOSE(out_dir);
+            output = nullptr;
+            out_dir = nullptr;
         })
     }
 

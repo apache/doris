@@ -1452,4 +1452,77 @@ TEST_F(InvertedIndexFileWriterTest, RowsetWriterCreateInvertedIndexFileWriterNon
     ASSERT_TRUE(status.ok());
 }
 
+// Test case for multiple indices with exception in create_output_stream_v1
+TEST_F(InvertedIndexFileWriterTest, MultipleIndicesCreateOutputStreamException) {
+    // Setup writer mock
+    InvertedIndexFileWriterMockCreateOutputStreamV1 writer_mock(
+            _fs, _index_path_prefix, _rowset_id, _seg_id, InvertedIndexStorageFormatPB::V1);
+
+    // First index setup - index_id=1
+    int64_t index_id_1 = 1;
+    std::string index_suffix_1 = "suffix1";
+    auto index_meta_1 = create_mock_tablet_index(index_id_1, index_suffix_1);
+    ASSERT_NE(index_meta_1, nullptr);
+
+    // Setup the first index directory
+    auto open_result_1 = writer_mock.open(index_meta_1.get());
+    ASSERT_TRUE(open_result_1.has_value());
+    auto dir_1 = open_result_1.value();
+    ASSERT_NE(dir_1, nullptr);
+
+    // Create a test file in the first directory
+    auto out_file_1 =
+            std::unique_ptr<lucene::store::IndexOutput>(dir_1->createOutput("test_file_1"));
+    out_file_1->writeString("test data 1");
+    out_file_1->close();
+    dir_1->close();
+
+    // For the first index, setup a normal output stream
+    io::Path cfs_path_1(InvertedIndexDescriptor::get_index_file_path_v1(
+            _index_path_prefix, index_id_1, index_suffix_1));
+    auto idx_path_1 = cfs_path_1.parent_path();
+    auto* out_dir_1 = DorisFSDirectoryFactory::getDirectory(_fs, idx_path_1.c_str());
+    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir_ptr_1(out_dir_1);
+    auto compound_file_output_1 = std::unique_ptr<lucene::store::IndexOutput>(
+            out_dir_1->createOutput(cfs_path_1.filename().c_str()));
+
+    // Second index setup - index_id=2
+    int64_t index_id_2 = 2;
+    std::string index_suffix_2 = "suffix2";
+    auto index_meta_2 = create_mock_tablet_index(index_id_2, index_suffix_2);
+    ASSERT_NE(index_meta_2, nullptr);
+
+    // Setup the second index directory
+    auto open_result_2 = writer_mock.open(index_meta_2.get());
+    ASSERT_TRUE(open_result_2.has_value());
+    auto dir_2 = open_result_2.value();
+    ASSERT_NE(dir_2, nullptr);
+
+    // Create a test file in the second directory
+    auto out_file_2 =
+            std::unique_ptr<lucene::store::IndexOutput>(dir_2->createOutput("test_file_2"));
+    out_file_2->writeString("test data 2");
+    out_file_2->close();
+    dir_2->close();
+
+    // Setup expectation for create_output_stream_v1
+    // For index_id=1, return normal output
+    EXPECT_CALL(writer_mock, create_output_stream_v1(index_id_1, index_suffix_1))
+            .WillOnce(::testing::Invoke(
+                    [&]() -> std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
+                                       std::unique_ptr<lucene::store::IndexOutput>> {
+                        return std::make_pair(std::move(out_dir_ptr_1),
+                                              std::move(compound_file_output_1));
+                    }));
+
+    // For index_id=2, throw an exception
+    EXPECT_CALL(writer_mock, create_output_stream_v1(index_id_2, index_suffix_2))
+            .WillOnce(::testing::Throw(CLuceneError(CL_ERR_IO, "Simulated exception", false)));
+
+    // When we call close(), it should process both indices and fail on the second one
+    Status status = writer_mock.close();
+    ASSERT_FALSE(status.ok());
+    ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+}
+
 } // namespace doris::segment_v2
