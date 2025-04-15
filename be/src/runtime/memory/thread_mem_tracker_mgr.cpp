@@ -20,38 +20,21 @@
 #include <gen_cpp/types.pb.h>
 
 #include "runtime/exec_env.h"
-#include "runtime/fragment_mgr.h"
 
 namespace doris {
-
-class AsyncCancelQueryTask : public Runnable {
-    ENABLE_FACTORY_CREATOR(AsyncCancelQueryTask);
-
-public:
-    AsyncCancelQueryTask(TUniqueId query_id, const std::string& exceed_msg)
-            : _query_id(query_id), _exceed_msg(exceed_msg) {}
-    ~AsyncCancelQueryTask() override = default;
-    void run() override {
-        ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
-                _query_id, Status::MemoryLimitExceeded(_exceed_msg));
-    }
-
-private:
-    TUniqueId _query_id;
-    const std::string _exceed_msg;
-};
 
 void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);
     CHECK(init());
     flush_untracked_mem();
-    _last_attach_snapshots_stack.push_back({_reserved_mem, _consumer_tracker_stack});
+    _last_attach_snapshots_stack.push_back(
+            {_limiter_tracker, _wg_wptr, _reserved_mem, _consumer_tracker_stack});
     if (_reserved_mem != 0) {
         // _untracked_mem temporary store bytes that not synchronized to process reserved memory,
         // but bytes have been subtracted from thread _reserved_mem.
-        doris::GlobalMemoryArbitrator::release_process_reserved_memory(_untracked_mem);
-        _limiter_tracker->release_reserved(_untracked_mem);
+        doris::GlobalMemoryArbitrator::shrink_process_reserved(_untracked_mem);
+        _limiter_tracker->shrink_reserved(_untracked_mem);
         _reserved_mem = 0;
         _untracked_mem = 0;
     }
@@ -59,32 +42,23 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
     _limiter_tracker = mem_tracker;
 }
 
-void ThreadMemTrackerMgr::detach_limiter_tracker(
-        const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker) {
+void ThreadMemTrackerMgr::attach_limiter_tracker(
+        const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
+        const std::weak_ptr<WorkloadGroup>& wg_wptr) {
+    attach_limiter_tracker(mem_tracker);
+    _wg_wptr = wg_wptr;
+}
+
+void ThreadMemTrackerMgr::detach_limiter_tracker() {
     CHECK(init());
     flush_untracked_mem();
-    release_reserved();
+    shrink_reserved();
     DCHECK(!_last_attach_snapshots_stack.empty());
+    _limiter_tracker = _last_attach_snapshots_stack.back().limiter_tracker;
+    _wg_wptr = _last_attach_snapshots_stack.back().wg_wptr;
     _reserved_mem = _last_attach_snapshots_stack.back().reserved_mem;
     _consumer_tracker_stack = _last_attach_snapshots_stack.back().consumer_tracker_stack;
     _last_attach_snapshots_stack.pop_back();
-    _limiter_tracker = old_mem_tracker;
-}
-
-void ThreadMemTrackerMgr::cancel_query(const std::string& exceed_msg) {
-    if (is_attach_query() && !_is_query_cancelled) {
-        Status submit_st = ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
-                AsyncCancelQueryTask::create_shared(_query_id, exceed_msg));
-        if (submit_st.ok()) {
-            // Use this flag to avoid the cancel request submit to pool many times, because even we cancel the query
-            // successfully, but the application may not use if (state.iscancelled) to exist quickly. And it may try to
-            // allocate memory and may failed again and the pool will be full.
-            _is_query_cancelled = true;
-        } else {
-            LOG(WARNING) << "Failed to submit cancel query task to pool, query_id "
-                         << print_id(_query_id) << ", error st " << submit_st;
-        }
-    }
 }
 
 } // namespace doris

@@ -22,7 +22,6 @@
 #include <vector>
 
 #include "function_test_util.h"
-#include "gutil/integral_types.h"
 #include "util/encryption_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -493,6 +492,13 @@ TEST(function_string_test, function_string_lower_test) {
                 {{std::string("AbCdEfg")}, std::string("abcdefg")},
                 {{std::string("HELLO123")}, std::string("hello123")},
                 {{std::string("你好HELLO")}, std::string("你好hello")},
+                {{std::string("ÀÇ")}, std::string("àç")},
+                {{std::string("ÀÇAC123")}, std::string("àçac123")},
+                {{std::string("İstanbul")}, std::string("i̇stanbul")},
+                {{std::string("KIZILAY")}, std::string("kizilay")},
+                {{std::string("GROSSE")}, std::string("grosse")},
+                {{std::string("Å")}, std::string("å")},
+                {{std::string("ΣΟΦΟΣ")}, std::string("σοφος")},
                 {{std::string("123ABC_")}, std::string("123abc_")},
                 {{std::string("MYtestSTR")}, std::string("myteststr")},
                 {{std::string("")}, std::string("")},
@@ -515,6 +521,12 @@ TEST(function_string_test, function_string_upper_test) {
                 {{std::string("你好HELLO")}, std::string("你好HELLO")},
                 {{std::string("123ABC_")}, std::string("123ABC_")},
                 {{std::string("MYtestSTR")}, std::string("MYTESTSTR")},
+                {{std::string("àç")}, std::string("ÀÇ")},
+                {{std::string("straße")}, std::string("STRASSE")},
+                {{std::string("àçac123")}, std::string("ÀÇAC123")},
+                {{std::string("ﬃ")}, std::string("FFI")},
+                {{std::string("ǅ")}, std::string("Ǆ")},
+                {{std::string("Ångström")}, std::string("ÅNGSTRÖM")},
                 {{std::string("")}, std::string("")},
                 {{Null()}, Null()},
                 {{std::string("abcdefghijklmnopqrstuvwxyz")},
@@ -537,7 +549,7 @@ TEST(function_string_test, function_string_upper_test) {
                 {{std::string("יידיש טעקסט")}, std::string("יידיש טעקסט")},
                 //bug{{std::string("Exámplè wïth âccents")}, std::string("EXÁMPLÈ WÏTH ÂCCENTS")},
                 {{std::string("ⓔⓧⓐⓜⓟⓛⓔ ⓦⓘⓣⓗ ⓒⓘⓡⓒⓛⓔ ⓛⓔⓣⓣⓔⓡⓢ")},
-                 std::string("ⓔⓧⓐⓜⓟⓛⓔ ⓦⓘⓣⓗ ⓒⓘⓡⓒⓛⓔ ⓛⓔⓣⓣⓔⓡⓢ")},
+                 std::string("ⒺⓍⒶⓂⓅⓁⒺ ⓌⒾⓉⒽ ⒸⒾⓇⒸⓁⒺ ⓁⒺⓉⓉⒺⓇⓈ")},
                 {{std::string("🅴🆇🅰🅼🅿🅻🅴 🆆🅸🆃🅷 🆂🆀🆄🅰🆁🅴 🅻🅴🆃🆃🅴🆁🆂")},
                  std::string("🅴🆇🅰🅼🅿🅻🅴 🆆🅸🆃🅷 🆂🆀🆄🅰🆁🅴 🅻🅴🆃🆃🅴🆁🆂")},
         };
@@ -2284,7 +2296,8 @@ TEST(function_string_test, function_parse_url_test) {
                 {{std::string(
                           "https://www.facebook.com/aa/bb?returnpage=https://www.facebook.com/"),
                   std::string("HosT")},
-                 std::string("www.facebook.com")}};
+                 std::string("www.facebook.com")},
+                {{std::string("http://www.baidu.com"), std::string("FILE")}, {std::string("")}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -2329,7 +2342,7 @@ TEST(function_string_test, function_hex_test) {
 }
 
 TEST(function_string_test, function_unhex_test) {
-    std::string func_name = "unhex";
+    std::string unhex_func_name = "unhex";
     BaseInputTypeSet input_types = {TypeIndex::String};
     DataSet data_set = {
             {{std::string("41624364456667")}, std::string("AbCdEfg")},
@@ -2345,7 +2358,25 @@ TEST(function_string_test, function_unhex_test) {
             {{std::string("20202020202B20202020202020323320")}, std::string("     +       23 ")},
             // {{std::string("!")}, Null()},
     };
-    check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    check_function_all_arg_comb<DataTypeString, true>(unhex_func_name, input_types, data_set);
+
+    std::string unhex_null_func_name = "unhex_null";
+    data_set = {
+            {{std::string("41624364456667")}, std::string("AbCdEfg")},
+            {{std::string("E4BDA0E5A5BD48454C4C4F")}, std::string("你好HELLO")},
+            {{std::string("")}, Null()},
+            {{Null()}, Null()},
+            {{std::string("21402324402A2028212623")}, std::string("!@#$@* (!&#")},
+            {{std::string("4A534B41422851405F5F21")}, std::string("JSKAB(Q@__!")},
+            {{std::string("M4D59207465737420537472E4BDA0E5A5BD2020")}, Null()},
+            {{std::string("2020202020202020202020202020202020")}, std::string("                 ")},
+            {{std::string("3233203132202D2D215F5F215F215F5F21")}, std::string("23 12 --!__!_!__!")},
+            {{std::string("3131322B202B202B")}, std::string("112+ + +")},
+            {{std::string("20202020202B20202020202020323320")}, std::string("     +       23 ")},
+            {{std::string("41G42")}, Null()},
+            {{std::string("!")}, Null()},
+    };
+    check_function_all_arg_comb<DataTypeString, true>(unhex_null_func_name, input_types, data_set);
 }
 
 TEST(function_string_test, function_coalesce_test) {
@@ -3031,6 +3062,15 @@ TEST(function_string_test, function_overlay_test) {
                 {{VARCHAR("aaaaa"), INT(2), INT(3), VARCHAR("bbbbb")}, {VARCHAR("abbbbba")}},
                 {{VARCHAR("aaaaa"), INT(6), INT(2), VARCHAR("bbbbb")}, {VARCHAR("aaaaa")}},
                 {{VARCHAR("aaaaa"), INT(-10), INT(2), VARCHAR("bbbbb")}, {VARCHAR("aaaaa")}},
+                {{VARCHAR("こaaaa"), INT(-1), INT(2), VARCHAR("にちは")}, {VARCHAR("こaaaa")}},
+                {{VARCHAR("こaaaa"), INT(2), INT(2), VARCHAR("にちは")}, {VARCHAR("こにちはaa")}},
+                {{VARCHAR("你好123世界"), INT(2), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你我的23世界")}},
+                {{VARCHAR("你好123世界"), INT(-1), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你好123世界")}},
+                {{VARCHAR("你好123世界"), INT(10), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你好123世界")}},
+                {{VARCHAR("你好123世界"), INT(2), INT(10), VARCHAR("我的")}, {VARCHAR("你我的")}},
                 {{VARCHAR("aaaaa"), INT(2), INT(-1), VARCHAR("bbbbb")}, {VARCHAR("abbbbb")}}};
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
@@ -3076,6 +3116,15 @@ TEST(function_string_test, function_overlay_test) {
                 {{VARCHAR("aaaaa"), INT(2), INT(3), VARCHAR("bbbbb")}, {VARCHAR("abbbbba")}},
                 {{VARCHAR("aaaaa"), INT(6), INT(2), VARCHAR("bbbbb")}, {VARCHAR("aaaaa")}},
                 {{VARCHAR("aaaaa"), INT(-10), INT(2), VARCHAR("bbbbb")}, {VARCHAR("aaaaa")}},
+                {{VARCHAR("こaaaa"), INT(-1), INT(2), VARCHAR("にちは")}, {VARCHAR("こaaaa")}},
+                {{VARCHAR("こaaaa"), INT(2), INT(2), VARCHAR("にちは")}, {VARCHAR("こにちはaa")}},
+                {{VARCHAR("你好123世界"), INT(2), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你我的23世界")}},
+                {{VARCHAR("你好123世界"), INT(-1), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你好123世界")}},
+                {{VARCHAR("你好123世界"), INT(10), INT(2), VARCHAR("我的")},
+                 {VARCHAR("你好123世界")}},
+                {{VARCHAR("你好123世界"), INT(2), INT(10), VARCHAR("我的")}, {VARCHAR("你我的")}},
                 {{VARCHAR("aaaaa"), INT(2), INT(-1), VARCHAR("bbbbb")}, {VARCHAR("abbbbb")}}};
         for (const auto& line : data_set) {
             DataSet const_dataset = {line};
@@ -3094,6 +3143,8 @@ TEST(function_string_test, function_initcap) {
                         {{std::string("BC'S aaaaA'' 'S")}, std::string("Bc'S Aaaaa'' 'S")},
                         {{std::string("NULL")}, std::string("Null")},
                         {{Null()}, Null()},
+                        {{std::string("GROSSE     àstanbul , ÀÇAC123    ΣΟΦΟΣ")},
+                         std::string("Grosse     Àstanbul , Àçac123    Σοφος")},
                         {{std::string("HELLO, WORLD!")}, std::string("Hello, World!")},
                         {{std::string("HHHH+-1; asAAss__!")}, std::string("Hhhh+-1; Asaass__!")},
                         {{std::string("a,B,C,D")}, std::string("A,B,C,D")}};
@@ -3339,6 +3390,57 @@ TEST(function_string_test, function_rpad_test) {
             {{Null(), std::int32_t(0), std::string("TVl0ZXN0U1RS")}, Null()},
             {{Null(), std::int32_t(0), Null()}, Null()},
     };
+
+    check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+}
+
+TEST(function_string_test, function_xpath_string_test) {
+    std::string func_name = "xpath_string";
+    BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+
+    DataSet data_set = {
+            {{std::string("<a>123</a>"), std::string("/a")}, std::string("123")},
+            {{std::string("<a><b>123</b></a>"), std::string("/a/b")}, std::string("123")},
+            {{std::string("<a><b>123</b><c>456</c></a>"), std::string("/a/c")}, std::string("456")},
+            {{std::string("<a><b>123</b><c>456</c></a>"), std::string("/a/d")}, std::string("")},
+            {{std::string("<a><b>123</b><b>456</b></a>"), std::string("/a/b[1]")},
+             std::string("123")},
+            {{std::string("<a><b>123</b><b>456</b></a>"), std::string("/a/b[2]")},
+             std::string("456")},
+            {{std::string("<a><b>123</b><b>456</b></a>"), std::string("/a/b[3]")}, std::string("")},
+            {{std::string("<a><b attr='val'>123</b></a>"), std::string("/a/b[@attr]")},
+             std::string("123")},
+            {{std::string("<a><b attr='val'>123</b></a>"), std::string("/a/b[@attr='val']")},
+             std::string("123")},
+            {{std::string("<a><b attr='val'>123</b></a>"), std::string("/a/b[@attr='wrong']")},
+             std::string("")},
+            {{std::string("<a><!-- comment -->123</a>"), std::string("/a")}, std::string("123")},
+            {{std::string("<a><![CDATA[123]]></a>"), std::string("/a")}, std::string("123")},
+            {{std::string("<a>123<b>456</b>789</a>"), std::string("/a")}, std::string("123456789")},
+            {{std::string("<a>  123  </a>"), std::string("/a")}, std::string("  123  ")},
+            {{std::string("<a></a>"), std::string("/a")}, std::string("")},
+            {{std::string("<a/>"), std::string("/a")}, std::string("")},
+            {{std::string("<a>123</a>"), std::string("")}, Null()},
+            {{std::string(""), std::string("/a")}, Null()},
+            {{Null(), std::string("/a")}, Null()},
+            {{std::string("<a>123</a>"), Null()}, Null()},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("//title/text()")},
+             std::string("Intro to Hive")},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("//author/text()")},
+             std::string("John Doe")},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("//publisher/text()")},
+             std::string("Tech Press")},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("/book")},
+             std::string("Intro to HiveJohn DoeTech Press")},
+            {{Null(), Null()}, Null()}};
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }

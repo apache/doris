@@ -154,8 +154,8 @@ protected:
         BaseInputTypeSet array_map_char_double = {TypeIndex::Array, TypeIndex::Map,
                                                   TypeIndex::String, TypeIndex::Float64};
         // test_array_map<datetime,decimal<76,56>>.csv
-        BaseInputTypeSet array_map_datetime_decimal = {TypeIndex::Array, TypeIndex::Map,
-                                                       TypeIndex::DateTime, TypeIndex::Decimal256};
+        BaseInputTypeSet array_map_datetime_decimal = {
+                TypeIndex::Array, TypeIndex::Map, TypeIndex::DateTimeV2, TypeIndex::Decimal256};
         // test_array_map<ipv4,ipv6>.csv
         BaseInputTypeSet array_map_ipv4_ipv6 = {TypeIndex::Array, TypeIndex::Map, TypeIndex::IPv4,
                                                 TypeIndex::IPv6};
@@ -302,10 +302,10 @@ protected:
             data_file_dir + "test_array_array_decimalv3(38,30).csv",
             data_file_dir + "test_array_array_decimalv3(76,56).csv",
             // array-map - 36
-            data_file_dir + "test_array_map<char,double>.csv",
-            data_file_dir + "test_array_map<datetime,decimal<76,56>>.csv",
-            data_file_dir + "test_array_map<ipv4,ipv6>.csv",
-            data_file_dir + "test_array_map<largeInt,string>.csv",
+            data_file_dir + "test_array_map_char_double.csv",
+            data_file_dir + "test_array_map_datetime_decimal.csv",
+            data_file_dir + "test_array_map_ipv4_ipv6.csv",
+            data_file_dir + "test_array_map_largeInt_string.csv",
             // array-struct
             data_file_dir + "test_array_struct.csv"};
 
@@ -363,59 +363,59 @@ TEST_F(DataTypeArrayTest, CreateColumnTest) {
         auto type = remove_nullable(array_types[i]);
         // any different nested type in arr with same default array ?
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 16);
+        create_column_assert(type, default_field_array, 51); // 17 * 3
     }
     {
         auto type = remove_nullable(array_types[13]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 24);
+        create_column_assert(type, default_field_array, 59); // add addtional sizeof(8)
     }
     // for decimal32/64/128/256 here uncompressed size is 16
     // one scalar type
     for (int i = 14; i < 18; i++) {
         auto type = remove_nullable(array_types[i]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 16);
+        create_column_assert(type, default_field_array, 51);
     }
     // for array-array-scala
     for (int i = 18; i < 31; i++) {
         auto type = remove_nullable(array_types[i]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 28);
+        create_column_assert(type, default_field_array, 85); // 17 * 5
     }
     {
         // string type
         auto type = remove_nullable(array_types[31]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 36);
+        create_column_assert(type, default_field_array, 93); // add addtional sizeof(8)
     }
     for (int i = 32; i < 36; i++) {
         auto type = remove_nullable(array_types[i]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 28);
+        create_column_assert(type, default_field_array, 85); // 17 * 5
     }
     // for array-map
     {
         auto type = remove_nullable(array_types[36]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 44);
+        create_column_assert(type, default_field_array, 127); // 17 * 7 + 8 add addtional sizeof(8)
         type = remove_nullable(array_types[39]);
         default_field_array = Array();
-        create_column_assert(type, default_field_array, 44);
+        create_column_assert(type, default_field_array, 127);
     }
     {
         auto type = remove_nullable(array_types[37]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 36);
+        create_column_assert(type, default_field_array, 119);
         type = remove_nullable(array_types[38]);
         default_field_array = Array();
-        create_column_assert(type, default_field_array, 36);
+        create_column_assert(type, default_field_array, 119); // 17 * 7
     }
     // for array-struct
     {
         auto type = remove_nullable(array_types[40]);
         Field default_field_array = Array();
-        create_column_assert(type, default_field_array, 76);
+        create_column_assert(type, default_field_array, 297); // 17 * 17
     }
 }
 
@@ -493,43 +493,13 @@ TEST_F(DataTypeArrayTest, SerializeDeserializeTest) {
 }
 
 TEST_F(DataTypeArrayTest, SerdeArrowTest) {
-    // todo. fix decimal256 serde
     MutableColumns array_cols;
-    for (int i = 0; i < 17; i++) {
-        array_cols.push_back(array_columns[i]->get_ptr());
-    }
-    for (int i = 18; i < 35; i++) {
-        array_cols.push_back(array_columns[i]->get_ptr());
-    }
-    array_cols.push_back(array_columns[36]->get_ptr());
     DataTypes types;
-    for (int i = 0; i < 17; i++) {
+    for (int i = 0; i < array_descs.size(); i++) {
+        array_cols.push_back(array_columns[i]->get_ptr());
         types.push_back(array_types[i]);
     }
-    for (int i = 18; i < 35; i++) {
-        types.push_back(array_types[i]);
-    }
-    types.push_back(array_types[36]);
-    DataTypeSerDeSPtrs serde;
-    for (int i = 0; i < 17; i++) {
-        serde.push_back(serdes[i]);
-    }
-    for (int i = 18; i < 35; i++) {
-        serde.push_back(serdes[i]);
-    }
-    serde.push_back(serdes[36]);
-    CommonDataTypeSerdeTest::assert_arrow_format(array_cols, serde, types);
-    {
-        for (int i = 38; i < 41; ++i) {
-            MutableColumns error_cols;
-            error_cols.push_back(array_columns[i]->get_ptr());
-            DataTypeSerDeSPtrs serde1;
-            serde1.push_back(serdes[i]);
-            DataTypes typ;
-            typ.push_back(array_types[i]);
-            EXPECT_ANY_THROW(CommonDataTypeSerdeTest::assert_arrow_format(error_cols, serde1, typ));
-        }
-    }
+    CommonDataTypeSerdeTest::assert_arrow_format(array_cols, types);
 }
 
 //================== datatype for array ut test ==================

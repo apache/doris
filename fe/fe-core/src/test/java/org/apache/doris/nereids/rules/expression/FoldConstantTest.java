@@ -21,7 +21,6 @@ import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
@@ -41,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
@@ -50,20 +50,30 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ReplaceEmpty;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Right;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Round;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -270,6 +280,60 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         toDays = new ToDays(DateV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 1, 1, 1)));
         rewritten = executor.rewrite(toDays, context);
         Assertions.assertEquals(new IntegerLiteral(3652424), rewritten);
+
+        MonthsBetween monthsBetween = new MonthsBetween(
+                        DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                        DateV2Literal.fromJavaDateType(LocalDateTime.of(2, 2, 1, 1, 1, 1)));
+        rewritten = executor.rewrite(monthsBetween, context);
+        Assertions.assertEquals(new DoubleLiteral(-13.0), rewritten);
+        monthsBetween = new MonthsBetween(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                        DateV2Literal.fromJavaDateType(LocalDateTime.of(2, 2, 1, 1, 1, 1)), BooleanLiteral.FALSE);
+        rewritten = executor.rewrite(monthsBetween, context);
+        Assertions.assertEquals(new DoubleLiteral(-13.0), rewritten);
+        monthsBetween = new MonthsBetween(DateV2Literal.fromJavaDateType(LocalDateTime.of(2024, 3, 31, 1, 1, 1)),
+                        DateV2Literal.fromJavaDateType(LocalDateTime.of(2024, 2, 29, 1, 1, 1)));
+        rewritten = executor.rewrite(monthsBetween, context);
+        Assertions.assertEquals(new DoubleLiteral(1.0), rewritten);
+        NextDay nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 1, 28, 1, 1, 1)),
+                        StringLiteral.of("MON"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2020-02-03"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 1, 31, 1, 1, 1)),
+                        StringLiteral.of("SAT"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2020-02-01"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 12, 28, 1, 1, 1)),
+                        StringLiteral.of("FRI"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2021-01-01"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 12, 31, 1, 1, 1)),
+                        StringLiteral.of("THU"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2021-01-07"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 2, 27, 1, 1, 1)),
+                        StringLiteral.of("SAT"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2020-02-29"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 2, 29, 1, 1, 1)),
+                        StringLiteral.of("MON"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2020-03-02"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2019, 2, 26, 1, 1, 1)),
+                        StringLiteral.of("THU"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2019-02-28"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2019, 2, 28, 1, 1, 1)),
+                        StringLiteral.of("SUN"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2019-03-03"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 4, 29, 1, 1, 1)),
+                        StringLiteral.of("FRI"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2020-05-01"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 5, 31, 1, 1, 1)),
+                        StringLiteral.of("MON"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2020-06-01"), rewritten);
     }
 
     @Test
@@ -280,11 +344,11 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         ConvertTz c = new ConvertTz(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 StringLiteral.of("Asia/Shanghai"), StringLiteral.of("GMT"));
         Expression rewritten = executor.rewrite(c, context);
-        Assertions.assertTrue(new DateTimeV2Literal("0000-12-31 16:55:18.000000").compareTo((Literal) rewritten) == 0);
+        Assertions.assertTrue(new DateTimeV2Literal("0000-12-31 16:55:18.000000").compareTo((ComparableLiteral) rewritten) == 0);
         c = new ConvertTz(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000)),
                         StringLiteral.of("Pacific/Galapagos"), StringLiteral.of("Pacific/Galapagos"));
         rewritten = executor.rewrite(c, context);
-        Assertions.assertTrue(new DateTimeV2Literal("9999-12-31 23:59:59.999999").compareTo((Literal) rewritten) == 0);
+        Assertions.assertTrue(new DateTimeV2Literal("9999-12-31 23:59:59.999999").compareTo((ComparableLiteral) rewritten) == 0);
 
         DateFormat d = new DateFormat(DateTimeLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 StringLiteral.of("%y %m %d"));
@@ -310,7 +374,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         t = new DateTrunc(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 StringLiteral.of("week"));
         rewritten = executor.rewrite(t, context);
-        Assertions.assertTrue(((Literal) rewritten).compareTo(new DateTimeV2Literal("0001-01-01 00:00:00.000000")) == 0);
+        Assertions.assertTrue(((ComparableLiteral) rewritten).compareTo(new DateTimeV2Literal("0001-01-01 00:00:00.000000")) == 0);
         t = new DateTrunc(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 StringLiteral.of("week"));
         rewritten = executor.rewrite(t, context);
@@ -335,6 +399,125 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         AppendTrailingCharIfAbsent a = new AppendTrailingCharIfAbsent(StringLiteral.of("1"), StringLiteral.of("3"));
         rewritten = executor.rewrite(a, context);
         Assertions.assertEquals(new StringLiteral("13"), rewritten);
+
+        Left left = new Left(StringLiteral.of("hello world"), IntegerLiteral.of(5));
+        rewritten = executor.rewrite(left, context);
+        Assertions.assertEquals(new StringLiteral("hello"), rewritten);
+        left = new Left(StringLiteral.of("test"), IntegerLiteral.of(10));
+        rewritten = executor.rewrite(left, context);
+        Assertions.assertEquals(new StringLiteral("test"), rewritten);
+        left = new Left(StringLiteral.of("data"), IntegerLiteral.of(0));
+        rewritten = executor.rewrite(left, context);
+        Assertions.assertEquals(new StringLiteral(""), rewritten);
+        left = new Left(StringLiteral.of("data"), IntegerLiteral.of(-3));
+        rewritten = executor.rewrite(left, context);
+        Assertions.assertEquals(new StringLiteral(""), rewritten);
+
+        Right right = new Right(StringLiteral.of("hello world"), IntegerLiteral.of(5));
+        rewritten = executor.rewrite(right, context);
+        Assertions.assertEquals(new StringLiteral("world"), rewritten);
+        right = new Right(StringLiteral.of("test"), IntegerLiteral.of(10));
+        rewritten = executor.rewrite(right, context);
+        Assertions.assertEquals(new StringLiteral("test"), rewritten);
+        right = new Right(StringLiteral.of("data"), IntegerLiteral.of(0));
+        rewritten = executor.rewrite(right, context);
+        Assertions.assertEquals(new StringLiteral(""), rewritten);
+        right = new Right(StringLiteral.of("data"), IntegerLiteral.of(-3));
+        rewritten = executor.rewrite(right, context);
+        Assertions.assertEquals(new StringLiteral("ta"), rewritten);
+
+        Substring substr = new Substring(
+                StringLiteral.of("database"),
+                IntegerLiteral.of(1),
+                IntegerLiteral.of(4)
+        );
+        rewritten = executor.rewrite(substr, context);
+        Assertions.assertEquals(new StringLiteral("data"), rewritten);
+        substr = new Substring(
+            StringLiteral.of("database"),
+                IntegerLiteral.of(-4),
+                IntegerLiteral.of(4)
+        );
+        rewritten = executor.rewrite(substr, context);
+        Assertions.assertEquals(new StringLiteral("base"), rewritten);
+        substr = new Substring(
+                StringLiteral.of("example"),
+                IntegerLiteral.of(3),
+                IntegerLiteral.of(10)
+        );
+        rewritten = executor.rewrite(substr, context);
+        Assertions.assertEquals(new StringLiteral("ample"), rewritten);
+
+        Locate locate = new Locate(
+                StringLiteral.of("world"),
+                StringLiteral.of("hello world")
+        );
+        rewritten = executor.rewrite(locate, context);
+        Assertions.assertEquals(new IntegerLiteral(7), rewritten);
+        locate = new Locate(
+                StringLiteral.of("test"),
+                StringLiteral.of("hello world")
+        );
+        rewritten = executor.rewrite(locate, context);
+        Assertions.assertEquals(new IntegerLiteral(0), rewritten);
+        locate = new Locate(
+                StringLiteral.of("l"),
+                StringLiteral.of("hello world"),
+                IntegerLiteral.of(3)
+        );
+        rewritten = executor.rewrite(locate, context);
+        Assertions.assertEquals(new IntegerLiteral(3), rewritten);
+
+        CharacterLength len = new CharacterLength(StringLiteral.of("hello"));
+        rewritten = executor.rewrite(len, context);
+        Assertions.assertEquals(new IntegerLiteral(5), rewritten);
+        len = new CharacterLength(StringLiteral.of(""));
+        rewritten = executor.rewrite(len, context);
+        Assertions.assertEquals(new IntegerLiteral(0), rewritten);
+        len = new CharacterLength(StringLiteral.of("😊"));
+        rewritten = executor.rewrite(len, context);
+        Assertions.assertEquals(new IntegerLiteral(1), rewritten);
+
+        Overlay overlay = new Overlay(
+                StringLiteral.of("snow"),
+                IntegerLiteral.of(2),
+                IntegerLiteral.of(2),
+                StringLiteral.of("new")
+        );
+        rewritten = executor.rewrite(overlay, context);
+        Assertions.assertEquals(new StringLiteral("sneww"), rewritten);
+        overlay = new Overlay(
+                StringLiteral.of("snow"),
+                IntegerLiteral.of(2),
+                IntegerLiteral.of(0),
+                StringLiteral.of("n")
+        );
+        rewritten = executor.rewrite(overlay, context);
+        Assertions.assertEquals(new StringLiteral("snnow"), rewritten);
+        overlay = new Overlay(
+                StringLiteral.of("snow"),
+                IntegerLiteral.of(2),
+                IntegerLiteral.of(-1),
+                StringLiteral.of("n")
+        );
+        rewritten = executor.rewrite(overlay, context);
+        Assertions.assertEquals(new StringLiteral("sn"), rewritten);
+        overlay = new Overlay(
+                StringLiteral.of("snow"),
+                IntegerLiteral.of(-1),
+                IntegerLiteral.of(3),
+                StringLiteral.of("n")
+        );
+        rewritten = executor.rewrite(overlay, context);
+        Assertions.assertEquals(new StringLiteral("snow"), rewritten);
+
+        ReplaceEmpty replace = new ReplaceEmpty(
+                StringLiteral.of(""),
+                StringLiteral.of(""),
+                StringLiteral.of("default")
+        );
+        rewritten = executor.rewrite(replace, context);
+        Assertions.assertEquals(new StringLiteral("default"), rewritten);
     }
 
     @Test
@@ -379,27 +562,23 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Exp exp = new Exp(new DoubleLiteral(0d));
         rewritten = executor.rewrite(exp, context);
         Assertions.assertEquals(new DoubleLiteral(1.0), rewritten);
-        Assertions.assertThrows(NotSupportedException.class, () -> {
-            Exp exExp = new Exp(new DoubleLiteral(1000d));
-            executor.rewrite(exExp, context);
-        }, "infinite result is invalid");
+        Expression exExp = new Exp(new DoubleLiteral(1000d));
+        rewritten = executor.rewrite(exExp, context);
+        Assertions.assertEquals(new NullLiteral(DoubleType.INSTANCE), rewritten);
 
         Ln ln = new Ln(new DoubleLiteral(1d));
         rewritten = executor.rewrite(ln, context);
         Assertions.assertEquals(new DoubleLiteral(0.0), rewritten);
-        Assertions.assertThrows(NotSupportedException.class, () -> {
-            Ln exExp = new Ln(new DoubleLiteral(0.0d));
-            executor.rewrite(exExp, context);
-        }, "input 0.0 is out of boundary");
-        Assertions.assertThrows(NotSupportedException.class, () -> {
-            Ln exExp = new Ln(new DoubleLiteral(-1d));
-            executor.rewrite(exExp, context);
-        }, "input -1 is out of boundary");
+        exExp = new Ln(new DoubleLiteral(0.0d));
+        rewritten = executor.rewrite(exExp, context);
+        Assertions.assertEquals(new NullLiteral(DoubleType.INSTANCE), rewritten);
 
-        Assertions.assertThrows(NotSupportedException.class, () -> {
-            Log exExp = new Log(new DoubleLiteral(1.0d), new DoubleLiteral(1.0d));
-            executor.rewrite(exExp, context);
-        }, "the first input of function log can not be 1.0");
+        exExp = new Ln(new DoubleLiteral(-1d));
+        rewritten = executor.rewrite(exExp, context);
+        Assertions.assertEquals(new NullLiteral(DoubleType.INSTANCE), rewritten);
+        exExp = new Log(new DoubleLiteral(1.0d), new DoubleLiteral(1.0d));
+        rewritten = executor.rewrite(exExp, context);
+        Assertions.assertEquals(new NullLiteral(DoubleType.INSTANCE), rewritten);
 
         Sqrt sqrt = new Sqrt(new DoubleLiteral(16d));
         rewritten = executor.rewrite(sqrt, context);
@@ -407,22 +586,19 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         sqrt = new Sqrt(new DoubleLiteral(0d));
         rewritten = executor.rewrite(sqrt, context);
         Assertions.assertEquals(new DoubleLiteral(0d), rewritten);
-        Assertions.assertThrows(NotSupportedException.class, () -> {
-            Sqrt exExp = new Sqrt(new DoubleLiteral(-1d));
-            executor.rewrite(exExp, context);
-        }, "input -1 is out of boundary");
+        exExp = new Sqrt(new DoubleLiteral(-1d));
+        rewritten = executor.rewrite(exExp, context);
+        Assertions.assertEquals(new NullLiteral(DoubleType.INSTANCE), rewritten);
 
         Power power = new Power(new DoubleLiteral(2d), new DoubleLiteral(3));
         rewritten = executor.rewrite(power, context);
         Assertions.assertEquals(new DoubleLiteral(8d), rewritten);
-        Assertions.assertThrows(NotSupportedException.class, () -> {
-            Power exExp = new Power(new DoubleLiteral(2d), new DoubleLiteral(10000d));
-            executor.rewrite(exExp, context);
-        }, "infinite result is invalid");
-        Assertions.assertThrows(NotSupportedException.class, () -> {
-            Power exExp = new Power(new DoubleLiteral(-1d), new DoubleLiteral(1.1d));
-            executor.rewrite(exExp, context);
-        }, "input pair of function power can not be negative number and non-integer");
+        exExp = new Power(new DoubleLiteral(2d), new DoubleLiteral(10000d));
+        rewritten = executor.rewrite(exExp, context);
+        Assertions.assertEquals(new NullLiteral(DoubleType.INSTANCE), rewritten);
+        exExp = new Power(new DoubleLiteral(-1d), new DoubleLiteral(1.1d));
+        rewritten = executor.rewrite(exExp, context);
+        Assertions.assertEquals(new NullLiteral(DoubleType.INSTANCE), rewritten);
 
         Sin sin = new Sin(new DoubleLiteral(Math.PI / 2));
         rewritten = executor.rewrite(sin, context);
@@ -430,42 +606,37 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         sin = new Sin(new DoubleLiteral(0d));
         rewritten = executor.rewrite(sin, context);
         Assertions.assertEquals(new DoubleLiteral(0d), rewritten);
-        Assertions.assertThrows(NotSupportedException.class, () -> {
-            Sin exExp = new Sin(new DoubleLiteral(Double.POSITIVE_INFINITY));
-            executor.rewrite(exExp, context);
-        }, "input infinity is out of boundary");
+        exExp = new Sin(new DoubleLiteral(Double.POSITIVE_INFINITY));
+        rewritten = executor.rewrite(exExp, context);
+        Assertions.assertEquals(new NullLiteral(DoubleType.INSTANCE), rewritten);
 
         Cos cos = new Cos(new DoubleLiteral(0d));
         rewritten = executor.rewrite(cos, context);
         Assertions.assertEquals(new DoubleLiteral(1d), rewritten);
-        Assertions.assertThrows(NotSupportedException.class, () -> {
-            Cos exExp = new Cos(new DoubleLiteral(Double.POSITIVE_INFINITY));
-            executor.rewrite(exExp, context);
-        }, "input infinity is out of boundary");
+        exExp = new Cos(new DoubleLiteral(Double.POSITIVE_INFINITY));
+        rewritten = executor.rewrite(exExp, context);
+        Assertions.assertEquals(new NullLiteral(DoubleType.INSTANCE), rewritten);
 
         Tan tan = new Tan(new DoubleLiteral(0d));
         rewritten = executor.rewrite(tan, context);
         Assertions.assertEquals(new DoubleLiteral(0d), rewritten);
-        Assertions.assertThrows(NotSupportedException.class, () -> {
-            Tan exExp = new Tan(new DoubleLiteral(Double.POSITIVE_INFINITY));
-            executor.rewrite(exExp, context);
-        }, "input infinity is out of boundary");
+        exExp = new Tan(new DoubleLiteral(Double.POSITIVE_INFINITY));
+        rewritten = executor.rewrite(exExp, context);
+        Assertions.assertEquals(new NullLiteral(DoubleType.INSTANCE), rewritten);
 
         Asin asin = new Asin(new DoubleLiteral(1d));
         rewritten = executor.rewrite(asin, context);
         Assertions.assertEquals(new DoubleLiteral(Math.PI / 2), rewritten);
-        Assertions.assertThrows(NotSupportedException.class, () -> {
-            Asin exExp = new Asin(new DoubleLiteral(2d));
-            executor.rewrite(exExp, context);
-        }, "input 2.0 is out of boundary");
+        exExp = new Asin(new DoubleLiteral(2d));
+        rewritten = executor.rewrite(exExp, context);
+        Assertions.assertEquals(new NullLiteral(DoubleType.INSTANCE), rewritten);
 
         Acos acos = new Acos(new DoubleLiteral(1d));
         rewritten = executor.rewrite(acos, context);
         Assertions.assertEquals(new DoubleLiteral(0), rewritten);
-        Assertions.assertThrows(NotSupportedException.class, () -> {
-            Acos exExp = new Acos(new DoubleLiteral(2d));
-            executor.rewrite(exExp, context);
-        }, "input 2.0 is out of boundary");
+        exExp = new Acos(new DoubleLiteral(2d));
+        rewritten = executor.rewrite(exExp, context);
+        Assertions.assertEquals(new NullLiteral(DoubleType.INSTANCE), rewritten);
 
         Sign sign = new Sign(new DoubleLiteral(1d));
         rewritten = executor.rewrite(sign, context);
@@ -862,9 +1033,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 new DateTimeLiteral("2023-05-07 02:41:42"),
                 new VarcharLiteral("%x %v %X %V")).toSql());
 
-        Assertions.assertTrue(new DateTimeV2Literal("2021-01-01 12:12:14.000000").compareTo((Literal) TimeRoundSeries
+        Assertions.assertTrue(new DateTimeV2Literal("2021-01-01 12:12:14.000000").compareTo((ComparableLiteral) TimeRoundSeries
                 .secondCeil(new DateTimeV2Literal("2021-01-01 12:12:12.123"), new IntegerLiteral(2))) == 0);
-        Assertions.assertTrue(new DateTimeV2Literal("2021-01-01 12:12:12.000000").compareTo((Literal) TimeRoundSeries
+        Assertions.assertTrue(new DateTimeV2Literal("2021-01-01 12:12:12.000000").compareTo((ComparableLiteral) TimeRoundSeries
                 .secondFloor(new DateTimeV2Literal("2021-01-01 12:12:12.123"), new IntegerLiteral(2))) == 0);
     }
 

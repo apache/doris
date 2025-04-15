@@ -59,12 +59,17 @@ class WorkloadGroupMgr;
 struct WriteCooldownMetaExecutors;
 namespace io {
 class FileCacheFactory;
+class HdfsMgr;
 } // namespace io
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
 class TmpFileDirs;
 } // namespace segment_v2
+
+namespace kerberos {
+class KerberosTicketMgr;
+}
 
 class QueryCache;
 class WorkloadSchedPolicyMgr;
@@ -114,6 +119,7 @@ class ProcessProfile;
 class HeapProfiler;
 class WalManager;
 class DNSCache;
+struct SyncRowsetStats;
 
 inline bool k_doris_exit = false;
 
@@ -146,7 +152,8 @@ public:
     }
 
     // Requires ExenEnv ready
-    static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id);
+    static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
+                                             SyncRowsetStats* sync_stats = nullptr);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }
@@ -212,6 +219,7 @@ public:
         return _subcolumns_tree_tracker;
     }
     std::shared_ptr<MemTrackerLimiter> s3_file_buffer_tracker() { return _s3_file_buffer_tracker; }
+    std::shared_ptr<MemTrackerLimiter> parquet_meta_tracker() { return _parquet_meta_tracker; }
 
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* buffered_reader_prefetch_thread_pool() {
@@ -262,6 +270,9 @@ public:
     WriteCooldownMetaExecutors* write_cooldown_meta_executors() {
         return _write_cooldown_meta_executors.get();
     }
+
+    kerberos::KerberosTicketMgr* kerberos_ticket_mgr() { return _kerberos_ticket_mgr; }
+    io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
 
 #ifdef BE_TEST
     void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
@@ -405,6 +416,9 @@ private:
     std::shared_ptr<MemTrackerLimiter> _subcolumns_tree_tracker;
     std::shared_ptr<MemTrackerLimiter> _s3_file_buffer_tracker;
 
+    // Tracking memory consumption of parquet meta
+    std::shared_ptr<MemTrackerLimiter> _parquet_meta_tracker;
+
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
     // Threadpool used to prefetch remote file for buffered reader
     std::unique_ptr<ThreadPool> _buffered_reader_prefetch_thread_pool;
@@ -487,6 +501,9 @@ private:
 
     orc::MemoryPool* _orc_memory_pool = nullptr;
     arrow::MemoryPool* _arrow_memory_pool = nullptr;
+
+    kerberos::KerberosTicketMgr* _kerberos_ticket_mgr = nullptr;
+    io::HdfsMgr* _hdfs_mgr = nullptr;
 };
 
 template <>

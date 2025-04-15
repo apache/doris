@@ -571,7 +571,7 @@ struct JsonParser<'1'> {
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
         DCHECK(data.size == 1 || strncmp(data.data, "true", 4) == 0 ||
                strncmp(data.data, "false", 5) == 0);
-        value.SetBool((*data.data == '1' || *data.data == 't') ? true : false);
+        value.SetBool(*data.data == '1' || *data.data == 't');
     }
 };
 
@@ -609,6 +609,18 @@ struct JsonParser<'5'> {
     static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
         value.SetInt64(StringParser::string_to_int<int64_t>(data.data, data.size, &result));
+    }
+};
+
+template <>
+struct JsonParser<'7'> {
+    // json string
+    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
+                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
+        rapidjson::Document document;
+        JsonbValue* json_val = JsonbDocument::createValue(data.data, data.size);
+        convert_jsonb_to_rapidjson(*json_val, document, allocator);
+        value.CopyFrom(document, allocator);
     }
 };
 
@@ -673,7 +685,8 @@ struct FunctionJsonObjectImpl {
         }
 
         for (int i = 0; i + 1 < data_columns.size() - 1; i += 2) {
-            constexpr_int_match<'0', '6', Reducer>::run(type_flags[i + 1], objects, allocator,
+            // last is for old type definition
+            constexpr_int_match<'0', '7', Reducer>::run(type_flags[i + 1], objects, allocator,
                                                         data_columns[i], data_columns[i + 1],
                                                         nullmaps[i + 1]);
         }
@@ -832,8 +845,17 @@ struct FunctionJsonQuoteImpl {
     }
 };
 
-struct FunctionJsonExtractImpl {
+struct JsonExtractName {
     static constexpr auto name = "json_extract";
+};
+
+struct JsonExtractNoQuotesName {
+    static constexpr auto name = "json_extract_no_quotes";
+};
+
+template <typename Name, bool remove_quotes>
+struct FunctionJsonExtractImpl {
+    static constexpr auto name = Name::name;
 
     static rapidjson::Value parse_json(const ColumnString* json_col, const ColumnString* path_col,
                                        rapidjson::Document::AllocatorType& allocator,
@@ -896,11 +918,20 @@ struct FunctionJsonExtractImpl {
                 null_map[row] = 1;
                 result_column.insert_default();
             } else {
-                // write value as string
-                buf.Clear();
-                writer.Reset(buf);
-                value.Accept(writer);
-                result_column.insert_data(buf.GetString(), buf.GetSize());
+                // Check if the value is a string
+                if (value.IsString() && remove_quotes) {
+                    // Get the string value without quotes
+                    const char* str_ptr = value.GetString();
+                    size_t len = value.GetStringLength();
+                    // Insert without quotes
+                    result_column.insert_data(str_ptr, len);
+                } else {
+                    // Write value as string for other types
+                    buf.Clear();
+                    writer.Reset(buf);
+                    value.Accept(writer);
+                    result_column.insert_data(buf.GetString(), buf.GetSize());
+                }
             }
         };
         if (data_columns.size() == 2) {
@@ -1641,7 +1672,10 @@ void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonArrayImpl>>();
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonObjectImpl>>();
     factory.register_function<FunctionJson<FunctionJsonQuoteImpl>>();
-    factory.register_function<FunctionJsonNullable<FunctionJsonExtractImpl>>();
+    factory.register_function<
+            FunctionJsonNullable<FunctionJsonExtractImpl<JsonExtractName, false>>>();
+    factory.register_function<
+            FunctionJsonNullable<FunctionJsonExtractImpl<JsonExtractNoQuotesName, true>>>();
 
     factory.register_function<FunctionJsonValid>();
     factory.register_function<FunctionJsonContains>();

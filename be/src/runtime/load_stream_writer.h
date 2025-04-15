@@ -19,24 +19,16 @@
 
 #include <gen_cpp/internal_service.pb.h>
 
-#include <atomic>
 #include <memory>
 #include <mutex>
-#include <shared_mutex>
-#include <unordered_set>
 #include <vector>
 
-#include "brpc/stream.h"
 #include "butil/iobuf.h"
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/delta_writer_context.h"
-#include "olap/memtable.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/rowset_fwd.h"
 #include "olap/tablet_fwd.h"
-#include "util/spinlock.h"
-#include "util/uid_util.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 
@@ -96,7 +88,7 @@ private:
     std::mutex _segment_stat_map_lock;
     std::vector<io::FileWriterPtr> _segment_file_writers;
     std::vector<io::FileWriterPtr> _inverted_file_writers;
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 };
 
 using LoadStreamWriterSharedPtr = std::shared_ptr<LoadStreamWriter>;

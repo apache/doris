@@ -36,7 +36,6 @@
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "util/spinlock.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -64,7 +63,7 @@ public:
 
     virtual ~BaseDeltaWriter();
 
-    virtual Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) = 0;
+    virtual Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) = 0;
 
     // flush the last memtable to flush queue, must call it before build_rowset()
     virtual Status close() = 0;
@@ -123,7 +122,7 @@ public:
 
     ~DeltaWriter() override;
 
-    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) override;
+    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) override;
 
     Status close() override;
 

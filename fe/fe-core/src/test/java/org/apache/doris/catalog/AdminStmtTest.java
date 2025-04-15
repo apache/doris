@@ -301,4 +301,38 @@ public class AdminStmtTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testAdminSetTrimPropertyKey() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
+        Assertions.assertNotNull(db);
+        OlapTable tbl = (OlapTable) db.getTableNullable("tbl3");
+        Assertions.assertNotNull(tbl);
+        // tablet id, backend id
+        List<Pair<Long, Long>> tabletToBackendList = Lists.newArrayList();
+        for (Partition partition : tbl.getPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        tabletToBackendList.add(Pair.of(tablet.getId(), replica.getBackendId()));
+                    }
+                }
+            }
+        }
+        Assertions.assertEquals(3, tabletToBackendList.size());
+        long tabletId = tabletToBackendList.get(0).first;
+        long backendId = tabletToBackendList.get(0).second;
+        Replica replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
+
+        String adminStmt = "admin set replica version properties ("
+                + "' tablet_id' = '" + tabletId + "', "
+                + "'backend_id ' = '" + backendId + "', "
+                + "' version ' = '10', "
+                + "' last_failed_version ' = '100');";
+        AdminSetReplicaVersionStmt stmt = (AdminSetReplicaVersionStmt) parseAndAnalyzeStmt(adminStmt);
+        Env.getCurrentEnv().setReplicaVersion(stmt);
+        Assertions.assertEquals(10L, replica.getVersion());
+        Assertions.assertEquals(10L, replica.getLastSuccessVersion());
+        Assertions.assertEquals(100L, replica.getLastFailedVersion());
+    }
+
 }

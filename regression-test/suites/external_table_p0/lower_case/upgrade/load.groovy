@@ -19,7 +19,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
-suite("test_upgrade_lower_case_catalog_prepare", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_upgrade_lower_case_catalog_prepare", "p0,external,doris,external_docker,external_docker_doris,restart_fe") {
 
     String jdbcUrl = context.config.jdbcUrl
     String jdbcUser = "test_upgrade_lower_case_catalog_user"
@@ -89,29 +89,6 @@ suite("test_upgrade_lower_case_catalog_prepare", "p0,external,doris,external_doc
         )"""
 
     wait_table_sync("test_upgrade_lower_case_catalog.upgrade_lower_case_catalog_lower")
-    test {
-        sql """show databases from test_upgrade_lower_case_catalog"""
-
-        // Verification results include external_test_lower and external_test_UPPER
-        check { result, ex, startTime, endTime ->
-            def expectedDatabases = ["upgrade_lower_case_catalog_lower", "upgrade_lower_case_catalog_upper"]
-            expectedDatabases.each { dbName ->
-                assertTrue(result.collect { it[0] }.contains(dbName), "Expected database '${dbName}' not found in result")
-            }
-        }
-    }
-
-    test {
-        sql """show tables from test_upgrade_lower_case_catalog.upgrade_lower_case_catalog_lower"""
-
-        // Verification results include lower and UPPER
-        check { result, ex, startTime, endTime ->
-            def expectedTables = ["lower", "upper"]
-            expectedTables.each { tableName ->
-                assertTrue(result.collect { it[0] }.contains(tableName), "Expected table '${tableName}' not found in result")
-            }
-        }
-    }
 
     qt_sql_test_upgrade_lower_case_catalog_1 "select * from test_upgrade_lower_case_catalog.upgrade_lower_case_catalog_lower.lower"
     qt_sql_test_upgrade_lower_case_catalog_2 "select * from test_upgrade_lower_case_catalog.upgrade_lower_case_catalog_lower.upper"

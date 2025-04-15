@@ -56,7 +56,7 @@ suite("test_cloud_mow_partial_update_retry", "nonConcurrent") {
             GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block", [wait_token: "token1"])
 
             // the first load
-            t1 = Thread.start {
+            def t1 = Thread.start {
                 sql "set enable_unique_key_partial_update=true;"
                 sql "sync;"
                 sql "insert into ${table1}(k1,c1) values(1,999),(2,666);"

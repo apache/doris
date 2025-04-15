@@ -151,10 +151,12 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         this.sourceRepeat = Objects.requireNonNull(sourceRepeat, "sourceRepeat cannot be null");
     }
 
+    @Override
     public List<Expression> getGroupByExpressions() {
         return groupByExpressions;
     }
 
+    @Override
     public List<NamedExpression> getOutputExpressions() {
         return outputExpressions;
     }
@@ -169,11 +171,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     public Optional<LogicalRepeat<?>> getSourceRepeat() {
         return sourceRepeat;
-    }
-
-    public boolean isDistinct() {
-        return outputExpressions.stream().allMatch(e -> e instanceof Slot)
-                && groupByExpressions.stream().allMatch(e -> e instanceof Slot);
     }
 
     public boolean isGenerated() {

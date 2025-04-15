@@ -46,7 +46,8 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status do_partitioning(RuntimeState* state, Block* block) const override;
+    Status do_partitioning(RuntimeState* state, Block* block, bool eos,
+                           bool* already_sent) const override;
 
     ChannelField get_channel_ids() const override;
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
@@ -58,7 +59,8 @@ private:
         return Status::OK();
     }
 
-    Status _send_new_partition_batch(RuntimeState* state, vectorized::Block* input_block) const;
+    Status _send_new_partition_batch(RuntimeState* state, vectorized::Block* input_block,
+                                     bool eos) const;
 
     const int64_t _txn_id = -1;
     const TOlapTableSchemaParam _tablet_sink_schema;

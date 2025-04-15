@@ -243,9 +243,40 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     @Override
-    public boolean checkCloudPriv(UserIdentity currentUser, String resourceName,
+    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
             PrivPredicate wanted, ResourceTypeEnum type) {
-        return false;
+        // only support CLUSTER,
+        // STORAGE_VAULT should call `checkStorageVaultPriv`
+        // GENERAL should call `checkResourcePriv`
+        // STAGE is used to support `copy into`, but this feature will soon expire,
+        // so it is no longer supported through Ranger
+        if (!ResourceTypeEnum.CLUSTER.equals(type)) {
+            return false;
+        }
+        PrivBitSet checkedPrivs = PrivBitSet.of();
+        return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
+                || checkComputeGroupPrivInternal(currentUser, cloudName, wanted, checkedPrivs);
+    }
+
+    private boolean checkComputeGroupPrivInternal(UserIdentity currentUser, String computeGroupName,
+            PrivPredicate wanted,
+            PrivBitSet checkedPrivs) {
+        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.COMPUTE_GROUP, computeGroupName);
+        return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
+    }
+
+    @Override
+    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
+        PrivBitSet checkedPrivs = PrivBitSet.of();
+        return checkGlobalPrivInternal(currentUser, wanted, checkedPrivs)
+                || checkStorageVaultPrivInternal(currentUser, storageVaultName, wanted, checkedPrivs);
+    }
+
+    private boolean checkStorageVaultPrivInternal(UserIdentity currentUser, String storageVaultName,
+            PrivPredicate wanted,
+            PrivBitSet checkedPrivs) {
+        RangerDorisResource resource = new RangerDorisResource(DorisObjectType.STORAGE_VAULT, storageVaultName);
+        return checkPrivilege(currentUser, wanted, resource, checkedPrivs);
     }
 
     @Override

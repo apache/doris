@@ -41,7 +41,7 @@
 #include "vparquet_column_chunk_reader.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
                                  const std::vector<level_t>& rep_levels,
                                  const std::vector<level_t>& def_levels) {
@@ -329,6 +329,18 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         // just read the remaining values of the last row in previous page,
         // so there's no a new row should be read.
         batch_size = 0;
+        /*
+         * Since the function is repeatedly called to fetch data for the batch size,
+         * it causes `_rep_levels.resize(0); _def_levels.resize(0);`, resulting in the
+         * definition and repetition levels of the reader only containing the latter
+         * part of the batch (i.e., missing some parts). Therefore, when using the
+         * definition and repetition levels to fill the null_map for structs and maps,
+         * the function should not be called multiple times before filling.
+        * todo:
+         * We may need to consider reading the entire batch of data at once, as this approach
+         * would be more user-friendly in terms of function usage. However, we must consider that if the
+         * data spans multiple pages, memory usage may increase significantly.
+         */
     } else {
         _rep_levels.resize(0);
         _def_levels.resize(0);
@@ -819,7 +831,7 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     const DataTypeStruct* doris_struct_type =
             reinterpret_cast<const DataTypeStruct*>(remove_nullable(type).get());
 
-    int not_missing_column_id = -1;
+    int64_t not_missing_column_id = -1;
     std::vector<size_t> missing_column_idxs {};
 
     _read_column_names.clear();
@@ -835,7 +847,7 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
             continue;
         }
 
-        _read_column_names.insert(doris_name);
+        _read_column_names.emplace_back(doris_name);
 
         //        select_vector.reset();
         size_t field_rows = 0;
@@ -847,6 +859,15 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
                     is_dict_filter));
             *read_rows = field_rows;
             *eof = field_eof;
+            /*
+             * Considering the issue in the `_read_nested_column` function where data may span across pages, leading
+             * to missing definition and repetition levels, when filling the null_map of the struct later, it is
+             * crucial to use the definition and repetition levels from the first read column
+             * (since `_read_nested_column` is not called repeatedly).
+             *
+             *  It is worth mentioning that, theoretically, any sub-column can be chosen to fill the null_map,
+             *  and selecting the shortest one will offer better performance
+             */
         } else {
             while (field_rows < *read_rows && !field_eof) {
                 size_t loop_rows = 0;
@@ -892,5 +913,6 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
 
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 }; // namespace doris::vectorized

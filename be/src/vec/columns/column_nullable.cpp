@@ -249,13 +249,13 @@ size_t ColumnNullable::get_max_row_byte_size() const {
     return flag_size + get_nested_column().get_max_row_byte_size();
 }
 
-void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
+void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows,
                                    size_t max_row_byte_size) const {
     const auto& arr = get_null_map_data();
     get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data());
 }
 
-void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+void ColumnNullable::deserialize_vec(StringRef* keys, const size_t num_rows) {
     auto& arr = get_null_map_data();
     const size_t old_size = arr.size();
     arr.resize(old_size + num_rows);
@@ -325,6 +325,21 @@ void ColumnNullable::insert_from(const IColumn& src, size_t n) {
     get_nested_column().insert_from(src_concrete.get_nested_column(), n);
     auto is_null = src_concrete.get_null_map_data()[n];
     get_null_map_data().push_back(is_null);
+}
+
+void ColumnNullable::append_data_by_selector(IColumn::MutablePtr& res,
+                                             const IColumn::Selector& selector) const {
+    append_data_by_selector(res, selector, 0, selector.size());
+}
+
+void ColumnNullable::append_data_by_selector(IColumn::MutablePtr& res,
+                                             const IColumn::Selector& selector, size_t begin,
+                                             size_t end) const {
+    auto& res_column = assert_cast<ColumnNullable&>(*res);
+    auto res_nested_column = res_column.get_nested_column_ptr();
+    this->get_nested_column().append_data_by_selector(res_nested_column, selector, begin, end);
+    auto res_null_map = res_column.get_null_map_column_ptr();
+    this->get_null_map_column().append_data_by_selector(res_null_map, selector, begin, end);
 }
 
 void ColumnNullable::insert_from_not_nullable(const IColumn& src, size_t n) {
@@ -537,6 +552,12 @@ size_t ColumnNullable::byte_size() const {
 
 size_t ColumnNullable::allocated_bytes() const {
     return get_nested_column().allocated_bytes() + get_null_map_column().allocated_bytes();
+}
+
+bool ColumnNullable::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
+    return get_nested_column().has_enough_capacity(src_concrete.get_nested_column()) &&
+           get_null_map_column().has_enough_capacity(src_concrete.get_null_map_column());
 }
 
 ColumnPtr ColumnNullable::replicate(const Offsets& offsets) const {

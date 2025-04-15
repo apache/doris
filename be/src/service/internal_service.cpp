@@ -41,29 +41,23 @@
 #include <stdint.h>
 #include <sys/stat.h>
 #include <vec/exec/vjdbc_connector.h>
+#include <vec/sink/varrow_flight_result_writer.h>
 
 #include <algorithm>
-#include <exception>
 #include <filesystem>
 #include <memory>
 #include <set>
 #include <sstream>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "common/config.h"
-#include "common/consts.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/rowid_fetcher.h"
-#include "gen_cpp/BackendService.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/internal_service.pb.h"
-#include "gutil/integral_types.h"
 #include "http/http_client.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
@@ -76,28 +70,21 @@
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/segment_v2/column_reader.h"
-#include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/segment.h"
-#include "olap/rowset/segment_v2/segment_iterator.h"
-#include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
-#include "olap/utils.h"
 #include "olap/wal/wal_manager.h"
-#include "runtime/buffer_control_block.h"
 #include "runtime/cache/result_cache.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_stream_mgr.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
@@ -109,24 +96,20 @@
 #include "util/arrow/row_batch.h"
 #include "util/async_io.h"
 #include "util/brpc_client_cache.h"
+#include "util/brpc_closure.h"
 #include "util/doris_metrics.h"
 #include "util/md5.h"
 #include "util/metrics.h"
 #include "util/network_util.h"
 #include "util/proto_util.h"
-#include "util/ref_count_closure.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "util/string_util.h"
 #include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_string.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/data_types/data_type.h"
 #include "vec/exec/format/avro//avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
@@ -135,6 +118,7 @@
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "vec/sink/vmysql_result_writer.h"
 
 namespace google {
 namespace protobuf {
@@ -169,6 +153,34 @@ static void thread_context_deleter(void* d) {
 }
 
 template <typename T>
+concept CanCancel = requires(T* response) { response->mutable_status(); };
+
+template <typename T>
+void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
+    brpc::ClosureGuard closure_guard(done);
+    LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool.get_info();
+}
+
+template <CanCancel T>
+void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
+    brpc::ClosureGuard closure_guard(done);
+    // Should use status to generate protobuf message, because it will encoding Backend Info
+    // into the error message and then we could know which backend's pool is full.
+    Status st = Status::Error<TStatusCode::CANCELLED>(
+            "fail to offer request to the work pool, pool={}", pool.get_info());
+    st.to_protobuf(response->mutable_status());
+    LOG(WARNING) << "cancelled due to fail to offer request to the work pool, pool="
+                 << pool.get_info();
+}
+
+// this struct is used to set signal task id in the constructor and reset it in the destructor
+// thread pool will reuse pthread, so we need to clean thread local data
+struct SignalTaskIdKeeper {
+    SignalTaskIdKeeper(const PUniqueId& id) { signal::set_signal_task_id(id); }
+    ~SignalTaskIdKeeper() { signal::set_signal_task_id(PUniqueId {}); }
+};
+
+template <typename T>
 class NewHttpClosure : public ::google::protobuf::Closure {
 public:
     NewHttpClosure(google::protobuf::Closure* done) : _done(done) {}
@@ -192,6 +204,7 @@ private:
 
 PInternalService::PInternalService(ExecEnv* exec_env)
         : _exec_env(exec_env),
+          // heavy threadpool is used for load process and other process that will read disk or access network.
           _heavy_work_pool(config::brpc_heavy_work_pool_threads != -1
                                    ? config::brpc_heavy_work_pool_threads
                                    : std::max(128, CpuInfo::num_cores() * 4),
@@ -199,6 +212,8 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                    ? config::brpc_heavy_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
                            "brpc_heavy"),
+
+          // light threadpool should be only used in query processing logic. All hanlers should be very light, not locked, not access disk.
           _light_work_pool(config::brpc_light_work_pool_threads != -1
                                    ? config::brpc_light_work_pool_threads
                                    : std::max(128, CpuInfo::num_cores() * 4),
@@ -208,7 +223,7 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                            "brpc_light"),
           _arrow_flight_work_pool(config::brpc_arrow_flight_work_pool_threads != -1
                                           ? config::brpc_arrow_flight_work_pool_threads
-                                          : std::max(512, CpuInfo::num_cores() * 16),
+                                          : std::max(512, CpuInfo::num_cores() * 2),
                                   config::brpc_arrow_flight_work_pool_max_queue_size != -1
                                           ? config::brpc_arrow_flight_work_pool_max_queue_size
                                           : std::max(20480, CpuInfo::num_cores() * 640),
@@ -241,7 +256,6 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                          []() { return config::brpc_arrow_flight_work_pool_threads; });
 
     _exec_env->load_stream_mgr()->set_heavy_work_pool(&_heavy_work_pool);
-    _exec_env->load_stream_mgr()->set_light_work_pool(&_light_work_pool);
 
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
     CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
@@ -276,10 +290,10 @@ void PInternalService::tablet_writer_open(google::protobuf::RpcController* contr
                                           const PTabletWriterOpenRequest* request,
                                           PTabletWriterOpenResult* response,
                                           google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
         VLOG_RPC << "tablet writer open, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
-        signal::set_signal_task_id(request->id());
+        SignalTaskIdKeeper keeper(request->id());
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->open(*request);
         if (!st.ok()) {
@@ -290,7 +304,7 @@ void PInternalService::tablet_writer_open(google::protobuf::RpcController* contr
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _heavy_work_pool);
         return;
     }
 }
@@ -384,8 +398,8 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
                                         const POpenLoadStreamRequest* request,
                                         POpenLoadStreamResponse* response,
                                         google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
-        signal::set_signal_task_id(request->load_id());
+    bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
+        SignalTaskIdKeeper keeper(request->load_id());
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         brpc::StreamOptions stream_options;
@@ -433,7 +447,7 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _heavy_work_pool);
     }
 }
 
@@ -465,7 +479,7 @@ void PInternalService::tablet_writer_add_block(google::protobuf::RpcController* 
         int64_t execution_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
-            signal::set_signal_task_id(request->id());
+            SignalTaskIdKeeper keeper(request->id());
             auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add block failed, message=" << st
@@ -488,10 +502,10 @@ void PInternalService::tablet_writer_cancel(google::protobuf::RpcController* con
                                             const PTabletWriterCancelRequest* request,
                                             PTabletWriterCancelResult* response,
                                             google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, done]() {
+    bool ret = _heavy_work_pool.try_offer([this, request, done]() {
         VLOG_RPC << "tablet writer cancel, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id();
-        signal::set_signal_task_id(request->id());
+        SignalTaskIdKeeper keeper(request->id());
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->cancel(*request);
         if (!st.ok()) {
@@ -501,7 +515,7 @@ void PInternalService::tablet_writer_cancel(google::protobuf::RpcController* con
         }
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _heavy_work_pool);
         return;
     }
 }
@@ -575,13 +589,27 @@ Status PInternalService::_exec_plan_fragment_impl(
         }
         MonotonicStopWatch timer;
         timer.start();
+
+        // work for old version frontend
+        if (!t_request.__isset.runtime_filter_info) {
+            TRuntimeFilterInfo runtime_filter_info;
+            auto local_param = fragment_list[0].local_params[0];
+            if (local_param.__isset.runtime_filter_params) {
+                runtime_filter_info.__set_runtime_filter_params(local_param.runtime_filter_params);
+            }
+            if (local_param.__isset.topn_filter_descs) {
+                runtime_filter_info.__set_topn_filter_descs(local_param.topn_filter_descs);
+            }
+            t_request.__set_runtime_filter_info(runtime_filter_info);
+        }
+
         for (const TPipelineFragmentParams& fragment : fragment_list) {
             if (cb) {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        fragment, QuerySource::INTERNAL_FRONTEND, cb));
+                        fragment, QuerySource::INTERNAL_FRONTEND, cb, t_request));
             } else {
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        fragment, QuerySource::INTERNAL_FRONTEND));
+                        fragment, QuerySource::INTERNAL_FRONTEND, t_request));
             }
         }
         timer.stop();
@@ -603,10 +631,7 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
                                             google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
-        TUniqueId tid;
-        tid.__set_hi(request->finst_id().hi());
-        tid.__set_lo(request->finst_id().lo());
-        signal::set_signal_task_id(tid);
+        SignalTaskIdKeeper keeper(request->finst_id());
         Status st = Status::OK();
 
         const bool has_cancel_reason = request->has_cancel_reason();
@@ -652,20 +677,36 @@ void PInternalService::fetch_data(google::protobuf::RpcController* controller,
                                   google::protobuf::Closure* done) {
     // fetch_data is a light operation which will put a request rather than wait inplace when there's no data ready.
     // when there's data ready, use brpc to send. there's queue in brpc service. won't take it too long.
-    auto* cntl = static_cast<brpc::Controller*>(controller);
-    auto* ctx = new GetResultBatchCtx(cntl, result, done);
-    _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
+    auto ctx = vectorized::GetResultBatchCtx::create_shared(result, done);
+    TUniqueId tid = UniqueId(request->finst_id()).to_thrift();
+    std::shared_ptr<vectorized::MySQLResultBlockBuffer> buffer;
+    Status st = ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, buffer);
+    if (!st.ok()) {
+        LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(tid);
+        return;
+    }
+    if (st = buffer->get_batch(ctx); !st.ok()) {
+        LOG(WARNING) << "fetch_data failed: " << st.to_string();
+    }
 }
 
 void PInternalService::fetch_arrow_data(google::protobuf::RpcController* controller,
                                         const PFetchArrowDataRequest* request,
                                         PFetchArrowDataResult* result,
                                         google::protobuf::Closure* done) {
-    bool ret = _arrow_flight_work_pool.try_offer([this, controller, request, result, done]() {
+    bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
-        auto* cntl = static_cast<brpc::Controller*>(controller);
-        auto* ctx = new GetArrowResultBatchCtx(cntl, result, done);
-        _exec_env->result_mgr()->fetch_arrow_data(request->finst_id(), ctx);
+        auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result);
+        TUniqueId tid = UniqueId(request->finst_id()).to_thrift();
+        std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
+        auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, arrow_buffer);
+        if (!st.ok()) {
+            LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(tid);
+            return;
+        }
+        if (st = arrow_buffer->get_batch(ctx); !st.ok()) {
+            LOG(WARNING) << "fetch_arrow_data failed: " << st.to_string();
+        }
     });
     if (!ret) {
         offer_failed(result, done, _arrow_flight_work_pool);
@@ -878,11 +919,18 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
                                                  const PFetchArrowFlightSchemaRequest* request,
                                                  PFetchArrowFlightSchemaResult* result,
                                                  google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([request, result, done]() {
+    bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         std::shared_ptr<arrow::Schema> schema;
-        auto st = ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
-                UniqueId(request->finst_id()).to_thrift(), &schema);
+        std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> buffer;
+        auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(
+                UniqueId(request->finst_id()).to_thrift(), buffer);
+        if (!st.ok()) {
+            LOG(WARNING) << "fetch arrow flight schema failed, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        st = buffer->get_schema(&schema);
         if (!st.ok()) {
             LOG(WARNING) << "fetch arrow flight schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
@@ -903,7 +951,7 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
         st.to_protobuf(result->mutable_status());
     });
     if (!ret) {
-        offer_failed(result, done, _heavy_work_pool);
+        offer_failed(result, done, _arrow_flight_work_pool);
         return;
     }
 }
@@ -1322,12 +1370,12 @@ void PInternalService::update_cache(google::protobuf::RpcController* controller,
 void PInternalService::fetch_cache(google::protobuf::RpcController* controller,
                                    const PFetchCacheRequest* request, PFetchCacheResult* result,
                                    google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, request, result, done]() {
+    bool ret = _light_work_pool.try_offer([this, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         _exec_env->result_cache()->fetch(request, result);
     });
     if (!ret) {
-        offer_failed(result, done, _heavy_work_pool);
+        offer_failed(result, done, _light_work_pool);
         return;
     }
 }
@@ -1350,6 +1398,7 @@ void PInternalService::merge_filter(::google::protobuf::RpcController* controlle
                                     ::doris::PMergeFilterResponse* response,
                                     ::google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
@@ -1367,6 +1416,7 @@ void PInternalService::send_filter_size(::google::protobuf::RpcController* contr
                                         ::doris::PSendFilterSizeResponse* response,
                                         ::google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
         Status st = _exec_env->fragment_mgr()->send_filter_size(request);
         st.to_protobuf(response->mutable_status());
@@ -1382,6 +1432,7 @@ void PInternalService::sync_filter_size(::google::protobuf::RpcController* contr
                                         ::doris::PSyncFilterSizeResponse* response,
                                         ::google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
         Status st = _exec_env->fragment_mgr()->sync_filter_size(request);
         st.to_protobuf(response->mutable_status());
@@ -1397,10 +1448,10 @@ void PInternalService::apply_filterv2(::google::protobuf::RpcController* control
                                       ::doris::PPublishFilterResponse* response,
                                       ::google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
-        UniqueId unique_id(request->query_id());
         VLOG_NOTICE << "rpc apply_filterv2 recv";
         Status st = _exec_env->fragment_mgr()->apply_filterv2(request, &zero_copy_input_stream);
         if (!st.ok()) {
@@ -1451,7 +1502,7 @@ void PInternalService::send_data(google::protobuf::RpcController* controller,
 void PInternalService::commit(google::protobuf::RpcController* controller,
                               const PCommitRequest* request, PCommitResult* response,
                               google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId load_id;
         load_id.hi = request->load_id().hi();
@@ -1467,7 +1518,7 @@ void PInternalService::commit(google::protobuf::RpcController* controller,
         }
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _heavy_work_pool);
         return;
     }
 }
@@ -1475,7 +1526,7 @@ void PInternalService::commit(google::protobuf::RpcController* controller,
 void PInternalService::rollback(google::protobuf::RpcController* controller,
                                 const PRollbackRequest* request, PRollbackResult* response,
                                 google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId load_id;
         load_id.hi = request->load_id().hi();
@@ -1490,7 +1541,7 @@ void PInternalService::rollback(google::protobuf::RpcController* controller,
         }
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _heavy_work_pool);
         return;
     }
 }
@@ -1993,7 +2044,7 @@ void PInternalServiceImpl::_response_pull_slave_rowset(const std::string& remote
 void PInternalServiceImpl::response_slave_tablet_pull_rowset(
         google::protobuf::RpcController* controller, const PTabletWriteSlaveDoneRequest* request,
         PTabletWriteSlaveDoneResult* response, google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([txn_mgr = _engine.txn_manager(), request, response,
+    bool ret = _heavy_work_pool.try_offer([txn_mgr = _engine.txn_manager(), request, response,
                                            done]() {
         brpc::ClosureGuard closure_guard(done);
         VLOG_CRITICAL << "receive the result of slave replica pull rowset from slave replica. "
@@ -2013,8 +2064,8 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
 void PInternalService::multiget_data(google::protobuf::RpcController* controller,
                                      const PMultiGetRequest* request, PMultiGetResponse* response,
                                      google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([request, response, done]() {
-        signal::set_signal_task_id(request->query_id());
+    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
+        SignalTaskIdKeeper keeper(request->query_id());
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();
@@ -2071,7 +2122,7 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
     load_id.__set_lo(request->load_id().lo());
     std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
     std::shared_ptr<bool> is_done = std::make_shared<bool>(false);
-    bool ret = _light_work_pool.try_offer([this, request, response, done, load_id, lock,
+    bool ret = _heavy_work_pool.try_offer([this, request, response, done, load_id, lock,
                                            is_done]() {
         brpc::ClosureGuard closure_guard(done);
         std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
@@ -2140,7 +2191,7 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
     });
     if (!ret) {
         _exec_env->new_load_stream_mgr()->remove(load_id);
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _heavy_work_pool);
         return;
     }
 };
@@ -2149,7 +2200,7 @@ void PInternalService::get_wal_queue_size(google::protobuf::RpcController* contr
                                           const PGetWalQueueSizeRequest* request,
                                           PGetWalQueueSizeResponse* response,
                                           google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
         auto table_id = request->table_id();
@@ -2158,7 +2209,7 @@ void PInternalService::get_wal_queue_size(google::protobuf::RpcController* contr
         response->mutable_status()->set_status_code(st.code());
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _heavy_work_pool);
     }
 }
 
@@ -2166,7 +2217,7 @@ void PInternalService::get_be_resource(google::protobuf::RpcController* controll
                                        const PGetBeResourceRequest* request,
                                        PGetBeResourceResponse* response,
                                        google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([response, done]() {
+    bool ret = _heavy_work_pool.try_offer([response, done]() {
         brpc::ClosureGuard closure_guard(done);
         int64_t mem_limit = MemInfo::mem_limit();
         int64_t mem_usage = PerfCounters::get_vm_rss();
@@ -2179,7 +2230,7 @@ void PInternalService::get_be_resource(google::protobuf::RpcController* controll
         response->mutable_status()->set_status_code(st.code());
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _heavy_work_pool);
     }
 }
 

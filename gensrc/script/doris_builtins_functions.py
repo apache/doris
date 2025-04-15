@@ -1694,6 +1694,12 @@ visible_functions = {
         [['repeat'], 'STRING', ['STRING', 'INT'], 'ALWAYS_NULLABLE'],
         [['lpad'], 'STRING', ['STRING', 'INT', 'STRING'], 'ALWAYS_NULLABLE'],
         [['rpad'], 'STRING', ['STRING', 'INT', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['format_round'], 'STRING', ['BIGINT'], ''],
+        [['format_round'], 'STRING', ['LARGEINT'], ''],
+        [['format_round'], 'STRING', ['DOUBLE', 'INT'], ''],
+        [['format_round'], 'STRING', ['DECIMAL32', 'INT'], ''],
+        [['format_round'], 'STRING', ['DECIMAL64', 'INT'], ''],
+        [['format_round'], 'STRING', ['DECIMAL128', 'INT'], ''],
         [['append_trailing_char_if_absent'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['length'], 'INT', ['STRING'], ''],
         [['crc32'], 'BIGINT', ['STRING'], ''],
@@ -2153,6 +2159,8 @@ visible_functions = {
         [['to_ipv6_or_null'], 'IPV6', ['STRING'], 'ALWAYS_NULLABLE'],
         [['ipv4_to_ipv6'], 'IPV6', ['IPV4'], 'DEPEND_ON_ARGUMENT'],
         [['cut_ipv6'], 'STRING', ['IPV6', 'TINYINT', 'TINYINT'], 'DEPEND_ON_ARGUMENT'],
+        [['ipv6_from_uint128_string_or_null'], 'IPV6', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ipv6_from_uint128_string_or_null'], 'IPV6', ['STRING'], 'ALWAYS_NULLABLE']
     ],
 
     "NonNullalbe": [

@@ -90,6 +90,7 @@ suite("test_compact_multi_segments", "nonConcurrent") {
             }
         }
         // check generate 3 segments
+        sql """ select * from ${tableName} limit 1; """
         getTabletStatus(2, 3)
 
         streamLoad {
@@ -109,6 +110,7 @@ suite("test_compact_multi_segments", "nonConcurrent") {
             }
         }
         // check generate 3 segments
+        sql """ select * from ${tableName} limit 1; """
         getTabletStatus(3, 6)
 
         streamLoad {
@@ -128,6 +130,7 @@ suite("test_compact_multi_segments", "nonConcurrent") {
             }
         }
         // check generate 3 segments
+        sql """ select * from ${tableName} limit 1; """
         getTabletStatus(4, 6)
 
         streamLoad {
@@ -147,6 +150,7 @@ suite("test_compact_multi_segments", "nonConcurrent") {
             }
         }
         // check generate 3 segments
+        sql """ select * from ${tableName} limit 1; """
         getTabletStatus(5, 6)
 
         def rowCount1 = sql """ select count() from ${tableName}; """
@@ -182,6 +186,7 @@ suite("test_compact_multi_segments", "nonConcurrent") {
         }
 
         // check generate 1 segments
+        sql """ select * from ${tableName} limit 1; """
         getTabletStatus(2, 1) // [2-5]
 
         // check row count

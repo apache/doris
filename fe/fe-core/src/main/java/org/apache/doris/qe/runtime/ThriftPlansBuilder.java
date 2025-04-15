@@ -134,7 +134,7 @@ public class ThriftPlansBuilder {
             Collections.reverse(fragmentsGroupByWorker.get(worker).getParamsList());
         }
 
-        setParamsForOlapTableSink(distributedPlans, fragmentsGroupByWorker);
+        setParamsForOlapTableSink(distributedPlans, fragmentsGroupByWorker, coordinatorContext);
 
         // remove redundant params to reduce rpc message size
         for (Entry<DistributedPlanWorker, TPipelineFragmentParamsList> kv : fragmentsGroupByWorker.entrySet()) {
@@ -188,7 +188,8 @@ public class ThriftPlansBuilder {
     }
 
     private static void setParamsForOlapTableSink(List<PipelineDistributedPlan> distributedPlans,
-            Map<DistributedPlanWorker, TPipelineFragmentParamsList> fragmentsGroupByWorker) {
+            Map<DistributedPlanWorker, TPipelineFragmentParamsList> fragmentsGroupByWorker,
+            CoordinatorContext coordinatorContext) {
         int numBackendsWithSink = 0;
         for (PipelineDistributedPlan distributedPlan : distributedPlans) {
             PlanFragment fragment = distributedPlan.getFragmentJob().getFragment();
@@ -201,13 +202,14 @@ public class ThriftPlansBuilder {
             }
         }
 
+        ConnectContext connectContext = coordinatorContext.connectContext;
         for (Entry<DistributedPlanWorker, TPipelineFragmentParamsList> kv : fragmentsGroupByWorker.entrySet()) {
             TPipelineFragmentParamsList fragments = kv.getValue();
             for (TPipelineFragmentParams fragmentParams : fragments.getParamsList()) {
                 if (fragmentParams.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK) {
                     int loadStreamPerNode = 1;
-                    if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-                        loadStreamPerNode = ConnectContext.get().getSessionVariable().getLoadStreamPerNode();
+                    if (connectContext != null && connectContext.getSessionVariable() != null) {
+                        loadStreamPerNode = connectContext.getSessionVariable().getLoadStreamPerNode();
                     }
                     fragmentParams.setLoadStreamPerNode(loadStreamPerNode);
                     fragmentParams.setTotalLoadStreams(numBackendsWithSink * loadStreamPerNode);

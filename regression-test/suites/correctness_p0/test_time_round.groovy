@@ -90,4 +90,129 @@ suite("test_time_round") {
     qt_select "select hour_floor(dt,p,'1919-08-10 11:45:14') from dbround order by id;"
     qt_select "select hour_floor(dt,2,'1919-08-10 11:45:14') from dbround order by id;"
     qt_select_1 "select dt,hour_floor(dt,0) from dbround order by id;"
+    
+    /// Additional test cases for three-parameter versions
+    // Week tests with three parameters
+    qt_select "select week_ceil('2022-05-25 00:00:00', 1, '2022-01-02 00:00:00')"
+    qt_select "select week_floor('2022-05-25 00:00:00', 1, '2022-01-02 00:00:00')"
+    qt_select "select week_ceil('2022-05-25 00:00:00', 2, '2022-01-02 00:00:00')"
+    qt_select "select week_floor('2022-05-25 00:00:00', 2, '2022-01-02 00:00:00')"
+    qt_select "select week_ceil('2022-05-25 00:00:00', 4, '2022-01-02 00:00:00')"
+    qt_select "select week_floor('2022-05-25 00:00:00', 4, '2022-01-02 00:00:00')"
+    
+    // Test with different origin dates
+    qt_select "select week_ceil('2022-05-25 00:00:00', 1, '2022-01-03 00:00:00')"
+    qt_select "select week_floor('2022-05-25 00:00:00', 1, '2022-01-03 00:00:00')"
+    qt_select "select week_ceil('2022-05-25 00:00:00', 1, '2022-01-04 00:00:00')"
+    qt_select "select week_floor('2022-05-25 00:00:00', 1, '2022-01-04 00:00:00')"
+    qt_select "select week_ceil('2022-05-25 00:00:00', 1, '2022-01-05 00:00:00')"
+    qt_select "select week_floor('2022-05-25 00:00:00', 1, '2022-01-05 00:00:00')"
+    
+    // Edge cases with dates far from origin
+    qt_select "select week_ceil('2099-12-31 23:59:59', 1, '1970-01-04 00:00:00')"
+    qt_select "select week_floor('2099-12-31 23:59:59', 1, '1970-01-04 00:00:00')"
+    qt_select "select week_ceil('1900-01-01 00:00:00', 1, '1970-01-04 00:00:00')"
+    qt_select "select week_floor('1900-01-01 00:00:00', 1, '1970-01-04 00:00:00')"
+    
+    // Month tests with three parameters
+    qt_select "select month_ceil('2022-05-15 12:30:45', 1, '2022-01-10 00:00:00')"
+    qt_select "select month_floor('2022-05-15 12:30:45', 1, '2022-01-10 00:00:00')"
+    qt_select "select month_ceil('2022-05-15 12:30:45', 3, '2022-01-10 00:00:00')"
+    qt_select "select month_floor('2022-05-15 12:30:45', 3, '2022-01-10 00:00:00')"
+    qt_select "select month_ceil('2022-05-15 12:30:45', 6, '2022-01-10 00:00:00')"
+    qt_select "select month_floor('2022-05-15 12:30:45', 6, '2022-01-10 00:00:00')"
+    
+    // Year tests with three parameters
+    qt_select "select year_ceil('2022-05-15 12:30:45', 1, '2020-06-15 00:00:00')"
+    qt_select "select year_floor('2022-05-15 12:30:45', 1, '2020-06-15 00:00:00')"
+    qt_select "select year_ceil('2022-05-15 12:30:45', 5, '2020-06-15 00:00:00')"
+    qt_select "select year_floor('2022-05-15 12:30:45', 5, '2020-06-15 00:00:00')"
+    qt_select "select year_ceil('2022-05-15 12:30:45', 10, '2020-06-15 00:00:00')"
+    qt_select "select year_floor('2022-05-15 12:30:45', 10, '2020-06-15 00:00:00')"
+    
+    // Day tests with three parameters
+    qt_select "select day_ceil('2022-05-15 12:30:45', 1, '2022-05-10 06:00:00')"
+    qt_select "select day_floor('2022-05-15 12:30:45', 1, '2022-05-10 06:00:00')"
+    qt_select "select day_ceil('2022-05-15 12:30:45', 7, '2022-05-10 06:00:00')"
+    qt_select "select day_floor('2022-05-15 12:30:45', 7, '2022-05-10 06:00:00')"
+    qt_select "select day_ceil('2022-05-15 12:30:45', 15, '2022-05-10 06:00:00')"
+    qt_select "select day_floor('2022-05-15 12:30:45', 15, '2022-05-10 06:00:00')"
+    
+    // Hour tests with three parameters
+    qt_select "select hour_ceil('2022-05-15 12:30:45', 1, '2022-05-15 06:15:00')"
+    qt_select "select hour_floor('2022-05-15 12:30:45', 1, '2022-05-15 06:15:00')"
+    qt_select "select hour_ceil('2022-05-15 12:30:45', 3, '2022-05-15 06:15:00')"
+    qt_select "select hour_floor('2022-05-15 12:30:45', 3, '2022-05-15 06:15:00')"
+    qt_select "select hour_ceil('2022-05-15 12:30:45', 6, '2022-05-15 06:15:00')"
+    qt_select "select hour_floor('2022-05-15 12:30:45', 6, '2022-05-15 06:15:00')"
+    qt_select "select hour_ceil('2022-05-15 12:30:45', 12, '2022-05-15 06:15:00')"
+    qt_select "select hour_floor('2022-05-15 12:30:45', 12, '2022-05-15 06:15:00')"
+    
+    // Minute tests with three parameters
+    qt_select "select minute_ceil('2022-05-15 12:30:45', 1, '2022-05-15 12:15:30')"
+    qt_select "select minute_floor('2022-05-15 12:30:45', 1, '2022-05-15 12:15:30')"
+    qt_select "select minute_ceil('2022-05-15 12:30:45', 5, '2022-05-15 12:15:30')"
+    qt_select "select minute_floor('2022-05-15 12:30:45', 5, '2022-05-15 12:15:30')"
+    qt_select "select minute_ceil('2022-05-15 12:30:45', 15, '2022-05-15 12:15:30')"
+    qt_select "select minute_floor('2022-05-15 12:30:45', 15, '2022-05-15 12:15:30')"
+    qt_select "select minute_ceil('2022-05-15 12:30:45', 30, '2022-05-15 12:15:30')"
+    qt_select "select minute_floor('2022-05-15 12:30:45', 30, '2022-05-15 12:15:30')"
+    
+    // Second tests with three parameters
+    qt_select "select second_ceil('2022-05-15 12:30:45', 1, '2022-05-15 12:30:15')"
+    qt_select "select second_floor('2022-05-15 12:30:45', 1, '2022-05-15 12:30:15')"
+    qt_select "select second_ceil('2022-05-15 12:30:45', 5, '2022-05-15 12:30:15')"
+    qt_select "select second_floor('2022-05-15 12:30:45', 5, '2022-05-15 12:30:15')"
+    qt_select "select second_ceil('2022-05-15 12:30:45', 15, '2022-05-15 12:30:15')"
+    qt_select "select second_floor('2022-05-15 12:30:45', 15, '2022-05-15 12:30:15')"
+    qt_select "select second_ceil('2022-05-15 12:30:45', 30, '2022-05-15 12:30:15')"
+    qt_select "select second_floor('2022-05-15 12:30:45', 30, '2022-05-15 12:30:15')"
+    
+    // Test with table data
+    sql """INSERT INTO dbround VALUES(4,'2023-06-15 08:30:45' , 3 , '2023-01-01 00:00:00'); """
+    sql """INSERT INTO dbround VALUES(5,'2023-06-15 08:30:45' , 6 , '2023-01-01 00:00:00'); """
+    sql """INSERT INTO dbround VALUES(6,'2023-06-15 08:30:45' , 12 , '2023-01-01 00:00:00'); """
+    
+    qt_select "select week_ceil(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select "select week_floor(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select "select month_ceil(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select "select month_floor(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select "select day_ceil(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select "select day_floor(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select "select hour_ceil(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select "select hour_floor(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select "select minute_ceil(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select "select minute_floor(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select "select second_ceil(dt, p, o) from dbround where id > 3 order by id;"
+    qt_select "select second_floor(dt, p, o) from dbround where id > 3 order by id;"
+    
+    // invalid period
+    qt_select_1 "select week_ceil('2022-05-25 00:00:00', 0, '2022-01-02 00:00:00')"
+    qt_select_1 "select week_floor('2022-05-25 00:00:00', 0, '2022-01-02 00:00:00')"
+    qt_select_1 "select week_ceil('2022-05-25 00:00:00', -1, '2022-01-02 00:00:00')"
+    qt_select_1 "select week_floor('2022-05-25 00:00:00', -1, '2022-01-02 00:00:00')"
+    
+    // Test with large period values
+    qt_select "select week_ceil('2022-05-25 00:00:00', 100, '2022-01-02 00:00:00')"
+    qt_select "select week_floor('2022-05-25 00:00:00', 100, '2022-01-02 00:00:00')"
+    qt_select "select month_ceil('2022-05-15 12:30:45', 100, '2022-01-10 00:00:00')"
+    qt_select "select month_floor('2022-05-15 12:30:45', 100, '2022-01-10 00:00:00')"
+    qt_select "select year_ceil('2022-05-15 12:30:45', 100, '2020-06-15 00:00:00')"
+    qt_select "select year_floor('2022-05-15 12:30:45', 100, '2020-06-15 00:00:00')"
+    
+    // Test with same date as origin
+    qt_select "select week_ceil('2022-01-02 00:00:00', 1, '2022-01-02 00:00:00')"
+    qt_select "select week_floor('2022-01-02 00:00:00', 1, '2022-01-02 00:00:00')"
+    qt_select "select month_ceil('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    qt_select "select month_floor('2022-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    qt_select "select year_ceil('2020-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
+    qt_select "select year_floor('2020-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
+    
+    // Test with date earlier than origin
+    qt_select "select week_ceil('2021-01-02 00:00:00', 1, '2022-01-02 00:00:00')"
+    qt_select "select week_floor('2021-01-02 00:00:00', 1, '2022-01-02 00:00:00')"
+    qt_select "select month_ceil('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    qt_select "select month_floor('2021-01-10 00:00:00', 1, '2022-01-10 00:00:00')"
+    qt_select "select year_ceil('2019-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
+    qt_select "select year_floor('2019-06-15 00:00:00', 1, '2020-06-15 00:00:00')"
 }

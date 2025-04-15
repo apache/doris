@@ -48,6 +48,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -229,16 +230,20 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public void alterRepository(AlterRepositoryStmt stmt) throws DdlException {
+        alterRepositoryInternal(stmt.getName(), stmt.getProperties());
+    }
+
+    public void alterRepositoryInternal(String repoName, Map<String, String> properties) throws DdlException {
         tryLock();
         try {
-            Repository repo = repoMgr.getRepo(stmt.getName());
+            Repository repo = repoMgr.getRepo(repoName);
             if (repo == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
             }
 
             if (repo.getRemoteFileSystem() instanceof S3FileSystem
                     || repo.getRemoteFileSystem() instanceof AzureFileSystem) {
-                Map<String, String> oldProperties = new HashMap<>(stmt.getProperties());
+                Map<String, String> oldProperties = new HashMap<>(properties);
                 Status status = repo.alterRepositoryS3Properties(oldProperties);
                 if (!status.ok()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, status.getErrMsg());
@@ -278,6 +283,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             seqlock.unlock();
         }
     }
+
 
     // handle drop repository stmt
     public void dropRepository(DropRepositoryStmt stmt) throws DdlException {
@@ -435,11 +441,24 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 if (Config.ignore_backup_not_support_table_type) {
                     LOG.warn("Table '{}' is a {} table, can not backup and ignore it."
                             + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
-                            tblName, tbl.getType().toString());
+                            tblName, tbl.isTemporary() ? "temporary" : tbl.getType().toString());
                     tblRefsNotSupport.add(tblRef);
                     continue;
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
+                }
+            }
+
+            if (tbl.isTemporary()) {
+                if (Config.ignore_backup_not_support_table_type || tblRefs.size() > 1) {
+                    LOG.warn("Table '{}' is a temporary table, can not backup and ignore it."
+                            + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
+                            Util.getTempTableDisplayName(tblName));
+                    tblRefsNotSupport.add(tblRef);
+                    continue;
+                } else {
+                    ErrorReport.reportDdlException("Table " + Util.getTempTableDisplayName(tblName)
+                            + " is a temporary table, do not support backup");
                 }
             }
 
@@ -558,15 +577,16 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     jobInfo.getBackupTime(), TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
             restoreJob = new RestoreJob(stmt.getLabel(), backupTimestamp,
                     db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                    stmt.getTimeoutMs(), metaVersion, stmt.reserveReplica(),
+                    stmt.getTimeoutMs(), metaVersion, stmt.reserveReplica(), stmt.reserveColocate(),
                     stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(),
-                    stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(),
+                    stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(), stmt.isForceReplace(),
                     env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
         } else {
             restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveDynamicPartitionEnable(),
-                stmt.isBeingSynced(), stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(),
+                stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveColocate(),
+                stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(), stmt.isCleanTables(),
+                stmt.isCleanPartitions(), stmt.isAtomicRestore(), stmt.isForceReplace(),
                 env, repository.getId());
         }
 
@@ -748,12 +768,18 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     public boolean handleFinishedSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
         AbstractJob job = getCurrentJob(task.getDbId());
-
         if (job == null) {
             LOG.warn("failed to find backup or restore job for task: {}", task);
             // return true to remove this task from AgentTaskQueue
             return true;
         }
+
+        if (job.getJobId() != task.getJobId()) {
+            LOG.warn("invalid snapshot task: {}, job id: {}, task job id: {}", task, job.getJobId(), task.getJobId());
+            // return true to remove this task from AgentTaskQueue
+            return true;
+        }
+
         if (job instanceof BackupJob) {
             if (task.isRestoreTask()) {
                 LOG.warn("expect finding restore job, but get backup job {} for task: {}", job, task);
@@ -778,19 +804,25 @@ public class BackupHandler extends MasterDaemon implements Writable {
             LOG.info("invalid upload task: {}, no backup job is found. db id: {}", task, task.getDbId());
             return false;
         }
-        BackupJob restoreJob = (BackupJob) job;
-        if (restoreJob.getJobId() != task.getJobId() || restoreJob.getState() != BackupJobState.UPLOADING) {
+        BackupJob backupJob = (BackupJob) job;
+        if (backupJob.getJobId() != task.getJobId() || backupJob.getState() != BackupJobState.UPLOADING) {
             LOG.info("invalid upload task: {}, job id: {}, job state: {}",
-                     task, restoreJob.getJobId(), restoreJob.getState().name());
+                     task, backupJob.getJobId(), backupJob.getState().name());
             return false;
         }
-        return restoreJob.finishSnapshotUploadTask(task, request);
+        return backupJob.finishSnapshotUploadTask(task, request);
     }
 
     public boolean handleDownloadSnapshotTask(DownloadTask task, TFinishTaskRequest request) {
         AbstractJob job = getCurrentJob(task.getDbId());
         if (!(job instanceof RestoreJob)) {
             LOG.warn("failed to find restore job for task: {}", task);
+            // return true to remove this task from AgentTaskQueue
+            return true;
+        }
+
+        if (job.getJobId() != task.getJobId()) {
+            LOG.warn("invalid download task: {}, job id: {}, task job id: {}", task, job.getJobId(), task.getJobId());
             // return true to remove this task from AgentTaskQueue
             return true;
         }
@@ -802,6 +834,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
         AbstractJob job = getCurrentJob(task.getDbId());
         if (!(job instanceof RestoreJob)) {
             LOG.warn("failed to find restore job for task: {}", task);
+            // return true to remove this task from AgentTaskQueue
+            return true;
+        }
+
+        if (job.getJobId() != task.getJobId()) {
+            LOG.warn("invalid dir move task: {}, job id: {}, task job id: {}", task, job.getJobId(), task.getJobId());
             // return true to remove this task from AgentTaskQueue
             return true;
         }

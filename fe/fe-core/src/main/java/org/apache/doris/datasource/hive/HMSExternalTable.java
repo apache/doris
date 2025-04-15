@@ -39,6 +39,7 @@ import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshContext;
@@ -63,6 +64,8 @@ import com.google.common.collect.BiMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -77,11 +80,16 @@ import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.internal.schema.Types;
+import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -454,9 +462,51 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public String getViewText() {
         String viewText = getViewExpandedText();
         if (StringUtils.isNotEmpty(viewText)) {
-            return viewText;
+            if (!viewText.equals("/* Presto View */")) {
+                return viewText;
+            }
         }
-        return getViewOriginalText();
+
+        String originalText = getViewOriginalText();
+        return parseTrinoViewDefinition(originalText);
+    }
+
+    /**
+     * Parse Trino/Presto view definition from the original text.
+     * The definition is stored in the format: /* Presto View: <base64-encoded-json> * /
+     *
+     * The base64 encoded JSON contains the following fields:
+     * {
+     *   "originalSql": "SELECT * FROM employees",  // The original SQL statement
+     *   "catalog": "hive",                        // The data catalog name
+     *   "schema": "mmc_hive",                     // The schema name
+     *   ...
+     * }
+     *
+     * @param originalText The original view definition text
+     * @return The parsed SQL statement, or original text if parsing fails
+     */
+    private String parseTrinoViewDefinition(String originalText) {
+        if (originalText == null || !originalText.contains("/* Presto View: ")) {
+            return originalText;
+        }
+
+        try {
+            String base64String = originalText.substring(
+                    originalText.indexOf("/* Presto View: ") + "/* Presto View: ".length(),
+                    originalText.lastIndexOf(" */")
+            ).trim();
+            byte[] decodedBytes = Base64.getDecoder().decode(base64String);
+            String decodedString = new String(decodedBytes, StandardCharsets.UTF_8);
+            JsonObject jsonObject = new Gson().fromJson(decodedString, JsonObject.class);
+
+            if (jsonObject.has("originalSql")) {
+                return jsonObject.get("originalSql").getAsString();
+            }
+        } catch (Exception e) {
+            LOG.warn("Decoding Presto view definition failed", e);
+        }
+        return originalText;
     }
 
     public String getViewExpandedText() {
@@ -556,17 +606,24 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private Optional<SchemaCacheValue> getHudiSchema() {
-        org.apache.avro.Schema hudiSchema = HiveMetaStoreClientHelper.getHudiTableSchema(this);
+        boolean[] enableSchemaEvolution = {false};
+        InternalSchema hudiInternalSchema = HiveMetaStoreClientHelper.getHudiTableSchema(this, enableSchemaEvolution);
+        org.apache.avro.Schema hudiSchema = AvroInternalSchemaConverter.convert(hudiInternalSchema, name);
+
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(hudiSchema.getFields().size());
         List<String> colTypes = Lists.newArrayList();
-        for (org.apache.avro.Schema.Field hudiField : hudiSchema.getFields()) {
-            String columnName = hudiField.name().toLowerCase(Locale.ROOT);
-            tmpSchema.add(new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiField.schema()),
-                    true, null, true, null, "", true, null, -1, null));
-            colTypes.add(HudiUtils.convertAvroToHiveType(hudiField.schema()));
+        for (int i = 0; i < hudiSchema.getFields().size(); i++) {
+            Types.Field hudiInternalfield = hudiInternalSchema.getRecord().fields().get(i);
+            org.apache.avro.Schema.Field hudiAvroField =  hudiSchema.getFields().get(i);
+            String columnName = hudiAvroField.name().toLowerCase(Locale.ROOT);
+            tmpSchema.add(new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiAvroField.schema()),
+                    true, null, true, null, "", true, null,
+                    hudiInternalfield.fieldId(), null));
+            colTypes.add(HudiUtils.convertAvroToHiveType(hudiAvroField.schema()));
         }
         List<Column> partitionColumns = initPartitionColumns(tmpSchema);
-        HudiSchemaCacheValue hudiSchemaCacheValue = new HudiSchemaCacheValue(tmpSchema, partitionColumns);
+        HudiSchemaCacheValue hudiSchemaCacheValue =
+                new HudiSchemaCacheValue(tmpSchema, partitionColumns, enableSchemaEvolution[0]);
         hudiSchemaCacheValue.setColTypes(colTypes);
         return Optional.of(hudiSchemaCacheValue);
     }
@@ -1013,7 +1070,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 LOG.debug("Chosen partition for table {}. [{}]", name, partition.toString());
             }
         }
-        return cache.getFilesByPartitionsWithoutCache(hivePartitions, bindBrokerName);
+        return cache.getFilesByPartitionsWithoutCache(hivePartitions, bindBrokerName,
+                new FileSystemDirectoryLister(), null);
     }
 
     @Override
@@ -1024,8 +1082,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
-        Env.getCurrentEnv().getRefreshManager()
-                .refreshTable(getCatalog().getName(), getDbName(), getName(), true);
     }
 
     public HoodieTableMetaClient getHudiClient() {

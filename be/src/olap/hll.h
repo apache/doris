@@ -239,7 +239,7 @@ public:
     static bool is_valid(const Slice& slice);
 
     // only for debug
-    std::string to_string() {
+    std::string to_string() const {
         switch (_type) {
         case HLL_DATA_EMPTY:
             return {};

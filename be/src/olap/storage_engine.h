@@ -18,6 +18,7 @@
 #pragma once
 
 #include <butil/macros.h>
+#include <bvar/bvar.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -108,7 +109,8 @@ public:
     // start all background threads. This should be call after env is ready.
     virtual Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) = 0;
 
-    virtual Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) = 0;
+    virtual Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
+                                              SyncRowsetStats* sync_stats = nullptr) = 0;
 
     void register_report_listener(ReportWorker* listener);
     void deregister_report_listener(ReportWorker* listener);
@@ -145,6 +147,7 @@ public:
 protected:
     void _evict_querying_rowset();
     void _evict_quring_rowset_thread_callback();
+    bool _should_delay_large_task();
 
     int32_t _effective_cluster_id = -1;
     HeartbeatFlags* _heartbeat_flags = nullptr;
@@ -168,6 +171,14 @@ protected:
     int _disk_num {-1};
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
+
+    std::shared_ptr<bvar::Status<size_t>> _tablet_max_delete_bitmap_score_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _tablet_max_base_rowset_delete_bitmap_score_metrics;
+
+    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    int _cumu_compaction_thread_pool_used_threads {0};
+    int _cumu_compaction_thread_pool_small_tasks_running {0};
 };
 
 class CompactionSubmitRegistry {
@@ -217,7 +228,8 @@ public:
 
     Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 
-    Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) override;
+    Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
+                                      SyncRowsetStats* sync_stats = nullptr) override;
 
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
@@ -265,7 +277,6 @@ public:
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
     SnapshotManager* snapshot_mgr() { return _snapshot_mgr.get(); }
-    MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
     // Rowset garbage collection helpers
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
     PendingRowsetSet& pending_local_rowsets() { return _pending_local_rowsets; }
@@ -430,6 +441,8 @@ private:
 
     int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
 
+    void _check_tablet_delete_bitmap_score_callback();
+
 private:
     EngineOptions _options;
     std::mutex _store_lock;
@@ -476,8 +489,6 @@ private:
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
 
-    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
-    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _single_replica_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
@@ -522,6 +533,8 @@ private:
     std::mutex _cold_compaction_tablet_submitted_mtx;
     std::unordered_set<int64_t> _cold_compaction_tablet_submitted;
 
+    std::mutex _cumu_compaction_delay_mtx;
+
     // tablet_id, publish_version, transaction_id, partition_id
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
     // aync publish for discontinuous versions of merge_on_write table
@@ -536,6 +549,9 @@ private:
     std::unique_ptr<CreateTabletRRIdxCache> _create_tablet_idx_lru_cache;
 
     std::unique_ptr<SnapshotManager> _snapshot_mgr;
+
+    // thread to check tablet delete bitmap count tasks
+    scoped_refptr<Thread> _check_delete_bitmap_score_thread;
 };
 
 // lru cache for create tabelt round robin in disks

@@ -57,8 +57,8 @@ Status SetProbeSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, Runtime
 }
 
 template <bool is_intersect>
-Status SetProbeSinkOperatorX<is_intersect>::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::open(state));
+Status SetProbeSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_exprs, state, _child->row_desc()));
     return vectorized::VExpr::open(_child_exprs, state);
 }
@@ -70,6 +70,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
 
     const auto probe_rows = cast_set<uint32_t>(in_block->rows());
     if (probe_rows > 0) {
@@ -94,7 +95,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                 local_state._shared_state->hash_table_variants->method_variant));
     }
 
-    if (eos && !state->get_task()->wake_up_early()) {
+    if (eos && !local_state._terminated) {
         _finalize_probe(local_state);
     }
     return Status::OK();
@@ -201,6 +202,12 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
     } else {
         local_state._dependency->set_ready_to_read();
     }
+}
+
+template <bool is_intersect>
+size_t SetProbeSinkOperatorX<is_intersect>::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    return local_state._estimate_memory_usage;
 }
 
 template <bool is_intersect>

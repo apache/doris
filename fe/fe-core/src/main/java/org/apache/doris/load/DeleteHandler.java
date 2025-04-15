@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Predicate;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -29,6 +30,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -103,8 +105,8 @@ public class DeleteHandler implements Writable {
     /**
      * used for Nereids planner
      */
-    public void process(Database targetDb, OlapTable targetTbl, List<String> partitionNames,
-            List<Predicate> deleteConditions, QueryState execState) {
+    public void process(Database targetDb, OlapTable targetTbl, List<Partition> selectedPartitions,
+            List<Predicate> deleteConditions, QueryState execState, List<String> partitionNames) {
         DeleteJob deleteJob = null;
         try {
             targetTbl.readLock();
@@ -114,10 +116,11 @@ public class DeleteHandler implements Writable {
                     // just add a comment here to notice.
                 }
                 deleteJob = DeleteJob.newBuilder()
-                        .buildWith(new DeleteJob.BuildParams(
+                        .buildWithNereids(new DeleteJob.BuildParams(
                                 targetDb,
                                 targetTbl,
                                 partitionNames,
+                                selectedPartitions,
                                 deleteConditions));
 
                 long txnId = deleteJob.beginTxn();
@@ -264,15 +267,23 @@ public class DeleteHandler implements Writable {
             }
 
             for (DeleteInfo deleteInfo : deleteInfoList) {
+                String tableName = deleteInfo.getTableName();
                 if (!Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                                deleteInfo.getTableName(),
-                                PrivPredicate.LOAD)) {
+                            tableName, PrivPredicate.LOAD)) {
                     continue;
                 }
 
                 List<Comparable> info = Lists.newArrayList();
-                info.add(deleteInfo.getTableName());
+                if (Util.isTempTable(tableName)) {
+                    if (!Util.isTempTableInCurrentSession(tableName)) {
+                        continue;
+                    }
+                    info.add(Util.getTempTableDisplayName(tableName));
+                } else {
+                    info.add(deleteInfo.getTableName());
+                }
+
                 if (deleteInfo.isNoPartitionSpecified()) {
                     info.add("*");
                 } else {

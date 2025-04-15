@@ -188,8 +188,8 @@ private:
                     continue;
                 } else {
                     if (idx < end_row && step_row > 0 &&
-                        ((static_cast<__int128_t>(end_row) - static_cast<__int128_t>(step_row) -
-                          1) / static_cast<__int128_t>(step_row) +
+                        ((static_cast<__int128_t>(end_row) - static_cast<__int128_t>(idx) - 1) /
+                                 static_cast<__int128_t>(step_row) +
                          1) > max_array_size_as_field) {
                         return Status::InvalidArgument("Array size exceeds the limit {}",
                                                        max_array_size_as_field);

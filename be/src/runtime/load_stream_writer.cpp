@@ -35,7 +35,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gutil/integral_types.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/data_dir.h"
@@ -61,9 +60,9 @@
 #include "runtime/memory/mem_tracker.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
+#include "util/brpc_closure.h"
 #include "util/debug_points.h"
 #include "util/mem_info.h"
-#include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "vec/core/block.h"
@@ -80,7 +79,7 @@ LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profil
     // TODO(plat1ko): CloudStorageEngine
     _rowset_builder = std::make_unique<RowsetBuilder>(
             ExecEnv::GetInstance()->storage_engine().to_local(), *context, profile);
-    _query_thread_context.init_unlocked(); // from load stream
+    _resource_ctx = thread_context()->resource_ctx(); // from load stream
 }
 
 LoadStreamWriter::~LoadStreamWriter() {
@@ -100,7 +99,7 @@ Status LoadStreamWriter::init() {
 
 Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf,
                                      FileType file_type) {
-    SCOPED_ATTACH_TASK(_query_thread_context);
+    SCOPED_ATTACH_TASK(_resource_ctx);
     io::FileWriter* file_writer = nullptr;
     auto& file_writers =
             file_type == FileType::SEGMENT_FILE ? _segment_file_writers : _inverted_file_writers;
@@ -141,7 +140,7 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
 }
 
 Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
-    SCOPED_ATTACH_TASK(_query_thread_context);
+    SCOPED_ATTACH_TASK(_resource_ctx);
     io::FileWriter* file_writer = nullptr;
     auto& file_writers =
             file_type == FileType::SEGMENT_FILE ? _segment_file_writers : _inverted_file_writers;
@@ -183,7 +182,7 @@ Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
 
 Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat,
                                      TabletSchemaSPtr flush_schema) {
-    SCOPED_ATTACH_TASK(_query_thread_context);
+    SCOPED_ATTACH_TASK(_resource_ctx);
     size_t segment_file_size = 0;
     size_t inverted_file_size = 0;
     {
@@ -246,7 +245,7 @@ Status LoadStreamWriter::_calc_file_size(uint32_t segid, FileType file_type, siz
 }
 
 Status LoadStreamWriter::_pre_close() {
-    SCOPED_ATTACH_TASK(_query_thread_context);
+    SCOPED_ATTACH_TASK(_resource_ctx);
     if (!_is_init) {
         // if this delta writer is not initialized, but close() is called.
         // which means this tablet has no data loaded, but at least one tablet
