@@ -220,6 +220,7 @@ hudiEmrCatalog = "***********"
 
 enableObjStorageTest=false
 enableMaxComputeTest=false
+enableAzureBackupRestoreTest=false
 aliYunAk="***********"
 dlfUid="***********"
 aliYunSk="***********"

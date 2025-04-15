@@ -23,6 +23,7 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.collect.Lists;
 import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -42,6 +43,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         HDFS,
         S3,
         OSS,
+        AZURE,
         OBS,
         COS,
         UNKNOWN
@@ -90,9 +92,6 @@ public abstract class StorageProperties extends ConnectionProperties {
         if (isFsSupport(origProps, FS_GCS_SUPPORT)) {
             throw new RuntimeException("Unsupported native GCS filesystem");
         }
-        if (isFsSupport(origProps, FS_AZURE_SUPPORT)) {
-            throw new RuntimeException("Unsupported native AZURE filesystem");
-        }
 
         if (storageProperties.isEmpty()) {
             throw new RuntimeException("Unknown storage type");
@@ -106,6 +105,16 @@ public abstract class StorageProperties extends ConnectionProperties {
 
     public static StorageProperties createStorageProperties(Map<String, String> origProps) {
         StorageProperties storageProperties = null;
+        String provider = origProps.get("provider");
+        if (StringUtils.isNotBlank(provider)) {
+            return StorageProviderType.fromKey(provider)
+                    .map(type -> {
+                        StorageProperties properties = type.create(origProps);
+                        properties.normalizedAndCheckProps();
+                        return properties;
+                    })
+                    .orElseThrow(() -> new IllegalArgumentException("Unknown provider: " + provider));
+        }
         // 1. parse the storage properties by user specified fs.xxx.support properties
         if (isFsSupport(origProps, FS_HDFS_SUPPORT) || HDFSProperties.guessIsMe(origProps)) {
             storageProperties = new HDFSProperties(origProps);

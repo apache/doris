@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -29,6 +30,7 @@ public enum StorageTypeMapper {
     OSS(OSSProperties.class, S3FileSystem::new),
     OBS(OBSProperties.class, S3FileSystem::new),
     COS(COSProperties.class, S3FileSystem::new),
+    AZURE(AzureProperties.class, AzureFileSystem::new),
     S3(S3Properties.class, S3FileSystem::new);
 
     private final Class<? extends StorageProperties> propClass;

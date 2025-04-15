@@ -23,9 +23,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.fs.remote.AzureFileSystem;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -51,30 +51,6 @@ public class AzureResource extends Resource {
 
     @Override
     protected void setProperties(Map<String, String> newProperties) throws DdlException {
-        Preconditions.checkState(newProperties != null);
-        // check properties
-        S3Properties.requiredS3PingProperties(newProperties);
-        // default need check resource conf valid, so need fix ut and regression case
-        boolean needCheck = isNeedCheck(newProperties);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("azure info need check validity : {}", needCheck);
-        }
-
-        // the endpoint for ping need add uri scheme.
-        String pingEndpoint = newProperties.get(S3Properties.ENDPOINT);
-        if (!pingEndpoint.startsWith("http://")) {
-            pingEndpoint = "http://" + newProperties.get(S3Properties.ENDPOINT);
-            newProperties.put(S3Properties.ENDPOINT, pingEndpoint);
-            newProperties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
-        }
-
-        if (needCheck) {
-            String bucketName = newProperties.get(S3Properties.BUCKET);
-            String rootPath = newProperties.get(S3Properties.ROOT_PATH);
-            pingAzure(bucketName, rootPath, newProperties);
-        }
-        // optional
-        S3Properties.optionalS3Property(newProperties);
         this.properties = newProperties;
     }
 
@@ -85,7 +61,8 @@ public class AzureResource extends Resource {
         }
 
         String testFile = "azure://" + bucketName + "/" + rootPath + "/test-object-valid.txt";
-        AzureFileSystem fileSystem = new AzureFileSystem(newProperties);
+        AzureProperties azureProperties = new AzureProperties(newProperties);
+        AzureFileSystem fileSystem = new AzureFileSystem(azureProperties);
         Status status = fileSystem.exists(testFile);
         if (status != Status.OK && status.getErrCode() != Status.ErrCode.NOT_FOUND) {
             throw new DdlException(
