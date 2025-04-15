@@ -198,8 +198,6 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             ConnectContext ctx) {
         StatementContext statementContext = ctx.getStatementContext();
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        // disable rbo sync mv rewrite
-        ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_SYNC_MV_COST_BASED_REWRITE, "true");
         // disable constant fold
         ctx.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
         LogicalPlan plan = (LogicalPlan) planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
