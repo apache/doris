@@ -119,6 +119,10 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_JSONB;
     case PrimitiveType::TYPE_VARIANT:
         return FieldType::OLAP_FIELD_TYPE_VARIANT;
+    case PrimitiveType::TYPE_IPV4:
+        return FieldType::OLAP_FIELD_TYPE_IPV4;
+    case PrimitiveType::TYPE_IPV6:
+        return FieldType::OLAP_FIELD_TYPE_IPV6;
     case PrimitiveType::TYPE_LAMBDA_FUNCTION:
         return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
     case PrimitiveType::TYPE_AGG_STATE:
@@ -610,8 +614,10 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     if (_has_default_value) {
         column->set_default_value(_default_value);
     }
-    if (_is_decimal) {
+    if (_precision >= 0) {
         column->set_precision(_precision);
+    }
+    if (_frac >= 0) {
         column->set_frac(_frac);
     }
     column->set_length(_length);

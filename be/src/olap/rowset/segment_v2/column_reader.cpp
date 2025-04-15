@@ -435,7 +435,7 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
     // which means the path maybe exist in sparse_column
     bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
                                         _statistics->sparse_column_non_null_size.size() ==
-                                                VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE;
+                                                config::variant_max_sparse_column_statistics_size;
 
     // For compaction operations, read flat leaves, otherwise read hierarchical data
     // Since the variant subcolumns are flattened in schema_util::get_compaction_schema
@@ -532,7 +532,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
 
         // init sparse column
         if (path.copy_pop_front().get_path() == SPARSE_COLUMN_PATH) {
-            DCHECK(column_pb.has_variant_statistics());
+            DCHECK(column_pb.has_variant_statistics()) << column_pb.DebugString();
             const auto& variant_stats = column_pb.variant_statistics();
             for (const auto& [path, size] : variant_stats.sparse_column_non_null_size()) {
                 _statistics->sparse_column_non_null_size.emplace(path, size);
@@ -1888,7 +1888,6 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     // "NULL" is a special default value which means the default value is null.
     if (_has_default_value) {
         if (_default_value == "NULL") {
-            DCHECK(_is_nullable);
             _is_default_value_null = true;
         } else {
             _type_size = _type_info->size();

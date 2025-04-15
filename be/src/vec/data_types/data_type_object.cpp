@@ -207,7 +207,8 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
                                                                   be_exec_version);
         column_object->set_sparse_column(std::move(sparse_column));
     } else {
-        column_object->get_sparse_column()->assume_mutable()->insert_many_defaults(num_rows);
+        column_object->get_sparse_column()->assume_mutable()->resize(
+                column_object->get_sparse_column()->size() + num_rows);
     }
 
     if (!root_added && column_object->get_subcolumn({})) {
@@ -243,6 +244,11 @@ void DataTypeObject::to_pb_column_meta(PColumnMeta* col_meta) const {
 
 MutableColumnPtr DataTypeObject::create_column() const {
     return ColumnObject::create(_max_subcolumns_count);
+}
+
+Field DataTypeObject::get_type_field(const IColumn& column, size_t row) const {
+    const auto& column_object = assert_cast<const ColumnObject&>(column);
+    return column_object[row];
 }
 
 } // namespace doris::vectorized

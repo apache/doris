@@ -43,7 +43,7 @@ public class StructField {
     public static final String DEFAULT_FIELD_NAME = "col";
 
     public StructField(String name, Type type, String comment, boolean containsNull) {
-        this.name = name.toLowerCase();
+        this.name = name;
         this.type = type;
         this.comment = comment;
         this.containsNull = containsNull;

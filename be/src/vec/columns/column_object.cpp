@@ -46,6 +46,7 @@
 #include "exprs/json_functions.h"
 #include "olap/olap_common.h"
 #include "util/defer_op.h"
+#include "util/jsonb_utils.h"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/helpers.h"
@@ -68,6 +69,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/get_least_supertype.h"
+#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/json/path_in_data.h"
 
 #ifdef __AVX2__
@@ -80,7 +82,8 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 namespace {
 
-DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable) {
+DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable,
+                                 int precision = -1, int scale = -1) {
     if (type == TypeIndex::Nothing) {
         return std::make_shared<DataTypeNothing>();
     }
@@ -90,7 +93,8 @@ DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_
         return is_nullable ? make_nullable(std::make_shared<ColumnObject::MostCommonType>())
                            : std::make_shared<ColumnObject::MostCommonType>();
     }
-    DataTypePtr result = DataTypeFactory::instance().create_data_type(type, is_nullable);
+    DataTypePtr result =
+            DataTypeFactory::instance().create_data_type(type, is_nullable, precision, scale);
     for (size_t i = 0; i < num_dimensions; ++i) {
         result = std::make_shared<DataTypeArray>(result);
         if (is_nullable) {
@@ -133,226 +137,7 @@ size_t get_number_of_dimensions(const IDataType& type) {
     }
     return num_dimensions;
 }
-
-/// Calculates number of dimensions in array field.
-/// Returns 0 for scalar fields.
-class FieldVisitorToNumberOfDimensions : public StaticVisitor<size_t> {
-public:
-    size_t operator()(const Array& x) const {
-        const size_t size = x.size();
-        size_t dimensions = 0;
-        for (size_t i = 0; i < size; ++i) {
-            size_t element_dimensions = apply_visitor(*this, x[i]);
-            dimensions = std::max(dimensions, element_dimensions);
-        }
-        return 1 + dimensions;
-    }
-    template <typename T>
-    size_t operator()(const T&) const {
-        return 0;
-    }
-};
-
-// Visitor that allows to get type of scalar field
-// but exclude fields contain complex field.This is a faster version
-// for FieldVisitorToScalarType which does not support complex field.
-class SimpleFieldVisitorToScalarType : public StaticVisitor<size_t> {
-public:
-    size_t operator()(const Array& x) {
-        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Array type is not supported");
-    }
-    size_t operator()(const UInt64& x) {
-        if (x <= std::numeric_limits<Int8>::max()) {
-            type = TypeIndex::Int8;
-        } else if (x <= std::numeric_limits<Int16>::max()) {
-            type = TypeIndex::Int16;
-        } else if (x <= std::numeric_limits<Int32>::max()) {
-            type = TypeIndex::Int32;
-        } else {
-            type = TypeIndex::Int64;
-        }
-        return 1;
-    }
-    size_t operator()(const Int64& x) {
-        if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
-            type = TypeIndex::Int8;
-        } else if (x <= std::numeric_limits<Int16>::max() &&
-                   x >= std::numeric_limits<Int16>::min()) {
-            type = TypeIndex::Int16;
-        } else if (x <= std::numeric_limits<Int32>::max() &&
-                   x >= std::numeric_limits<Int32>::min()) {
-            type = TypeIndex::Int32;
-        } else {
-            type = TypeIndex::Int64;
-        }
-        return 1;
-    }
-    size_t operator()(const JsonbField& x) {
-        type = TypeIndex::JSONB;
-        return 1;
-    }
-    size_t operator()(const Null&) {
-        have_nulls = true;
-        return 1;
-    }
-    size_t operator()(const VariantMap&) {
-        type = TypeIndex::VARIANT;
-        return 1;
-    }
-    template <typename T>
-    size_t operator()(const T&) {
-        type = TypeId<NearestFieldType<T>>::value;
-        return 1;
-    }
-    void get_scalar_type(TypeIndex* data_type) const { *data_type = type; }
-    bool contain_nulls() const { return have_nulls; }
-
-    bool need_convert_field() const { return false; }
-
-private:
-    TypeIndex type = TypeIndex::Nothing;
-    bool have_nulls = false;
-};
-
-/// Visitor that allows to get type of scalar field
-/// or least common type of scalars in array.
-/// More optimized version of FieldToDataType.
-class FieldVisitorToScalarType : public StaticVisitor<size_t> {
-public:
-    using FieldType = Field::Types::Which;
-    size_t operator()(const Array& x) {
-        size_t size = x.size();
-        for (size_t i = 0; i < size; ++i) {
-            apply_visitor(*this, x[i]);
-        }
-        return 0;
-    }
-    // TODO doris not support unsigned integers for now
-    // treat as signed integers
-    size_t operator()(const UInt64& x) {
-        field_types.insert(FieldType::UInt64);
-        if (x <= std::numeric_limits<Int8>::max()) {
-            type_indexes.insert(TypeIndex::Int8);
-        } else if (x <= std::numeric_limits<Int16>::max()) {
-            type_indexes.insert(TypeIndex::Int16);
-        } else if (x <= std::numeric_limits<Int32>::max()) {
-            type_indexes.insert(TypeIndex::Int32);
-        } else {
-            type_indexes.insert(TypeIndex::Int64);
-        }
-        return 0;
-    }
-    size_t operator()(const Int64& x) {
-        field_types.insert(FieldType::Int64);
-        if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
-            type_indexes.insert(TypeIndex::Int8);
-        } else if (x <= std::numeric_limits<Int16>::max() &&
-                   x >= std::numeric_limits<Int16>::min()) {
-            type_indexes.insert(TypeIndex::Int16);
-        } else if (x <= std::numeric_limits<Int32>::max() &&
-                   x >= std::numeric_limits<Int32>::min()) {
-            type_indexes.insert(TypeIndex::Int32);
-        } else {
-            type_indexes.insert(TypeIndex::Int64);
-        }
-        return 0;
-    }
-    size_t operator()(const JsonbField& x) {
-        field_types.insert(FieldType::JSONB);
-        type_indexes.insert(TypeIndex::JSONB);
-        return 0;
-    }
-    size_t operator()(const VariantMap&) {
-        field_types.insert(FieldType::VariantMap);
-        type_indexes.insert(TypeIndex::VARIANT);
-        return 0;
-    }
-    size_t operator()(const Null&) {
-        have_nulls = true;
-        return 0;
-    }
-    template <typename T>
-    size_t operator()(const T&) {
-        Field::EnumToType<Field::Types::Array>::Type a;
-        field_types.insert(Field::TypeToEnum<NearestFieldType<T>>::value);
-        type_indexes.insert(TypeId<NearestFieldType<T>>::value);
-        return 0;
-    }
-    void get_scalar_type(TypeIndex* type) const {
-        DataTypePtr data_type;
-        get_least_supertype_jsonb(type_indexes, &data_type);
-        *type = data_type->get_type_id();
-    }
-    bool contain_nulls() const { return have_nulls; }
-    bool need_convert_field() const { return field_types.size() > 1; }
-
-private:
-    phmap::flat_hash_set<TypeIndex> type_indexes;
-    phmap::flat_hash_set<FieldType> field_types;
-    bool have_nulls = false;
-};
-
-/// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
-/// and replaces all scalars or nested arrays to @replacement at that level.
-class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
-public:
-    FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
-            : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
-
-    Field operator()(const Array& x) const {
-        if (num_dimensions_to_keep == 0) {
-            return replacement;
-        }
-
-        const size_t size = x.size();
-        Array res(size);
-        for (size_t i = 0; i < size; ++i) {
-            res[i] = apply_visitor(
-                    FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
-        }
-        return res;
-    }
-
-    template <typename T>
-    Field operator()(const T&) const {
-        return replacement;
-    }
-
-private:
-    const Field& replacement;
-    size_t num_dimensions_to_keep;
-};
-
 } // namespace
-
-template <typename Visitor>
-void get_field_info_impl(const Field& field, FieldInfo* info) {
-    Visitor to_scalar_type_visitor;
-    apply_visitor(to_scalar_type_visitor, field);
-    TypeIndex type_id;
-    to_scalar_type_visitor.get_scalar_type(&type_id);
-    // array item's dimension may missmatch, eg. [1, 2, [1, 2, 3]]
-    *info = {
-            type_id,
-            to_scalar_type_visitor.contain_nulls(),
-            to_scalar_type_visitor.need_convert_field(),
-            apply_visitor(FieldVisitorToNumberOfDimensions(), field),
-    };
-}
-
-void get_field_info(const Field& field, FieldInfo* info) {
-    if (field.is_complex_field()) {
-        get_field_info_impl<FieldVisitorToScalarType>(field, info);
-    } else {
-        get_field_info_impl<SimpleFieldVisitorToScalarType>(field, info);
-    }
-}
-
-#ifdef NDEBUG
-#define ENABLE_CHECK_CONSISTENCY (void)/* Nothing */
-#else
-#define ENABLE_CHECK_CONSISTENCY(this) (this)->check_consistency()
-#endif
 
 // current nested level is 2, inside column object
 constexpr int CURRENT_SERIALIZE_NESTING_LEVEL = 2;
@@ -406,9 +191,26 @@ size_t ColumnObject::Subcolumn::Subcolumn::allocatedBytes() const {
     return res;
 }
 
+Field get_field_from_variant_field(const Field& field) {
+    if (field.is_variant_field()) {
+        const auto& variant_field = field.get<const VariantField&>();
+        const auto& wrapped_field = variant_field.get_field();
+        if (wrapped_field.get_type() == Field::Types::Array) {
+            Array res;
+            for (const auto& item : wrapped_field.get<Array>()) {
+                res.push_back(get_field_from_variant_field(item));
+            }
+            return res;
+        }
+        return wrapped_field;
+    }
+    return field;
+}
+
 void ColumnObject::Subcolumn::insert(Field field) {
     FieldInfo info;
-    get_field_info(field, &info);
+    schema_util::get_field_info(field, &info);
+    field = get_field_from_variant_field(field);
     insert(std::move(field), std::move(info));
 }
 
@@ -422,6 +224,7 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
 }
 
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
+    DCHECK(!field.is_variant_field());
     auto base_type = WhichDataType(info.scalar_type_id);
     ++num_rows;
     if (base_type.is_nothing() && info.num_dimensions == 0) {
@@ -448,7 +251,11 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
         type_changed = true;
     }
     if (data.empty()) {
-        add_new_column_part(create_array_of_type(base_type.idx, value_dim, is_nullable));
+        // Currently we support specify predefined schema for other types include decimal, datetime ...etc
+        // so we should set specified info to create correct types, and those predefined types are static and
+        // no conflict, so we can set them directly.
+        add_new_column_part(create_array_of_type(base_type.idx, value_dim, is_nullable,
+                                                 info.precision, info.scale));
     } else if (least_common_type.get_base_type_id() != base_type.idx && !base_type.is_nothing()) {
         if (schema_util::is_conversion_required_between_integers(
                     base_type.idx, least_common_type.get_base_type_id())) {
@@ -849,7 +656,7 @@ ColumnObject::ColumnObject(int32_t max_subcolumns_count, DataTypePtr root_type,
           _max_subcolumns_count(max_subcolumns_count) {
     subcolumns.create_root(
             Subcolumn(std::move(root_column), root_type, is_nullable, true /*root*/));
-    serialized_sparse_column->insert_many_defaults(num_rows);
+    serialized_sparse_column->resize(num_rows);
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
@@ -864,7 +671,7 @@ ColumnObject::ColumnObject(int32_t max_subcolumns_count, Subcolumns&& subcolumns
                                "subcolumns count: {}",
                                max_subcolumns_count, subcolumns_.size());
     }
-    serialized_sparse_column->insert_many_defaults(num_rows);
+    serialized_sparse_column->resize(num_rows);
 }
 
 ColumnObject::ColumnObject(int32_t max_subcolumns_count, size_t size)
@@ -888,32 +695,6 @@ void ColumnObject::check_consistency() const {
                                "unmatched sparse column:, expeted rows: {}, but meet: {}", num_rows,
                                serialized_sparse_column->size());
     }
-
-#ifndef NDEBUG
-    bool error = false;
-    auto [path, value] = get_sparse_data_paths_and_values();
-
-    auto& offsets = serialized_sparse_column_offsets();
-    for (size_t row = 0; row != num_rows; ++row) {
-        size_t offset = offsets[row - 1];
-        size_t end = offsets[row];
-        // Iterator over [path, binary value]
-        for (size_t i = offset; i != end; ++i) {
-            const StringRef sparse_path_string = path->get_data_at(i);
-            const std::string_view sparse_path(sparse_path_string);
-
-            const PathInData column_path(sparse_path);
-            if (auto* subcolumn = get_subcolumn(column_path); subcolumn != nullptr) {
-                LOG(WARNING) << "err path: " << sparse_path;
-                error = true;
-            }
-        }
-    }
-    if (error) {
-        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                               "path {} both exists in subcolumn and sparse columns");
-    }
-#endif
 }
 
 size_t ColumnObject::size() const {
@@ -1035,7 +816,7 @@ void ColumnObject::insert_many_defaults(size_t length) {
     for (auto& entry : subcolumns) {
         entry->data.insert_many_defaults(length);
     }
-    serialized_sparse_column->insert_many_defaults(length);
+    serialized_sparse_column->resize(num_rows + length);
     num_rows += length;
     ENABLE_CHECK_CONSISTENCY(this);
 }
@@ -1068,14 +849,9 @@ void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
         return;
     }
     if (is_finalized()) {
-        if (least_common_type.get_base_type_id() == TypeIndex::JSONB) {
-            // JsonbFiled is special case
-            res = JsonbField();
-        }
-        get_finalized_column().get(n, res);
+        res = get_least_common_type()->get_type_field(get_finalized_column(), n);
         return;
     }
-
     size_t ind = n;
     if (ind < num_of_defaults_in_prefix) {
         res = least_common_type.get()->get_default();
@@ -1407,7 +1183,7 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
 
         /// If no src subcolumns should be inserted into sparse column, insert defaults.
         if (sorted_src_subcolumn_for_sparse_column.empty()) {
-            serialized_sparse_column->insert_many_defaults(length);
+            serialized_sparse_column->resize(num_rows + length);
         } else {
             // Otherwise insert required src dense columns into sparse column.
             auto [sparse_column_keys, sparse_column_values] = get_sparse_data_paths_and_values();
@@ -1504,6 +1280,22 @@ void ColumnObject::insert_from_sparse_column_and_fill_remaing_dense_column(
 }
 
 ColumnPtr ColumnObject::permute(const Permutation& perm, size_t limit) const {
+    if (limit == 0)
+        limit = num_rows;
+    else
+        limit = std::min(num_rows, limit);
+
+    if (perm.size() < limit) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
+        __builtin_unreachable();
+    }
+
+    if (limit == 0) {
+        return ColumnObject::create(_max_subcolumns_count);
+    }
+
     return apply_for_columns([&](const ColumnPtr column) { return column->permute(perm, limit); });
 }
 
@@ -1782,6 +1574,7 @@ bool ColumnObject::Subcolumn::is_empty_nested(size_t row) const {
         DCHECK(type->equals(*ColumnObject::NESTED_TYPE));
         Field field;
         get(row, field);
+        field = get_field_from_variant_field(field);
         if (field.get_type() == Field::Types::Array) {
             const auto& array = field.get<Array>();
             bool only_nulls_inside = true;
@@ -1809,6 +1602,16 @@ bool ColumnObject::is_visible_root_value(size_t nrow) const {
     const auto* root = subcolumns.get_root();
     if (root->data.is_null_at(nrow)) {
         return false;
+    }
+    for (const auto& subcolumn : subcolumns) {
+        if (subcolumn->data.is_root) {
+            continue; // Skip the root column
+        }
+
+        // If any non-root subcolumn is NOT null, set serialize_root to false and exit early
+        if (!subcolumn->data.is_null_at(nrow)) {
+            return false;
+        }
     }
     if (root->data.least_common_type.get_base_type_id() == TypeIndex::VARIANT) {
         // nested field
@@ -1965,7 +1768,7 @@ Status ColumnObject::serialize_sparse_columns(
     CHECK(is_finalized());
 
     if (remaing_subcolumns.empty()) {
-        serialized_sparse_column->insert_many_defaults(num_rows);
+        serialized_sparse_column->resize(num_rows);
         return Status::OK();
     }
     serialized_sparse_column->reserve(num_rows);
@@ -2157,20 +1960,13 @@ bool ColumnObject::empty() const {
     return subcolumns.empty() || subcolumns.begin()->get()->path.get_path() == COLUMN_NAME_DUMMY;
 }
 
-ColumnPtr get_base_column_of_array(const ColumnPtr& column) {
-    if (const auto* column_array = check_and_get_column<ColumnArray>(column.get())) {
-        return column_array->get_data_ptr();
-    }
-    return column;
-}
-
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
     if (!is_finalized()) {
         auto finalized = clone_finalized();
         auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
         return finalized_object.filter(filter, count);
     }
-    if (subcolumns.empty()) {
+    if (num_rows == 0) {
         auto res = ColumnObject::create(_max_subcolumns_count, count_bytes_in_filter(filter));
         ENABLE_CHECK_CONSISTENCY(res.get());
         return res;
@@ -2193,6 +1989,9 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
 
 ColumnPtr ColumnObject::replicate(const IColumn::Offsets& offsets) const {
     column_match_offsets_size(num_rows, offsets.size());
+    if (num_rows == 0) {
+        return ColumnObject::create(_max_subcolumns_count);
+    }
     return apply_for_columns([&](const ColumnPtr column) { return column->replicate(offsets); });
 }
 
@@ -2260,7 +2059,7 @@ void ColumnObject::create_root(const DataTypePtr& type, MutableColumnPtr&& colum
     }
     add_sub_column({}, std::move(column), type);
     if (serialized_sparse_column->empty()) {
-        serialized_sparse_column->insert_many_defaults(num_rows);
+        serialized_sparse_column->resize(num_rows);
     }
     ENABLE_CHECK_CONSISTENCY(this);
 }
@@ -2376,8 +2175,9 @@ Status ColumnObject::sanitize() const {
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_finalized()) {
             auto column = subcolumn->data.get_least_common_type()->create_column();
-            std::string original = subcolumn->data.get_finalized_column().get_name();
-            std::string expected = column->get_name();
+            std::string original =
+                    remove_nullable(subcolumn->data.get_finalized_column().get_ptr())->get_name();
+            std::string expected = remove_nullable(column->get_ptr())->get_name();
             if (original != expected) {
                 return Status::InternalError("Incompatible type between {} and {}, debug_info:",
                                              original, expected, debug_string());
@@ -2431,6 +2231,37 @@ bool ColumnObject::try_insert_many_defaults_from_nested(const Subcolumns::NodePt
     ENABLE_CHECK_CONSISTENCY(this);
     return true;
 }
+
+/// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
+/// and replaces all scalars or nested arrays to @replacement at that level.
+class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
+public:
+    FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
+            : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
+
+    Field operator()(const Array& x) const {
+        if (num_dimensions_to_keep == 0) {
+            return replacement;
+        }
+
+        const size_t size = x.size();
+        Array res(size);
+        for (size_t i = 0; i < size; ++i) {
+            res[i] = apply_visitor(
+                    FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
+        }
+        return res;
+    }
+
+    template <typename T>
+    Field operator()(const T&) const {
+        return replacement;
+    }
+
+private:
+    const Field& replacement;
+    size_t num_dimensions_to_keep;
+};
 
 bool ColumnObject::try_insert_default_from_nested(const Subcolumns::NodePtr& entry) const {
     const auto* leaf = get_leaf_of_the_same_nested(entry);

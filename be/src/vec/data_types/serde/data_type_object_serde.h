@@ -46,16 +46,11 @@ public:
         return Status::NotSupported("serialize_column_to_json with type [{}]", column.get_name());
     }
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_one_cell_from_text with type " +
-                                    column.get_name());
-    }
+                                          const FormatOptions& options) const override;
+
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                uint64_t* num_deserialized,
-                                               const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_column_from_text_vector with type " +
-                                    column.get_name());
-    }
+                                               const FormatOptions& options) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
                               int64_t end) const override {
