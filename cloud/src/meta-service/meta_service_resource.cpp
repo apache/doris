@@ -794,8 +794,8 @@ struct ObjectStorageDesc {
     std::string& region;
     bool& use_path_style;
 
-    std::string role_arn;
-    std::string external_id;
+    std::string& role_arn;
+    std::string& external_id;
 };
 
 static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
@@ -810,12 +810,6 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
     }
 
     const auto& obj = request->has_obj() ? request->obj() : request->vault().obj_info();
-    // Prepare data
-    if (!obj.has_ak() || !obj.has_sk()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "s3 obj info err " + proto_to_json(*request);
-        return -1;
-    }
 
     //  obj size > 1k, refuse
     if (obj.ByteSizeLong() > 1024) {
@@ -828,6 +822,12 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
            external_id] = obj_desc;
 
     if (!obj.has_role_arn()) {
+        if (!obj.has_ak() || !obj.has_sk()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "s3 obj info err " + proto_to_json(*request);
+            return -1;
+        }
+
         std::string plain_ak = obj.has_ak() ? obj.ak() : "";
         std::string plain_sk = obj.has_sk() ? obj.sk() : "";
         auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
@@ -838,6 +838,16 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
 
         ak = cipher_ak_sk_pair.first;
         sk = cipher_ak_sk_pair.second;
+    } else {
+        if (!obj.has_cred_provider_type() ||
+            obj.cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
+            !obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "s3 conf info err with role_arn, please check it";
+            return -1;
+        }
+        role_arn = obj.has_role_arn() ? obj.role_arn() : "";
+        external_id = obj.has_external_id() ? obj.external_id() : "";
     }
     TEST_SYNC_POINT_CALLBACK("extract_object_storage_info:get_aksk_pair", &cipher_ak_sk_pair);
     bucket = obj.has_bucket() ? obj.bucket() : "";
@@ -846,8 +856,6 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
     external_endpoint = obj.has_external_endpoint() ? obj.external_endpoint() : "";
     region = obj.has_region() ? obj.region() : "";
     use_path_style = obj.use_path_style();
-    role_arn = obj.has_role_arn() ? obj.role_arn() : "";
-    external_id = obj.has_external_id() ? obj.external_id() : "";
     return 0;
 }
 
@@ -876,6 +884,7 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
     } else {
         last_item.set_role_arn(role_arn);
         last_item.set_external_id(external_id);
+        last_item.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
     }
     last_item.set_bucket(bucket);
     // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
@@ -903,8 +912,11 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
     switch (request->op()) {
     case AlterObjStoreInfoRequest::ADD_S3_VAULT:
     case AlterObjStoreInfoRequest::DROP_S3_VAULT: {
-        auto tmp_desc = ObjectStorageDesc {
-                ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style};
+        auto tmp_desc = ObjectStorageDesc {ak,       sk,
+                                           bucket,   prefix,
+                                           endpoint, external_endpoint,
+                                           region,   use_path_style,
+                                           role_arn, external_id};
         if (0 != extract_object_storage_info(request, code, msg, tmp_desc, encryption_info,
                                              cipher_ak_sk_pair)) {
             return;
@@ -1190,7 +1202,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
                                            const AlterObjStoreInfoRequest* request,
                                            AlterObjStoreInfoResponse* response,
                                            ::google::protobuf::Closure* done) {
-    std::string ak, sk, bucket, prefix, endpoint, external_endpoint, region;
+    std::string ak, sk, bucket, prefix, endpoint, external_endpoint, region, role_arn, external_id;
     bool use_path_style;
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
@@ -1199,8 +1211,11 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
     case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
     case AlterObjStoreInfoRequest::UPDATE_AK_SK: {
-        auto tmp_desc = ObjectStorageDesc {
-                ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style};
+        auto tmp_desc = ObjectStorageDesc {ak,       sk,
+                                           bucket,   prefix,
+                                           endpoint, external_endpoint,
+                                           region,   use_path_style,
+                                           role_arn, external_id};
         if (0 != extract_object_storage_info(request, code, msg, tmp_desc, encryption_info,
                                              cipher_ak_sk_pair)) {
             return;
@@ -1321,8 +1336,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         }
         // ATTN: prefix may be empty
-        if (ak.empty() || sk.empty() || bucket.empty() || endpoint.empty() || region.empty() ||
-            prefix.empty()) {
+        if (((ak.empty() || sk.empty()) && role_arn.empty()) || bucket.empty() ||
+            endpoint.empty() || region.empty() || prefix.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err, please check it";
             return;
@@ -1340,8 +1355,11 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             }
         }
         // calc id
-        auto tmp_tuple = ObjectStorageDesc {
-                ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style};
+        auto tmp_tuple = ObjectStorageDesc {ak,       sk,
+                                            bucket,   prefix,
+                                            endpoint, external_endpoint,
+                                            region,   use_path_style,
+                                            role_arn, external_id};
         ObjectStoreInfoPB last_item = object_info_pb_factory(tmp_tuple, obj, instance,
                                                              encryption_info, cipher_ak_sk_pair);
         instance.add_obj_info()->CopyFrom(last_item);

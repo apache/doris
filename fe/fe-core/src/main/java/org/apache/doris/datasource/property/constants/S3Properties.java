@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.constants;
 
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -25,6 +26,7 @@ import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.credentials.DataLakeAWSCredentialsProvider;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.thrift.TCredProviderType;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
@@ -295,6 +297,15 @@ public class S3Properties extends BaseProperties {
 
     public static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {
         TS3StorageParam s3Info = new TS3StorageParam();
+
+        if (properties.containsKey(S3Properties.ROLE_ARN)) {
+            s3Info.setRoleArn(properties.get(S3Properties.ROLE_ARN));
+            if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
+                s3Info.setExternalId(properties.get(S3Properties.EXTERNAL_ID));
+            }
+            s3Info.setCredProviderType(TCredProviderType.INSTANCE_PROFILE);
+        }
+
         s3Info.setEndpoint(properties.get(S3Properties.ENDPOINT));
         s3Info.setRegion(properties.get(S3Properties.REGION));
         s3Info.setAk(properties.get(S3Properties.ACCESS_KEY));
@@ -355,6 +366,15 @@ public class S3Properties extends BaseProperties {
                     "Invalid use_path_style value: %s only 'true' or 'false' is acceptable", value);
             builder.setUsePathStyle(value.equalsIgnoreCase("true"));
         }
+
+        if (properties.containsKey(S3Properties.ROLE_ARN)) {
+            builder.setRoleArn(properties.get(S3Properties.ROLE_ARN));
+            if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
+                builder.setExternalId(properties.get(S3Properties.EXTERNAL_ID));
+            }
+            builder.setCredProviderType(CredProviderTypePB.INSTANCE_PROFILE);
+        }
+
         return builder;
     }
 }

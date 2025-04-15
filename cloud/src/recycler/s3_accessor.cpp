@@ -184,20 +184,28 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
     }
 
     if (!skip_aksk) {
-        if (obj_info.has_encryption_info()) {
-            AkSkPair plain_ak_sk_pair;
-            int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), obj_info.encryption_info(),
-                                           &plain_ak_sk_pair);
-            if (ret != 0) {
-                LOG_WARNING("fail to decrypt ak sk").tag("obj_info", proto_to_json(obj_info));
-                return std::nullopt;
+        if (!obj_info.ak().empty() && !obj_info.sk().empty()) {
+            if (obj_info.has_encryption_info()) {
+                AkSkPair plain_ak_sk_pair;
+                int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(),
+                                               obj_info.encryption_info(), &plain_ak_sk_pair);
+                if (ret != 0) {
+                    LOG_WARNING("fail to decrypt ak sk").tag("obj_info", proto_to_json(obj_info));
+                    return std::nullopt;
+                } else {
+                    s3_conf.ak = std::move(plain_ak_sk_pair.first);
+                    s3_conf.sk = std::move(plain_ak_sk_pair.second);
+                }
             } else {
-                s3_conf.ak = std::move(plain_ak_sk_pair.first);
-                s3_conf.sk = std::move(plain_ak_sk_pair.second);
+                s3_conf.ak = obj_info.ak();
+                s3_conf.sk = obj_info.sk();
             }
-        } else {
-            s3_conf.ak = obj_info.ak();
-            s3_conf.sk = obj_info.sk();
+        }
+
+        if (obj_info.has_role_arn() && !obj_info.role_arn().empty()) {
+            s3_conf.role_arn = obj_info.role_arn();
+            s3_conf.external_id = obj_info.external_id();
+            s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
         }
     }
 
