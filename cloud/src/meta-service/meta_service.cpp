@@ -2166,6 +2166,9 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     total_txn_put_bytes += txn->put_bytes();
     total_txn_size += txn->approximate_bytes();
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            g_bvar_delete_bitmap_lock_txn_put_conflict_counter << 1;
+        }
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to update delete bitmap, err=" << err << " tablet_id=" << tablet_id
            << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
@@ -2642,12 +2645,18 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                    request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID &&
                    config::delete_bitmap_enable_retry_txn_conflict && first_retry) {
             // if err is TXN_CONFLICT, and the lock id is -1, do a fast retry
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_put_conflict_counter << 1;
+            }
             LOG(INFO) << "fast retry to get_delete_bitmap_update_lock, tablet_id="
                       << request->table_id() << " lock_id=" << request->lock_id()
                       << ", initiator=" << request->initiator() << ", err=" << err;
             first_retry = false;
             continue;
         } else {
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_put_conflict_counter << 1;
+            }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to get_delete_bitmap_update_lock, lock_id=" << request->lock_id()
                << ", initiator=" << request->initiator() << ", err=" << err;
@@ -2838,6 +2847,9 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
     }
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            g_bvar_delete_bitmap_lock_txn_remove_conflict_by_fail_counter << 1;
+        }
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to remove delete bitmap tablet lock , err=" << err;
         msg = ss.str();
