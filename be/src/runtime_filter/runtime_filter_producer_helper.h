@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/Metrics_types.h>
+
 #include "common/be_mock_util.h"
 #include "common/status.h"
 #include "runtime/runtime_state.h"
@@ -36,15 +38,9 @@ class RuntimeFilterProducerHelper {
 public:
     virtual ~RuntimeFilterProducerHelper() = default;
 
-    RuntimeFilterProducerHelper(RuntimeProfile* profile, bool should_build_hash_table,
-                                bool is_broadcast_join)
+    RuntimeFilterProducerHelper(bool should_build_hash_table, bool is_broadcast_join)
             : _should_build_hash_table(should_build_hash_table),
-              _profile(new RuntimeProfile("RuntimeFilterProducerHelper")),
-              _is_broadcast_join(is_broadcast_join) {
-        profile->add_child(_profile.get(), true, nullptr);
-        _publish_runtime_filter_timer = ADD_TIMER_WITH_LEVEL(_profile, "PublishTime", 1);
-        _runtime_filter_compute_timer = ADD_TIMER_WITH_LEVEL(_profile, "BuildTime", 1);
-    }
+              _is_broadcast_join(is_broadcast_join) {}
 
 #ifdef BE_TEST
     RuntimeFilterProducerHelper() : _should_build_hash_table(true), _is_broadcast_join(false) {}
@@ -70,6 +66,8 @@ public:
     // publish rf
     Status publish(RuntimeState* state);
 
+    void collect_realtime_profile(RuntimeProfile* parent_operator_profile);
+
 protected:
     virtual void _init_expr(const vectorized::VExprContextSPtrs& build_expr_ctxs,
                             const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
@@ -79,10 +77,13 @@ protected:
 
     std::vector<std::shared_ptr<RuntimeFilterProducer>> _producers;
     const bool _should_build_hash_table;
-    RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
-    RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
-    std::unique_ptr<RuntimeProfile> _profile;
-    bool _skip_runtime_filters_process = false;
+    std::unique_ptr<RuntimeProfile::Counter> _publish_runtime_filter_timer =
+            std::make_unique<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);
+    std::unique_ptr<RuntimeProfile::Counter> _runtime_filter_compute_timer =
+            std::make_unique<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);
+
+    // This flag is setted by skip_process and read in different threads, so it must be atomic
+    std::atomic_bool _skip_runtime_filters_process = false;
     const bool _is_broadcast_join;
 
     std::vector<std::shared_ptr<vectorized::VExprContext>> _filter_expr_contexts;

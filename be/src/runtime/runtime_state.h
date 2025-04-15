@@ -561,9 +561,9 @@ public:
         return _task_execution_context;
     }
 
-    Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            std::shared_ptr<RuntimeFilterProducer>* producer_filter,
-                                            RuntimeProfile* parent_profile);
+    Status register_producer_runtime_filter(
+            const doris::TRuntimeFilterDesc& desc,
+            std::shared_ptr<RuntimeFilterProducer>* producer_filter);
 
     Status register_consumer_runtime_filter(
             const doris::TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,

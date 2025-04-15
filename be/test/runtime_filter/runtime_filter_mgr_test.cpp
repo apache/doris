@@ -77,23 +77,23 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
         // producer_filter should not be nullptr
         EXPECT_FALSE(global_runtime_filter_mgr
                              ->register_local_merger_producer_filter(ctx.get(), desc,
-                                                                     producer_filter, profile.get())
+                                                                     producer_filter)
                              .ok());
         // local merge filter should not be registered in local mgr
         EXPECT_FALSE(local_runtime_filter_mgr
                              ->register_local_merger_producer_filter(ctx.get(), desc,
-                                                                     producer_filter, profile.get())
+                                                                     producer_filter)
                              .ok());
         // producer should not registered in global mgr
         EXPECT_FALSE(
                 global_runtime_filter_mgr
-                        ->register_producer_filter(ctx.get(), desc, &producer_filter, profile.get())
+                        ->register_producer_filter(ctx.get(), desc, &producer_filter)
                         .ok());
         EXPECT_EQ(producer_filter, nullptr);
         // Register in local mgr
         EXPECT_TRUE(
                 local_runtime_filter_mgr
-                        ->register_producer_filter(ctx.get(), desc, &producer_filter, profile.get())
+                        ->register_producer_filter(ctx.get(), desc, &producer_filter)
                         .ok());
         auto mocked_dependency = std::make_shared<pipeline::CountedFinishDependency>(
                 0, 0, "MOCKED_FINISH_DEPENDENCY");
@@ -102,7 +102,7 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
         // Register in local mgr twice
         EXPECT_FALSE(
                 local_runtime_filter_mgr
-                        ->register_producer_filter(ctx.get(), desc, &producer_filter, profile.get())
+                        ->register_producer_filter(ctx.get(), desc, &producer_filter)
                         .ok());
         EXPECT_NE(producer_filter, nullptr);
 
@@ -116,7 +116,7 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
         // Register local merge filter
         EXPECT_TRUE(global_runtime_filter_mgr
                             ->register_local_merger_producer_filter(ctx.get(), desc,
-                                                                    producer_filter, profile.get())
+                                                                    producer_filter)
                             .ok());
         EXPECT_TRUE(global_runtime_filter_mgr
                             ->get_local_merge_producer_filters(filter_id, &local_merge_filters)
