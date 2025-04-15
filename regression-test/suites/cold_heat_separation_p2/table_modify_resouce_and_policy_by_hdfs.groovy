@@ -18,6 +18,9 @@ import groovy.json.JsonSlurper
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("table_modify_resouce_by_hdfs") {
+    if (!enableHdfs()) {
+        logger.info("skip this case because hdfs is not enabled");
+    }
     def fetchBeHttp = { check_func, meta_url ->
         def i = meta_url.indexOf("/api")
         String endPoint = meta_url.substring(0, i)
@@ -47,7 +50,8 @@ suite("table_modify_resouce_by_hdfs") {
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
-    def tableName = "lineitem4"
+    def suffix = UUID.randomUUID().hashCode().abs()
+    def tableName = "lineitem4${suffix}"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     def stream_load_one_part = { partnum ->
         streamLoad {
@@ -114,8 +118,8 @@ suite("table_modify_resouce_by_hdfs") {
         return false;
     }
 
-    def resource_name = "test_table_with_data_resource_modify_1"
-    def policy_name= "test_table_with_data_policy_modify_1"
+    def resource_name = "test_table_with_data_resource_modify_1${suffix}"
+    def policy_name= "test_table_with_data_policy_modify_1${suffix}"
 
     if (check_storage_policy_exist(policy_name)) {
         sql """
@@ -138,12 +142,7 @@ suite("table_modify_resouce_by_hdfs") {
             "type"="hdfs",
             "fs.defaultFS"="${getHdfsFs()}",
             "hadoop.username"="${getHdfsUser()}",
-            "hadoop.password"="${getHdfsPasswd()}",
-            "dfs.nameservices" = "my_ha",
-            "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
-            "dfs.namenode.rpc-address.my_ha.my_namenode1" = "127.0.0.1:10000",
-            "dfs.namenode.rpc-address.my_ha.my_namenode2" = "127.0.0.1:10000",
-            "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+            "hadoop.password"="${getHdfsPasswd()}"
         );
     """
 
@@ -204,7 +203,7 @@ suite("table_modify_resouce_by_hdfs") {
         """
         fetchDataSize(sizes, tablets[0])
         try_times -= 1
-        assertTrue(try_times > 0)
+        assertTrue(try_times > 0, "remote size is still zero, maybe some error occurred")
     }
 
     // 修改resource和policy到新值然后查看remote data size是否能对上
@@ -287,7 +286,7 @@ suite("table_modify_resouce_by_hdfs") {
         """
         fetchDataSize(sizes, tablets[0])
         try_times -= 1
-        assertTrue(try_times > 0)
+        assertTrue(try_times > 0, "remote size is still zero, maybe some error occurred")
     }
 
     // 修改resource和policy到新值然后查看remote data size是否能对上
@@ -315,7 +314,7 @@ suite("table_modify_resouce_by_hdfs") {
     log.info( "test all remote size not zero")
     for (int i = 0; i < tablets2.size(); i++) {
         fetchDataSize(sizes, tablets2[i])
-        assertTrue(sizes[1] > 0)
+        assertTrue(sizes[1] > 0, tablets2[i].TabletId + " remote size is " + sizes[1] + ", no greater than 0, MetaUrl is " + tablets2[i].MetaUrl)
     }
 
 
