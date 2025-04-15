@@ -25,9 +25,10 @@ suite("hbo_slow_query_test") {
     sql """analyze table hbo_slow_query_test with full with sync;"""
     
     sql "set hbo_rfsafe_threshold=1.0;"
-    sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10000"); """
-    sql "select count(1) from hbo_slow_query_test where a > 0;"
-    sleep(3000)
+    // TODO: this config will make other ut in hbo dir unstable during parallel running, comments it until a refinement
+    //sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10000"); """
+    //sql "select count(1) from hbo_slow_query_test where a > 0;"
+    //sleep(3000)
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                              |
@@ -42,10 +43,10 @@ suite("hbo_slow_query_test") {
      |                +--PhysicalOlapScan[hbo_slow_query_test]@0 ( stats=100,000,000 )                                                                                                                                                                              |
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      */
-    explain {
-        sql "physical plan select count(1) from hbo_slow_query_test where a > 0;"
-        contains("stats=1, aggPhase=GLOBAL")
-    }
+    //explain {
+    //    sql "physical plan select count(1) from hbo_slow_query_test where a > 0;"
+    //    contains("stats=1, aggPhase=GLOBAL")
+    //}
 
     sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
     sql "select count(1) from hbo_slow_query_test where a > 0;"

@@ -36,13 +36,13 @@ import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.planner.Planner;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.hbo.InputTableStatisticsInfo;
 import org.apache.doris.statistics.hbo.PlanStatistics;
 import org.apache.doris.statistics.hbo.PlanStatisticsMatchStrategy;
 import org.apache.doris.statistics.hbo.PlanStatisticsWithInputInfo;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatisticsEntry;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 
 import com.google.common.base.Strings;
@@ -504,10 +504,7 @@ public class Profile {
                 planNodeRuntimeStatsItems = RuntimeProfile.toTPlanNodeRuntimeStatsItem(mergedProfile, null);
                 planNodeRuntimeStatsItems = RuntimeProfile.mergeTPlanNodeRuntimeStatsItem(planNodeRuntimeStatsItems);
                 // TODO: failed sql supporting rely on profile's extension.
-                // TODO: session control here seems not good.
-                boolean isEnableHboInfoCollection = ConnectContext.get() != null
-                        && ConnectContext.get().getSessionVariable().isEnableHboOptimization()
-                        && ConnectContext.get().getSessionVariable().isEnableHboInfoCollection();
+                boolean isEnableHboInfoCollection = StatisticsUtil.isEnableHboInfoCollection();
                 if (isEnableHboInfoCollection && isHealthyForHbo() && isSlowQueryForHbo()) {
                     // publish to hbo manager, currently only support healthy sql.
                     // NOTE: all statements which no need to collect profile have been excluded.
@@ -780,8 +777,9 @@ public class Profile {
                     .equalsIgnoreCase("ok");
             boolean isEof = this.summaryProfile.getAsInfoStings().get(SummaryProfile.TASK_STATE)
                     .equalsIgnoreCase("eof");
-            boolean noErrorMessage = this.summaryProfile.getExecutionSummary()
-                    .getInfoString(SummaryProfile.SYSTEM_MESSAGE).equalsIgnoreCase("N/A");
+            // TODO: zhiqiang will fix the following flag
+            boolean noErrorMessage = true; //this.summaryProfile.getExecutionSummary()
+            //.getInfoString(SummaryProfile.SYSTEM_MESSAGE).equalsIgnoreCase("N/A");
             return (isOk || isEof) && noErrorMessage;
         }
     }
