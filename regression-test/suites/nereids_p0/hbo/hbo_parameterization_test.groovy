@@ -132,6 +132,7 @@ suite("hbo_parameterization_test") {
     // constant folding
     sql "select s_zip, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 group by 1;"
     sleep(3000)
+
     /**
      +------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                          |
@@ -179,7 +180,6 @@ suite("hbo_parameterization_test") {
      */
     explain {
         sql "physical plan select ss_store_sk, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 group by 1;"
-        contains("stats=0, aggPhase=LOCAL")
         contains("stats=(hbo)0, type=INNER_JOIN")
         contains("stats=(hbo)0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)]")
     }
@@ -209,7 +209,6 @@ suite("hbo_parameterization_test") {
         sql "physical plan select s_zip, count(1) from store_sales_p, store where ss_store_sk = s_store_sk and ss_sold_date_sk between 2451100 and 2451200 group by 1 order by 1;"
         contains("stats=(hbo)0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)]")
         contains("stats=(hbo)0, type=INNER_JOIN")
-        contains("stats=(hbo)0, aggPhase=LOCAL")
         contains("stats=(hbo)0, aggPhase=GLOBAL")
     }
 
@@ -243,7 +242,6 @@ suite("hbo_parameterization_test") {
         contains("stats=(hbo)0, predicates=AND[(ss_sold_date_sk#2 >= 2451100),(ss_sold_date_sk#2 <= 2451200)]")
         contains("stats=(hbo)0, predicates=(substring(cast(s_zip#9 as VARCHAR(20)), 1, 20) = '31904')")
         contains("stats=(hbo)0, type=INNER_JOIN")
-        contains("stats=(hbo)0, aggPhase=LOCAL")
         contains("stats=(hbo)0, aggPhase=GLOBAL")
     }
 

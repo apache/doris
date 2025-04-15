@@ -32,6 +32,8 @@ suite("hbo_join_side_opt_test") {
     sql "set hbo_rfsafe_threshold=1.0;"
     sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
     sleep(3000)
+    
+    sql "set enable_hbo_optimization=false;"
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                              |
@@ -53,11 +55,11 @@ suite("hbo_join_side_opt_test") {
     explain {
         sql "physical plan select count(1) from hbo_join_side_opt_test1 s1, hbo_join_side_opt_test2 s2 where s1.b = s2.b and s1.a = 1;"
         contains("stats=1, aggPhase=GLOBAL")
-        contains("stats=1, aggPhase=LOCAL")
     }
 
     sql "select count(1) from hbo_join_side_opt_test1 s1, hbo_join_side_opt_test2 s2 where s1.b = s2.b and s1.a = 1;"
     sleep(3000)
+    sql "set enable_hbo_optimization=true;"
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                   |
@@ -82,7 +84,6 @@ suite("hbo_join_side_opt_test") {
         contains("stats=(hbo)100,000,001, predicates=(a#0 = 1)")
         contains("stats=100,000, distributionSpec=DistributionSpecReplicated")
         contains("stats=(hbo)100,000,001, type=INNER_JOIN")
-        contains("stats=(hbo)1, aggPhase=LOCAL")
         contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
 

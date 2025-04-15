@@ -1505,7 +1505,7 @@ public class SessionVariable implements Serializable, Writable {
         return enableHboNonStrictMatchingMode;
     }
 
-    @VariableMgr.VarAttr(name = ENABLE_HBO_INFO_COLLECTION)
+    @VariableMgr.VarAttr(name = ENABLE_HBO_INFO_COLLECTION, flag = VariableMgr.GLOBAL)
     private boolean enableHboInfoCollection = true;
 
     @VariableMgr.VarAttr(name = ENABLE_HBO_NONSTRICT_MATCHING_MODE)

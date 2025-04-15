@@ -484,8 +484,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
             // hbo to adjust bc cost parameter to reduce bc cost
             if (context.getSessionVariable() != null
-                    && context.getSessionVariable().isEnableHboOptimization()
-                    && context.getSessionVariable().isEnableHboInfoCollection()) {
+                    && context.getSessionVariable().isEnableHboOptimization()) {
                 PlanNodeAndHash planNodeAndHash = null;
                 try {
                     planNodeAndHash = HboUtils.getPlanNodeHash(physicalHashJoin);

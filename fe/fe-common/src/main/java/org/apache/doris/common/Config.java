@@ -2461,7 +2461,7 @@ public class Config extends ConfigBase {
             mutable = true,
             description = {
                     "当前默认设置为 2000，用来控制控制hbo plan stats. collection的slow query的阈值。",
-                    "Now default set to 100, this config is used to control slow query threshold of hbo info collection"
+                    "Now default is 2000, this config is used to control slow query threshold of hbo info collection"
             }
     )
     public static int hbo_slow_query_threshold_ms = 2000;

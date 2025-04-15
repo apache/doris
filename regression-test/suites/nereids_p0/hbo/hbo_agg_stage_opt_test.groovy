@@ -28,6 +28,7 @@ suite("hbo_agg_stage_opt_test") {
     sql """alter table hbo_agg_stage_opt_test modify column c set stats('row_count'='100000000', 'ndv'='100000000', 'num_nulls'='0', 'min_value'='1', 'max_value'='100000000', 'data_size'='2.3043232E7');"""
     sql """alter table hbo_agg_stage_opt_test modify column d set stats('row_count'='100000000', 'ndv'='100000000', 'num_nulls'='0', 'min_value'='1', 'max_value'='100000000', 'data_size'='2.3043232E7');"""
     sql "set hbo_rfsafe_threshold=1.0;"
+    sql "set enable_hbo_optimization=false;";
     sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -51,6 +52,7 @@ suite("hbo_agg_stage_opt_test") {
 
     sql "select b, c, count(1) from hbo_agg_stage_opt_test group by b, c;"
     sleep(3000)
+    sql "set enable_hbo_optimization=true;";
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                            |
@@ -66,7 +68,6 @@ suite("hbo_agg_stage_opt_test") {
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+*/
     explain {
         sql "physical plan select b, c, count(1) from hbo_agg_stage_opt_test group by b, c;"
-        contains("stats=(hbo)1, aggPhase=LOCAL")
         contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
 

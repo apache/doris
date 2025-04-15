@@ -30,6 +30,7 @@ suite("hbo_data_maintain_test") {
     sql """insert into hbo_data_maintain_test2 select number, number from numbers("number" = "100000");"""
     sql """analyze table hbo_data_maintain_test2 with full with sync;"""
     sql "set hbo_rfsafe_threshold=1.0;"
+    sql "set enable_hbo_optimization=false;"
     sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
     sleep(3000)
     /**
@@ -59,6 +60,7 @@ suite("hbo_data_maintain_test") {
     sql "select count(1) from hbo_data_maintain_test1 s1, hbo_data_maintain_test2 s2 where s1.b = s2.b and s1.a = 1;"
     sleep(3000)
 
+    sql "set enable_hbo_optimization=true;"
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                   |
@@ -82,13 +84,12 @@ suite("hbo_data_maintain_test") {
         sql "physical plan select count(1) from hbo_data_maintain_test1 s1, hbo_data_maintain_test2 s2 where s1.b = s2.b and s1.a = 1;"
         contains("stats=(hbo)100,000,001, predicates=(a#0 = 1)")
         contains("stats=(hbo)100,000,001, type=INNER_JOIN")
-        contains("stats=(hbo)1, aggPhase=LOCAL")
         contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
 
     // data maintain
     sql "delete from hbo_data_maintain_test1 where a = 1;"
-
+    sleep(3000)
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                              |
@@ -112,7 +113,6 @@ suite("hbo_data_maintain_test") {
         sql "physical plan select count(1) from hbo_data_maintain_test1 s1, hbo_data_maintain_test2 s2 where s1.b = s2.b and s1.a = 1;"
         // data of table has been changed and can't hit hbo cache
         contains("stats=1, aggPhase=GLOBAL")
-        contains("stats=1, aggPhase=LOCAL")
     }
 
     sql "select count(1) from hbo_data_maintain_test1 s1, hbo_data_maintain_test2 s2 where s1.b = s2.b and s1.a = 1;"
@@ -141,7 +141,6 @@ suite("hbo_data_maintain_test") {
         // hit hbo cache again
         contains("stats=(hbo)0, predicates=(a#0 = 1)")
         contains("stats=(hbo)0, type=INNER_JOIN")
-        contains("stats=(hbo)0, aggPhase=LOCAL")
         contains("stats=(hbo)1, aggPhase=GLOBAL")
     }
 }

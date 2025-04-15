@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
 
@@ -43,8 +44,7 @@ public class CollectPredicateOnScan implements RewriteRuleFactory {
         return ImmutableList.of(
                 RuleType.COLLECT_SCAN_FILTER.build(
                 logicalFilter(logicalOlapScan()).then(filter -> {
-                    if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable() == null
-                            || !ConnectContext.get().getSessionVariable().isEnableHboInfoCollection()) {
+                    if (StatisticsUtil.isEnableHboInfoCollection()) {
                         return filter;
                     }
                     LogicalOlapScan scan = filter.child();
@@ -61,8 +61,7 @@ public class CollectPredicateOnScan implements RewriteRuleFactory {
 
                 RuleType.COLLECT_SCAN_PROJECT_FILTER.build(
                 logicalFilter(logicalProject(logicalOlapScan())).then(filter -> {
-                    if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable() == null
-                            || !ConnectContext.get().getSessionVariable().isEnableHboInfoCollection()) {
+                    if (StatisticsUtil.isEnableHboInfoCollection()) {
                         return filter;
                     }
                     LogicalOlapScan scan = filter.child().child();

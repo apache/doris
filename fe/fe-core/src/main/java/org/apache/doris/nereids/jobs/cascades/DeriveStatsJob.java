@@ -108,9 +108,8 @@ public class DeriveStatsJob extends Job {
             ConnectContext connectContext = context.getCascadesContext().getConnectContext();
             SessionVariable sessionVariable = connectContext.getSessionVariable();
             boolean isHboEnabled = sessionVariable.isEnableHboOptimization();
-            boolean isHboInfoCollected = sessionVariable.isEnableHboInfoCollection();
             StatsCalculator statsCalculator;
-            if (isHboEnabled && isHboInfoCollected) {
+            if (isHboEnabled) {
                 statsCalculator = new HboStatsCalculator(groupExpression,
                         sessionVariable.getForbidUnknownColStats(),
                         connectContext.getTotalColumnStatisticMap(),
