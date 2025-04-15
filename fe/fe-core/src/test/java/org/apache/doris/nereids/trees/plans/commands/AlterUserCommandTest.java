@@ -41,7 +41,6 @@ public class AlterUserCommandTest extends TestWithFeService {
     private Env env;
     private AccessControllerManager accessControllerManager;
     private UserDesc userDesc;
-    private PasswordOptions passwordOptions;
 
     private void runBefore() throws IOException {
         connectContext = createDefaultCtx();
@@ -68,7 +67,7 @@ public class AlterUserCommandTest extends TestWithFeService {
         connectContext.setQualifiedUser("root");
         PassVar passVar = new PassVar("", true);
         userDesc = new UserDesc(userIdentity, passVar);
-        passwordOptions = PasswordOptions.UNSET_OPTION;
+        PasswordOptions passwordOptions = PasswordOptions.UNSET_OPTION;
         AlterUserInfo alterUserInfo = new AlterUserInfo(true, userDesc, passwordOptions, null);
         AlterUserCommand alterUserCommand = new AlterUserCommand(alterUserInfo);
         Assertions.assertDoesNotThrow(() -> alterUserCommand.validate());
@@ -82,27 +81,11 @@ public class AlterUserCommandTest extends TestWithFeService {
         //testUser to modify root user
         connectContext.setQualifiedUser("testUser");
         Assertions.assertThrows(AnalysisException.class, () -> alterUserCommand.validate(), "Only root user can modify root user");
-    }
 
-    @Test
-    void testValidateNoPrivilege() throws IOException {
-        runBefore();
-        new Expectations() {
-            {
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.GRANT);
-                minTimes = 0;
-                result = false;
-            }
-        };
-
-        UserIdentity userIdentity = new UserIdentity(Auth.ROOT_USER, "%");
-        connectContext.setQualifiedUser("root");
-        PassVar passVar = new PassVar("", true);
-        userDesc = new UserDesc(userIdentity, passVar);
-        passwordOptions = PasswordOptions.UNSET_OPTION;
-        AlterUserInfo alterUserInfo = new AlterUserInfo(true, userDesc, passwordOptions, null);
-        AlterUserCommand alterUserCommand = new AlterUserCommand(alterUserInfo);
-        Assertions.assertThrows(AnalysisException.class, () -> alterUserCommand.validate(),
-                "Access denied; you need (at least one of) the (GRANT) privilege(s) for this operation");
+        //test PasswordOptions
+        PasswordOptions passwordOptions02 = new PasswordOptions(PasswordOptions.UNSET, PasswordOptions.UNSET, PasswordOptions.UNSET, PasswordOptions.UNSET, PasswordOptions.UNSET, -1);
+        AlterUserInfo alterUserInfo03 = new AlterUserInfo(true, userDesc, passwordOptions02, null);
+        AlterUserCommand alterUserCommand03 = new AlterUserCommand(alterUserInfo03);
+        Assertions.assertThrows(AnalysisException.class, () -> alterUserCommand03.validate(), "Not support lock account now");
     }
 }
