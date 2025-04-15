@@ -126,12 +126,30 @@ public class BinlogManager {
         return false;
     }
 
+    private boolean isTemporaryTable(TBinlog binlog) {
+        if (!binlog.isSetTableIds()) {
+            return false;
+        }
+
+        // Filter the binlogs belong to temporary table
+        for (long tableId : binlog.getTableIds()) {
+            if (binlogConfigCache.isTemporaryTable(binlog.getDbId(), tableId)) {
+                LOG.debug("filter the temporary table binlog, db {}, table {}, commit seq {}, ts {}, type {}, data {}",
+                        binlog.getDbId(), binlog.getTableIds(), binlog.getCommitSeq(), binlog.getTimestamp(),
+                        binlog.getType(), binlog.getData());
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void addBinlog(TBinlog binlog, Object raw) {
         if (!Config.enable_feature_binlog) {
             return;
         }
 
-        if (isAsyncMvBinlog(binlog)) {
+        if (isAsyncMvBinlog(binlog) || isTemporaryTable(binlog)) {
             return;
         }
 
