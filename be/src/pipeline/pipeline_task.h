@@ -162,32 +162,6 @@ public:
     }
     bool set_running(bool running) { return _running.exchange(running); }
 
-    bool is_exceed_debug_timeout() {
-        if (_has_exceed_timeout) {
-            return true;
-        }
-        // If enable_debug_log_timeout_secs <= 0, then disable the log
-        if (_pipeline_task_watcher.elapsed_time() >
-            config::enable_debug_log_timeout_secs * 1000L * 1000L * 1000L) {
-            _has_exceed_timeout = true;
-            return true;
-        }
-        return false;
-    }
-
-    void log_detail_if_need() {
-        if (config::enable_debug_log_timeout_secs < 1) {
-            return;
-        }
-        if (is_exceed_debug_timeout()) {
-            LOG(INFO) << "query id|instanceid " << print_id(_state->query_id()) << "|"
-                      << print_id(_state->fragment_instance_id())
-                      << " current pipeline exceed run time "
-                      << config::enable_debug_log_timeout_secs << " seconds. "
-                      << "/n task detail:" << debug_string();
-        }
-    }
-
     RuntimeState* runtime_state() const { return _state; }
 
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
@@ -225,7 +199,6 @@ private:
     const TUniqueId _query_id;
     const uint32_t _index;
     PipelinePtr _pipeline;
-    bool _has_exceed_timeout = false;
     bool _opened;
     RuntimeState* _state = nullptr;
     int _core_id = -1;
@@ -263,8 +236,6 @@ private:
     RuntimeProfile::Counter* _core_change_times = nullptr;
     RuntimeProfile::Counter* _memory_reserve_times = nullptr;
     RuntimeProfile::Counter* _memory_reserve_failed_times = nullptr;
-
-    MonotonicStopWatch _pipeline_task_watcher;
 
     Operators _operators; // left is _source, right is _root
     OperatorXBase* _source;
