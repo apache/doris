@@ -164,8 +164,9 @@ private:
     Status _submit_base_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
-    Status _prepare_tablet_compaction_job(ReaderType compaction_type, const CloudTabletSPtr& tablet,
-                                          std::shared_ptr<CloudCompactionMixin> compaction);
+    Status _request_tablet_global_compaction_lock(ReaderType compaction_type,
+                                                  const CloudTabletSPtr& tablet,
+                                                  std::shared_ptr<CloudCompactionMixin> compaction);
     void _lease_compaction_thread_callback();
     void _check_tablet_delete_bitmap_score_callback();
 

@@ -371,8 +371,8 @@ void CloudStorageEngine::_sync_tablets_thread_callback() {
 void CloudStorageEngine::get_cumu_compaction(
         int64_t tablet_id, std::vector<std::shared_ptr<CloudCumulativeCompaction>>& res) {
     std::lock_guard lock(_compaction_mtx);
-    if (auto it = _executing_cumu_compactions.find(tablet_id);
-        it != _executing_cumu_compactions.end()) {
+    if (auto it = _submitted_cumu_compactions.find(tablet_id);
+        it != _submitted_cumu_compactions.end()) {
         res = it->second;
     }
 }
@@ -593,56 +593,40 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     return tablets_compaction;
 }
 
-Status CloudStorageEngine::_prepare_tablet_compaction_job(
+Status CloudStorageEngine::_request_tablet_global_compaction_lock(
         ReaderType compaction_type, const CloudTabletSPtr& tablet,
         std::shared_ptr<CloudCompactionMixin> compaction) {
+    long now = duration_cast<std::chrono::milliseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
     if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION) {
         auto cumu_compaction = static_pointer_cast<CloudCumulativeCompaction>(compaction);
-        auto st = cumu_compaction->prepare_compact();
-        if (!st.ok()) {
-            if ((!st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) || VLOG_DEBUG_IS_ON) {
-                LOG(WARNING) << "failed to submit cumulative compaction task for tablet: "
-                             << tablet->tablet_id() << ", err: " << st;
-            }
-            long now = duration_cast<std::chrono::milliseconds>(
-                               std::chrono::system_clock::now().time_since_epoch())
-                               .count();
-            if (st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>() &&
-                st.msg() != "_last_delete_version.first not equal to -1") {
-                // Backoff strategy if no suitable version
-                tablet->last_cumu_no_suitable_version_ms = now;
-            }
+        if (auto st = cumu_compaction->request_global_lock(); !st.ok()) {
+            LOG_WARNING("failed to request cumu compactoin global lock")
+                    .tag("tablet id", tablet->tablet_id())
+                    .tag("msg", st.to_string());
             tablet->set_last_cumu_compaction_failure_time(now);
-            std::lock_guard lock(_compaction_mtx);
-            _tablet_preparing_cumu_compaction.erase(tablet->tablet_id());
             return st;
         }
         {
             std::lock_guard lock(_compaction_mtx);
             _executing_cumu_compactions[tablet->tablet_id()].push_back(cumu_compaction);
         }
-        return st;
+        return Status::OK();
     } else if (compaction_type == ReaderType::READER_BASE_COMPACTION) {
         auto base_compaction = static_pointer_cast<CloudBaseCompaction>(compaction);
-        auto st = base_compaction->prepare_compact();
-        if (!st.ok()) {
-            if ((!st.is<ErrorCode::BE_NO_SUITABLE_VERSION>()) || VLOG_DEBUG_IS_ON) {
-                LOG(WARNING) << "failed to submit base compaction task for tablet: "
-                             << tablet->tablet_id() << ", err: " << st;
-            }
-            long now = duration_cast<std::chrono::milliseconds>(
-                               std::chrono::system_clock::now().time_since_epoch())
-                               .count();
-            tablet->set_last_base_compaction_failure_time(now);
-            std::lock_guard lock(_compaction_mtx);
-            _submitted_base_compactions.erase(tablet->tablet_id());
+        if (auto st = base_compaction->request_global_lock(); !st.ok()) {
+            LOG_WARNING("failed to request base compactoin global lock")
+                    .tag("tablet id", tablet->tablet_id())
+                    .tag("msg", st.to_string());
+            tablet->set_last_cumu_compaction_failure_time(now);
             return st;
         }
         {
             std::lock_guard lock(_compaction_mtx);
             _executing_base_compactions[tablet->tablet_id()] = base_compaction;
         }
-        return st;
+        return Status::OK();
     } else {
         LOG(WARNING) << "unsupport compaction task for tablet: " << tablet->tablet_id()
                      << ", compaction name: " << compaction->compaction_name();
@@ -663,17 +647,26 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         }
     }
     auto compaction = std::make_shared<CloudBaseCompaction>(*this, tablet);
+    auto st = compaction->prepare_compact();
+    if (!st.ok()) {
+        long now = duration_cast<std::chrono::milliseconds>(
+                           std::chrono::system_clock::now().time_since_epoch())
+                           .count();
+        tablet->set_last_base_compaction_failure_time(now);
+        std::lock_guard lock(_compaction_mtx);
+        _submitted_base_compactions.erase(tablet->tablet_id());
+        return st;
+    }
     {
         std::lock_guard lock(_compaction_mtx);
         _submitted_base_compactions[tablet->tablet_id()] = compaction;
     }
-    auto st = _base_compaction_thread_pool->submit_func([=, this,
-                                                         compaction = std::move(compaction)]() {
+    st = _base_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
         g_base_compaction_running_task_count << 1;
         signal::tablet_id = tablet->tablet_id();
         Defer defer {[&]() { g_base_compaction_running_task_count << -1; }};
-        auto st = _prepare_tablet_compaction_job(ReaderType::READER_BASE_COMPACTION, tablet,
-                                                 compaction);
+        auto st = _request_tablet_global_compaction_lock(ReaderType::READER_BASE_COMPACTION, tablet,
+                                                         compaction);
         if (!st.ok()) return;
         st = compaction->execute_compact();
         if (!st.ok()) {
@@ -710,6 +703,21 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         }
     }
     auto compaction = std::make_shared<CloudCumulativeCompaction>(*this, tablet);
+    auto st = compaction->prepare_compact();
+    if (!st.ok()) {
+        long now = duration_cast<std::chrono::milliseconds>(
+                           std::chrono::system_clock::now().time_since_epoch())
+                           .count();
+        if (st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>() &&
+            st.msg() != "_last_delete_version.first not equal to -1") {
+            // Backoff strategy if no suitable version
+            tablet->last_cumu_no_suitable_version_ms = now;
+        }
+        tablet->set_last_cumu_compaction_failure_time(now);
+        std::lock_guard lock(_compaction_mtx);
+        _tablet_preparing_cumu_compaction.erase(tablet->tablet_id());
+        return st;
+    }
     {
         std::lock_guard lock(_compaction_mtx);
         _tablet_preparing_cumu_compaction.erase(tablet->tablet_id());
@@ -747,8 +755,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
             tablet->last_cumu_no_suitable_version_ms = 0;
         }
     };
-    auto st = _cumu_compaction_thread_pool->submit_func([=, this,
-                                                         compaction = std::move(compaction)]() {
+    st = _cumu_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
         DBUG_EXECUTE_IF("CloudStorageEngine._submit_cumulative_compaction_task.wait_in_line",
                         { sleep(5); })
         signal::tablet_id = tablet->tablet_id();
@@ -764,8 +771,8 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
             }
             g_cumu_compaction_running_task_count << -1;
         }};
-        auto st = _prepare_tablet_compaction_job(ReaderType::READER_CUMULATIVE_COMPACTION, tablet,
-                                                 compaction);
+        auto st = _request_tablet_global_compaction_lock(ReaderType::READER_CUMULATIVE_COMPACTION,
+                                                         tablet, compaction);
         if (!st.ok()) return;
         do {
             std::lock_guard lock(_cumu_compaction_delay_mtx);
