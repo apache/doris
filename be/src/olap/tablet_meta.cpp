@@ -27,6 +27,7 @@
 #include <time.h>
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <random>
 #include <set>
@@ -1393,6 +1394,19 @@ DeleteBitmap::Version DeleteBitmap::_get_rowset_cache_version(const BitmapKey& b
         }
     }
     return 0;
+}
+
+void DeleteBitmap::traverse_rowset_id_prefix(
+        const std::function<void(const RowsetId& rowsetId)>& func) const {
+    std::shared_lock rlock {lock};
+    auto it = delete_bitmap.cbegin();
+    while (it != delete_bitmap.cend()) {
+        RowsetId rowset_id = std::get<0>(it->first);
+        func(rowset_id);
+        // find next rowset id
+        it = delete_bitmap.upper_bound({rowset_id, std::numeric_limits<SegmentId>::max(),
+                                        std::numeric_limits<Version>::max()});
+    }
 }
 
 // We cannot just copy the underlying memory to construct a string

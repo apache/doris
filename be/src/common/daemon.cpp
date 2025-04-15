@@ -80,6 +80,10 @@ void update_rowsets_and_segments_num_metrics() {
         auto* metrics = DorisMetrics::instance();
         metrics->all_rowsets_num->set_value(engine.tablet_manager()->get_rowset_nums());
         metrics->all_segments_num->set_value(engine.tablet_manager()->get_segment_nums());
+        metrics->valid_delete_bitmap_key_count->set_value(
+                engine.tablet_manager()->get_valid_delete_bitmap_key_count());
+        metrics->invalid_delete_bitmap_key_count->set_value(
+                engine.tablet_manager()->get_invalid_delete_bitmap_key_count());
     }
 }
 

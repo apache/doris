@@ -104,6 +104,8 @@ public:
 
     uint64_t get_rowset_nums();
     uint64_t get_segment_nums();
+    uint64_t get_valid_delete_bitmap_key_count();
+    uint64_t get_invalid_delete_bitmap_key_count();
 
     // Extract tablet_id and schema_hash from given path.
     //
