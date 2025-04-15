@@ -213,6 +213,8 @@ public:
 
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
 
+    std::mutex& get_sync_tablet_rowsets_lock() { return _sync_tablet_rowsets_lock; }
+
     const auto& rowset_map() const { return _rs_version_map; }
 
     std::string rowsets_digest() const;
@@ -247,6 +249,8 @@ private:
 
     // this mutex MUST ONLY be used when sync meta
     bthread::Mutex _sync_meta_lock;
+    mutable std::mutex _sync_tablet_rowsets_lock; // for CloudMetaMgr::sync_tablet_rowsets
+    // ATTENTION: lock order should be: _sync_meta_lock -> _sync_tablet_rowsets_lock -> _meta_lock
 
     std::atomic<int64_t> _cumulative_point {-1};
     std::atomic<int64_t> _approximate_num_rowsets {-1};

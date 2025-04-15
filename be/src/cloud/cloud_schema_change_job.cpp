@@ -456,6 +456,9 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                     DBUG_BLOCK);
     const auto& stats = finish_resp.stats();
     {
+        // to prevent the converted historical rowsets be replaced by rowsets written on new tablet
+        // during double write phase by `CloudMetaMgr::sync_tablet_rowsets` in another thread
+        std::unique_lock lock {_new_tablet->get_sync_tablet_rowsets_lock()};
         std::unique_lock wlock(_new_tablet->get_header_lock());
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock);
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);

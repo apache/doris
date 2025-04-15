@@ -487,6 +487,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions&
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
 
+    std::lock_guard lock {tablet->get_sync_tablet_rowsets_lock()};
     MetaServiceProxy* proxy;
     RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
     int tried = 0;

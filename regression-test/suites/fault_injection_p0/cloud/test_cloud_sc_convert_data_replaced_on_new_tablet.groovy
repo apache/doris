@@ -100,7 +100,7 @@ suite("test_cloud_sc_convert_data_replaced_on_new_tablet", "nonConcurrent") {
         // let sc modify tablet meta first
         GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.before.commit_job")
         // GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.before.modify_tablet_meta")
-        
+        Thread.sleep(1000)
         // and load's sync_rowsets() on new tablet modify be's tablet meta
         GetDebugPoint().disableDebugPointForAllBEs("CloudMetaMgr::sync_tablet_rowsets.before.modify_tablet_meta")
 
