@@ -598,6 +598,12 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions&
                             DBUG_BLOCK);
             tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
         }
+        DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.modify_tablet_meta", {
+            auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+            if (target_tablet_id == tablet->tablet_id()) {
+                DBUG_BLOCK
+            }
+        });
         {
             const auto& stats = resp.stats();
             std::unique_lock wlock(tablet->get_header_lock());
