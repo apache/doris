@@ -39,7 +39,7 @@ public class Or extends CompoundPredicate {
         super(ImmutableList.of(left, right), "OR");
     }
 
-    private Or(List<Expression> children) {
+    public Or(List<Expression> children) {
         super(children, "OR");
     }
 
