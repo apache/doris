@@ -28,6 +28,7 @@
 #include "runtime/fragment_mgr.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_thread_mem_tracker_mgr.h"
+#include "testutil/mock/mock_workload_group_mgr.h"
 #include "thrift_builder.h"
 
 namespace doris::pipeline {
@@ -776,6 +777,243 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
         EXPECT_TRUE(source_finish_dep->ready());
         EXPECT_TRUE(source_finish_dep->_blocked_task.empty());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+    }
+}
+
+TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
+    {
+        _query_options = TQueryOptionsBuilder()
+                                 .set_enable_local_exchange(true)
+                                 .set_enable_local_shuffle(true)
+                                 .set_runtime_filter_max_in_num(15)
+                                 .set_enable_reserve_memory(true)
+                                 .build();
+        auto fe_address = TNetworkAddress();
+        fe_address.hostname = LOCALHOST;
+        fe_address.port = DUMMY_PORT;
+        _query_ctx =
+                QueryContext::create(_query_id, ExecEnv::GetInstance(), _query_options, fe_address,
+                                     true, fe_address, QuerySource::INTERNAL_FRONTEND);
+        _task_queue = std::make_unique<DummyTaskQueue>(1);
+        _build_fragment_context();
+        ((MockRuntimeState*)_runtime_state.get())->_workload_group =
+                std::make_shared<DummyWorkloadGroup>();
+        ((MockThreadMemTrackerMgr*)thread_context()->thread_mem_tracker_mgr.get())
+                ->_test_low_memory = true;
+
+        ExecEnv::GetInstance()->_workload_group_manager = new MockWorkloadGroupMgr();
+    }
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    Dependency* read_dep;
+    Dependency* write_dep;
+    Dependency* source_finish_dep;
+    {
+        OperatorPtr source_op;
+        // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+        sink_op->_spillable = true;
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    task->set_task_queue(_task_queue.get());
+    {
+        std::vector<TScanRangeParams> scan_range;
+        int sender_id = 0;
+        TDataSink tsink;
+        EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_FALSE(task->_filter_dependencies.empty());
+        read_dep = _runtime_state->get_local_state_result(task->_operators.front()->operator_id())
+                           .value()
+                           ->dependencies()
+                           .front();
+        write_dep = _runtime_state->get_sink_local_state()->dependencies().front();
+    }
+    {
+        _query_ctx->get_execution_dependency()->set_ready();
+        // Task is blocked by read dependency.
+        read_dep->block();
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(task->_eos);
+        EXPECT_FALSE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_FALSE(task->_read_dependencies.empty());
+        EXPECT_FALSE(task->_write_dependencies.empty());
+        EXPECT_FALSE(task->_finish_dependencies.empty());
+        EXPECT_FALSE(task->_spill_dependencies.empty());
+        EXPECT_TRUE(task->_opened);
+        EXPECT_FALSE(read_dep->ready());
+        EXPECT_TRUE(write_dep->ready());
+        EXPECT_FALSE(read_dep->_blocked_task.empty());
+        source_finish_dep =
+                _runtime_state->get_local_state_result(task->_operators.front()->operator_id())
+                        .value()
+                        ->finishdependency();
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::BLOCKED);
+    }
+    {
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size =
+                vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size =
+                vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+    }
+    {
+        // Reserve failed and paused.
+        read_dep->set_ready();
+        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
+        EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_FALSE(task->_spilling);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
+        EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
+        EXPECT_FALSE(task->_eos);
+        EXPECT_TRUE(task->_spilling);
+        EXPECT_FALSE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_TRUE(source_finish_dep->ready());
+        EXPECT_TRUE(source_finish_dep->_blocked_task.empty());
+        EXPECT_TRUE(
+                ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
+    }
+    {
+        // Reserve failed and paused.
+        task->_operators.front()->cast<DummyOperator>()._disable_reserve_mem = true;
+        task->_spilling = false;
+        task->_operators.front()->cast<DummyOperator>()._eos = true;
+        ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused = false;
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
+        EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
+        EXPECT_TRUE(task->_eos);
+        EXPECT_TRUE(task->_spilling);
+        EXPECT_FALSE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_TRUE(source_finish_dep->ready());
+        EXPECT_TRUE(source_finish_dep->_blocked_task.empty());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_TRUE(
+                ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
+    }
+    {
+        // Reserve failed and paused.
+        ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused = false;
+        task->_sink->cast<DummySinkOperatorX>()._disable_reserve_mem = true;
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
+        EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
+        EXPECT_TRUE(task->_eos);
+        EXPECT_FALSE(task->_spilling);
+        EXPECT_TRUE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_TRUE(source_finish_dep->ready());
+        EXPECT_TRUE(source_finish_dep->_blocked_task.empty());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_FALSE(
+                ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
+    }
+    {
+        EXPECT_FALSE(task->is_revoking());
+        task->_spill_dependencies.front()->block();
+        EXPECT_TRUE(task->is_revoking());
+        EXPECT_FALSE(task->_spill_dependencies.front()->ready());
+        EXPECT_TRUE(task->_spill_dependencies.front()->_blocked_task.empty());
+        task->_spill_dependencies.front()->set_ready();
+    }
+    {
+        EXPECT_FALSE(task->_is_blocked());
+        task->_spill_dependencies.front()->block();
+        EXPECT_TRUE(task->_is_blocked());
+        EXPECT_FALSE(task->_spill_dependencies.front()->ready());
+        EXPECT_FALSE(task->_spill_dependencies.front()->_blocked_task.empty());
+        task->_spill_dependencies.front()->set_ready();
+    }
+    {
+        EXPECT_FALSE(task->_is_pending_finish());
+        task->_spill_dependencies.front()->block();
+        EXPECT_TRUE(task->_is_pending_finish());
+        EXPECT_FALSE(task->_spill_dependencies.front()->ready());
+        EXPECT_FALSE(task->_spill_dependencies.front()->_blocked_task.empty());
+        task->_spill_dependencies.front()->set_ready();
+    }
+    delete ExecEnv::GetInstance()->_workload_group_manager;
+}
+
+TEST_F(PipelineTaskTest, TEST_INJECT_SHARED_STATE) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    {
+        OperatorPtr source_op;
+        // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    {
+        // `_sink_shared_state` is created in constructor.
+        EXPECT_NE(task->_sink_shared_state, nullptr);
+        task->_sink_shared_state = nullptr;
+    }
+    {
+        std::shared_ptr<BasicSharedState> shared_state = nullptr;
+        EXPECT_FALSE(task->inject_shared_state(shared_state));
+    }
+    {
+        auto shared_state = BasicSharedState::create_shared();
+        shared_state->related_op_ids.insert(0);
+        EXPECT_TRUE(task->inject_shared_state(shared_state));
+    }
+    {
+        auto shared_state = BasicSharedState::create_shared();
+        shared_state->related_op_ids.insert(3);
+        EXPECT_TRUE(task->inject_shared_state(shared_state));
+    }
+    {
+        auto shared_state = BasicSharedState::create_shared();
+        shared_state->related_op_ids.insert(1);
+        EXPECT_FALSE(task->inject_shared_state(shared_state));
     }
 }
 
