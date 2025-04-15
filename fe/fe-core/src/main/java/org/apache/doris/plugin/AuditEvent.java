@@ -74,6 +74,10 @@ public class AuditEvent {
     public long scanBytes = -1;
     @AuditField(value = "ScanRows")
     public long scanRows = -1;
+    @AuditField(value = "LoadBytes")
+    public long loadBytes = -1;
+    @AuditField(value = "loadRows")
+    public long loadRows = -1;
     @AuditField(value = "ReturnRows")
     public long returnRows = -1;
     @AuditField(value = "StmtId")
@@ -288,6 +292,16 @@ public class AuditEvent {
 
         public AuditEventBuilder setSpillReadBytesFromLocalStorage(long bytes) {
             auditEvent.spillReadBytesFromLocalStorage = bytes;
+            return this;
+        }
+
+        public AuditEventBuilder setLoadBytes(long loadBytes) {
+            auditEvent.loadBytes = loadBytes;
+            return this;
+        }
+
+        public AuditEventBuilder setLoadRows(long loadRows) {
+            auditEvent.loadRows = loadRows;
             return this;
         }
 

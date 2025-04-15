@@ -40,6 +40,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
@@ -462,6 +463,8 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     // the real 'num_rows_load_total' will be set when sink being closed.
     _state->update_num_rows_load_total(input_rows);
     _state->update_num_bytes_load_total(input_bytes);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_load_rows(input_rows);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_load_bytes(input_bytes);
     DorisMetrics::instance()->load_rows->increment(input_rows);
     DorisMetrics::instance()->load_bytes->increment(input_bytes);
 

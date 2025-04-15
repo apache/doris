@@ -66,6 +66,7 @@
 #include "runtime/memory/memory_reclamation.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/brpc_closure.h"
@@ -1772,6 +1773,8 @@ Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input
     // the real 'num_rows_load_total' will be set when sink being closed.
     _state->update_num_rows_load_total(rows);
     _state->update_num_bytes_load_total(bytes);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_load_rows(rows);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_load_bytes(bytes);
     DorisMetrics::instance()->load_rows->increment(rows);
     DorisMetrics::instance()->load_bytes->increment(bytes);
 
