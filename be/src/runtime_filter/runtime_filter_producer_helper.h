@@ -82,7 +82,8 @@ protected:
     std::unique_ptr<RuntimeProfile::Counter> _runtime_filter_compute_timer =
             std::make_unique<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);
 
-    // This flag is setted by skip_process and read in different threads, so it must be atomic
+    // This flag is setted by skip_process
+    // and read by many methods, not sure wheather there exists data race, so i use atomic
     std::atomic_bool _skip_runtime_filters_process = false;
     const bool _is_broadcast_join;
 
