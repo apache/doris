@@ -127,8 +127,11 @@ bool BackendOptions::analyze_priority_cidrs(const std::string& priority_networks
 bool BackendOptions::analyze_localhost(std::string& localhost, bool& bind_ipv6,
                                        std::vector<CIDR>* cidrs, std::vector<InetAddress>* hosts) {
     auto addr_it = hosts->begin();
+
     if (!cidrs->empty()) {
+
         for (; addr_it != hosts->end(); ++addr_it) {
+
             VLOG_CRITICAL << "check ip=" << addr_it->get_host_address();
             // Whether to use IPV4 or IPV6, it's configured by CIDR format.
             // If both IPV4 and IPV6 are configured, the config order decides priority.
