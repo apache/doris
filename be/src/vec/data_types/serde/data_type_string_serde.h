@@ -65,7 +65,7 @@ inline void escape_string(const char* src, size_t& len, char escape_char) {
 }
 
 // specially escape quote with double quote
-inline void escape_csv_string(const char* src, size_t& len, char escape_char, char quote_char) {
+inline void escape_string_for_csv(const char* src, size_t& len, char escape_char, char quote_char) {
     const char* start = src;
     char* dest_ptr = const_cast<char*>(src);
     const char* end = src + len;
@@ -208,9 +208,16 @@ public:
             slice.trim_quote();
         }
         if (options.escape_char != 0) {
-            // TODO: support other quote char
-            char quote_char = '"';
-            escape_csv_string(slice.data, slice.size, options.escape_char, quote_char);
+            escape_string(slice.data, slice.size, options.escape_char);
+        }
+        assert_cast<ColumnType&>(column).insert_data(slice.data, slice.size);
+        return Status::OK();
+    }
+
+    Status deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
+                                         const FormatOptions& options) const override {
+        if (options.escape_char != 0) {
+            escape_string_for_csv(slice.data, slice.size, options.escape_char, options.quote_char);
         }
         assert_cast<ColumnType&>(column).insert_data(slice.data, slice.size);
         return Status::OK();
