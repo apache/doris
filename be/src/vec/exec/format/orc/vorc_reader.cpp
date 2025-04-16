@@ -44,6 +44,8 @@
 #include "gutil/strings/substitute.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
+#include "olap/id_manager.h"
+#include "olap/utils.h"
 #include "orc/Exceptions.hh"
 #include "orc/Int128.hh"
 #include "orc/MemoryPool.hh"
@@ -82,8 +84,6 @@
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/runtime/vdatetime_value.h"
-#include "olap/id_manager.h"
-#include "olap/utils.h"
 
 namespace doris {
 class RuntimeState;
@@ -1178,9 +1178,9 @@ Status OrcReader::set_fill_columns(
         }
         _row_reader = _reader->createRowReader(_row_reader_options, _orc_filter.get(),
                                                _string_dict_filter.get());
-        if (_read_on_line_mode) {
-            _seek_to_read_one_line();
-        }
+
+        _seek_to_read_one_line();
+
         _batch = _row_reader->createRowBatch(_batch_size);
         const auto& selected_type = _row_reader->getSelectedType();
         int idx = 0;
@@ -1304,10 +1304,12 @@ Status OrcReader::_fill_missing_columns(
 
 Status OrcReader::_fill_row_id_columns(Block* block) {
     if (_row_id_column_iterator_pair.first != nullptr) {
-        RETURN_IF_ERROR(_row_id_column_iterator_pair.first->seek_to_ordinal(_row_reader->getRowNumber()));
+        RETURN_IF_ERROR(
+                _row_id_column_iterator_pair.first->seek_to_ordinal(_row_reader->getRowNumber()));
         size_t fill_size = _batch->numElements;
 
-        auto col = block->get_by_position(_row_id_column_iterator_pair.second).column->assume_mutable();
+        auto col = block->get_by_position(_row_id_column_iterator_pair.second)
+                           .column->assume_mutable();
         RETURN_IF_ERROR(_row_id_column_iterator_pair.first->next_batch(&fill_size, col));
     }
 

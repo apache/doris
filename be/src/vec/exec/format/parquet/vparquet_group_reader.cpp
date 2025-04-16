@@ -460,7 +460,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     }
     IColumn::Filter result_filter;
     size_t pre_raw_read_rows = 0;
-    while (_state != nullptr && !_state->is_cancelled()) {
+    while (!_state->is_cancelled()) {
         // read predicate columns
         pre_read_rows = 0;
         pre_eof = false;
@@ -545,7 +545,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             break;
         }
     }
-    if (_state != nullptr && _state->is_cancelled()) {
+    if (_state->is_cancelled()) {
         return Status::Cancelled("cancelled");
     }
 
@@ -755,9 +755,9 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
     return Status::OK();
 }
 
-
-Status RowGroupReader::_get_current_batch_row_id(size_t read_rows, std::vector<rowid_t>& row_ids) {
-    row_ids.resize(read_rows);
+Status RowGroupReader::_get_current_batch_row_id(size_t read_rows) {
+    _current_batch_row_ids.clear();
+    _current_batch_row_ids.resize(read_rows);
     int64_t idx = 0;
     int64_t read_range_rows = 0;
     for (auto& range : _read_ranges) {
@@ -765,8 +765,8 @@ Status RowGroupReader::_get_current_batch_row_id(size_t read_rows, std::vector<r
             break;
         }
         if (read_range_rows >= _total_read_rows) {
-            for (auto x = range.first_row; x < range.last_row; x ++) {
-                row_ids[idx++] = (rowid_t) (x + _current_row_group_idx.first_row);
+            for (auto x = range.first_row; x < range.last_row; x++) {
+                _current_batch_row_ids[idx++] = (rowid_t)(x + _current_row_group_idx.first_row);
             }
         }
         read_range_rows += range.last_row - range.first_row;
@@ -774,18 +774,17 @@ Status RowGroupReader::_get_current_batch_row_id(size_t read_rows, std::vector<r
     return Status::OK();
 }
 
-Status RowGroupReader::_fill_row_id_columns(Block* block,size_t read_rows) {
+Status RowGroupReader::_fill_row_id_columns(Block* block, size_t read_rows) {
     if (_row_id_column_iterator_pair.first != nullptr) {
-        vector<rowid_t> row_ids;
-        RETURN_IF_ERROR(_get_current_batch_row_id(read_rows, row_ids));
-        auto col = block->get_by_position(_row_id_column_iterator_pair.second).column->assume_mutable();
-        RETURN_IF_ERROR(_row_id_column_iterator_pair.first->read_by_rowids(row_ids.data(), row_ids.size(), col));
-
+        RETURN_IF_ERROR(_get_current_batch_row_id(read_rows));
+        auto col = block->get_by_position(_row_id_column_iterator_pair.second)
+                           .column->assume_mutable();
+        RETURN_IF_ERROR(_row_id_column_iterator_pair.first->read_by_rowids(
+                _current_batch_row_ids.data(), _current_batch_row_ids.size(), col));
     }
 
     return Status::OK();
 }
-
 
 Status RowGroupReader::_build_pos_delete_filter(size_t read_rows) {
     if (!_position_delete_ctx.has_filter) {

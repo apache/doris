@@ -451,13 +451,8 @@ Status ParquetReader::set_fill_columns(
         }
     }
     if (_row_id_column_iterator_pair.first != nullptr) {
-        // 在 lazy read中， 将rowid 列也作为第一次读取时填充的列，然后与谓词列一起filter
-        // 因为 我需要先根据row range 来拿到当前parquet reader 要读取的列的 row id => vector
-        // 然后将vector 填充到 column 中，如果我不一起filter 的话 ，我需要让 vector 额外做一次filter 再插入到column 中
         _lazy_read_ctx.all_predicate_col_ids.emplace_back(_row_id_column_iterator_pair.second);
     }
-
-
 
     for (auto& kv : partition_columns) {
         auto iter = predicate_columns.find(kv.first);
@@ -567,7 +562,6 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
         return Status::OK();
     }
-    std::cout <<"_column_names = " << (*_column_names)<<"\n";
 
     std::vector<std::string> original_block_column_name = block->get_names();
     if (!_hive_use_column_names) {
@@ -649,11 +643,7 @@ Status ParquetReader::_next_row_group_reader() {
     auto& row_group = _t_metadata->row_groups[row_group_index.row_group_id];
     std::vector<RowRange> candidate_row_ranges;
 
-    if (_read_line_mode) {
-        candidate_row_ranges = _read_line_mode_row_ranges[row_group_index.row_group_id];
-    } else {
-        RETURN_IF_ERROR(_process_page_index(row_group, candidate_row_ranges));
-    }
+    RETURN_IF_ERROR(_process_page_index(row_group, row_group_index, candidate_row_ranges));
 
     RowGroupReader::PositionDeleteContext position_delete_ctx =
             _get_position_delete_ctx(row_group, row_group_index);
@@ -699,27 +689,9 @@ Status ParquetReader::_init_row_groups(const bool& is_filter_groups) {
         }
         bool filter_group = false;
         if (is_filter_groups) {
-            if (_read_line_mode) {
-                auto group_start = row_index;
-                auto group_end = row_index + row_group.num_rows;
-                auto group_id = row_group_idx;
-
-                while (!_read_lines.empty() ) {
-                    auto v = _read_lines.front();
-                    if (v >= group_start &&  v < group_end) {
-                        _read_line_mode_row_ranges[group_id].emplace_back(RowRange{v- group_start, v-group_start+1});
-                        _read_lines.pop_front();
-                    } else {
-                        break;
-                    }
-                }
-
-                if (_read_line_mode_row_ranges[group_id].empty()) {
-                    filter_group = true;
-                }
-            } else {
-                RETURN_IF_ERROR(_process_row_group_filter(row_group, &filter_group));
-            }
+            RowGroupReader::RowGroupIndex row_group_index {row_group_idx, row_index,
+                                                           row_index + row_group.num_rows};
+            RETURN_IF_ERROR(_process_row_group_filter(row_group_index, row_group, &filter_group));
         }
 
         int64_t group_size = 0; // only calculate the needed columns
@@ -825,10 +797,17 @@ bool ParquetReader::_has_page_index(const std::vector<tparquet::ColumnChunk>& co
 }
 
 Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
+                                          const RowGroupReader::RowGroupIndex& row_group_index,
                                           std::vector<RowRange>& candidate_row_ranges) {
     if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
         return Status::EndOfFile("stop");
     }
+
+    if (_read_line_mode) {
+        candidate_row_ranges = _read_line_mode_row_ranges[row_group_index.row_group_id];
+        return Status::OK();
+    }
+
     SCOPED_RAW_TIMER(&_statistics.page_index_filter_time);
 
     std::function<void()> read_whole_row_group = [&]() {
@@ -942,13 +921,34 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     return Status::OK();
 }
 
-Status ParquetReader::_process_row_group_filter(const tparquet::RowGroup& row_group,
-                                                bool* filter_group) {
-    RETURN_IF_ERROR(_process_column_stat_filter(row_group.columns, filter_group));
-    _init_chunk_dicts();
-    RETURN_IF_ERROR(_process_dict_filter(filter_group));
-    _init_bloom_filter();
-    RETURN_IF_ERROR(_process_bloom_filter(filter_group));
+Status ParquetReader::_process_row_group_filter(
+        const RowGroupReader::RowGroupIndex& row_group_index, const tparquet::RowGroup& row_group,
+        bool* filter_group) {
+    if (_read_line_mode) {
+        auto group_start = row_group_index.first_row;
+        auto group_end = row_group_index.last_row;
+
+        while (!_read_lines.empty()) {
+            auto v = _read_lines.front();
+            if (v >= group_start && v < group_end) {
+                _read_line_mode_row_ranges[row_group_index.row_group_id].emplace_back(
+                        RowRange {v - group_start, v - group_start + 1});
+                _read_lines.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        if (_read_line_mode_row_ranges[row_group_index.row_group_id].empty()) {
+            *filter_group = true;
+        }
+    } else {
+        RETURN_IF_ERROR(_process_column_stat_filter(row_group.columns, filter_group));
+        _init_chunk_dicts();
+        RETURN_IF_ERROR(_process_dict_filter(filter_group));
+        _init_bloom_filter();
+        RETURN_IF_ERROR(_process_bloom_filter(filter_group));
+    }
     return Status::OK();
 }
 

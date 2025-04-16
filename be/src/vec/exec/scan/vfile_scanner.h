@@ -37,10 +37,10 @@
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
-#include "vec/exec/scan/vscanner.h"
-#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/scan/vscanner.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class RuntimeState;
@@ -70,17 +70,6 @@ public:
                  std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
                  const std::unordered_map<std::string, int>* colname_to_slot_id);
 
-    //only used for read one line.
-    VFileScanner(RuntimeState* state, TFileScanRangeParams* params, TFileRangeDesc range,
-                 const std::unordered_map<std::string, int>* colname_to_slot_id,
-                 TupleDescriptor* tuple_desc) : VScanner(state) ,_params(params),
-                 _current_range(range), _col_name_to_slot_id(colname_to_slot_id),
-                 _real_tuple_desc(tuple_desc) {};
-
-    Status read_one_line_from_current_range(segment_v2::rowid_t rowid,  Block* result_block,
-                                            ExternalFileMappingInfo external_info);
-
-
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
@@ -92,6 +81,22 @@ public:
     std::string get_name() override { return VFileScanner::NAME; }
 
     std::string get_current_scan_range_name() override { return _current_range_path; }
+
+    //only used for read one line.
+    VFileScanner(RuntimeState* state, const TFileScanRangeParams* params,
+                 const std::unordered_map<std::string, int>* colname_to_slot_id,
+                 TupleDescriptor* tuple_desc)
+            : VScanner(state),
+              _params(params),
+              _col_name_to_slot_id(colname_to_slot_id),
+              _real_tuple_desc(tuple_desc) {};
+
+    Status read_one_line_from_range(const TFileRangeDesc& range, const segment_v2::rowid_t rowid,
+                                    Block* result_block,
+                                    const ExternalFileMappingInfo& external_info,
+                                    int64_t* init_reader_ms, int64_t* get_block_ms);
+
+    Status prepare_for_read_one_line(const TFileRangeDesc& range);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
@@ -220,7 +225,8 @@ private:
     // otherwise, point to _output_tuple_desc
     const TupleDescriptor* _real_tuple_desc = nullptr;
 
-    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr, -1};
+    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
+                                                                                           -1};
 
 private:
     Status _init_expr_ctxes();
@@ -266,7 +272,8 @@ private:
     }
 
     TPushAggOp::type _get_push_down_agg_type() {
-        return _local_state == nullptr ? TPushAggOp::type::NONE :_local_state->get_push_down_agg_type();
+        return _local_state == nullptr ? TPushAggOp::type::NONE
+                                       : _local_state->get_push_down_agg_type();
     }
 
     int64_t _get_push_down_count() { return _local_state->get_push_down_count(); }
@@ -279,6 +286,5 @@ private:
         return config::max_external_file_meta_cache_num > 0 &&
                _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
     }
-
 };
 } // namespace doris::vectorized

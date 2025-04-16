@@ -44,28 +44,17 @@
 namespace doris {
 
 enum class FileMappingType {
-    DORIS_FORMAT, // for doris format file {tablet_id}{rowset_id}{segment_id}
-    EXTERNAL, //
+    INTERNAL, // for doris format file {tablet_id}{rowset_id}{segment_id}
+    EXTERNAL, // for external table.
 };
 
-struct ExternalFileMappingInfo {
-    TFileRangeDesc external_scan_range_desc;
-    bool enable_file_meta_cache;
+struct InternalFileMappingInfo {
+    int64_t tablet_id;
+    RowsetId rowset_id;
+    uint32_t segment_id;
 
-    ExternalFileMappingInfo(const TFileRangeDesc& scan_range, bool file_meta_cache):
-            external_scan_range_desc(scan_range), enable_file_meta_cache(file_meta_cache) {
-    }
-};
-
-struct FileMapping {
-    FileMappingType type;
-    std::string value;
-    std::optional<ExternalFileMappingInfo> external_info = std::nullopt;
-
-    FileMapping(FileMappingType t, std::string v) : type(t), value(std::move(v)) {};
-
-    FileMapping(int64_t tablet_id, RowsetId rowset_id, uint32_t segment_id)
-            : type(FileMappingType::DORIS_FORMAT) {
+    std::string to_string() const {
+        std::string value;
         value.resize(sizeof(tablet_id) + sizeof(rowset_id) + sizeof(segment_id));
         auto* ptr = value.data();
 
@@ -74,48 +63,93 @@ struct FileMapping {
         memcpy(ptr, &rowset_id, sizeof(rowset_id));
         ptr += sizeof(rowset_id);
         memcpy(ptr, &segment_id, sizeof(segment_id));
+        return value;
     }
+};
 
-    FileMapping(int plan_node_id, const TFileRangeDesc& scan_range, bool enable_file_meta_cache)
-            : type(FileMappingType::EXTERNAL), external_info(std::in_place, scan_range, enable_file_meta_cache) {
-        value.resize(scan_range.path.size() + sizeof(plan_node_id) + sizeof(scan_range.start_offset));
+struct ExternalFileMappingInfo {
+    /* By recording the plan_node_id in fileMapping, the TFileScanRangeParams used in the scan phase can be found
+    * from QueryContext according to the plan_node_id. Because there are some important information in
+    * TFileScanRangeParams (needed when creating hdfs/s3 reader):
+    *      8: optional THdfsParams hdfs_params;
+    *      9: optional map<string, string> properties;
+    */
+    int plan_node_id;
+
+    /*
+     * Record TFileRangeDesc external_scan_range_desc in fileMapping, usage:
+     * 1. If the file belongs to a partition, columns_from_path_keys and columns_from_path in TFileRangeDesc are needed when materializing the partition column
+     * 2. path, file_type, modification_time,compress_type .... used to read the file
+     * 3. TFileFormatType can distinguish whether it is iceberg/hive/hudi/paimon
+     */
+    TFileRangeDesc scan_range_desc;
+    bool enable_file_meta_cache;
+
+    ExternalFileMappingInfo(int plan_node_id, const TFileRangeDesc& scan_range,
+                            bool file_meta_cache)
+            : plan_node_id(plan_node_id),
+              scan_range_desc(scan_range),
+              enable_file_meta_cache(file_meta_cache) {}
+
+    std::string to_string() const {
+        std::string value;
+        value.resize(scan_range_desc.path.size() + sizeof(plan_node_id) +
+                     sizeof(scan_range_desc.start_offset));
         auto* ptr = value.data();
 
         memcpy(ptr, &plan_node_id, sizeof(plan_node_id));
         ptr += sizeof(plan_node_id);
-        memcpy(ptr, &scan_range.start_offset, sizeof(scan_range.start_offset));
-        ptr += sizeof(scan_range.start_offset);
-        memcpy(ptr, scan_range.path.data(), scan_range.path.size());
+        memcpy(ptr, &scan_range_desc.start_offset, sizeof(scan_range_desc.start_offset));
+        ptr += sizeof(scan_range_desc.start_offset);
+        memcpy(ptr, scan_range_desc.path.data(), scan_range_desc.path.size());
+        return value;
+    }
+};
+
+struct FileMapping {
+    ENABLE_FACTORY_CREATOR(FileMapping);
+
+    FileMappingType type;
+    std::variant<InternalFileMappingInfo, ExternalFileMappingInfo> value;
+
+    FileMapping(int64_t tablet_id, RowsetId rowset_id, uint32_t segment_id)
+            : type(FileMappingType::INTERNAL),
+              value(std::in_place_type<InternalFileMappingInfo>, tablet_id, rowset_id, segment_id) {
     }
 
+    FileMapping(int plan_node_id, const TFileRangeDesc& scan_range, bool enable_file_meta_cache)
+            : type(FileMappingType::EXTERNAL),
+              value(std::in_place_type<ExternalFileMappingInfo>, plan_node_id, scan_range,
+                    enable_file_meta_cache) {}
 
     std::tuple<int64_t, RowsetId, uint32_t> get_doris_format_info() const {
-        DCHECK(type == FileMappingType::DORIS_FORMAT);
-        DCHECK(value.size() == sizeof(int64_t) + sizeof(RowsetId) + sizeof(uint32_t));
-
-        auto* ptr = value.data();
-        int64_t tablet_id;
-        memcpy(&tablet_id, ptr, sizeof(tablet_id));
-        ptr += sizeof(tablet_id);
-        RowsetId rowset_id;
-        memcpy(&rowset_id, ptr, sizeof(rowset_id));
-        ptr += sizeof(rowset_id);
-        uint32_t segment_id;
-        memcpy(&segment_id, ptr, sizeof(segment_id));
-
-        return std::make_tuple(tablet_id, rowset_id, segment_id);
+        DCHECK(type == FileMappingType::INTERNAL);
+        auto info = std::get<InternalFileMappingInfo>(value);
+        return std::make_tuple(info.tablet_id, info.rowset_id, info.segment_id);
     }
 
-    std::tuple<int, ExternalFileMappingInfo&> get_external_file_info() {
+    ExternalFileMappingInfo& get_external_file_info() {
         DCHECK(type == FileMappingType::EXTERNAL);
-        DCHECK(external_info.has_value());
-
-        int plan_node_id;
-        memcpy(&plan_node_id, value.data(), sizeof(plan_node_id));
-
-        return std::tuple<int, ExternalFileMappingInfo&>{plan_node_id, external_info.value()};
+        return std::get<ExternalFileMappingInfo>(value);
     }
 
+    static std::string file_mapping_info_to_string(
+            const std::variant<InternalFileMappingInfo, ExternalFileMappingInfo>& info) {
+        return std::visit(
+                [](const auto& info) -> std::string {
+                    using T = std::decay_t<decltype(info)>;
+
+                    if constexpr (std::is_same_v<T, InternalFileMappingInfo>) {
+                        return info.to_string();
+
+                    } else if constexpr (std::is_same_v<T, ExternalFileMappingInfo>) {
+                        return info.to_string();
+                    }
+                },
+                info);
+    }
+
+    std::string file_mapping_info_to_string() { return file_mapping_info_to_string(value); }
 };
 
 class IdFileMap {
@@ -134,12 +168,13 @@ public:
     uint32 get_file_mapping_id(const std::shared_ptr<FileMapping>& mapping) {
         DCHECK(mapping.get() != nullptr);
         std::unique_lock lock(_mtx);
-        auto it = _mapping_to_id.find(mapping->value);
+        auto value = mapping->file_mapping_info_to_string();
+        auto it = _mapping_to_id.find(value);
         if (it != _mapping_to_id.end()) {
             return it->second;
         }
         _id_map[_init_id++] = mapping;
-        _mapping_to_id[mapping->value] = _init_id - 1;
+        _mapping_to_id[value] = _init_id - 1;
 
         return _init_id - 1;
     }
@@ -163,7 +198,7 @@ public:
 private:
     std::shared_mutex _mtx;
     uint32_t _init_id = 0;
-    std::unordered_map<std::string_view, uint32_t> _mapping_to_id;
+    std::unordered_map<std::string, uint32_t> _mapping_to_id;
     std::unordered_map<uint32_t, std::shared_ptr<FileMapping>> _id_map;
 
     // use in Doris Format to keep temp rowsets, preventing them from being deleted by compaction

@@ -89,7 +89,6 @@ public:
             _shared_state->rpc_status =
                     Status::create(doris::DummyBrpcCallback<Response>::response_->status());
         }
-        std::cout <<"MaterializationCallback = "<< ((CountedFinishDependency*)_shared_state->source_deps.back().get())->debug_string() <<"\n";
         ((CountedFinishDependency*)_shared_state->source_deps.back().get())->sub();
     }
 
@@ -108,9 +107,6 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
         RETURN_IF_ERROR(
                 local_state._shared_state->init_multi_requests(_materialization_node, state));
     }
-
-    std::cout << "in_block->rows() = " << in_block->rows() <<"\n";
-    std::cout  << in_block->dump_data() <<"\n";
 
     if (in_block->rows() > 0 || eos) {
         // block the pipeline wait the rpc response

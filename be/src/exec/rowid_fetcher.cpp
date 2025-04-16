@@ -55,8 +55,8 @@
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"      // ExecEnv
+#include "runtime/fragment_mgr.h"  // FragmentMgr
 #include "runtime/runtime_state.h" // RuntimeState
-#include "runtime/fragment_mgr.h" // FragmentMgr
 #include "runtime/types.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/defer_op.h"
@@ -68,12 +68,10 @@
 #include "vec/core/block.h" // Block
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/serde/data_type_serde.h"
-#include "vec/jsonb/serialize.h"
-
-#include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
-
+#include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/vfile_scanner.h"
+#include "vec/jsonb/serialize.h"
 
 namespace doris {
 
@@ -291,15 +289,6 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     return Status::OK();
 }
 
-template <typename Func>
-auto scope_timer_run(Func fn, int64_t* cost) -> decltype(fn()) {
-    MonotonicStopWatch watch;
-    watch.start();
-    auto res = fn();
-    *cost += watch.elapsed_time() / 1000 / 1000;
-    return res;
-}
-
 struct IteratorKey {
     int64_t tablet_id;
     RowsetId rowset_id;
@@ -477,7 +466,6 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
 
 Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                                           PMultiGetResponseV2* response) {
-    std::cout <<"read \n";
     if (request.request_block_descs_size()) {
         auto tquery_id = ((UniqueId)request.query_id()).to_thrift();
         std::vector<vectorized::Block> result_blocks(request.request_block_descs_size());
@@ -487,6 +475,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         int64_t acquire_rowsets_ms = 0;
         int64_t acquire_segments_ms = 0;
         int64_t lookup_row_data_ms = 0;
+
+        int64_t external_init_reader_ms = 0;
+        int64_t external_get_block_ms = 0;
 
         // Add counters for different file mapping types
         std::unordered_map<FileMappingType, int64_t> file_type_counts;
@@ -499,8 +490,6 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         }
 
         for (int i = 0; i < request.request_block_descs_size(); ++i) {
-            std::cout  << "request.request_block_descs_size() = " << request.request_block_descs_size() <<"\n";
-
             const auto& request_block_desc = request.request_block_descs(i);
             if (request_block_desc.row_id_size() >= 1) {
                 // Since this block belongs to the same table, we only need to take the first type for judgment.
@@ -509,18 +498,21 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                 if (!first_file_mapping) {
                     return Status::InternalError(
                             "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
-                            BackendOptions::get_localhost(), print_id(request.query_id()), first_file_id);
+                            BackendOptions::get_localhost(), print_id(request.query_id()),
+                            first_file_id);
                 }
 
                 file_type_counts[first_file_mapping->type] += request_block_desc.row_id_size();
 
-                if (first_file_mapping->type == FileMappingType::DORIS_FORMAT) {
-                    RETURN_IF_ERROR(read_batch_doris_format_row(request_block_desc, id_file_map, tquery_id,
-                                                result_blocks[i],stats, &acquire_tablet_ms,
-                                                &acquire_rowsets_ms, &acquire_segments_ms, &lookup_row_data_ms));
+                if (first_file_mapping->type == FileMappingType::INTERNAL) {
+                    RETURN_IF_ERROR(read_batch_doris_format_row(
+                            request_block_desc, id_file_map, tquery_id, result_blocks[i], stats,
+                            &acquire_tablet_ms, &acquire_rowsets_ms, &acquire_segments_ms,
+                            &lookup_row_data_ms));
                 } else {
-                    RETURN_IF_ERROR(read_batch_external_row( request_block_desc, id_file_map, first_file_mapping,
-                                                             tquery_id, result_blocks[i]));
+                    RETURN_IF_ERROR(read_batch_external_row(
+                            request_block_desc, id_file_map, first_file_mapping, tquery_id,
+                            result_blocks[i], &external_init_reader_ms, &external_get_block_ms));
                 }
             }
 
@@ -543,15 +535,17 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
         LOG(INFO) << "Query stats: "
                   << fmt::format(
+                             "Internal table:"
                              "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
                              "io_latency:{}ns, uncompressed_bytes_read:{}, bytes_read:{}, "
                              "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
-                             "lookup_row_data_ms:{}, file_types:[{}]",
+                             "lookup_row_data_ms:{}, file_types:[{}]; "
+                             "External table : init_reader_ms:{}, get_block_ms:{}",
                              stats.cached_pages_num, stats.total_pages_num,
                              stats.compressed_bytes_read, stats.io_ns,
                              stats.uncompressed_bytes_read, stats.bytes_read, acquire_tablet_ms,
                              acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms,
-                             file_type_stats);
+                             file_type_stats, external_init_reader_ms, external_get_block_ms);
     }
 
     if (request.has_gc_id_map() && request.gc_id_map()) {
@@ -561,12 +555,11 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
     return Status::OK();
 }
 
-Status RowIdStorageReader::read_batch_doris_format_row(const PRequestBlockDesc& request_block_desc,
-                       std::shared_ptr<IdFileMap> id_file_map, const TUniqueId& query_id,
-                       vectorized::Block& result_block,OlapReaderStatistics& stats,
-            int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
-            int64_t* lookup_row_data_ms) {
-
+Status RowIdStorageReader::read_batch_doris_format_row(
+        const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
+        const TUniqueId& query_id, vectorized::Block& result_block, OlapReaderStatistics& stats,
+        int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
+        int64_t* lookup_row_data_ms) {
     std::vector<SlotDescriptor> slots;
     slots.reserve(request_block_desc.slots_size());
     for (const auto& pslot : request_block_desc.slots()) {
@@ -600,9 +593,10 @@ Status RowIdStorageReader::read_batch_doris_format_row(const PRequestBlockDesc& 
                     BackendOptions::get_localhost(), print_id(query_id), file_id);
         }
 
-        RETURN_IF_ERROR(read_doris_format_row(id_file_map, file_mapping, request_block_desc.row_id(j), slots,
-              full_read_schema, row_store_read_struct, stats, acquire_tablet_ms, acquire_rowsets_ms,
-              acquire_segments_ms, lookup_row_data_ms,iterator_map, result_block));
+        RETURN_IF_ERROR(read_doris_format_row(
+                id_file_map, file_mapping, request_block_desc.row_id(j), slots, full_read_schema,
+                row_store_read_struct, stats, acquire_tablet_ms, acquire_rowsets_ms,
+                acquire_segments_ms, lookup_row_data_ms, iterator_map, result_block));
     }
     return Status::OK();
 }
@@ -611,89 +605,25 @@ Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& requ
                                                    std::shared_ptr<IdFileMap> id_file_map,
                                                    std::shared_ptr<FileMapping> first_file_mapping,
                                                    const TUniqueId& query_id,
-                                                   vectorized::Block& result_block) {
+                                                   vectorized::Block& result_block,
+                                                   int64_t* init_reader_ms, int64_t* get_block_ms) {
     std::vector<SlotDescriptor> slots;
     TFileScanRangeParams rpc_scan_params;
     TupleDescriptor tuple_desc(request_block_desc.desc(), false);
     std::unordered_map<std::string, int> colname_to_slot_id;
     std::unique_ptr<RuntimeState> runtime_state = nullptr;
+
+    std::unique_ptr<vectorized::VFileScanner> vfile_scanner_ptr = nullptr;
+
     {
-        auto [plan_node_id, external_info] = first_file_mapping->get_external_file_info();
-        const auto& first_scan_range_desc = external_info.external_scan_range_desc;
+        auto& external_info = first_file_mapping->get_external_file_info();
+        int plan_node_id = external_info.plan_node_id;
+        const auto& first_scan_range_desc = external_info.scan_range_desc;
 
         auto query_ctx = ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(query_id);
-        const auto* old_scan_params= &(query_ctx->file_scan_range_params_map[plan_node_id]);
-
-
-
-
-        std::cout <<"plan node id =" << plan_node_id <<"\n";
-
-        /*
-在 scan 阶段  用到的信息如下：
-// TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.
-//  TFileScanRangeParams: describe how to read and convert file
-//  list<TFileRangeDesc>: file location and range
-struct TFileScanRange {
-1: optional list<TFileRangeDesc> ranges
-// If file_scan_params in TExecPlanFragmentParams is set in TExecPlanFragmentParams
-// will use that field, otherwise, use this field.
-// file_scan_params in TExecPlanFragmentParams will always be set in query request,
-// and TFileScanRangeParams here is used for some other request such as fetch table schema for tvf.
-2: optional TFileScanRangeParams params
-3: optional TSplitSource split_source
-}
-
-struct TFileRangeDesc {
-// If load_id is set, this is for stream/routine load.
-// If path is set, this is for bulk load.
-1: optional Types.TUniqueId load_id
-// Path of this range
-2: optional string path;
-// Offset of this file start
-3: optional i64 start_offset;
-// Size of this range, if size = -1, this means that will read to the end of file
-4: optional i64 size;
-// total size of file this range belongs to, -1 means unset
-5: optional i64 file_size = -1;
-// columns parsed from file path should be after the columns read from file
-6: optional list<string> columns_from_path;
-// column names from file path, in the same order with columns_from_path
-7: optional list<string> columns_from_path_keys;
-// For data lake table format
-8: optional TTableFormatFileDesc table_format_params
-// Use modification time to determine whether the file is changed
-9: optional i64 modification_time
-10: optional Types.TFileType file_type;
-11: optional TFileCompressType compress_type;
-// for hive table, different files may have different fs,
-// so fs_name should be with TFileRangeDesc
-12: optional string fs_name
-13: optional TFileFormatType format_type;
-}
- *
- */
-        // 物化阶段：
-        // 通过向  fileMapping 中记录 plan node id , 根据 plan node id 可以从 query ctx 中找到scan 阶段用的 TFileScanRangeParams
-        // 因为 scanRangeParams 中有一些比较重要的信息 （创建hdfs/s3 reader的时候需要用到）:
-        //     8: optional THdfsParams hdfs_params;
-        //    // properties for file such as s3 information
-        //    9: optional map<string, string> properties;
-        //
-        // 向  fileMapping 中记录 TFileRangeDesc external_scan_range_desc， 用处：
-        //    文件如果属于某个分区 ，在物化分区列的时候 需要用到TFileRangeDesc 中的 columns_from_path_keys 和 columns_from_path
-        //    path, file_type ， modification_time,compress_type ....   用于读取文件
-        //    TFileFormatType 就可以区分出来他是iceberg/hive         /hudi/paimon (虽然现在还用不上)
-        //
-        // Q：为什么不直接开一个新的class 只记录所需要的值，而是记录老的值 然后在这个基础上变更呢
-        // A: 1. 考虑到后续如果在 TFileScanRangeParams TFileRangeDesc 的基础上增加新的变量的时候，不需要在新的class 上再增加东西
-        //    2.  vfile_scanner 中有一些 考虑到版本之间的兼容性的代码  TFileScanRangeParams 中的一些信息被弃用了，但是 还不得不判断有没有设置
-        /*
-         * 创建一个新的  TFileScanRangeParams rpc_scan_params 用于 从文件中读取一行
-         * 考虑到可能多线程修改同一个 TFileScanRangeParams, 故创建一个新的
-         *
-         */
+        const auto* old_scan_params = &(query_ctx->file_scan_range_params_map[plan_node_id]);
         rpc_scan_params = *old_scan_params;
+
         rpc_scan_params.required_slots.clear();
         rpc_scan_params.column_idxs.clear();
         rpc_scan_params.slot_name_to_schema_pos.clear();
@@ -701,14 +631,18 @@ struct TFileRangeDesc {
         std::set partition_name_set(first_scan_range_desc.columns_from_path_keys.begin(),
                                     first_scan_range_desc.columns_from_path_keys.end());
         slots.reserve(request_block_desc.slots().size());
-        for (auto slot_idx = 0 ;slot_idx  < request_block_desc.slots().size(); ++slot_idx) {
+        for (auto slot_idx = 0; slot_idx < request_block_desc.slots().size(); ++slot_idx) {
             auto pslot = request_block_desc.slots().at(slot_idx);
-            pslot.set_is_materialized(false);//  由于vfile_scanner不处理物化的slot ，我在这里手动将slot改成非物化的
-            slots.emplace_back(SlotDescriptor{pslot});
+
+            // Since vfile_scanner does not handle materialized slots,
+            // I manually change the slot to non-materialized here.
+            pslot.set_is_materialized(false);
+
+            slots.emplace_back(SlotDescriptor {pslot});
             auto& slot = slots.back();
 
             tuple_desc.add_slot(&slot);
-            colname_to_slot_id.emplace(slot.col_name(),slot.id());
+            colname_to_slot_id.emplace(slot.col_name(), slot.id());
             TFileScanSlotInfo slot_info;
             slot_info.slot_id = slot.id();
             auto column_idx = request_block_desc.column_idxs(slot_idx);
@@ -729,14 +663,21 @@ struct TFileRangeDesc {
 
         const auto& query_options = query_ctx->get_query_options();
         const auto& query_globals = query_ctx->get_query_globals();
-        // scan 阶段需要 query_options 中的信息  根据具体变量的不同 来产生不同的行为：
-        //  query_options.hive_parquet_use_column_names
-        // query_options.truncate_char_or_varchar_columns
-        // query_globals.time_zone
-        //为了保证与scan 阶段的行为一致  我从query_ctx 中拿   query_options   query_globals ，
-        // 然后创建runtime_state  传到vfile_scanner  这样 runtime_state 信息就与scan阶段的一样  行为也一致。
+
+        /*
+         * The scan stage needs the information in query_options to generate different behaviors according to the specific variables:
+         *  query_options.hive_parquet_use_column_names, query_options.truncate_char_or_varchar_columns,query_globals.time_zone ...
+         *
+         * To ensure the same behavior as the scan stage, I get query_options query_globals from query_ctx, then create runtime_state
+         * and pass it to vfile_scanner so that the runtime_state information is the same as the scan stage and the behavior is also consistent.
+         */
         runtime_state = RuntimeState::create_unique(query_id, -1, query_options, query_globals,
                                                     ExecEnv::GetInstance(), query_ctx.get());
+
+        vfile_scanner_ptr = vectorized::VFileScanner::create_unique(
+                runtime_state.get(), &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
+
+        RETURN_IF_ERROR(vfile_scanner_ptr->prepare_for_read_one_line(first_scan_range_desc));
     }
 
     for (size_t j = 0; j < request_block_desc.row_id_size(); ++j) {
@@ -748,24 +689,18 @@ struct TFileRangeDesc {
                     BackendOptions::get_localhost(), print_id(query_id), file_id);
         }
 
-        auto [_, external_info] = file_mapping->get_external_file_info();
-        auto& scan_range_desc = external_info.external_scan_range_desc;
+        auto& external_info = file_mapping->get_external_file_info();
+        auto& scan_range_desc = external_info.scan_range_desc;
 
         // Clear to avoid reading iceberg position delete file...
         scan_range_desc.table_format_params.iceberg_params = TIcebergFileDesc {};
 
-        // 由于vfile_scanner 中有填充分区列 缺失列  以及处理schema change 的逻辑
-        // 为了避免把这些逻辑再写一遍，这个决定创建vfile_scanner , 复用其中的逻辑，
-        // 也可以避免如果scan有什么行为上的变更，没能同步到物化阶段。（避免 开启topn_lazy优化前后的行为不一致 ）
-
-        vectorized::VFileScanner vfile_scanner{runtime_state.get(), &rpc_scan_params, scan_range_desc,
-                                               &colname_to_slot_id, &tuple_desc};
-        RETURN_IF_ERROR(vfile_scanner.read_one_line_from_current_range(
-                request_block_desc.row_id(j), &result_block, external_info));
+        RETURN_IF_ERROR(vfile_scanner_ptr->read_one_line_from_range(
+                scan_range_desc, request_block_desc.row_id(j), &result_block, external_info,
+                init_reader_ms, get_block_ms));
     }
     return Status::OK();
 }
-
 
 Status RowIdStorageReader::read_doris_format_row(
         const std::shared_ptr<IdFileMap>& id_file_map,

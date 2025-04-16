@@ -28,12 +28,12 @@
 #include <vector>
 
 #include "io/fs/file_reader_writer_fwd.h"
+#include "olap/id_manager.h"
+#include "olap/utils.h"
 #include "vec/columns/column.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vparquet_column_reader.h"
-#include "olap/id_manager.h"
-#include "olap/utils.h"
 
 namespace cctz {
 class time_zone;
@@ -165,8 +165,8 @@ public:
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
     int64_t get_remaining_rows() { return _remaining_rows; }
 
-
-    void set_row_id_column_iterator(const std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int>& iterator_pair) {
+    void set_row_id_column_iterator(
+            const std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int>& iterator_pair) {
         _row_id_column_iterator_pair = iterator_pair;
     }
 
@@ -209,8 +209,8 @@ private:
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
     void _convert_dict_cols_to_string_cols(Block* block);
 
-    Status _get_current_batch_row_id(size_t read_rows, std::vector<rowid_t>& row_ids);
-    Status _fill_row_id_columns(Block* block,size_t read_rows);
+    Status _get_current_batch_row_id(size_t read_rows);
+    Status _fill_row_id_columns(Block* block, size_t read_rows);
 
     io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;
@@ -244,8 +244,10 @@ private:
     std::shared_ptr<ObjectPool> _obj_pool;
     bool _is_row_group_filtered = false;
 
-    RowGroupIndex _current_row_group_idx{0,0,0};
-    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr, -1};
+    RowGroupIndex _current_row_group_idx {0, 0, 0};
+    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
+                                                                                           -1};
+    std::vector<rowid_t> _current_batch_row_ids;
 };
 #include "common/compile_check_end.h"
 

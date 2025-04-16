@@ -38,6 +38,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "orc/Reader.hh"
 #include "orc/Type.hh"
 #include "orc/Vector.hh"
@@ -54,13 +55,12 @@
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
-#include "olap/rowset/segment_v2/column_reader.h"
 
 namespace doris {
 class RuntimeState;
 class TFileRangeDesc;
 class TFileScanRangeParams;
-namespace segment_v2{
+namespace segment_v2 {
 class RowIdColumnIteratorV2;
 }
 namespace io {
@@ -216,10 +216,10 @@ public:
     }
 
     void set_row_id_column_iterator(
-            const std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>& iterator_pair) {
+            const std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>&
+                    iterator_pair) {
         _row_id_column_iterator_pair = iterator_pair;
     }
-
 
 protected:
     void _collect_profile_before_close() override;
@@ -585,12 +585,16 @@ private:
         }
         return true;
     }
-    // 填充 global row id 列。
+
     Status _fill_row_id_columns(Block* block);
+
     void _seek_to_read_one_line() {
-        _row_reader->seekToRow(_seek_to_row_number);
-        _batch_size = 1;
+        if (_read_on_line_mode) {
+            _row_reader->seekToRow(_seek_to_row_number);
+            _batch_size = 1;
+        }
     }
+
 private:
     // This is only for count(*) short circuit read.
     // save the total number of rows in range
@@ -687,8 +691,10 @@ private:
 
     bool _read_on_line_mode = false;
     uint64_t _seek_to_row_number = 0;
+    std::shared_ptr<io::FileReader> inner_file_reader = nullptr;
 
-    std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr, -1};
+    std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
+            _row_id_column_iterator_pair = {nullptr, -1};
 };
 
 class StripeStreamInputStream : public orc::InputStream, public ProfileCollector {
