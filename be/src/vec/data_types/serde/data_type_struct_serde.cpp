@@ -261,7 +261,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(
     }
     auto& struct_column = static_cast<ColumnStruct&>(column);
 
-    for (auto i = slices.size(); i < struct_column.get_columns().size();  ++i ) {
+    for (auto i = slices.size(); i < struct_column.get_columns().size(); ++i) {
         // Hive schema change will cause the number of sub-columns in the file to
         // be inconsistent with the number of sub-columns of the column in the table.
         slices.emplace_back(options.null_format, options.null_len);
