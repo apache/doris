@@ -337,6 +337,7 @@ Status CsvReader::init_reader(bool is_load) {
             (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query());
 
     _options.escape_char = _escape;
+    _options.quote_char = _enclose;
     if (_params.file_attributes.text_params.collection_delimiter.empty()) {
         switch (_text_serde_type) {
         case TTextSerdeType::JSON_TEXT_SERDE:
@@ -625,8 +626,8 @@ Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
         }
     }
     static DataTypeStringSerDe stringSerDe;
-    auto st = stringSerDe.deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
-                                                         _options);
+    auto st = stringSerDe.deserialize_one_cell_from_csv(null_column.get_nested_column(), slice,
+                                                        _options);
     if (!st.ok()) {
         // fill null if fail
         null_column.insert_data(nullptr, 0); // 0 is meaningless here
@@ -679,7 +680,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             switch (_text_serde_type) {
             case TTextSerdeType::JSON_TEXT_SERDE:
                 RETURN_IF_ERROR(
-                        _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options));
+                        _serdes[i]->deserialize_one_cell_from_csv(*col_ptr, slice, _options));
                 break;
             case TTextSerdeType::HIVE_TEXT_SERDE:
                 RETURN_IF_ERROR(
@@ -786,14 +787,6 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
 void CsvReader::_split_line(const Slice& line) {
     _split_values.clear();
     _fields_splitter->split_line(line, &_split_values);
-}
-
-bool CsvReader::_is_null(const Slice& slice) {
-    return slice.size == 2 && slice.data[0] == '\\' && slice.data[1] == 'N';
-}
-
-bool CsvReader::_is_array(const Slice& slice) {
-    return slice.size > 1 && slice.data[0] == '[' && slice.data[slice.size - 1] == ']';
 }
 
 Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
