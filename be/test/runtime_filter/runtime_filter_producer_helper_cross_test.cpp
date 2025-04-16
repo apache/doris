@@ -56,7 +56,7 @@ class RuntimeFilterProducerHelperCrossTest : public RuntimeFilterTest {
 };
 
 TEST_F(RuntimeFilterProducerHelperCrossTest, basic) {
-    auto helper = RuntimeFilterProducerHelperCross(&_profile);
+    auto helper = RuntimeFilterProducerHelperCross();
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
