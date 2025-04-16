@@ -221,8 +221,6 @@ private:
     Status _fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
-    bool _is_null(const Slice& slice);
-    bool _is_array(const Slice& slice);
     void _init_system_properties();
     void _init_file_description();
 

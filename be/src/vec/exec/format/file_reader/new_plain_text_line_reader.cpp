@@ -149,11 +149,22 @@ void EncloseCsvLineReaderContext::_on_pre_match_enclose(const uint8_t* start, si
                 _should_escape = !_should_escape;
             } else if (_should_escape) [[unlikely]] {
                 _should_escape = false;
-            } else if (start[_idx] == _enclose) [[unlikely]] {
-                _state.forward_to(ReaderState::MATCH_ENCLOSE);
-                ++_idx;
-                return;
+            } else if (_quote_escape) {
+                if (start[_idx] == _enclose) {
+                    // double quote, escaped by quote
+                    _quote_escape = false;
+                } else {
+                    // match enclose
+                    _quote_escape = false;
+                    _state.forward_to(ReaderState::MATCH_ENCLOSE);
+                    return;
+                }
+            } else if (start[_idx] == _enclose) {
+                _quote_escape = true;
+            } else {
+                _quote_escape = false;
             }
+
             ++_idx;
         } while (_idx != len);
 
