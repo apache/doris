@@ -309,6 +309,9 @@ public class Config extends ConfigBase {
                     + "If the free disk space is less than this value, BDBJE will not be able to write."})
     public static long bdbje_free_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
 
+    @ConfField(description = {"BDBJE Cache 内存大小， 最小值为 96KB。", "Amount of memory used by by BDBJE as cache. "})
+    public static long bdbje_cache_size_bytes = 10 * 1024 * 1024; // 10 MB
+
     @ConfField(masterOnly = true, description = {"心跳线程池的线程数",
             "Num of thread to handle heartbeat events"})
     public static int heartbeat_mgr_threads_num = 8;
