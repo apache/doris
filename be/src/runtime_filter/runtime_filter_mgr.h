@@ -87,15 +87,13 @@ public:
 
     Status register_local_merger_producer_filter(const QueryContext* query_ctx,
                                                  const TRuntimeFilterDesc& desc,
-                                                 std::shared_ptr<RuntimeFilterProducer> producer,
-                                                 RuntimeProfile* parent_profile);
+                                                 std::shared_ptr<RuntimeFilterProducer> producer);
 
     Status get_local_merge_producer_filters(int filter_id, LocalMergeContext** local_merge_filters);
 
     // Create local producer. This producer is hold by RuntimeFilterProducerHelper.
     Status register_producer_filter(const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
-                                    std::shared_ptr<RuntimeFilterProducer>* producer,
-                                    RuntimeProfile* parent_profile);
+                                    std::shared_ptr<RuntimeFilterProducer>* producer);
 
     // update filter by remote
     bool set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
