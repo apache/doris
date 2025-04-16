@@ -27,11 +27,13 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstdint>
 #include <memory>
+#include <sstream>
 #include <stack>
 #include <utility>
 
 #include "common/config.h"
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/define_primitive_type.h"
@@ -198,6 +200,12 @@ VExpr::VExpr(const TExprNode& node)
     if (node.node_type == TExprNodeType::NULL_LITERAL) {
         CHECK(is_nullable);
     }
+
+    if (VLOG_DEBUG_IS_ON) {
+        std::stringstream ss;
+        ss << node;
+        LOG(WARNING) << "VExpr::VExpr1: " << ss.str();
+    }
     _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
 }
 
@@ -209,6 +217,9 @@ VExpr::VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable)
         _node_type = TExprNodeType::SLOT_REF;
     }
 
+    if (VLOG_DEBUG_IS_ON) {
+        LOG(WARNING) << "VExpr::VExpr2: " << type.debug_string();
+    }
     _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
 }
 
@@ -452,12 +463,13 @@ Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
         return false;
     };
     for (int i = 0; i < ctxs.size(); i++) {
+        // FE's function return type
         auto real_expr_type = ctxs[i]->root()->data_type();
+        // FE's row descriptor(for block) type
         auto&& [name, expected_type] = name_and_types[i];
         if (!check_type_can_be_converted(real_expr_type, expected_type)) {
             return Status::InternalError(
-                    "output type not match expr type  , col name {} , expected type {} , real type "
-                    "{}",
+                    "output type not match expr type, col name {}, expected type {}, real type {}",
                     name, expected_type->get_name(), real_expr_type->get_name());
         }
     }
