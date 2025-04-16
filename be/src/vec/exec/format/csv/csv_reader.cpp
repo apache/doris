@@ -787,14 +787,6 @@ void CsvReader::_split_line(const Slice& line) {
     _fields_splitter->split_line(line, &_split_values);
 }
 
-bool CsvReader::_is_null(const Slice& slice) {
-    return slice.size == 2 && slice.data[0] == '\\' && slice.data[1] == 'N';
-}
-
-bool CsvReader::_is_array(const Slice& slice) {
-    return slice.size > 1 && slice.data[0] == '[' && slice.data[slice.size - 1] == ']';
-}
-
 Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     int64_t start_offset = _range.start_offset;
     if (start_offset != 0) {
