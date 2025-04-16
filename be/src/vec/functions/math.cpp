@@ -38,7 +38,6 @@
 #include "vec/functions/function_math_log.h"
 #include "vec/functions/function_math_unary.h"
 #include "vec/functions/function_math_unary_alway_nullable.h"
-#include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/function_unary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
