@@ -349,7 +349,7 @@ public class SummaryProfile {
     private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
     private Map<TNetworkAddress, List<Long>> rpcPhase2Latency;
 
-    Map<Backend, Long> assignedWeightPerBackend;
+    private Map<Backend, Long> assignedWeightPerBackend;
 
     public SummaryProfile() {
         init();
@@ -410,6 +410,8 @@ public class SummaryProfile {
         updateExecutionSummaryProfile();
     }
 
+    // This method is used to display the final data status when the overall query ends.
+    // This can avoid recalculating some strings and so on every time during the update process.
     public void queryFinished() {
         if (assignedWeightPerBackend != null) {
             Map<String, Long> m = assignedWeightPerBackend.entrySet().stream()

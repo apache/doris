@@ -346,8 +346,6 @@ public class PaimonScanNode extends FileQueryScanNode {
             splitStats.add(splitStat);
         }
 
-        splits.forEach(s -> s.setTargetSplitSize(realFileSplitSize));
-
         // if applyCountPushdown is true, calcute row count for count pushdown
         if (applyCountPushdown) {
             // we can create a special empty split and skip the plan process
