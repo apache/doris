@@ -431,11 +431,6 @@ public class StringArithmetic {
         return new IntegerLiteral(first.getValue().codePointCount(0, first.getValue().length()));
     }
 
-    private static boolean isAlphabetic(char c) {
-        Pattern pattern = Pattern.compile("\\p{Alnum}");
-        return pattern.matcher(String.valueOf(c)).find();
-    }
-
     /**
      * Executable arithmetic functions initCap
      */
@@ -445,7 +440,7 @@ public class StringArithmetic {
         boolean capitalizeNext = true;
 
         for (char c : first.getValue().toCharArray()) {
-            if (Character.isWhitespace(c) || !isAlphabetic(c)) {
+            if (!Character.isLetterOrDigit(c)) {
                 result.append(c);
                 capitalizeNext = true;  // Next character should be capitalized
             } else if (capitalizeNext) {
