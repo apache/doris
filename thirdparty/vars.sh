@@ -509,10 +509,10 @@ BASE64_SOURCE="base64-0.5.2"
 BASE64_MD5SUM="49e5a6c98bd0192aedd16c16eec39974"
 
 # icu
-ICU_DOWNLOAD="https://github.com/unicode-org/icu/archive/refs/tags/release-75-1.tar.gz"
-ICU_NAME=release-75-1.tar.gz
-ICU_SOURCE=icu-release-75-1
-ICU_MD5SUM="4003649b8731f938c852748ffa393847"
+ICU_DOWNLOAD="https://github.com/unicode-org/icu/archive/refs/tags/release-69-1.tar.gz"
+ICU_NAME=release-69-1.tar.gz
+ICU_SOURCE=icu-release-69-1
+ICU_MD5SUM="135125f633864285d637db5c01e0388b"
 
 # jindofs
 JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.8.2-libs-0.1.tar.gz"
