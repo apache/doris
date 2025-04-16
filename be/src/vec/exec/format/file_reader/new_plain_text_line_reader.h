@@ -254,6 +254,8 @@ private:
 
     size_t _idx = 0;
     bool _should_escape = false;
+    // quote is specially escaped by quote in csv format
+    bool _quote_escape = false;
 
     const std::string _column_sep;
     std::vector<size_t> _column_sep_positions;
