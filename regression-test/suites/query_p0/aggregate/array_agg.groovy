@@ -297,4 +297,33 @@ suite("array_agg") {
     sql "DROP TABLE `test_array_agg_int`"
     sql "DROP TABLE `test_array_agg_decimal`"
     sql "DROP TABLE `test_array_agg_ip`"
+    
+    sql """ drop table if exists test_user_tags;"""
+
+    sql """
+    CREATE TABLE test_user_tags (
+        k1 varchar(150) NULL,
+        k2 varchar(150) NULL,
+        k3 varchar(150) NULL,
+        k4 array<varchar(150)> NULL,
+        k5 array<varchar(150)> NULL,
+        k6 datetime NULL
+    ) ENGINE=OLAP
+    UNIQUE KEY(k1, k2, k3)
+    DISTRIBUTED BY HASH(k2) BUCKETS 3
+    PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+    
+    sql """
+    INSERT INTO test_user_tags VALUES
+          ('corp001', 'wx001', 'vip', ['id1', 'id2'], ['tag1', 'tag2'], '2023-01-01 10:00:00'),
+          ('corp001', 'wx001', 'level', ['id3'], ['tag3'], '2023-01-01 10:00:00'),
+          ('corp002', 'wx002', 'vip', ['id4', 'id5'], ['tag4', 'tag5'], '2023-01-02 10:00:00');
+    """
+    sql "SET spill_streaming_agg_mem_limit = 1024;"
+    sql "SET enable_agg_spill = true;"    
+
+    qt_select """ SELECT k1,array_agg(k5) FROM test_user_tags group by k1 order by k1; """
+
+    sql "UNSET VARIABLE ALL;"
 }

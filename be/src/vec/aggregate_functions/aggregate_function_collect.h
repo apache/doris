@@ -782,7 +782,8 @@ public:
                             assert_cast<const ColumnString&>(col_src.get_nested_column());
                     vec.insert_from(vec_src, i);
                 } else if constexpr (std::is_same_v<Data, AggregateFunctionArrayAggData<void>>) {
-                    to_nested_col.insert_from(col_src.get_nested_column(), i);
+                    auto& vec = col_null->get_nested_column();
+                    vec.insert_from(col_src.get_nested_column(), i);
                 } else {
                     using ColVecType = ColumnVectorOrDecimal<typename Data::ElementType>;
                     auto& vec = assert_cast<ColVecType&>(col_null->get_nested_column()).get_data();
