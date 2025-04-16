@@ -1641,17 +1641,7 @@ struct JsonSearchUtil {
      * @return true if matched else false
      */
     static bool find_matches(const SimdJSONParser::Element& element, const bool& one_match,
-                             LikeState* state, JsonbPath* start_path,
-                             std::unordered_set<std::string>* matches) {
-        static auto cur_path = std::make_unique<JsonbPath>();
-        cur_path->add_leg_to_leg_vector(
-                std::make_unique<leg_info>(const_cast<char*>("$"), 0, 0, MEMBER_CODE));
-
-        return find_matches(element, one_match, state, start_path, cur_path.get(), matches);
-    }
-
-    static bool find_matches(const SimdJSONParser::Element& element, const bool& one_match,
-                             LikeState* state, JsonbPath* start_path, JsonbPath* cur_path,
+                             LikeState* state, JsonbPath* cur_path,
                              std::unordered_set<std::string>* matches) {
         if (element.isString()) {
             const std::string_view element_str = element.getString();
@@ -1659,7 +1649,7 @@ struct JsonSearchUtil {
             RETURN_IF_ERROR(matched(element_str, state, &res));
             if (res) {
                 std::string str;
-                auto valid = start_path->to_string(&str);
+                auto valid = cur_path->to_string(&str);
                 if (!valid) {
                     return false;
                 }
@@ -1670,24 +1660,16 @@ struct JsonSearchUtil {
         } else if (element.isObject()) {
             const SimdJSONParser::Object& object = element.getObject();
             bool find = false;
-            for (const auto& item : object) {
+            for (size_t i = 0; i < object.size(); ++i) {
+                const SimdJSONParser::KeyValuePair& item = object[i];
                 const std::string_view& key = item.first;
                 const SimdJSONParser::Element& child_element = item.second;
                 // construct an object member path leg.
-                auto start_leg = std::make_unique<leg_info>(const_cast<char*>(key.data()),
-                                                            key.size(), 0, MEMBER_CODE);
-                auto cur_leg = std::make_unique<leg_info>(*start_leg);
-                cur_path->add_leg_to_leg_vector(std::move(cur_leg));
-                start_path->add_leg_to_leg_vector(std::move(start_leg));
-
-                if (*cur_path != *start_path) {
-                    cur_path->pop_leg_from_leg_vector();
-                    continue;
-                }
-
-                find |= find_matches(child_element, one_match, state, start_path, cur_path,
-                                     matches);
-                start_path->pop_leg_from_leg_vector();
+                auto leg = std::make_unique<leg_info>(const_cast<char*>(key.data()), key.size(), 0,
+                                                      MEMBER_CODE);
+                cur_path->add_leg_to_leg_vector(std::move(leg));
+                find |= find_matches(child_element, one_match, state, cur_path, matches);
+                cur_path->pop_leg_from_leg_vector();
                 if (one_match && find) {
                     return true;
                 }
@@ -1697,13 +1679,12 @@ struct JsonSearchUtil {
             const SimdJSONParser::Array& array = element.getArray();
             bool find = false;
             for (size_t i = 0; i < array.size(); ++i) {
-                auto start_leg = std::make_unique<leg_info>(nullptr, 0, i, ARRAY_CODE);
-                start_path->add_leg_to_leg_vector(std::move(start_leg));
+                auto leg = std::make_unique<leg_info>(nullptr, 0, i, ARRAY_CODE);
+                cur_path->add_leg_to_leg_vector(std::move(leg));
                 const SimdJSONParser::Element& child_element = array[i];
                 // construct an array cell path leg.
-                find |= find_matches(child_element, one_match, state, start_path, cur_path,
-                                     matches);
-                start_path->pop_leg_from_leg_vector();
+                find |= find_matches(child_element, one_match, state, cur_path, matches);
+                cur_path->pop_leg_from_leg_vector();
                 if (one_match && find) {
                     return true;
                 }
@@ -1735,6 +1716,72 @@ struct JsonSearchUtil {
 
         result_col->insert_data(writer.getOutput()->getBuffer(),
                                 (size_t)writer.getOutput()->getSize());
+    }
+
+    static void find_start_root_element(SimdJSONParser::Element root_element,
+                                        SimdJSONParser::Element& start_element,
+                                        bool* find_start_element, const JsonbPath* start_path) {
+        auto cur_path = std::make_unique<JsonbPath>();
+        // cur_path->add_leg_to_leg_vector("$", MEMBER_CODE);
+        if (*cur_path == *start_path) {
+            start_element = root_element;
+            return;
+        }
+        find_start_root_element(root_element, start_element, find_start_element, start_path,
+                                cur_path.get());
+    }
+
+    static void find_start_root_element(SimdJSONParser::Element root_element,
+                                        SimdJSONParser::Element& start_element,
+                                        bool* find_start_element, const JsonbPath* start_path,
+                                        JsonbPath* cur_path) {
+        if (*find_start_element) {
+            return;
+        }
+
+        if (*cur_path == *start_path) {
+            start_element = root_element;
+            *find_start_element = true;
+            return;
+        }
+
+        if (!start_path->starts_with(*cur_path)) {
+            return;
+        }
+
+        if (root_element.isObject()) {
+            for (const auto& [key, child] : root_element.getObject()) {
+                size_t path_size = cur_path->get_leg_vector_size();
+
+                cur_path->add_leg_to_leg_vector(key, MEMBER_CODE);
+
+                find_start_root_element(child, start_element, find_start_element, start_path,
+                                        cur_path);
+
+                if (*find_start_element) {
+                    return;
+                }
+
+                cur_path->resize(path_size);
+            }
+        } else if (root_element.isArray()) {
+            for (size_t index = 0; const auto& child : root_element.getArray()) {
+                size_t path_size = cur_path->get_leg_vector_size();
+
+                auto leg = std::make_unique<leg_info>(nullptr, 0, index, ARRAY_CODE);
+                cur_path->add_leg_to_leg_vector(std::move(leg));
+
+                find_start_root_element(child, start_element, find_start_element, start_path,
+                                        cur_path);
+
+                if (*find_start_element) {
+                    return;
+                }
+
+                cur_path->resize(path_size);
+                index++;
+            }
+        }
     }
 
     template <bool search_is_const>
@@ -1815,7 +1862,19 @@ struct JsonSearchUtil {
             std::unordered_set<std::string> matches;
             for (const auto& item : paths) {
                 auto* start_path = item;
-                auto find = find_matches(root_element, is_one, state, start_path, &matches);
+                SimdJSONParser::Element start_element;
+                bool find_start_element = false;
+                find_start_root_element(root_element, start_element, &find_start_element,
+                                        start_path);
+                if (!find_start_element) {
+                    null_map->get_data()[i] = 1;
+                    result_col->insert_data("", 0);
+                    continue;
+                }
+
+                auto cur_path = std::make_unique<JsonbPath>();
+                // cur_path->add_leg_to_leg_vector("$", MEMBER_CODE);
+                auto find = find_matches(start_element, is_one, state, start_path, &matches);
                 if (is_one && find) {
                     break;
                 }

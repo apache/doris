@@ -73,8 +73,11 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <cstring>
 #include <limits>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <type_traits>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -378,6 +381,11 @@ public:
         leg_vector.emplace_back(leg.release());
     }
 
+    void add_leg_to_leg_vector(const std::string_view& leg, unsigned int code) {
+        leg_vector.emplace_back(
+                std::make_unique<leg_info>(const_cast<char*>(leg.data()), leg.size(), 0, code));
+    }
+
     void pop_leg_from_leg_vector() { leg_vector.pop_back(); }
 
     bool to_string(std::string* res) const {
@@ -391,7 +399,34 @@ public:
         return true;
     }
 
-    bool operator==(const JsonbPath& other) const { return leg_vector == other.leg_vector; }
+    bool starts_with(const JsonbPath& other) const {
+        for (size_t i = 0; i < other.get_leg_vector_size(); i++) {
+            if (other.leg_vector[i]->leg_len != leg_vector[i]->leg_len ||
+                strcmp(other.leg_vector[i]->leg_ptr, leg_vector[i]->leg_ptr) != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void resize(size_t n) {
+        for (size_t i = get_leg_vector_size(); i > n; i--) {
+            pop_leg_from_leg_vector();
+        }
+    }
+
+    bool operator==(const JsonbPath& other) const {
+        if (get_leg_vector_size() != other.get_leg_vector_size()) {
+            return false;
+        }
+        for (size_t i = 0; i < get_leg_vector_size(); i++) {
+            if (leg_vector[i]->leg_len != other.leg_vector[i]->leg_len ||
+                strcmp(leg_vector[i]->leg_ptr, other.leg_vector[i]->leg_ptr) != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     bool operator!=(const JsonbPath& other) const { return !operator==(other); }
 
