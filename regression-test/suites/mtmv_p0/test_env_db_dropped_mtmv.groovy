@@ -87,6 +87,10 @@ suite("test_env_db_dropped_mtmv") {
             REFRESH MATERIALIZED VIEW ${dbName2}.${mvName} AUTO;
         """
     waitingMTMVTaskFinishedNotNeedSuccess(jobName)
+    // clean scence
+    sql """
+        DROP MATERIALIZED VIEW ${dbName2}.${mvName};
+    """
     def msg = sql """select ErrorMsg from tasks('type'='mv') where JobName = '${jobName}' order by CreateTime DESC limit 1"""
     logger.info(msg.toString())
     assertTrue(msg.toString().contains("does not exist"))
