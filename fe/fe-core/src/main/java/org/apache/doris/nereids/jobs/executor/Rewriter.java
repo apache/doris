@@ -351,6 +351,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // This results in the inability to obtain Cast child information in INFER_PREDICATES,
                         // which will affect predicate inference with cast. So put this rule behind the INFER_PREDICATES
                         topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
+                ),
+                topic("Push project and filter on cte consumer to cte producer",
+                        topDown(
+                                new CollectFilterAboveConsumer(),
+                                new CollectCteConsumerOutput()
+                        )
                 )
         )
     );
@@ -552,7 +558,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
      */
     public static Rewriter getWholeTreeRewriterWithCustomJobs(CascadesContext cascadesContext, List<RewriteJob> jobs) {
         return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(false, false,
-                jobs, ImmutableList.of(), ImmutableList.of()));
+                ImmutableList.of(), jobs, ImmutableList.of()));
     }
 
     private static List<RewriteJob> getWholeTreeRewriteJobs(boolean withCostBased) {
@@ -581,7 +587,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             boolean needSubPathPushDown,
             boolean needOrExpansion,
             List<RewriteJob> beforePushDownJobsStage1,
-            List<RewriteJob> beforePushDownJobs,
+            List<RewriteJob> beforePushDownJobsStage2,
             List<RewriteJob> afterPushDownJobs) {
 
         return notTraverseChildrenOf(
@@ -605,7 +611,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         ),
                         topic("rewrite cte sub-tree before sub path push down",
                                 custom(RuleType.REWRITE_CTE_CHILDREN,
-                                        () -> new RewriteCteChildren(beforePushDownJobs))
+                                        () -> new RewriteCteChildren(beforePushDownJobsStage2))
                         ))));
                 if (needOrExpansion) {
                     rewriteJobs.addAll(jobs(topic("or expansion",
