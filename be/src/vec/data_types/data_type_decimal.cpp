@@ -28,6 +28,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/cast_set.h"
@@ -102,9 +103,8 @@ DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
 
 template <typename T>
 std::string DataTypeDecimal<T>::do_get_name() const {
-    std::stringstream ss;
-    ss << "Decimal(" << precision << ", " << scale << ")";
-    return ss.str();
+    return std::string {"Decimal("} + std::to_string(precision) + ", " + std::to_string(scale) +
+           ")";
 }
 
 template <typename T>
