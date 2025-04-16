@@ -133,42 +133,14 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.getStringValueForArray(options)));
-        return "[" + StringUtils.join(list, ", ") + "]";
-    }
-
-    @Override
-    public String getStringValueInFe(FormatOptions options) {
-        List<String> list = new ArrayList<>(children.size());
+        ++options.level;
         children.forEach(v -> {
-            String stringLiteral;
-            if (v instanceof NullLiteral) {
-                stringLiteral = options.getNullFormat();
-            } else {
-                stringLiteral = getStringLiteralForComplexType(v, options);
-            }
-            // we should use type to decide we output array is suitable for json format
-            list.add(stringLiteral);
+            list.add(v.getStringValueInComplexTypeForQuery(options));
         });
-        return "[" + StringUtils.join(list, ", ") + "]";
-    }
-
-    @Override
-    public String getStringValueForStreamLoad(FormatOptions options) {
-        List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> {
-            String stringLiteral;
-            if (v instanceof NullLiteral) {
-                stringLiteral = "null";
-            } else {
-                stringLiteral = getStringLiteralForStreamLoad(v, options);
-            }
-            // we should use type to decide we output array is suitable for json format
-            list.add(stringLiteral);
-        });
-        return "[" + StringUtils.join(list, ", ") + "]";
+        --options.level;
+        return "[" + StringUtils.join(list, options.getCollectionDelim()) + "]";
     }
 
     @Override

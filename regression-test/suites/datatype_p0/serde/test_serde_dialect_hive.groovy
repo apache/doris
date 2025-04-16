@@ -95,10 +95,41 @@ suite("test_serde_dialect_hive", "p0") {
         );
     """
 
+    String constant_sql="""
+        select 1,2,3,4,5,1.1,2.0000,123456.123456789,"2024-06-30", "2024-06-30 10:10:11", "2024-06-30 10:10:11.123456",
+            '59.50.185.152',
+            'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+            'this is a string with , and "',
+            'abc ef',
+            ' 123ndedwdw',
+            true,
+            '[1, 2, 3, 4, 5]',
+            [1,2,3,null,5],
+            [1.1,2.1,3.1,null,5.00],
+            [1.1,2.1,3.00000,null,5.12345],
+            ['abc', 'de, f"', null, ''],
+            [{'k1': 'v1', 'k2': null, 'k3':'', 'k4':'a , "a'}, {'k1': 'v1', 'k2': null, 'k3 , "abc':'', 'k4':'a , "a'}],
+            [['abc', 'de, f"', null, ''],[],null],
+            {'k1': 'v1', 'k2': null, 'k3':'', 'k4':'a , "a'},
+            {'k1': [['abc', 'de, f"', null, ''],[],null], 'k2': null},
+            {10: {'k1': [['abc', 'de, f"', null, ''],[],null]}, 11: null},
+            named_struct('s_id', 100, 's_name', 'abc , "', 's_address', null),
+            named_struct('s_id', null, 's_name', ['abc', 'de, f"', null, ''], 's_address', ''),
+            ['2024-06-01',null,'2024-06-03'],
+            ['2024-06-01 10:10:10',null,'2024-06-03 01:11:23.123'],
+            [true, true, false, false, true, false, false],
+            named_struct('s_id', 100, 's_name', 'abc , "', 's_gender', true),
+            {'k1': false, 'k2': true, 'k3':true, 'k4': false}
+    """
+
     sql """set serde_dialect="doris";"""
     qt_sql01 """select * from test_serde_dialect_hive_tbl"""
+    // test fold in FE
+    qt_sql_fe01 """${constant_sql}"""
     sql """set serde_dialect="hive";"""
-    qt_sql01 """select * from test_serde_dialect_hive_tbl"""
+    qt_sql02 """select * from test_serde_dialect_hive_tbl"""
+    // test fold in FE
+    qt_sql_fe02 """${constant_sql}"""
 
     test {
         sql """set serde_dialect="invalid""""

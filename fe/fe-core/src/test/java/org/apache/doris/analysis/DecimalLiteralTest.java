@@ -36,9 +36,10 @@ public class DecimalLiteralTest {
     public void testGetStringInFe() {
         BigDecimal decimal = new BigDecimal("-123456789123456789.123456789");
         DecimalLiteral literal = new DecimalLiteral(decimal);
-        String s = literal.getStringValueInFe(FormatOptions.getDefault());
+        String s = literal.getStringValueForQuery(FormatOptions.getDefault());
         Assert.assertEquals("-123456789123456789.123456789", s);
-        Assert.assertEquals("-123456789123456789.123456789", literal.getStringValueInFe(FormatOptions.getForPresto()));
+        Assert.assertEquals("-123456789123456789.123456789",
+                literal.getStringValueForQuery(FormatOptions.getForPresto()));
     }
 
     @Test
