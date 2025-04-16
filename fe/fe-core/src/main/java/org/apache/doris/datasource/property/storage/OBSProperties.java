@@ -20,27 +20,36 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import lombok.Getter;
 import lombok.Setter;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 public class OBSProperties extends AbstractObjectStorageProperties {
 
     @Setter
-    @ConnectorProperty(names = {"obs.endpoint", "endpoint", "s3.endpoint"}, required = false,
+    @Getter
+    @ConnectorProperty(names = {"obs.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
+            required = false,
             description = "The endpoint of OBS.")
-    protected String obsEndpoint = "";
+    protected String endpoint = "";
 
-    @ConnectorProperty(names = {"obs.access_key"}, description = "The access key of OBS.")
-    protected String obsAccessKey = "";
+    @Getter
+    @ConnectorProperty(names = {"obs.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
+            description = "The access key of OBS.")
+    protected String accessKey = "";
 
-    @ConnectorProperty(names = {"obs.secret_key"}, description = "The secret key of OBS.")
-    protected String obsSecretKey = "";
+    @Getter
+    @ConnectorProperty(names = {"obs.secret_key", "secret_key", "s3.secret_key"},
+            description = "The secret key of OBS.")
+    protected String secretKey = "";
 
-
-    @ConnectorProperty(names = {"obs.region", "region", "s3.region"}, required = false,
+    @Getter
+    @ConnectorProperty(names = {"obs.region", "s3.region", "AWS_REGION", "region", "REGION"}, required = false,
             description = "The region of OBS.")
     protected String region;
 
@@ -50,39 +59,40 @@ public class OBSProperties extends AbstractObjectStorageProperties {
     }
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
-        return origProps.containsKey("obs.access_key");
+        String value = Stream.of("obs.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "uri")
+                .map(origProps::get)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+
+        if (!Strings.isNullOrEmpty(value)) {
+            return value.contains("myhuaweicloud.com");
+        }
+        if (!origProps.containsKey("uri")) {
+            return false;
+        }
+        // Check if the uri property contains "myhuaweicloud.com"
+        return origProps.get("uri").contains("myhuaweicloud.com");
     }
 
+    /**
+     * Initializes the region field based on the OBS endpoint if it's not already set.
+     * <p>
+     * This method extracts the region from Huawei Cloud OBS endpoints.
+     * It supports typical OBS endpoint formats like:
+     * <p>
+     * Example:
+     * - "obs.cn-north-4.myhuaweicloud.com" → region = "cn-north-4"
+     */
     @Override
-    public void toNativeS3Configuration(Map<String, String> config) {
-        config.putAll(generateAWSS3Properties(obsEndpoint, getRegion(), obsAccessKey, obsSecretKey));
-    }
-
-    public String getRegion() {
-        if (Strings.isNullOrEmpty(this.region) && obsEndpoint.contains("myhuaweicloud.com")) {
+    protected void initRegionIfNecessary() {
+        if (Strings.isNullOrEmpty(this.region) && this.endpoint.contains("myhuaweicloud.com")) {
             Pattern obsPattern = Pattern.compile("obs\\.([a-z0-9-]+)\\.myhuaweicloud\\.com");
-            Matcher matcher = obsPattern.matcher(obsEndpoint);
+            Matcher matcher = obsPattern.matcher(endpoint);
             if (matcher.find()) {
                 this.region = matcher.group(1);
             }
         }
-        return this.region;
     }
 
-    public String getEndpoint() {
-        return obsEndpoint;
-    }
-
-    public String getAccessKey() {
-        return obsAccessKey;
-    }
-
-    public String getSecretKey() {
-        return obsSecretKey;
-    }
-
-    @Override
-    public void setEndpoint(String endpoint) {
-        this.obsEndpoint = endpoint;
-    }
 }

@@ -64,6 +64,10 @@ public class HDFSProperties extends StorageProperties {
     @ConnectorProperty(names = {"fs.defaultFS"}, required = false, description = "")
     private String fsDefaultFS = "";
 
+    private Configuration configuration;
+
+    private Map<String, String> backendConfigProperties;
+
     /**
      * The final HDFS configuration map that determines the effective settings.
      * Priority rules:
@@ -71,31 +75,39 @@ public class HDFSProperties extends StorageProperties {
      * 2. If a key is not present in `overrideConfig`, the value from `hdfs-site.xml` or `core-site.xml` is used.
      * 3. This map should be used to read the resolved HDFS configuration, ensuring the correct precedence is applied.
      */
-    Map<String, String> finalHdfsConfig;
+    private Map<String, String> userOverriddenHdfsConfig;
 
     public HDFSProperties(Map<String, String> origProps) {
         super(Type.HDFS, origProps);
-        loadFinalHdfsConfig(origProps);
     }
 
     public static boolean guessIsMe(Map<String, String> props) {
         if (MapUtils.isEmpty(props)) {
             return false;
         }
-        if (props.containsKey("hadoop.config.resources") || props.containsKey("hadoop.security.authentication")) {
+        if (props.containsKey("hadoop.config.resources") || props.containsKey("hadoop.security.authentication")
+                || props.containsKey("dfs.nameservices") || props.containsKey("fs.defaultFS")) {
             return true;
         }
         return false;
     }
 
-    private void loadFinalHdfsConfig(Map<String, String> origProps) {
+    @Override
+    protected void initNormalizeAndCheckProps() {
+        super.initNormalizeAndCheckProps();
+        extractUserOverriddenHdfsConfig(origProps);
+        initHadoopConfiguration();
+        initBackendConfigProperties();
+    }
+
+    private void extractUserOverriddenHdfsConfig(Map<String, String> origProps) {
         if (MapUtils.isEmpty(origProps)) {
             return;
         }
-        finalHdfsConfig = new HashMap<>();
+        userOverriddenHdfsConfig = new HashMap<>();
         origProps.forEach((key, value) -> {
             if (key.startsWith("hadoop.") || key.startsWith("dfs.") || key.equals("fs.defaultFS")) {
-                finalHdfsConfig.put(key, value);
+                userOverriddenHdfsConfig.put(key, value);
             }
         });
 
@@ -108,84 +120,65 @@ public class HDFSProperties extends StorageProperties {
 
     protected void checkRequiredProperties() {
         super.checkRequiredProperties();
-        checkConfigFileIsValid(hadoopConfigResources);
-        if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
-            if (Strings.isNullOrEmpty(hdfsKerberosPrincipal) || Strings.isNullOrEmpty(hdfsKerberosKeytab)) {
-                throw new IllegalArgumentException("HDFS authentication type is kerberos, "
-                        + "but principal or keytab is not set.");
-            }
+        if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType) && (Strings.isNullOrEmpty(hdfsKerberosPrincipal)
+                || Strings.isNullOrEmpty(hdfsKerberosKeytab))) {
+            throw new IllegalArgumentException("HDFS authentication type is kerberos, "
+                    + "but principal or keytab is not set.");
         }
+
         if (StringUtils.isBlank(fsDefaultFS)) {
             this.fsDefaultFS = HdfsPropertiesUtils.constructDefaultFsFromUri(origProps);
         }
     }
 
-    private void checkConfigFileIsValid(String configFile) {
-        if (Strings.isNullOrEmpty(configFile)) {
-            return;
-        }
-        loadConfigFromFile(getResourceConfigPropName());
-    }
-
-    public void toHadoopConfiguration(Configuration conf) {
+    private void initHadoopConfiguration() {
+        Configuration conf = new Configuration(true);
         Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         allProps.forEach(conf::set);
-        if (MapUtils.isNotEmpty(finalHdfsConfig)) {
-            finalHdfsConfig.forEach(conf::set);
+        if (MapUtils.isNotEmpty(userOverriddenHdfsConfig)) {
+            userOverriddenHdfsConfig.forEach(conf::set);
         }
         if (StringUtils.isNotBlank(fsDefaultFS)) {
             conf.set("fs.defaultFS", fsDefaultFS);
         }
-        //todo waiting be support should use new params
         conf.set("hdfs.security.authentication", hdfsAuthenticationType);
         if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
             conf.set("hadoop.kerberos.principal", hdfsKerberosPrincipal);
             conf.set("hadoop.kerberos.keytab", hdfsKerberosKeytab);
         }
-        if (!Strings.isNullOrEmpty(hadoopUsername)) {
+        if (StringUtils.isNotBlank(hadoopUsername)) {
             conf.set("hadoop.username", hadoopUsername);
         }
+        this.configuration = conf;
     }
 
-    public Configuration getHadoopConfiguration() {
-        Configuration conf = new Configuration(true);
-        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
-        allProps.forEach(conf::set);
-        if (MapUtils.isNotEmpty(finalHdfsConfig)) {
-            finalHdfsConfig.forEach(conf::set);
-        }
-        /* conf.set("hadoop.kerberos.authentication", hdfsAuthenticationType);
-        if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
-            conf.set("hadoop.kerberos.principal", hdfsKerberosPrincipal);
-            conf.set("hadoop.kerberos.keytab", hdfsKerberosKeytab);
-        }
-        if (!Strings.isNullOrEmpty(hadoopUsername)) {
-            conf.set("hadoop.username", hadoopUsername);
-        }*/
-
-        return conf;
-    }
-
-    //fixme be should send use input params
-    @Override
-    public Map<String, String> getBackendConfigProperties() {
-        Configuration configuration = getHadoopConfiguration();
+    private void initBackendConfigProperties() {
         Map<String, String> backendConfigProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : configuration) {
             backendConfigProperties.put(entry.getKey(), entry.getValue());
         }
 
+        this.backendConfigProperties = backendConfigProperties;
+    }
+
+    public Configuration getHadoopConfiguration() {
+        return this.configuration;
+    }
+
+    //fixme be should send use input params
+    @Override
+    public Map<String, String> getBackendConfigProperties() {
         return backendConfigProperties;
     }
 
     @Override
-    public String convertUrlToFilePath(String url) throws UserException {
+    public String validateAndNormalizeUri(String url) throws UserException {
         return HdfsPropertiesUtils.convertUrlToFilePath(url);
     }
 
     @Override
-    public String checkLoadPropsAndReturnUri(Map<String, String> loadProps) throws UserException {
-        return HdfsPropertiesUtils.checkLoadPropsAndReturnUri(loadProps);
+    public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
+        return HdfsPropertiesUtils.validateAndGetUri(loadProps);
     }
 
     @Override

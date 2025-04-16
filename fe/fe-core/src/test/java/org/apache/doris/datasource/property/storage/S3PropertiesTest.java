@@ -67,8 +67,7 @@ public class S3PropertiesTest {
 
 
         S3Properties s3Properties = (S3Properties) StorageProperties.create(origProps).get(1);
-        Map<String, String> s3Props = new HashMap<>();
-        s3Properties.toNativeS3Configuration(s3Props);
+        Map<String, String> s3Props = s3Properties.getBackendConfigProperties();
         Map<String, String> s3Config = s3Properties.getMatchedProperties();
         Assertions.assertTrue(!s3Config.containsKey("test_non_storage_param"));
 
@@ -89,8 +88,8 @@ public class S3PropertiesTest {
         origProps.remove("s3.connection.maximum");
         origProps.remove("s3.connection.timeout");
         s3Properties = (S3Properties) StorageProperties.create(origProps).get(1);
-        s3Props = new HashMap<>();
-        s3Properties.toNativeS3Configuration(s3Props);
+        s3Props = s3Properties.getBackendConfigProperties();
+
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
         Assertions.assertEquals("50", s3Props.get("AWS_MAX_CONNECTIONS"));
         Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
@@ -104,17 +103,17 @@ public class S3PropertiesTest {
         origProps.put("s3.access_key", "myCOSAccessKey");
         origProps.put("s3.secret_key", "myCOSSecretKey");
         origProps.put("s3.region", "cn-hangzhou");
-        S3Properties s3Properties = (S3Properties) StorageProperties.createStorageProperties(origProps);
-        Assertions.assertEquals("cn-hangzhou", s3Properties.getRegion());
-        Assertions.assertEquals("myCOSAccessKey", s3Properties.getAccessKey());
-        Assertions.assertEquals("myCOSSecretKey", s3Properties.getSecretKey());
-        Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", s3Properties.getEndpoint());
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createStorageProperties(origProps);
+        Assertions.assertEquals("cn-hangzhou", ossProperties.getRegion());
+        Assertions.assertEquals("myCOSAccessKey", ossProperties.getAccessKey());
+        Assertions.assertEquals("myCOSSecretKey", ossProperties.getSecretKey());
+        Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", ossProperties.getEndpoint());
         origProps = new HashMap<>();
         origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
         origProps.put("s3.access_key", "myCOSAccessKey");
         origProps.put("s3.secret_key", "myCOSSecretKey");
         origProps.put("s3.region", "us-west-2");
-        s3Properties = (S3Properties) StorageProperties.createStorageProperties(origProps);
+        S3Properties s3Properties = (S3Properties) StorageProperties.createStorageProperties(origProps);
         Assertions.assertEquals("us-west-2", s3Properties.getRegion());
         Assertions.assertEquals("myCOSAccessKey", s3Properties.getAccessKey());
         Assertions.assertEquals("myCOSSecretKey", s3Properties.getSecretKey());
@@ -140,6 +139,7 @@ public class S3PropertiesTest {
         s3EndpointProps.put("oss.secret_key", "myCOSSecretKey");
         s3EndpointProps.put("oss.region", "cn-hangzhou");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createStorageProperties(s3EndpointProps), "Property cos.endpoint is required.");
+        //not support
+        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createStorageProperties(s3EndpointProps), "Property cos.endpoint is required.");
     }
 }

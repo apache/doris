@@ -67,7 +67,7 @@ public class OBSPropertyTest {
             }
         });
 
-        obsProperties.toNativeS3Configuration(s3Props);
+        s3Props = obsProperties.getBackendConfigProperties();
         Assertions.assertEquals("obs.cn-north-4.myhuaweicloud.com", s3Props.get("AWS_ENDPOINT"));
         Assertions.assertEquals("cn-north-4", s3Props.get("AWS_REGION"));
         Assertions.assertEquals("myOBSAccessKey", s3Props.get("AWS_ACCESS_KEY"));
@@ -78,8 +78,7 @@ public class OBSPropertyTest {
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         origProps.remove("use_path_style");
         obsProperties = (OBSProperties) StorageProperties.create(origProps).get(1);
-        s3Props = new HashMap<>();
-        obsProperties.toNativeS3Configuration(s3Props);
+        s3Props = obsProperties.getBackendConfigProperties();
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
     }
 
@@ -111,7 +110,8 @@ public class OBSPropertyTest {
         cosNoEndpointProps.put("obs.secret_key", "myCOSSecretKey");
         cosNoEndpointProps.put("obs.region", "ap-beijing");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createStorageProperties(cosNoEndpointProps), "Property cos.endpoint is required.");
+        //not support
+        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createStorageProperties(cosNoEndpointProps), "Property cos.endpoint is required.");
     }
 
     private static String obsAccessKey = "";

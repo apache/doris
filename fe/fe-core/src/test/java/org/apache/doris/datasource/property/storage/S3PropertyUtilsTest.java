@@ -32,19 +32,19 @@ class S3PropertyUtilsTest {
     void testCheckLoadPropsAndReturnUri_success() throws UserException {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "https://bucket.s3.us-west-2.amazonaws.com/key");
-        String result = S3PropertyUtils.checkLoadPropsAndReturnUri(props);
+        String result = S3PropertyUtils.validateAndGetUri(props);
         Assertions.assertEquals("https://bucket.s3.us-west-2.amazonaws.com/key", result);
     }
 
     @Test
     void testCheckLoadPropsAndReturnUri_missingKey() {
         Map<String, String> props = new HashMap<>();
-        Executable executable = () -> S3PropertyUtils.checkLoadPropsAndReturnUri(props);
+        Executable executable = () -> S3PropertyUtils.validateAndGetUri(props);
         UserException exception = Assertions.assertThrows(UserException.class, executable);
         Assertions.assertEquals("errCode = 2, detailMessage = props is empty", exception.getMessage());
 
         props.put("someKey", "value");
-        executable = () -> S3PropertyUtils.checkLoadPropsAndReturnUri(props);
+        executable = () -> S3PropertyUtils.validateAndGetUri(props);
         exception = Assertions.assertThrows(UserException.class, executable);
         Assertions.assertEquals("errCode = 2, detailMessage = props must contain uri", exception.getMessage());
     }
@@ -92,17 +92,17 @@ class S3PropertyUtilsTest {
     @Test
     void testConvertToS3Address_success() throws UserException {
         String httpsUrl = "https://my-bucket.s3.us-east-1.amazonaws.com/test/key.txt";
-        String s3Path = S3PropertyUtils.convertToS3Address(httpsUrl, "false", "false");
+        String s3Path = S3PropertyUtils.validateAndNormalizeUri(httpsUrl, "false", "false");
         Assertions.assertEquals("s3://my-bucket/test/key.txt", s3Path);
 
         String alreadyS3 = "s3://bucket-name/path/file.csv";
-        Assertions.assertEquals(alreadyS3, S3PropertyUtils.convertToS3Address(alreadyS3, "true", "true"));
+        Assertions.assertEquals(alreadyS3, S3PropertyUtils.validateAndNormalizeUri(alreadyS3, "true", "true"));
     }
 
     @Test
     void testConvertToS3Address_invalid() {
-        Assertions.assertThrows(UserException.class, () -> S3PropertyUtils.convertToS3Address(null, "false", "true"));
-        Assertions.assertThrows(UserException.class, () -> S3PropertyUtils.convertToS3Address("", "false", "false"));
-        Assertions.assertThrows(UserException.class, () -> S3PropertyUtils.convertToS3Address("not a uri", "true", "true"));
+        Assertions.assertThrows(UserException.class, () -> S3PropertyUtils.validateAndNormalizeUri(null, "false", "true"));
+        Assertions.assertThrows(UserException.class, () -> S3PropertyUtils.validateAndNormalizeUri("", "false", "false"));
+        Assertions.assertThrows(UserException.class, () -> S3PropertyUtils.validateAndNormalizeUri("not a uri", "true", "true"));
     }
 }

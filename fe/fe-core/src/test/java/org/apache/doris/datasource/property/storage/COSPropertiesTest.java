@@ -82,8 +82,7 @@ public class COSPropertiesTest {
         //origProps.put("cos.region", "ap-beijing");
 
         COSProperties cosProperties = (COSProperties) StorageProperties.create(origProps).get(1);
-        Map<String, String> s3Props = new HashMap<>();
-        cosProperties.toNativeS3Configuration(s3Props);
+        Map<String, String> s3Props = cosProperties.generateBackendS3Configuration();
         Map<String, String> cosConfig = cosProperties.getMatchedProperties();
         Assertions.assertTrue(!cosConfig.containsKey("test_non_storage_param"));
 
@@ -103,7 +102,7 @@ public class COSPropertiesTest {
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
         origProps.put("use_path_style", "true");
         cosProperties = (COSProperties) StorageProperties.create(origProps).get(1);
-        cosProperties.toNativeS3Configuration(s3Props);
+        s3Props = cosProperties.generateBackendS3Configuration();
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         // Add any additional assertions for other properties if needed
     }
@@ -135,6 +134,7 @@ public class COSPropertiesTest {
         cosNoEndpointProps.put("cos.secret_key", "myCOSSecretKey");
         cosNoEndpointProps.put("cos.region", "ap-beijing");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createStorageProperties(cosNoEndpointProps), "Property cos.endpoint is required.");
+        //not support this case
+        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createStorageProperties(cosNoEndpointProps), "Property cos.endpoint is required.");
     }
 }

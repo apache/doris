@@ -23,28 +23,30 @@ import com.google.common.base.Strings;
 import lombok.Setter;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 public class COSProperties extends AbstractObjectStorageProperties {
 
     @Setter
-    @ConnectorProperty(names = {"cos.endpoint", "endpoint", "s3.endpoint"},
+    @ConnectorProperty(names = {"cos.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
             required = false,
             description = "The endpoint of COS.")
     protected String cosEndpoint = "";
 
-    @ConnectorProperty(names = {"cos.region", "region", "s3.region"},
+    @ConnectorProperty(names = {"cos.region", "s3.region", "AWS_REGION", "region", "REGION"},
             required = false,
             description = "The region of COS.")
     protected String cosRegion = "";
 
-    @ConnectorProperty(names = {"cos.access_key"},
-            description = "The access key of S3.")
+    @ConnectorProperty(names = {"cos.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
+            description = "The access key of COS.")
     protected String cosAccessKey = "";
 
-    @ConnectorProperty(names = {"cos.secret_key"},
-            description = "The secret key of S3.")
+    @ConnectorProperty(names = {"cos.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
+            description = "The secret key of COS.")
     protected String cosSecretKey = "";
 
 
@@ -53,23 +55,46 @@ public class COSProperties extends AbstractObjectStorageProperties {
     }
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
-        return origProps.containsKey("cos.access_key");
+        String value = Stream.of("cos.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT")
+                .map(origProps::get)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (!Strings.isNullOrEmpty(value)) {
+            return value.contains("myqcloud.com");
+        }
+        if (!origProps.containsKey("uri")) {
+            return false;
+        }
+        return origProps.get("uri").contains("myqcloud.com");
     }
 
-
+    /**
+     * Initializes the cosRegion field based on the COS endpoint if it's not already set.
+     * <p>
+     * This method extracts the region from Tencent Cloud COS endpoints.
+     * It supports typical COS endpoint formats like:
+     * <p>
+     * Example:
+     * - "cos.ap-guangzhou.myqcloud.com" → cosRegion = "ap-guangzhou"
+     */
     @Override
-    public void toNativeS3Configuration(Map<String, String> config) {
-        config.putAll(generateAWSS3Properties(cosEndpoint, getRegion(), cosAccessKey, cosSecretKey));
+    protected void initRegionIfNecessary() {
+        if (Strings.isNullOrEmpty(this.cosRegion) && cosEndpoint.contains("myqcloud.com")) {
+            Pattern cosPattern = Pattern.compile("cos\\.([a-z0-9-]+)\\.myqcloud\\.com");
+            Matcher matcher = cosPattern.matcher(cosEndpoint);
+            if (matcher.find()) {
+                this.cosRegion = matcher.group(1);
+            }
+        }
     }
 
     public String getRegion() {
-        if (Strings.isNullOrEmpty(this.cosRegion)) {
-            if (cosEndpoint.contains("myqcloud.com")) {
-                Pattern cosPattern = Pattern.compile("cos\\.([a-z0-9-]+)\\.myqcloud\\.com");
-                Matcher matcher = cosPattern.matcher(cosEndpoint);
-                if (matcher.find()) {
-                    this.cosRegion = matcher.group(1);
-                }
+        if (Strings.isNullOrEmpty(this.cosRegion) && cosEndpoint.contains("myqcloud.com")) {
+            Pattern cosPattern = Pattern.compile("cos\\.([a-z0-9-]+)\\.myqcloud\\.com");
+            Matcher matcher = cosPattern.matcher(cosEndpoint);
+            if (matcher.find()) {
+                this.cosRegion = matcher.group(1);
             }
         }
         return this.cosRegion;

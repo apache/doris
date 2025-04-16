@@ -17,25 +17,12 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import java.util.Map;
-
 /**
  * Interface representing the properties and configurations for object storage systems.
  * This interface provides methods for converting the storage properties to specific
  * configurations for different protocols, such as Hadoop HDFS and AWS S3.
  */
 public interface ObjectStorageProperties {
-
-    /**
-     * Converts the object storage properties to a configuration map compatible with the
-     * AWS S3 protocol. This method provides the necessary configuration parameters for connecting
-     * to the object storage system via AWS S3 API, allowing it to be used in S3-compatible environments.
-     *
-     * @param config a map to populate with the S3-compatible configuration parameters.
-     *               These parameters will be used by AWS S3 clients or compatible services to connect
-     *               to the object storage system.
-     */
-    void toNativeS3Configuration(Map<String, String> config);
 
     String getEndpoint();
 

@@ -29,8 +29,21 @@ public class S3PropertyUtils {
 
     private static final String URI_KEY = "uri";
 
+    /**
+     * Constructs the S3 endpoint from a given URI in the props map.
+     *
+     * @param props                           the map containing the S3 URI, keyed by URI_KEY
+     * @param stringUsePathStyle              whether to use path-style access ("true"/"false")
+     * @param stringForceParsingByStandardUri whether to force parsing using the standard URI format ("true"/"false")
+     * @return the extracted S3 endpoint or null if URI is invalid or parsing fails
+     * <p>
+     * Example:
+     * Input URI: "https://s3.us-west-1.amazonaws.com/my-bucket/my-key"
+     * Output: "s3.us-west-1.amazonaws.com"
+     */
     public static String constructEndpointFromUrl(Map<String, String> props,
-                                                  String stringUsePathStyle, String stringForceParsingByStandardUri) {
+                                                  String stringUsePathStyle,
+                                                  String stringForceParsingByStandardUri) {
         String uri = props.get(URI_KEY);
         if (uri == null || uri.isEmpty()) {
             return null;
@@ -45,7 +58,20 @@ public class S3PropertyUtils {
         }
     }
 
-    public static String constructRegionFromUrl(Map<String, String> props, String stringUsePathStyle,
+    /**
+     * Extracts the S3 region from a URI in the given props map.
+     *
+     * @param props                           the map containing the S3 URI, keyed by URI_KEY
+     * @param stringUsePathStyle              whether to use path-style access ("true"/"false")
+     * @param stringForceParsingByStandardUri whether to force parsing using the standard URI format ("true"/"false")
+     * @return the extracted S3 region or null if URI is invalid or parsing fails
+     * <p>
+     * Example:
+     * Input URI: "https://s3.us-west-1.amazonaws.com/my-bucket/my-key"
+     * Output: "us-west-1"
+     */
+    public static String constructRegionFromUrl(Map<String, String> props,
+                                                String stringUsePathStyle,
                                                 String stringForceParsingByStandardUri) {
         String uri = props.get(URI_KEY);
         if (uri == null || uri.isEmpty()) {
@@ -54,17 +80,32 @@ public class S3PropertyUtils {
         boolean usePathStyle = Boolean.parseBoolean(stringUsePathStyle);
         boolean forceParsingByStandardUri = Boolean.parseBoolean(stringForceParsingByStandardUri);
 
-        S3URI s3uri = null;
         try {
-            s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
+            S3URI s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
             return s3uri.getRegion().orElse(null);
         } catch (UserException e) {
             return null;
         }
     }
 
-    public static String convertToS3Address(String path, String stringUsePathStyle,
-                                            String stringForceParsingByStandardUri) throws UserException {
+    /**
+     * Validates and normalizes the given path into a standard S3 URI.
+     * If the input already starts with "s3://", it is returned as-is.
+     * Otherwise, it is parsed and converted into an S3-compatible URI format.
+     *
+     * @param path                            the raw S3-style path or full URI
+     * @param stringUsePathStyle              whether to use path-style access ("true"/"false")
+     * @param stringForceParsingByStandardUri whether to force parsing using the standard URI format ("true"/"false")
+     * @return normalized S3 URI string like "s3://bucket/key"
+     * @throws UserException if the input path is blank or invalid
+     *                       <p>
+     *                       Example:
+     *                       Input: "https://s3.us-west-1.amazonaws.com/my-bucket/my-key"
+     *                       Output: "s3://my-bucket/my-key"
+     */
+    public static String validateAndNormalizeUri(String path,
+                                                 String stringUsePathStyle,
+                                                 String stringForceParsingByStandardUri) throws UserException {
         if (StringUtils.isBlank(path)) {
             throw new UserException("path is null");
         }
@@ -78,7 +119,18 @@ public class S3PropertyUtils {
         return "s3" + S3URI.SCHEME_DELIM + s3uri.getBucket() + S3URI.PATH_DELIM + s3uri.getKey();
     }
 
-    public static String checkLoadPropsAndReturnUri(Map<String, String> props) throws UserException {
+    /**
+     * Extracts and returns the raw URI string from the given props map.
+     *
+     * @param props the map expected to contain a 'uri' entry
+     * @return the URI string from props
+     * @throws UserException if the map is empty or does not contain 'uri'
+     *                       <p>
+     *                       Example:
+     *                       Input: {"uri": "s3://my-bucket/my-key"}
+     *                       Output: "s3://my-bucket/my-key"
+     */
+    public static String validateAndGetUri(Map<String, String> props) throws UserException {
         if (props.isEmpty()) {
             throw new UserException("props is empty");
         }

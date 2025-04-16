@@ -55,7 +55,7 @@ public class OSSPropertiesTest {
         origProps.put("use_path_style", "true");
         origProps.put("test_non_storage_param", "6000");
         OSSProperties ossProperties = (OSSProperties) StorageProperties.create(origProps).get(1);
-        Map<String, String> s3Props = new HashMap<>();
+        Map<String, String> s3Props;
 
         Map<String, String> ossConfig = ossProperties.getMatchedProperties();
         Assertions.assertTrue(!ossConfig.containsKey("test_non_storage_param"));
@@ -67,7 +67,7 @@ public class OSSPropertiesTest {
         });
 
 
-        ossProperties.toNativeS3Configuration(s3Props);
+        s3Props = ossProperties.generateBackendS3Configuration();
         Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", s3Props.get("AWS_ENDPOINT"));
         Assertions.assertEquals("cn-beijing-internal", s3Props.get("AWS_REGION"));
         Assertions.assertEquals("myOSSAccessKey", s3Props.get("AWS_ACCESS_KEY"));
@@ -78,8 +78,7 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         origProps.remove("use_path_style");
         ossProperties = (OSSProperties) StorageProperties.create(origProps).get(1);
-        s3Props = new HashMap<>();
-        ossProperties.toNativeS3Configuration(s3Props);
+        s3Props = ossProperties.generateBackendS3Configuration();
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
     }
 
@@ -112,6 +111,7 @@ public class OSSPropertiesTest {
         cosNoEndpointProps.put("oss.secret_key", "myCOSSecretKey");
         cosNoEndpointProps.put("oss.region", "cn-hangzhou");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createStorageProperties(cosNoEndpointProps), "Property cos.endpoint is required.");
+        // not support
+        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createStorageProperties(cosNoEndpointProps), "Property cos.endpoint is required.");
     }
 }

@@ -20,26 +20,36 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import lombok.Getter;
 import lombok.Setter;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 public class OSSProperties extends AbstractObjectStorageProperties {
 
     @Setter
-    @ConnectorProperty(names = {"oss.endpoint", "endpoint", "s3.endpoint"}, required = false,
+    @Getter
+    @ConnectorProperty(names = {"oss.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
+            required = false,
             description = "The endpoint of OSS.")
     protected String endpoint = "";
 
-    @ConnectorProperty(names = {"oss.access_key"}, description = "The access key of OSS.")
+    @Getter
+    @ConnectorProperty(names = {"oss.access_key", "s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
+            description = "The access key of OSS.")
     protected String accessKey = "";
 
-    @ConnectorProperty(names = {"oss.secret_key"}, description = "The secret key of OSS.")
+    @Getter
+    @ConnectorProperty(names = {"oss.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
+            description = "The secret key of OSS.")
     protected String secretKey = "";
 
-    @ConnectorProperty(names = {"oss.region", "region", "s3.region"}, required = false,
+    @Getter
+    @ConnectorProperty(names = {"oss.region", "s3.region", "AWS_REGION", "region", "REGION"}, required = false,
             description = "The region of OSS.")
     protected String region;
 
@@ -49,20 +59,41 @@ public class OSSProperties extends AbstractObjectStorageProperties {
     }
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
-        return origProps.containsKey("oss.access_key");
+        String value = Stream.of("oss.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT")
+                .map(origProps::get)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (!Strings.isNullOrEmpty(value)) {
+            return value.contains("aliyuncs.com");
+        }
+        if (!origProps.containsKey("uri")) {
+            return false;
+        }
+        return origProps.get("uri").contains("aliyuncs.com");
     }
 
     @Override
-    public void toNativeS3Configuration(Map<String, String> config) {
-        config.putAll(generateAWSS3Properties(endpoint, getRegion(), accessKey, secretKey));
+    protected void initNormalizeAndCheckProps() {
+        super.initNormalizeAndCheckProps();
+        initRegionIfNecessary();
     }
 
-    public String getRegion() {
+    /**
+     * Initializes the region field based on the endpoint if it's not already set.
+     * <p>
+     * This method attempts to extract the region name from the OSS endpoint string.
+     * It supports both external and internal Alibaba Cloud OSS endpoint formats.
+     * <p>
+     * Examples:
+     * - External endpoint: "oss-cn-hangzhou.aliyuncs.com" → region = "cn-hangzhou"
+     * - Internal endpoint: "oss-cn-shanghai.intranet.aliyuncs.com" → region = "cn-shanghai"
+     */
+    public void initRegionIfNecessary() {
         // Return the region if it is already set
         if (!Strings.isNullOrEmpty(this.region)) {
-            return region;
+            return;
         }
-
         // Check for external endpoint and extract region
         if (endpoint.contains("aliyuncs.com")) {
             // Regex pattern for external endpoint (e.g., oss-<region>.aliyuncs.com)
@@ -72,7 +103,6 @@ public class OSSProperties extends AbstractObjectStorageProperties {
                 this.region = matcher.group(1);
             }
         }
-
         // Check for internal endpoint and extract region
         if (endpoint.contains("intranet.aliyuncs.com")) {
             // Regex pattern for internal endpoint (e.g., oss-<region>.intranet.aliyuncs.com)
@@ -82,22 +112,6 @@ public class OSSProperties extends AbstractObjectStorageProperties {
                 this.region = matcher.group(1);
             }
         }
-
-        return this.region;
     }
 
-    @Override
-    public String getEndpoint() {
-        return endpoint;
-    }
-
-    @Override
-    public String getAccessKey() {
-        return accessKey;
-    }
-
-    @Override
-    public String getSecretKey() {
-        return secretKey;
-    }
 }

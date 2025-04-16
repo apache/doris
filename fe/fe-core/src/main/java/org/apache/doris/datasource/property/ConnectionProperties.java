@@ -31,10 +31,22 @@ import java.util.List;
 import java.util.Map;
 
 public abstract class ConnectionProperties {
+    /**
+     * The original user-provided properties.
+     * <p>
+     * This map may contain various configuration entries, not all of which are relevant
+     * to the specific Connector implementation. It serves as the raw input from the user.
+     */
     @Getter
     @Setter
     protected Map<String, String> origProps;
 
+    /**
+     * The filtered properties that are actually used by the Connector.
+     * <p>
+     * This map only contains key-value pairs that are recognized and matched by
+     * the specific Connector implementation. It's a subset of {@code origProps}.
+     */
     @Getter
     protected Map<String, String> matchedProperties = new HashMap<>();
 
@@ -42,7 +54,7 @@ public abstract class ConnectionProperties {
         this.origProps = origProps;
     }
 
-    protected void normalizedAndCheckProps() {
+    protected void initNormalizeAndCheckProps() {
         // 1. prepare phase
         Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         // 2. overwrite result properties with original properties

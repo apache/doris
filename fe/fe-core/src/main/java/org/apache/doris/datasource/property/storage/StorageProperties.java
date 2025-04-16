@@ -95,7 +95,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         }
 
         for (StorageProperties storageProperty : storageProperties) {
-            storageProperty.normalizedAndCheckProps();
+            storageProperty.initNormalizeAndCheckProps();
         }
 
         return storageProperties;
@@ -123,7 +123,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         if (null == storageProperties) {
             throw new RuntimeException("not support this fs");
         }
-        storageProperties.normalizedAndCheckProps();
+        storageProperties.initNormalizeAndCheckProps();
         //load from default file
         return storageProperties;
 
@@ -152,10 +152,29 @@ public abstract class StorageProperties extends ConnectionProperties {
         return false;
     }
 
-    public abstract String convertUrlToFilePath(String url) throws UserException;
+    /**
+     * Validates the given URL string and returns a normalized URI in the format: scheme://authority/path.
+     * <p>
+     * This method checks that the input is non-empty, the scheme is present and supported (e.g., hdfs, viewfs),
+     * and converts it into a canonical URI string.
+     *
+     * @param url the raw URL string to validate and normalize
+     * @return a normalized URI string with validated scheme and authority
+     * @throws UserException if the URL is empty, lacks a valid scheme, or contains an unsupported scheme
+     */
+    public abstract String validateAndNormalizeUri(String url) throws UserException;
 
-
-    public abstract String checkLoadPropsAndReturnUri(Map<String, String> loadProps) throws UserException;
+    /**
+     * Extracts the URI string from the provided properties map, validates it, and returns the normalized URI.
+     * <p>
+     * This method checks that the 'uri' key exists in the property map, retrieves the value,
+     * and then delegates to {@link #validateAndNormalizeUri(String)} for further validation and normalization.
+     *
+     * @param loadProps the map containing load-related properties, including the URI under the key 'uri'
+     * @return a normalized and validated URI string
+     * @throws UserException if the 'uri' property is missing, empty, or invalid
+     */
+    public abstract String validateAndGetUri(Map<String, String> loadProps) throws UserException;
 
     public abstract String getStorageName();
 }

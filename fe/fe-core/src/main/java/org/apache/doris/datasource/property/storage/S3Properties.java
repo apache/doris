@@ -19,12 +19,17 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 
 import java.lang.reflect.Field;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 public class S3Properties extends AbstractObjectStorageProperties {
 
@@ -90,6 +95,10 @@ public class S3Properties extends AbstractObjectStorageProperties {
             description = "The external id of S3.")
     protected String s3ExternalId = "";
 
+    private static final Pattern REGION_PATTERN = Pattern.compile(
+            "s3[.-](?:dualstack[.-])?([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?"
+    );
+
     public S3Properties(Map<String, String> origProps) {
         super(Type.S3, origProps);
     }
@@ -101,9 +110,22 @@ public class S3Properties extends AbstractObjectStorageProperties {
      *
      * @return
      */
-    public static boolean guessIsMe(Map<String, String> origProps) {
-        List<Field> fields = getIdentifyFields();
-        return StorageProperties.checkIdentifierKey(origProps, fields);
+    protected static boolean guessIsMe(Map<String, String> origProps) {
+        String endpoint = Stream.of("s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT")
+                .map(origProps::get)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (!Strings.isNullOrEmpty(endpoint)) {
+            return endpoint.contains("amazonaws.com");
+        }
+        if (!origProps.containsKey("uri")) {
+            return false;
+        }
+        String uri = origProps.get("uri");
+        return uri.contains("amazonaws.com");
+
+
     }
 
     private static List<Field> getIdentifyFields() {
@@ -144,17 +166,33 @@ public class S3Properties extends AbstractObjectStorageProperties {
     }
 
     @Override
-    public void toNativeS3Configuration(Map<String, String> config) {
-        Map<String, String> awsS3Properties = generateAWSS3Properties(s3Endpoint, s3Region, s3AccessKey, s3SecretKey,
-                s3ConnectionMaximum, s3ConnectionRequestTimeoutS, s3ConnectionTimeoutS, String.valueOf(usePathStyle));
-        config.putAll(awsS3Properties);
+    public Map<String, String> getBackendConfigProperties() {
+        return generateBackendS3Configuration(s3ConnectionMaximum,
+                s3ConnectionRequestTimeoutS, s3ConnectionTimeoutS, String.valueOf(usePathStyle));
     }
 
+    /**
+     * Initializes the s3Region field based on the S3 endpoint if it's not already set.
+     * <p>
+     * This method extracts the region from Amazon S3-compatible endpoints using a predefined regex pattern.
+     * The endpoint is first converted to lowercase before matching.
+     * <p>
+     * Example:
+     * - "s3.us-west-2.amazonaws.com" → s3Region = "us-west-2"
+     * - "s3.cn-north-1.amazonaws.com.cn" → s3Region = "cn-north-1"
+     * <p>
+     * Note: REGION_PATTERN must be defined to capture the region from the S3 endpoint.
+     * Example pattern:
+     * Pattern.compile("s3[.-]([a-z0-9-]+)\\.")
+     */
     @Override
-    public Map<String, String> getBackendConfigProperties() {
-        Map<String, String> config = new HashMap<>();
-        toNativeS3Configuration(config);
-        return config;
+    protected void initRegionIfNecessary() {
+        if (StringUtils.isBlank(s3Region) && StringUtils.isNotBlank(s3Endpoint)) {
+            Matcher matcher = REGION_PATTERN.matcher(s3Endpoint.toLowerCase());
+            if (matcher.find()) {
+                this.s3Region = matcher.group(1);
+            }
+        }
     }
 
     @Override

@@ -89,65 +89,68 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
     }
 
     /**
-     * Generates a map of configuration properties for AWS S3 based on the provided values.
-     * This map includes various AWS-specific settings like endpoint, region, access keys, and timeouts.
+     * Generates a map of AWS S3 configuration properties specifically for Backend (BE) service usage.
+     * This configuration includes endpoint, region, access credentials, timeouts, and connection settings.
+     * The map is typically used to initialize S3-compatible storage access for the backend.
      *
-     * @param endpoint           the AWS endpoint URL.
-     * @param region             the AWS region.
-     * @param accessKey          the AWS access key.
-     * @param secretKey          the AWS secret key.
-     * @param maxConnections     the maximum number of connections.
-     * @param requestTimeoutS    the request timeout in milliseconds.
-     * @param connectionTimeoutS the connection timeout in milliseconds.
-     * @param usePathStyle       flag indicating if path-style URLs should be used.
-     * @return a map containing AWS S3-specific configuration properties.
+     * @param maxConnections      the maximum number of allowed S3 connections.
+     * @param requestTimeoutMs    request timeout in milliseconds.
+     * @param connectionTimeoutMs connection timeout in milliseconds.
+     * @param usePathStyle        whether to use path-style access (true/false).
+     * @return a map containing AWS S3 configuration properties.
      */
-    protected Map<String, String> generateAWSS3Properties(String endpoint, String region, String accessKey,
-                                                          String secretKey, String maxConnections,
-                                                          String requestTimeoutS,
-                                                          String connectionTimeoutS, String usePathStyle) {
+    protected Map<String, String> generateBackendS3Configuration(String maxConnections,
+                                                                 String requestTimeoutMs,
+                                                                 String connectionTimeoutMs,
+                                                                 String usePathStyle) {
+        return doBuildS3Configuration(maxConnections, requestTimeoutMs, connectionTimeoutMs, usePathStyle);
+    }
+
+    /**
+     * Overloaded version of {@link #generateBackendS3Configuration(String, String, String, String)}
+     * that uses default values
+     * from the current object context for connection settings.
+     *
+     * @return a map containing AWS S3 configuration properties.
+     */
+    protected Map<String, String> generateBackendS3Configuration() {
+        return doBuildS3Configuration(maxConnections, requestTimeoutS, connectionTimeoutS, usePathStyle);
+    }
+
+    /**
+     * Internal method to centralize S3 configuration property assembly.
+     */
+    private Map<String, String> doBuildS3Configuration(String maxConnections,
+                                                       String requestTimeoutMs,
+                                                       String connectionTimeoutMs,
+                                                       String usePathStyle) {
         Map<String, String> s3Props = new HashMap<>();
-        s3Props.put("AWS_ENDPOINT", endpoint);
-        s3Props.put("AWS_REGION", region);
-        s3Props.put("AWS_ACCESS_KEY", accessKey);
-        s3Props.put("AWS_SECRET_KEY", secretKey);
+        s3Props.put("AWS_ENDPOINT", getEndpoint());
+        s3Props.put("AWS_REGION", getRegion());
+        s3Props.put("AWS_ACCESS_KEY", getAccessKey());
+        s3Props.put("AWS_SECRET_KEY", getSecretKey());
         s3Props.put("AWS_MAX_CONNECTIONS", maxConnections);
-        s3Props.put("AWS_REQUEST_TIMEOUT_MS", requestTimeoutS);
-        s3Props.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutS);
+        s3Props.put("AWS_REQUEST_TIMEOUT_MS", requestTimeoutMs);
+        s3Props.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
         s3Props.put("use_path_style", usePathStyle);
         return s3Props;
     }
 
-    /**
-     * Generates a map of configuration properties for AWS S3 using the default values from this class.
-     * This method automatically uses the values defined in the class for connection settings and path-style URL flag.
-     *
-     * @param endpoint  the AWS endpoint URL.
-     * @param region    the AWS region.
-     * @param accessKey the AWS access key.
-     * @param secretKey the AWS secret key.
-     * @return a map containing AWS S3-specific configuration properties.
-     */
-    protected Map<String, String> generateAWSS3Properties(String endpoint, String region,
-                                                          String accessKey, String secretKey) {
-        return generateAWSS3Properties(endpoint, region, accessKey, secretKey,
-                String.valueOf(getMaxConnections()), String.valueOf(getRequestTimeoutS()),
-                String.valueOf(getConnectionTimeoutS()), usePathStyle);
-    }
-
     @Override
     public Map<String, String> getBackendConfigProperties() {
-        Map<String, String> config = new HashMap<>();
-        toNativeS3Configuration(config);
-        return config;
+        return generateBackendS3Configuration();
     }
 
 
     @Override
-    protected void normalizedAndCheckProps() {
-        super.normalizedAndCheckProps();
+    protected void initNormalizeAndCheckProps() {
+        super.initNormalizeAndCheckProps();
         setEndpointIfNotSet();
+        checkRequiredProperties();
+        initRegionIfNecessary();
     }
+
+    protected abstract void initRegionIfNecessary();
 
     private void setEndpointIfNotSet() {
         if (StringUtils.isNotBlank(getEndpoint())) {
@@ -161,14 +164,14 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
     }
 
     @Override
-    public String convertUrlToFilePath(String uri) throws UserException {
-        return S3PropertyUtils.convertToS3Address(uri, getUsePathStyle(), getForceParsingByStandardUrl());
+    public String validateAndNormalizeUri(String uri) throws UserException {
+        return S3PropertyUtils.validateAndNormalizeUri(uri, getUsePathStyle(), getForceParsingByStandardUrl());
 
     }
 
     @Override
-    public String checkLoadPropsAndReturnUri(Map<String, String> loadProps) throws UserException {
-        return S3PropertyUtils.checkLoadPropsAndReturnUri(loadProps);
+    public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
+        return S3PropertyUtils.validateAndGetUri(loadProps);
     }
 
     @Override
