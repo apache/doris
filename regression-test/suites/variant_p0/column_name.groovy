@@ -73,10 +73,10 @@ suite("regression_test_variant_column_name", "variant_type"){
 
     // name with `.`
     sql "truncate table var_column_name"
-    // test {
-    //     sql """insert into var_column_name values (7, '{"a.b": "UPPER CASE", "a.c": "lower case", "a" : {"b" : 123}, "a" : {"c" : 456}}')"""
-    //     exception "may contains duplicated entry"
-    // };
+    test {
+         sql """insert into var_column_name values (7, '{"a.b": "UPPER CASE", "a.c": "lower case", "a" : {"b" : 123}, "a" : {"c" : 456}}')"""
+         exception "may contains duplicated entry"
+    };
     sql """insert into var_column_name values (1, '{"a.b" : 123, "a.c" : 456, "a.d" : 1.111, "a.e" : "1234567890"}')"""
     for (int i = 0; i < 7; i++) {
         sql """insert into var_column_name select * from var_column_name"""
