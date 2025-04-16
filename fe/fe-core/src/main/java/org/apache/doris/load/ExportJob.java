@@ -373,7 +373,6 @@ public class ExportJob implements Writable {
             statementContext.setConnectContext(connectContext);
         }
 
-
         StatementBase statementBase = new LogicalPlanAdapter(outfileLogicalPlan, statementContext);
         statementBase.setOrigStmt(new OriginStatement(statementBase.toSql(), 0));
         return statementBase;
