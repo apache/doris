@@ -151,6 +151,8 @@ public:
          */
         bool converted_from_string = false;
 
+        char quote_char = '"';
+
         char escape_char = 0;
         /**
          * flags for each byte to indicate if escape is needed.
@@ -273,6 +275,14 @@ public:
 
     virtual Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                   const FormatOptions& options) const = 0;
+
+    // In some cases, CSV and JSON deserialization behaviors may differ
+    // so we provide a default implementation that uses JSON deserialization
+    virtual Status deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
+                                                 const FormatOptions& options) const {
+        return deserialize_one_cell_from_json(column, slice, options);
+    }
+
     // deserialize text vector is to avoid virtual function call in complex type nested loop
     virtual Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                        uint64_t* num_deserialized,

@@ -64,6 +64,31 @@ inline void escape_string(const char* src, size_t& len, char escape_char) {
     len = dest_ptr - start;
 }
 
+// specially escape quote with double quote
+inline void escape_string_for_csv(const char* src, size_t& len, char escape_char, char quote_char) {
+    const char* start = src;
+    char* dest_ptr = const_cast<char*>(src);
+    const char* end = src + len;
+    bool escape_next_char = false;
+
+    while (src < end) {
+        if ((src < end - 1 && *src == quote_char && *(src + 1) == quote_char) ||
+            *src == escape_char) {
+            escape_next_char = !escape_next_char;
+        } else {
+            escape_next_char = false;
+        }
+
+        if (escape_next_char) {
+            ++src;
+        } else {
+            *dest_ptr++ = *src++;
+        }
+    }
+
+    len = dest_ptr - start;
+}
+
 template <typename ColumnType>
 class DataTypeStringSerDeBase : public DataTypeSerDe {
     using ColumnStrType = ColumnType;
@@ -184,6 +209,15 @@ public:
         }
         if (options.escape_char != 0) {
             escape_string(slice.data, slice.size, options.escape_char);
+        }
+        assert_cast<ColumnType&>(column).insert_data(slice.data, slice.size);
+        return Status::OK();
+    }
+
+    Status deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
+                                         const FormatOptions& options) const override {
+        if (options.escape_char != 0) {
+            escape_string_for_csv(slice.data, slice.size, options.escape_char, options.quote_char);
         }
         assert_cast<ColumnType&>(column).insert_data(slice.data, slice.size);
         return Status::OK();
