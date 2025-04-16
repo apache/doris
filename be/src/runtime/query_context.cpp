@@ -130,8 +130,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _memory_sufficient_dependency =
             pipeline::Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
 
-    _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker(), true);
+    _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(true);
 
     _timeout_second = query_options.execution_timeout;
 

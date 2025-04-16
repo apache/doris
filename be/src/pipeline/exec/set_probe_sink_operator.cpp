@@ -95,11 +95,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                 local_state._shared_state->hash_table_variants->method_variant));
     }
 
-    if (eos
-#ifndef BE_TEST
-        && !state->get_task()->wake_up_early()
-#endif
-    ) {
+    if (eos && !local_state._terminated) {
         _finalize_probe(local_state);
     }
     return Status::OK();

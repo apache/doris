@@ -86,7 +86,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
 
         wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
-        wrapper->_reason = "";
+        wrapper->_reason.update({});
     }
     {
         // Insert
@@ -94,7 +94,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
                 vectorized::ColumnHelper::create_column<DataType>({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
         EXPECT_EQ(wrapper->insert(col, 0).code(), ErrorCode::INTERNAL_ERROR);
         wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
-        wrapper->_reason = "";
+        wrapper->_reason.update({});
 
         col = vectorized::ColumnHelper::create_column<DataType>({0});
         EXPECT_TRUE(wrapper->insert(col, 0).ok());
@@ -114,15 +114,6 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         EXPECT_EQ(wrapper->hybrid_set()->size(), 2);
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::READY);
         EXPECT_TRUE(wrapper->to_protobuf(valid_request.mutable_in_filter()).ok());
-
-        // Merge 2 (ignored filter)
-        another_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
-        EXPECT_TRUE(another_wrapper->init(2).ok());
-        EXPECT_EQ(another_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
-        another_wrapper->_state = RuntimeFilterWrapper::State::IGNORED;
-        EXPECT_TRUE(wrapper->merge(another_wrapper.get()).ok());
-        EXPECT_EQ(wrapper->hybrid_set()->size(), 2);
-        EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::READY);
 
         // Merge 3 (disabled filter)
         another_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
@@ -145,7 +136,6 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED)
                 << RuntimeFilterWrapper::to_string(wrapper->get_state());
         wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
-        wrapper->_reason = "";
 
         // Merge 5 (valid filter)
         another_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
@@ -170,7 +160,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         EXPECT_EQ(wrapper->hybrid_set()->size(), 0);
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
         wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
-        wrapper->_reason = "";
+        wrapper->_reason.update({});
     }
     {
         // Assign disabled filter
@@ -179,15 +169,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         EXPECT_TRUE(wrapper->assign(request, nullptr).ok());
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
         wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
-        wrapper->_reason = "";
-
-        // Assign ignored filter
-        PMergeFilterRequest request2;
-        request2.set_ignored(true);
-        EXPECT_TRUE(wrapper->assign(request2, nullptr).ok());
-        EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::IGNORED);
-        wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
-        wrapper->_reason = "";
+        wrapper->_reason.update({});
 
         // Assign valid filter
         valid_request.set_contain_null(false);
@@ -1388,9 +1370,8 @@ TEST_F(RuntimeFilterWrapperTest, TestErrorPath) {
     wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
     bool ex = false;
     try {
-        wrapper->check_state({RuntimeFilterWrapper::State::READY,
-                              RuntimeFilterWrapper::State::IGNORED,
-                              RuntimeFilterWrapper::State::DISABLED});
+        wrapper->check_state(
+                {RuntimeFilterWrapper::State::READY, RuntimeFilterWrapper::State::DISABLED});
     } catch (std::exception) {
         ex = true;
     }

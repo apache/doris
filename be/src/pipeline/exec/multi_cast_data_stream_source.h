@@ -67,7 +67,7 @@ public:
 private:
     friend class MultiCastDataStreamerSourceOperatorX;
     vectorized::VExprContextSPtrs _output_expr_contexts;
-    std::vector<std::shared_ptr<RuntimeFilterDependency>> _filter_dependencies;
+    std::vector<std::shared_ptr<Dependency>> _filter_dependencies;
 
     RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
     RuntimeProfile::Counter* _filter_timer = nullptr;

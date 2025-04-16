@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
@@ -66,10 +67,7 @@ public class IndexDefTest {
         try {
             def = new IndexDef("variant_index", false, Lists.newArrayList("col1"),
                                     IndexDef.IndexType.INVERTED, null, "comment");
-            boolean isIndexFormatV1 = true;
-            def.checkColumn(new Column("col1", PrimitiveType.VARIANT), KeysType.UNIQUE_KEYS, true, null,
-                    isIndexFormatV1);
-            Assert.fail("No exception throws.");
+            def.checkColumn(new Column("col1", PrimitiveType.VARIANT), KeysType.UNIQUE_KEYS, true, TInvertedIndexFileStorageFormat.V1);
         } catch (AnalysisException e) {
             Assert.assertTrue(e instanceof AnalysisException);
             Assert.assertTrue(e.getMessage().contains("not supported in inverted index format V1"));

@@ -270,7 +270,7 @@ void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
     ThriftSerializer ser(false, 4096);
     uint8_t* buf = nullptr;
     uint32_t len = 0;
-    std::lock_guard<SpinLock> l(_profile_serialize_lock);
+    std::lock_guard<std::mutex> l(_profile_serialize_lock);
     _profile->to_thrift(&tprofile);
     auto st = ser.serialize(&tprofile, &len, &buf);
     if (st.ok()) {

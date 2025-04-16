@@ -55,6 +55,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ReplaceEmpty;
@@ -70,6 +72,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -277,6 +280,60 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         toDays = new ToDays(DateV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 1, 1, 1)));
         rewritten = executor.rewrite(toDays, context);
         Assertions.assertEquals(new IntegerLiteral(3652424), rewritten);
+
+        MonthsBetween monthsBetween = new MonthsBetween(
+                        DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                        DateV2Literal.fromJavaDateType(LocalDateTime.of(2, 2, 1, 1, 1, 1)));
+        rewritten = executor.rewrite(monthsBetween, context);
+        Assertions.assertEquals(new DoubleLiteral(-13.0), rewritten);
+        monthsBetween = new MonthsBetween(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                        DateV2Literal.fromJavaDateType(LocalDateTime.of(2, 2, 1, 1, 1, 1)), BooleanLiteral.FALSE);
+        rewritten = executor.rewrite(monthsBetween, context);
+        Assertions.assertEquals(new DoubleLiteral(-13.0), rewritten);
+        monthsBetween = new MonthsBetween(DateV2Literal.fromJavaDateType(LocalDateTime.of(2024, 3, 31, 1, 1, 1)),
+                        DateV2Literal.fromJavaDateType(LocalDateTime.of(2024, 2, 29, 1, 1, 1)));
+        rewritten = executor.rewrite(monthsBetween, context);
+        Assertions.assertEquals(new DoubleLiteral(1.0), rewritten);
+        NextDay nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 1, 28, 1, 1, 1)),
+                        StringLiteral.of("MON"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2020-02-03"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 1, 31, 1, 1, 1)),
+                        StringLiteral.of("SAT"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2020-02-01"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 12, 28, 1, 1, 1)),
+                        StringLiteral.of("FRI"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2021-01-01"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 12, 31, 1, 1, 1)),
+                        StringLiteral.of("THU"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2021-01-07"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 2, 27, 1, 1, 1)),
+                        StringLiteral.of("SAT"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2020-02-29"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 2, 29, 1, 1, 1)),
+                        StringLiteral.of("MON"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2020-03-02"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2019, 2, 26, 1, 1, 1)),
+                        StringLiteral.of("THU"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2019-02-28"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2019, 2, 28, 1, 1, 1)),
+                        StringLiteral.of("SUN"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2019-03-03"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 4, 29, 1, 1, 1)),
+                        StringLiteral.of("FRI"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2020-05-01"), rewritten);
+        nextDay = new NextDay(DateV2Literal.fromJavaDateType(LocalDateTime.of(2020, 5, 31, 1, 1, 1)),
+                        StringLiteral.of("MON"));
+        rewritten = executor.rewrite(nextDay, context);
+        Assertions.assertEquals(new DateV2Literal("2020-06-01"), rewritten);
     }
 
     @Test

@@ -21,9 +21,46 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include "vec/columns/common_column_test.h"
+
 namespace doris::vectorized {
 
 class ColumnObjectTest : public ::testing::Test {};
+
+auto construct_dst_varint_column() {
+    // 1. create an empty variant column
+    vectorized::ColumnObject::Subcolumns dynamic_subcolumns;
+    dynamic_subcolumns.create_root(vectorized::ColumnObject::Subcolumn(0, true, true /*root*/));
+    dynamic_subcolumns.add(vectorized::PathInData("v.f"),
+                           vectorized::ColumnObject::Subcolumn {0, true});
+    dynamic_subcolumns.add(vectorized::PathInData("v.e"),
+                           vectorized::ColumnObject::Subcolumn {0, true});
+    dynamic_subcolumns.add(vectorized::PathInData("v.b"),
+                           vectorized::ColumnObject::Subcolumn {0, true});
+    dynamic_subcolumns.add(vectorized::PathInData("v.b.d"),
+                           vectorized::ColumnObject::Subcolumn {0, true});
+    dynamic_subcolumns.add(vectorized::PathInData("v.c.d"),
+                           vectorized::ColumnObject::Subcolumn {0, true});
+    return ColumnObject::create(std::move(dynamic_subcolumns), true);
+}
+
+TEST_F(ColumnObjectTest, permute) {
+    auto column_variant = construct_dst_varint_column();
+    {
+        // test empty column and limit == 0
+        IColumn::Permutation permutation(0);
+        auto col = column_variant->clone_empty();
+        col->permute(permutation, 0);
+        EXPECT_EQ(col->size(), 0);
+    }
+
+    MutableColumns columns;
+    columns.push_back(column_variant->get_ptr());
+    assert_column_vector_permute(columns, 0);
+    assert_column_vector_permute(columns, 1);
+    assert_column_vector_permute(columns, column_variant->size());
+    assert_column_vector_permute(columns, UINT64_MAX);
+}
 
 // TEST
 TEST_F(ColumnObjectTest, test_pop_back) {

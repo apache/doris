@@ -25,6 +25,7 @@ import org.apache.doris.fs.FileSystemType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -39,7 +40,8 @@ public class LocationPathTest {
 
         String beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("hdfs://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, null).first, FileSystemType.DFS);
+        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
+                FileSystemType.DFS);
 
         // HA props
         Map<String, String> props = new HashMap<>();
@@ -92,7 +94,8 @@ public class LocationPathTest {
         // BE
         loc = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(loc.startsWith("jfs://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(loc, null).first, FileSystemType.JFS);
+        Assertions.assertEquals(LocationPath.getFSIdentity(loc, Collections.emptyMap(), null).first,
+                FileSystemType.JFS);
     }
 
     @Test
@@ -106,7 +109,8 @@ public class LocationPathTest {
         // BE
         String beLoc = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLoc.startsWith("s3://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLoc, null).first, FileSystemType.S3);
+        Assertions.assertEquals(LocationPath.getFSIdentity(beLoc, Collections.emptyMap(), null).first,
+                FileSystemType.S3);
     }
 
     @Test
@@ -118,17 +122,21 @@ public class LocationPathTest {
         // BE
         String beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("s3://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, null).first, FileSystemType.S3);
+        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
+                FileSystemType.S3);
 
+        // test oss-hdfs
         rangeProps.put(OssProperties.ENDPOINT, "oss-dls.aliyuncs.com");
         locationPath = new LocationPath("oss://test.oss-dls.aliyuncs.com/path", rangeProps);
+        Assertions.assertEquals("oss://test.oss-dls.aliyuncs.com/path", locationPath.get());
+        Assertions.assertEquals(LocationPath.getFSIdentity(locationPath.get(), rangeProps, null).first,
+                FileSystemType.DFS);
         // FE
         Assertions.assertTrue(locationPath.get().startsWith("oss://test.oss-dls.aliyuncs"));
         // BE
         beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("oss://test.oss-dls.aliyuncs"));
         Assertions.assertEquals(locationPath.getFileSystemType(), FileSystemType.DFS);
-
     }
 
     @Test
@@ -140,7 +148,8 @@ public class LocationPathTest {
         String beLocation = locationPath.toStorageLocation().toString();
         // BE
         Assertions.assertTrue(beLocation.startsWith("s3://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, null).first, FileSystemType.S3);
+        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
+                FileSystemType.S3);
 
         locationPath = new LocationPath("cosn://test.com", rangeProps);
         // FE
@@ -148,7 +157,8 @@ public class LocationPathTest {
         // BE
         beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("s3://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, null).first, FileSystemType.S3);
+        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
+                FileSystemType.S3);
 
         locationPath = new LocationPath("ofs://test.com", rangeProps);
         // FE
@@ -156,7 +166,8 @@ public class LocationPathTest {
         // BE
         beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("ofs://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, null).first, FileSystemType.OFS);
+        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
+                FileSystemType.OFS);
 
         // GFS is now equals to DFS
         locationPath = new LocationPath("gfs://test.com", rangeProps);
@@ -165,7 +176,8 @@ public class LocationPathTest {
         // BE
         beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("gfs://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, null).first, FileSystemType.DFS);
+        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
+                FileSystemType.DFS);
     }
 
     @Test
@@ -177,7 +189,8 @@ public class LocationPathTest {
         // BE
         String beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("s3://"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, null).first, FileSystemType.S3);
+        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, Collections.emptyMap(), null).first,
+                FileSystemType.S3);
     }
 
     @Test

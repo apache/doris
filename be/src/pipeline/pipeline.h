@@ -138,6 +138,7 @@ public:
     }
 
     int num_tasks_of_parent() const { return _num_tasks_of_parent; }
+    std::string& name() { return _name; }
 
 private:
     void _init_profile();

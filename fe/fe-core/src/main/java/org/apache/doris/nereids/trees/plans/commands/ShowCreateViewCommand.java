@@ -93,6 +93,11 @@ public class ShowCreateViewCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return VIEW_META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         // Fetch the catalog, database, and view metadata
@@ -121,6 +126,6 @@ public class ShowCreateViewCommand extends ShowCommand {
         }
 
         // Set the result set and send it using the executor
-        return new ShowResultSet(VIEW_META_DATA, rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 }

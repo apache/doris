@@ -648,6 +648,32 @@ suite ("sub_query_correlated") {
         exception "Unsupported correlated subquery with grouping and/or aggregation";
     }
 
+    test {
+        sql """
+                SELECT *
+                    FROM sub_query_correlated_subquery1
+                    WHERE sub_query_correlated_subquery1.k1 IN 
+                        (SELECT sub_query_correlated_subquery2.k2
+                        FROM sub_query_correlated_subquery2
+                        JOIN sub_query_correlated_subquery3
+                            ON sub_query_correlated_subquery2.k2 = sub_query_correlated_subquery3.k1
+                                AND sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k3); """
+        exception "Unsupported correlated subquery with correlated slot in join conjuncts";
+    }
+
+    test {
+        sql """
+                SELECT *
+                    FROM sub_query_correlated_subquery1
+                    WHERE EXISTS 
+                        (SELECT sub_query_correlated_subquery2.k2
+                        FROM sub_query_correlated_subquery2
+                        JOIN sub_query_correlated_subquery3
+                            ON sub_query_correlated_subquery2.k2 = sub_query_correlated_subquery3.k1
+                                AND sub_query_correlated_subquery1.k2 = sub_query_correlated_subquery3.k3); """
+        exception "Unsupported correlated subquery with correlated slot in join conjuncts";
+    }
+
     qt_doris_7643 """
         SELECT sub_query_correlated_subquery6.*
         FROM sub_query_correlated_subquery6

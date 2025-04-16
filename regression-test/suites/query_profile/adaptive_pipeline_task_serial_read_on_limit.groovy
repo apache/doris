@@ -54,6 +54,7 @@ def verifyProfileContent = { stmt, serialReadOnLimit ->
             break
         }
     }
+
     if (profileId == "" || profileId == null) {
         logger.error("Profile ID of ${stmt} is not found")
         return false
@@ -65,11 +66,27 @@ def verifyProfileContent = { stmt, serialReadOnLimit ->
     if (serialReadOnLimit) {
         return profileContent.contains("- MaxScanConcurrency: 1") == true
     } else {
-        return !profileContent.contains("- MaxScanConcurrency: 1") == true
+        if (!(profileContent.contains("- MaxScanConcurrency: 1"))) {
+            return true
+        }
+        // Split profileContext by using "\n"
+        // Count the number of lines that contains "MaxScanConcurrency"
+        def lines = profileContent.split("\n")
+        def count = 0
+        for (def line : lines) {
+            if (line.contains("MaxScanConcurrency")) {
+                count++
+            }
+        }
+        // For multiple backends, there should be more than one line that contains "MaxScannerThreadNum".
+        return count > 1
     }
 }
 
 suite('adaptive_pipeline_task_serial_read_on_limit') {
+    sql """
+        UNSET VARIABLE ALL;
+    """
     sql """
         DROP TABLE IF EXISTS adaptive_pipeline_task_serial_read_on_limit;
     """

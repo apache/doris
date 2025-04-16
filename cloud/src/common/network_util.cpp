@@ -167,7 +167,7 @@ std::string get_local_ip(const std::string& priority_networks) {
         if (config::enable_loopback_address_for_ms || localhost_str != "127.0.0.1") return;
         LOG(WARNING) << "localhost IP is loopback address (127.0.0.1), "
                      << "there may be multiple NICs for use, "
-                     << "please set priority_network with a CIDR expression in doris_cloud.conf "
+                     << "please set priority_networks with a CIDR expression in doris_cloud.conf "
                      << "to choose a non-loopback address accordingly";
         exit(-1);
     });

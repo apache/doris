@@ -107,7 +107,8 @@ public class MappingTest extends TestWithFeService {
         List<CatalogRelation> targetRelations = new ArrayList<>();
         targetPlan.accept(RelationCollector.INSTANCE, targetRelations);
 
-        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations);
+        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations,
+                8);
         Assertions.assertNotNull(generateRelationMapping);
         Assertions.assertEquals(1, generateRelationMapping.size());
 
@@ -156,7 +157,8 @@ public class MappingTest extends TestWithFeService {
         List<CatalogRelation> targetRelations = new ArrayList<>();
         targetPlan.accept(RelationCollector.INSTANCE, targetRelations);
 
-        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations);
+        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations,
+                8);
         Assertions.assertNotNull(generateRelationMapping);
         Assertions.assertEquals(1, generateRelationMapping.size());
 
@@ -202,7 +204,8 @@ public class MappingTest extends TestWithFeService {
         List<CatalogRelation> targetRelations = new ArrayList<>();
         targetPlan.accept(RelationCollector.INSTANCE, targetRelations);
 
-        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations);
+        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations,
+                8);
         Assertions.assertNotNull(generateRelationMapping);
         Assertions.assertEquals(1, generateRelationMapping.size());
 
@@ -248,7 +251,8 @@ public class MappingTest extends TestWithFeService {
         List<CatalogRelation> targetRelations = new ArrayList<>();
         targetPlan.accept(RelationCollector.INSTANCE, targetRelations);
 
-        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations);
+        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations,
+                8);
         Assertions.assertNotNull(generateRelationMapping);
         Assertions.assertEquals(2, generateRelationMapping.size());
 
@@ -308,7 +312,8 @@ public class MappingTest extends TestWithFeService {
         List<CatalogRelation> targetRelations = new ArrayList<>();
         targetPlan.accept(RelationCollector.INSTANCE, targetRelations);
 
-        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations);
+        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations,
+                8);
         Assertions.assertNotNull(generateRelationMapping);
         Assertions.assertEquals(2, generateRelationMapping.size());
 
@@ -377,7 +382,8 @@ public class MappingTest extends TestWithFeService {
         List<CatalogRelation> targetRelations = new ArrayList<>();
         targetPlan.accept(RelationCollector.INSTANCE, targetRelations);
 
-        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations);
+        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations,
+                8);
         Assertions.assertNotNull(generateRelationMapping);
         Assertions.assertEquals(6, generateRelationMapping.size());
 
@@ -465,7 +471,8 @@ public class MappingTest extends TestWithFeService {
         List<CatalogRelation> targetRelations = new ArrayList<>();
         targetPlan.accept(RelationCollector.INSTANCE, targetRelations);
 
-        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations);
+        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations,
+                8);
         Assertions.assertNotNull(generateRelationMapping);
         Assertions.assertEquals(6, generateRelationMapping.size());
 
@@ -547,7 +554,8 @@ public class MappingTest extends TestWithFeService {
         List<CatalogRelation> targetRelations = new ArrayList<>();
         targetPlan.accept(RelationCollector.INSTANCE, targetRelations);
 
-        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations);
+        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations,
+                8);
         Assertions.assertNotNull(generateRelationMapping);
         Assertions.assertEquals(6, generateRelationMapping.size());
 

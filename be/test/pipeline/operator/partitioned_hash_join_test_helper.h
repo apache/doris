@@ -65,7 +65,7 @@ public:
 
     Status send_filter_size(
             RuntimeState* state, uint64_t hash_table_size,
-            std::shared_ptr<pipeline::CountedFinishDependency> dependency) override {
+            const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) override {
         return Status::OK();
     }
 

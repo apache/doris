@@ -331,7 +331,8 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
     const auto end_arr_element = offsets[row_idx_of_col_arr];
     for (auto j = begin_arr_element; j < end_arr_element; ++j) {
         if (j != begin_arr_element) {
-            if (0 != result.push_string(", ", 2)) {
+            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
+                                        options.mysql_collection_delim.size())) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         }
@@ -340,6 +341,7 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
+            ++options.level;
             if (is_nested_string && options.wrapper_len > 0) {
                 if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
@@ -353,6 +355,7 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
                 RETURN_IF_ERROR(
                         nested_serde->write_column_to_mysql(data, result, j, false, options));
             }
+            --options.level;
         }
     }
     if (0 != result.push_string("]", 1)) {

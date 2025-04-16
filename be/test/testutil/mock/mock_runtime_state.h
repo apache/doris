@@ -18,6 +18,7 @@
 #pragma once
 #include "mock_query_context.h"
 #include "runtime/runtime_state.h"
+#include "runtime/workload_group/dummy_workload_group.h"
 
 namespace doris {
 
@@ -29,6 +30,10 @@ public:
         set_task_execution_context(_mock_context);
         _query_ctx = _query_ctx_uptr.get();
     }
+    MockRuntimeState(const TUniqueId& query_id, int32 fragment_id,
+                     const TQueryOptions& query_options, const TQueryGlobals& query_globals,
+                     ExecEnv* exec_env, QueryContext* ctx)
+            : RuntimeState(query_id, fragment_id, query_options, query_globals, exec_env, ctx) {}
 
     int batch_size() const override { return batsh_size; }
 
@@ -36,13 +41,20 @@ public:
         return _enable_shared_exchange_sink_buffer;
     }
 
+    bool enable_share_hash_table_for_broadcast_join() const override {
+        return _enable_share_hash_table_for_broadcast_join;
+    }
+
     bool enable_local_exchange() const override { return true; }
+    WorkloadGroupPtr workload_group() override { return _workload_group; }
 
     // default batch size
     int batsh_size = 4096;
     bool _enable_shared_exchange_sink_buffer = true;
+    bool _enable_share_hash_table_for_broadcast_join = true;
     std::shared_ptr<MockContext> _mock_context = std::make_shared<MockContext>();
     std::shared_ptr<MockQueryContext> _query_ctx_uptr = std::make_shared<MockQueryContext>();
+    WorkloadGroupPtr _workload_group = nullptr;
 };
 
 } // namespace doris

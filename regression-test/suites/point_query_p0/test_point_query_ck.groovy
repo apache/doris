@@ -26,7 +26,7 @@ suite("test_point_query_ck") {
             def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
             logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
         }
-    } 
+    }
     try {
         set_be_config.call("disable_storage_row_cache", "false")
         // nereids do not support point query now
@@ -175,7 +175,7 @@ suite("test_point_query_ck") {
                 qe_point_select stmt
                 stmt.close()
 
-                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11,k12 from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
                 assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 stmt.setInt(1, 1235)
                 stmt.setBigDecimal(2, new BigDecimal("991129292901.11138"))
@@ -283,3 +283,4 @@ suite("test_point_query_ck") {
         set_be_config.call("disable_storage_row_cache", "true")
     }
 }
+

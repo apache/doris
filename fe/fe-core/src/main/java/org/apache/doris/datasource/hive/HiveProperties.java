@@ -47,6 +47,12 @@ public class HiveProperties {
     public static final String PROP_NULL_FORMAT = "serialization.null.format";
     public static final String DEFAULT_NULL_FORMAT = "\\N";
 
+    public static final String PROP_SKIP_HEADER_COUNT = "skip.header.line.count";
+    public static final String DEFAULT_SKIP_HEADER_COUNT = "0";
+
+    public static final String PROP_SKIP_FOOTER_COUNT = "skip.footer.line.count";
+    public static final String DEFAULT_SKIP_FOOTER_COUNT = "0";
+
     // The following properties are used for OpenCsvSerde.
     public static final String PROP_SEPARATOR_CHAR = OpenCSVSerde.SEPARATORCHAR;
     public static final String DEFAULT_SEPARATOR_CHAR = ",";
@@ -66,7 +72,9 @@ public class HiveProperties {
             PROP_MAP_KV_DELIMITER,
             PROP_ESCAPE_DELIMITER,
             PROP_ESCAPE_CHAR,
-            PROP_NULL_FORMAT);
+            PROP_NULL_FORMAT,
+            PROP_SKIP_HEADER_COUNT,
+            PROP_SKIP_FOOTER_COUNT);
 
     public static String getFieldDelimiter(Table table) {
         // This method is used for text format.
@@ -129,6 +137,18 @@ public class HiveProperties {
     public static String getEscapeChar(Table table) {
         Optional<String> escapeChar = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_ESCAPE_CHAR);
         return HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_ESCAPE_CHAR, escapeChar);
+    }
+
+    public static int getSkipHeaderCount(Table table) {
+        Optional<String> skipHeaderCount = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SKIP_HEADER_COUNT);
+        return Integer
+                .parseInt(HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_SKIP_HEADER_COUNT, skipHeaderCount));
+    }
+
+    public static int getSkipFooterCount(Table table) {
+        Optional<String> skipFooterCount = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SKIP_FOOTER_COUNT);
+        return Integer
+                .parseInt(HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_SKIP_FOOTER_COUNT, skipFooterCount));
     }
 
     // Set properties to table

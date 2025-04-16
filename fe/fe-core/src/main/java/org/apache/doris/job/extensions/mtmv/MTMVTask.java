@@ -328,24 +328,53 @@ public class MTMVTask extends AbstractTask {
     }
 
     @Override
-    public synchronized void onFail() throws JobException {
+    public synchronized boolean onFail() throws JobException {
         LOG.info("mtmv task onFail, taskId: {}", super.getTaskId());
-        super.onFail();
+        boolean res = super.onFail();
+        if (!res) {
+            return false;
+        }
         after();
+        return true;
     }
 
     @Override
-    public synchronized void onSuccess() throws JobException {
+    public synchronized boolean onSuccess() throws JobException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("mtmv task onSuccess, taskId: {}", super.getTaskId());
         }
-        super.onSuccess();
+        boolean res = super.onSuccess();
+        if (!res) {
+            return false;
+        }
         after();
+        return true;
+    }
+
+    /**
+     * The reason for overriding the parent class is to add synchronized protection
+     */
+    @Override
+    public synchronized boolean cancel(boolean needWaitCancelComplete) throws JobException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("mtmv task cancel, taskId: {}", super.getTaskId());
+        }
+        return super.cancel(needWaitCancelComplete);
     }
 
     @Override
-    protected synchronized void executeCancelLogic(boolean needWaitCancelComplete) {
-        LOG.info("mtmv task cancel, taskId: {}", super.getTaskId());
+    protected void executeCancelLogic(boolean needWaitCancelComplete) {
+        try {
+            // Mtmv is initialized in the before method.
+            // If the task has not yet run, the before method will not be used, so mtmv will be empty,
+            // which prevents the canceled task from being added to the history list
+            if (mtmv == null) {
+                mtmv = MTMVUtil.getMTMV(dbId, mtmvId);
+            }
+        } catch (UserException e) {
+            LOG.warn("executeCancelLogic failed:", e);
+            return;
+        }
         if (executor != null) {
             executor.cancel(new Status(TStatusCode.CANCELLED, "mtmv task cancelled"), needWaitCancelComplete);
         }

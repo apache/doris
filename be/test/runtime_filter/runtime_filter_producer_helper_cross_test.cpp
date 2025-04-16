@@ -46,7 +46,6 @@ class RuntimeFilterProducerHelperCrossTest : public RuntimeFilterTest {
 
         _task.reset(new pipeline::PipelineTask(_pipeline, 0, _runtime_states[0].get(), nullptr,
                                                &_profile, {}, 0));
-        _runtime_states[0]->set_task(_task.get());
     }
 
     pipeline::OperatorPtr _op;
@@ -57,7 +56,7 @@ class RuntimeFilterProducerHelperCrossTest : public RuntimeFilterTest {
 };
 
 TEST_F(RuntimeFilterProducerHelperCrossTest, basic) {
-    auto helper = RuntimeFilterProducerHelperCross(&_profile);
+    auto helper = RuntimeFilterProducerHelperCross();
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(

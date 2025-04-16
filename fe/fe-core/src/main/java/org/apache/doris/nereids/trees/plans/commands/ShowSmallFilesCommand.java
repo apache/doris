@@ -62,6 +62,11 @@ public class ShowSmallFilesCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = ctx.getDatabase();
@@ -81,7 +86,7 @@ public class ShowSmallFilesCommand extends ShowCommand {
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }
-        return new ShowResultSet(META_DATA, results);
+        return new ShowResultSet(getMetaData(), results);
     }
 
     @Override

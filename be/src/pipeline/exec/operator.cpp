@@ -45,6 +45,7 @@
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/mock_operator.h"
+#include "pipeline/exec/mock_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
@@ -118,6 +119,15 @@ std::string PipelineXSinkLocalState<SharedStateArg>::name_suffix() {
         }
         return " , nereids_id=" + std::to_string(_parent->nereids_id());
     }() + ")";
+}
+
+template <typename SharedStateArg>
+Status PipelineXSinkLocalState<SharedStateArg>::terminate(RuntimeState* state) {
+    if (_terminated) {
+        return Status::OK();
+    }
+    _terminated = true;
+    return Status::OK();
 }
 
 DataDistribution OperatorBase::required_data_distribution() const {
@@ -235,6 +245,17 @@ Status OperatorXBase::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(_child->prepare(state));
     }
     return Status::OK();
+}
+
+Status OperatorXBase::terminate(RuntimeState* state) {
+    if (_child && !is_source()) {
+        RETURN_IF_ERROR(_child->terminate(state));
+    }
+    auto result = state->get_local_state_result(operator_id());
+    if (!result) {
+        return result.error();
+    }
+    return result.value()->terminate(state);
 }
 
 Status OperatorXBase::close(RuntimeState* state) {
@@ -388,6 +409,14 @@ void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos)
     }
 }
 
+Status DataSinkOperatorXBase::terminate(RuntimeState* state) {
+    auto result = state->get_sink_local_state_result();
+    if (!result) {
+        return result.error();
+    }
+    return result.value()->terminate(state);
+}
+
 std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
 
@@ -528,6 +557,15 @@ Status PipelineXLocalState<SharedStateArg>::open(RuntimeState* state) {
                     state, _intermediate_projections[i][j]));
         }
     }
+    return Status::OK();
+}
+
+template <typename SharedStateArg>
+Status PipelineXLocalState<SharedStateArg>::terminate(RuntimeState* state) {
+    if (_terminated) {
+        return Status::OK();
+    }
+    _terminated = true;
     return Status::OK();
 }
 
@@ -761,6 +799,7 @@ DECLARE_OPERATOR(CacheSourceLocalState)
 
 #ifdef BE_TEST
 DECLARE_OPERATOR(MockLocalState)
+DECLARE_OPERATOR(MockScanLocalState)
 #endif
 #undef DECLARE_OPERATOR
 
@@ -815,6 +854,11 @@ template class AsyncWriterSink<doris::vectorized::VTabletWriter, OlapTableSinkOp
 template class AsyncWriterSink<doris::vectorized::VTabletWriterV2, OlapTableSinkV2OperatorX>;
 template class AsyncWriterSink<doris::vectorized::VHiveTableWriter, HiveTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VIcebergTableWriter, IcebergTableSinkOperatorX>;
+
+#ifdef BE_TEST
+template class OperatorX<DummyOperatorLocalState>;
+template class DataSinkOperatorX<DummySinkLocalState>;
+#endif
 
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

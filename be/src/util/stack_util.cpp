@@ -45,7 +45,7 @@ std::string get_stack_trace(int start_pointers_index, std::string dwarf_location
         dwarf_location_info_mode = config::dwarf_location_info_mode;
     }
 #ifdef BE_TEST
-    auto tool = std::string {"libunwind"};
+    auto tool = std::string {"boost"};
 #else
     auto tool = config::get_stack_trace_tool;
 #endif

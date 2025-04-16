@@ -69,9 +69,9 @@ export function getLog<T>(data: any): Promise<Result<T>> {
 
 //query_profile
 export function queryProfile<T>(data: any): Promise<Result<T>> {
-    let LocalUrl = '/rest/v1/query_profile/';
-    if (data.path) {
-        LocalUrl = `/rest/v1/query_profile/${data.path}`;
+    let LocalUrl = '/rest/v1/query_profile';
+    if (data.profile_id) {
+        LocalUrl = `/rest/v1/query_profile/text/${data.profile_id}`;
     }
     return request(LocalUrl, data);
 }

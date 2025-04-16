@@ -346,10 +346,11 @@ public class HiveMetaStoreCache {
             DirectoryLister directoryLister,
             TableIf table) throws UserException {
         FileCacheValue result = new FileCacheValue();
+        Map<String, String> properties = catalog.getCatalogProperty().getProperties();
         RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                 new FileSystemCache.FileSystemCacheKey(LocationPath.getFSIdentity(
-                        location, bindBrokerName),
-                        catalog.getCatalogProperty().getProperties(),
+                        location, properties, bindBrokerName),
+                        properties,
                         bindBrokerName, jobConf));
         result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, location));
         // For Tez engine, it may generate subdirectoies for "union" query.
@@ -755,12 +756,13 @@ public class HiveMetaStoreCache {
                 return fileCacheValues;
             }
 
+            Map<String, String> properties = catalog.getCatalogProperty().getProperties();
             for (HivePartition partition : partitions) {
                 //Get filesystem multiple times, Reason: https://github.com/apache/doris/pull/23409.
                 RemoteFileSystem fileSystem = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                         new FileSystemCache.FileSystemCacheKey(
-                                LocationPath.getFSIdentity(partition.getPath(), bindBrokerName),
-                                catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
+                                LocationPath.getFSIdentity(partition.getPath(), properties, bindBrokerName),
+                                properties, bindBrokerName, jobConf));
 
                 AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(jobConf);
                 HadoopAuthenticator hadoopAuthenticator =

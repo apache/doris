@@ -30,13 +30,13 @@ public class FloatLiteralTest {
     public void testGetStringInFe() throws AnalysisException {
         FloatLiteral literal = new FloatLiteral((double) (11 * 3600 + 22 * 60 + 33),
                 FloatLiteral.getDefaultTimeType(Type.TIME));
-        String s = literal.getStringValueInFe(FormatOptions.getDefault());
+        String s = literal.getStringValueForQuery(FormatOptions.getDefault());
         Assert.assertEquals("11:22:33", s);
-        Assert.assertEquals("11:22:33", literal.getStringValueInFe(FormatOptions.getForPresto()));
+        Assert.assertEquals("11:22:33", literal.getStringValueForQuery(FormatOptions.getForPresto()));
 
         FloatLiteral literal1 = new FloatLiteral(11.22);
-        String s1 = literal1.getStringValueInFe(FormatOptions.getDefault());
+        String s1 = literal1.getStringValueForQuery(FormatOptions.getDefault());
         Assert.assertEquals("11.22", s1);
-        Assert.assertEquals("11.22", literal1.getStringValueInFe(FormatOptions.getForPresto()));
+        Assert.assertEquals("11.22", literal1.getStringValueForQuery(FormatOptions.getForPresto()));
     }
 }

@@ -17,10 +17,12 @@
 
 #pragma once
 
+#include <butil/iobuf.h>
+
 #include "common/status.h"
-#include "runtime/runtime_state.h"
 #include "runtime_filter/runtime_filter_definitions.h"
 #include "runtime_filter/utils.h"
+#include "vec/columns/column.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -37,7 +39,6 @@ public:
     enum class State {
         UNINITED, // Initial state, filter is not available at this state
         READY,    // After filter obtains insert data, go to this state
-        IGNORED, // The state indicates that the rf will ignore some instance's data, used in wake up early
         DISABLED // This state indicates that the rf is deprecated, used in cases such as reach max_in_num / join spill / meet rpc error
     };
 
@@ -58,7 +59,7 @@ public:
     template <class T>
     Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data);
 
-    bool is_valid() const { return _state != State::DISABLED && _state != State::IGNORED; }
+    bool is_valid() const { return _state != State::DISABLED; }
     int filter_id() const { return _filter_id; }
     bool build_bf_by_runtime_size() const;
 
@@ -85,21 +86,21 @@ public:
 
     bool contain_null() const;
 
-    std::string debug_string();
+    std::string debug_string() const;
 
+    // set_state may called in SyncSizeClosure's rpc thread
+    // so we need to make all modifyied member variables are atomic
     void set_state(State state, std::string reason = "") {
         if (_state == State::DISABLED) {
             return;
         }
-        std::unique_lock<std::shared_mutex> wlock(_rwlock);
-        if (_state == State::DISABLED) {
-            return;
-        }
         _state = state;
-        _reason = reason;
+        if (!reason.empty()) {
+            _reason.update(Status::Aborted(reason));
+        }
     }
     State get_state() const { return _state; }
-    void check_state(std::vector<State> assumed_states) {
+    void check_state(std::vector<State> assumed_states) const {
         if (!check_state_impl<RuntimeFilterWrapper>(_state, assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "wrapper meet invalid state, {}, assumed_states is {}", debug_string(),
@@ -108,8 +109,6 @@ public:
     }
     static std::string to_string(const State& state) {
         switch (state) {
-        case State::IGNORED:
-            return "IGNORED";
         case State::DISABLED:
             return "DISABLED";
         case State::UNINITED:
@@ -144,8 +143,7 @@ private:
     // by producer and consumer. To avoid read-write conflict, we need a rwlock to ensure operations
     // on state is thread-safe.
     std::atomic<State> _state;
-    std::string _reason;
-    std::shared_mutex _rwlock;
+    AtomicStatus _reason;
 };
 #include "common/compile_check_end.h"
 } // namespace doris

@@ -167,8 +167,6 @@ private:
 
     [[nodiscard]] Status _setup_internal_operators(PartitionedHashJoinProbeLocalState& local_state,
                                                    RuntimeState* state) const;
-    [[nodiscard]] Status _setup_internal_operator_for_non_spill(
-            PartitionedHashJoinProbeLocalState& local_state, RuntimeState* state);
 
     bool _should_revoke_memory(RuntimeState* state) const;
 

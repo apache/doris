@@ -55,6 +55,8 @@ private:
     RuntimeProfile::Counter* _spill_merge_sort_timer = nullptr;
 
     vectorized::SpillStreamSPtr _spilling_stream;
+
+    std::atomic<bool> _eos = false;
 };
 
 class SpillSortSinkOperatorX final : public DataSinkOperatorX<SpillSortSinkLocalState> {

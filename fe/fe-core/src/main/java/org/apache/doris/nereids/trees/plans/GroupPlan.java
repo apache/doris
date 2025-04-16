@@ -62,7 +62,7 @@ public class GroupPlan extends LogicalLeaf implements BlockFuncDepsPropagation {
 
     @Override
     public Statistics getStats() {
-        throw new IllegalStateException("GroupPlan can not invoke getStats()");
+        return group.getStatistics();
     }
 
     @Override

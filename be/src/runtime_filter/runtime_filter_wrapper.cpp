@@ -151,18 +151,17 @@ bool RuntimeFilterWrapper::build_bf_by_runtime_size() const {
 }
 
 Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
-    if (other->_state == State::IGNORED || _state == State::DISABLED) {
+    if (_state == State::DISABLED) {
         return Status::OK();
     }
     if (other->_state == State::DISABLED) {
         if (_hybrid_set) {
             _hybrid_set->clear();
         }
-        set_state(State::DISABLED, other->_reason);
+        set_state(State::DISABLED, std::string(other->_reason.status().msg()));
         return Status::OK();
     }
 
-    DCHECK(_state != State::IGNORED);
     DCHECK(other->_state == State::READY);
     DCHECK(_filter_type == other->_filter_type);
 
@@ -466,8 +465,8 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         return _minmax_func->assign(&min_val, &max_val);
     }
     case TYPE_DOUBLE: {
-        auto min_val = static_cast<double>(minmax_filter.min_val().doubleval());
-        auto max_val = static_cast<double>(minmax_filter.max_val().doubleval());
+        auto min_val = minmax_filter.min_val().doubleval();
+        auto max_val = minmax_filter.max_val().doubleval();
         return _minmax_func->assign(&min_val, &max_val);
     }
     case TYPE_DATEV2: {
@@ -574,12 +573,11 @@ bool RuntimeFilterWrapper::contain_null() const {
     return false;
 }
 
-std::string RuntimeFilterWrapper::debug_string() {
+std::string RuntimeFilterWrapper::debug_string() const {
     auto type_string = _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER
                                ? fmt::format("{}({})", filter_type_to_string(_filter_type),
                                              filter_type_to_string(get_real_type()))
                                : filter_type_to_string(_filter_type);
-    std::shared_lock<std::shared_mutex> rlock(_rwlock);
     auto result = fmt::format("[id: {}, state: {}, type: {}, column_type: {}", _filter_id,
                               states_to_string<RuntimeFilterWrapper>({_state}), type_string,
                               type_to_string(_column_return_type));
@@ -599,8 +597,8 @@ std::string RuntimeFilterWrapper::debug_string() {
         }
     }
 
-    if (!_reason.empty()) {
-        result += fmt::format(", reason: {}", _reason);
+    if (!_reason.ok()) {
+        result += fmt::format(", reason: {}", _reason.status().msg());
     }
     return result + "]";
 }
@@ -646,13 +644,9 @@ template <class T>
 Status RuntimeFilterWrapper::assign(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
     PFilterType filter_type = request.filter_type();
 
-    if (request.has_disabled() && request.disabled()) {
+    if ((request.has_disabled() && request.disabled()) ||
+        (request.has_ignored() && request.ignored())) {
         set_state(State::DISABLED, "get disabled from remote");
-        return Status::OK();
-    }
-
-    if (request.has_ignored() && request.ignored()) {
-        set_state(State::IGNORED, "get ignored from remote");
         return Status::OK();
     }
 

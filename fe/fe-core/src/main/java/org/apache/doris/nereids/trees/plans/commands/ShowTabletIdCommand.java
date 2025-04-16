@@ -67,7 +67,7 @@ public class ShowTabletIdCommand extends ShowCommand {
     /**
      * get meta for show tabletId
      */
-    private ShowResultSetMetaData getMetaData() {
+    public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         builder.addColumn(new Column("DbName", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("TableName", ScalarType.createVarchar(30)));

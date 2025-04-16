@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -33,13 +34,23 @@ public class ModifyTableDefaultDistributionBucketNumOperationLog implements Writ
     private long dbId;
     @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "type")
+    private DistributionInfoType type;
+    @SerializedName(value = "autoBucket")
+    protected boolean autoBucket;
     @SerializedName(value = "bucketNum")
     private int bucketNum;
+    @SerializedName(value = "columnsName")
+    private String columnsName;
 
-    public ModifyTableDefaultDistributionBucketNumOperationLog(long dbId, long tableId, int bucketNum) {
+    public ModifyTableDefaultDistributionBucketNumOperationLog(long dbId, long tableId, DistributionInfoType type,
+            boolean autoBucket, int bucketNum, String columnsName) {
         this.dbId = dbId;
         this.tableId = tableId;
+        this.type = type;
+        this.autoBucket = autoBucket;
         this.bucketNum = bucketNum;
+        this.columnsName = columnsName;
     }
 
     public long getDbId() {
@@ -54,6 +65,18 @@ public class ModifyTableDefaultDistributionBucketNumOperationLog implements Writ
         return bucketNum;
     }
 
+    public DistributionInfoType getType() {
+        return type;
+    }
+
+    public boolean getAutoBucket() {
+        return autoBucket;
+    }
+
+    public String getColumnsName() {
+        return columnsName == null ? "" : columnsName;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
@@ -61,5 +84,9 @@ public class ModifyTableDefaultDistributionBucketNumOperationLog implements Writ
 
     public static ModifyTableDefaultDistributionBucketNumOperationLog read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), ModifyTableDefaultDistributionBucketNumOperationLog.class);
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
     }
 }

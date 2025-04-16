@@ -327,6 +327,21 @@ void ColumnNullable::insert_from(const IColumn& src, size_t n) {
     get_null_map_data().push_back(is_null);
 }
 
+void ColumnNullable::append_data_by_selector(IColumn::MutablePtr& res,
+                                             const IColumn::Selector& selector) const {
+    append_data_by_selector(res, selector, 0, selector.size());
+}
+
+void ColumnNullable::append_data_by_selector(IColumn::MutablePtr& res,
+                                             const IColumn::Selector& selector, size_t begin,
+                                             size_t end) const {
+    auto& res_column = assert_cast<ColumnNullable&>(*res);
+    auto res_nested_column = res_column.get_nested_column_ptr();
+    this->get_nested_column().append_data_by_selector(res_nested_column, selector, begin, end);
+    auto res_null_map = res_column.get_null_map_column_ptr();
+    this->get_null_map_column().append_data_by_selector(res_null_map, selector, begin, end);
+}
+
 void ColumnNullable::insert_from_not_nullable(const IColumn& src, size_t n) {
     get_nested_column().insert_from(src, n);
     _push_false_to_nullmap(1);

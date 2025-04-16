@@ -51,10 +51,15 @@ public class ShowWarningErrorsCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<List<String>> rowSet = Lists.newArrayList();
         // Only success
-        return new ShowResultSet(META_DATA, rowSet);
+        return new ShowResultSet(getMetaData(), rowSet);
     }
 
     @Override

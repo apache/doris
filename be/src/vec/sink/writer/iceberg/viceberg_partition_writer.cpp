@@ -118,7 +118,8 @@ Status VIcebergPartitionWriter::close(const Status& status) {
         }
     }
     if (status_ok) {
-        _state->iceberg_commit_datas().emplace_back(_build_iceberg_commit_data());
+        auto commit_data = _build_iceberg_commit_data();
+        _state->add_iceberg_commit_datas(commit_data);
     }
     return result_status;
 }

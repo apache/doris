@@ -19,6 +19,7 @@ package org.apache.doris.insertoverwrite;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -294,7 +295,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
         // If executed in parallel, it may cause problems such as not being able to find temporary partitions.
         // But in terms of external table, we don't care the internal logic of execution,
         // so there's no need to keep records
-        if (!(table instanceof OlapTable)) {
+        if (!(table instanceof MTMV)) {
             return;
         }
         long dbId = db.getId();

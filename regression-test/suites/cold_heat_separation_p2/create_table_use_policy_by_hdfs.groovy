@@ -18,6 +18,9 @@ import groovy.json.JsonSlurper
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("create_table_use_policy_by_hdfs") {
+    if (!enableHdfs()) {
+        logger.info("skip this case because hdfs is not enabled");
+    }
     def fetchBeHttp = { check_func, meta_url ->
         def i = meta_url.indexOf("/api")
         String endPoint = meta_url.substring(0, i)
@@ -47,7 +50,8 @@ suite("create_table_use_policy_by_hdfs") {
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
-    def tableName = "lineitem2"
+    def suffix = UUID.randomUUID().hashCode().abs()
+    def tableName = "lineitem2${suffix}"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     def stream_load_one_part = { partnum ->
         streamLoad {
@@ -114,8 +118,8 @@ suite("create_table_use_policy_by_hdfs") {
         return false;
     }
 
-    def resource_name = "test_table_with_data_resource"
-    def policy_name= "test_table_with_data_policy"
+    def resource_name = "test_table_with_data_resource${suffix}"
+    def policy_name= "test_table_with_data_policy${suffix}"
 
     if (check_storage_policy_exist(policy_name)) {
         sql """
@@ -138,12 +142,7 @@ suite("create_table_use_policy_by_hdfs") {
             "type"="hdfs",
             "fs.defaultFS"="${getHdfsFs()}",
             "hadoop.username"="${getHdfsUser()}",
-            "hadoop.password"="${getHdfsPasswd()}",
-            "dfs.nameservices" = "my_ha",
-            "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
-            "dfs.namenode.rpc-address.my_ha.my_namenode1" = "127.0.0.1:10000",
-            "dfs.namenode.rpc-address.my_ha.my_namenode2" = "127.0.0.1:10000",
-            "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+            "hadoop.password"="${getHdfsPasswd()}"
         );
     """
 
@@ -187,7 +186,7 @@ suite("create_table_use_policy_by_hdfs") {
     load_lineitem_table()
 
     // show tablets from table, 获取第一个tablet的 LocalDataSize1
-    tablets = sql_return_maparray """
+    def tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName}
     """
     log.info( "test tablets not empty")
@@ -204,7 +203,8 @@ suite("create_table_use_policy_by_hdfs") {
     """
     log.info( "test tablets not empty")
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == 0) {
+    def retry = 100
+    while (sizes[1] == 0 && retry --> 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql_return_maparray """
@@ -212,6 +212,7 @@ suite("create_table_use_policy_by_hdfs") {
         """
         fetchDataSize(sizes, tablets[0])
     }
+    assertTrue(sizes[1] != 0, "remote size is still zero, maybe some error occurred")
     assertTrue(tablets.size() > 0)
     log.info( "test remote size not zero")
     assertEquals(LocalDataSize1, sizes[1])
@@ -270,7 +271,8 @@ suite("create_table_use_policy_by_hdfs") {
     """
     log.info( "test tablets not empty")
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == 0) {
+    retry = 100
+    while (sizes[1] == 0 && retry --> 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql_return_maparray """
@@ -278,6 +280,7 @@ suite("create_table_use_policy_by_hdfs") {
         """
         fetchDataSize(sizes, tablets[0])
     }
+    assertTrue(sizes[1] != 0, "remote size is still zero, maybe some error occurred")
     assertTrue(tablets.size() > 0)
     log.info( "test remote size not zero")
     assertEquals(LocalDataSize1, sizes[1])

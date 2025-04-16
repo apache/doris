@@ -57,7 +57,6 @@
 #include "runtime/thread_context.h"
 #include "util/brpc_closure.h"
 #include "util/runtime_profile.h"
-#include "util/spinlock.h"
 #include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
@@ -264,7 +263,7 @@ public:
     bool is_closed() const { return _is_closed; }
     bool is_cancelled() const { return _cancelled; }
     std::string get_cancel_msg() {
-        std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
+        std::lock_guard<std::mutex> l(_cancel_msg_lock);
         if (!_cancel_msg.empty()) {
             return _cancel_msg;
         }
@@ -342,7 +341,7 @@ protected:
 
     // user cancel or get some errors
     std::atomic<bool> _cancelled {false};
-    doris::SpinLock _cancel_msg_lock;
+    std::mutex _cancel_msg_lock;
     std::string _cancel_msg;
 
     // send finished means the consumer thread which send the rpc can exit
@@ -516,7 +515,7 @@ private:
     bool _has_inc_node = false;
 
     // lock to protect _failed_channels and _failed_channels_msgs
-    mutable doris::SpinLock _fail_lock;
+    mutable std::mutex _fail_lock;
     // key is tablet_id, value is a set of failed node id
     std::unordered_map<int64_t, std::unordered_set<int64_t>> _failed_channels;
     // key is tablet_id, value is error message

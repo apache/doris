@@ -284,6 +284,8 @@ public:
     RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
 
     RuntimeProfile::Counter* _spill_serialize_hash_table_timer = nullptr;
+
+    std::atomic<bool> _eos = false;
 };
 
 class PartitionedAggSinkOperatorX : public DataSinkOperatorX<PartitionedAggSinkLocalState> {

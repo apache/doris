@@ -277,8 +277,15 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
     int buf_ret = 0;
     auto& data = assert_cast<const ColumnType&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
-    if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) {
+    if constexpr (std::is_same_v<T, Int8>) {
         buf_ret = result.push_tinyint(data[col_index]);
+    } else if constexpr (std::is_same_v<T, UInt8>) {
+        if (options.level > 0 && !options.is_bool_value_num) {
+            std::string bool_value = data[col_index] ? "true" : "false";
+            result.push_string(bool_value.c_str(), bool_value.size());
+        } else {
+            buf_ret = result.push_tinyint(data[col_index]);
+        }
     } else if constexpr (std::is_same_v<T, Int16> || std::is_same_v<T, UInt16>) {
         buf_ret = result.push_smallint(data[col_index]);
     } else if constexpr (std::is_same_v<T, Int32> || std::is_same_v<T, UInt32>) {

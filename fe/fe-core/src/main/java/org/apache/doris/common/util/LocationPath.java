@@ -203,8 +203,9 @@ public class LocationPath {
 
     // Return the file system type and the file system identity.
     // The file system identity is the scheme and authority of the URI, eg. "hdfs://host:port" or "s3://bucket".
-    public static Pair<FileSystemType, String> getFSIdentity(String location, String bindBrokerName) {
-        LocationPath locationPath = new LocationPath(location, Collections.emptyMap(), true);
+    public static Pair<FileSystemType, String> getFSIdentity(String location,
+            Map<String, String> properties, String bindBrokerName) {
+        LocationPath locationPath = new LocationPath(location, properties, true);
         FileSystemType fsType = (bindBrokerName != null) ? FileSystemType.BROKER : locationPath.getFileSystemType();
         URI uri = locationPath.getPath().toUri();
         String fsIdent = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());

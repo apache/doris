@@ -24,8 +24,10 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 /**
@@ -39,6 +41,11 @@ public class ShowRowPolicyCommand extends ShowCommand {
         super(PlanType.SHOW_ROW_POLICY_COMMAND);
         this.user = user;
         this.role = role;
+    }
+
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return RowPolicy.ROW_META_DATA;
     }
 
     @Override

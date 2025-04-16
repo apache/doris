@@ -38,27 +38,6 @@ class PHandShakeRequest;
 class PHandShakeResponse;
 class RuntimeState;
 
-template <typename T>
-concept CanCancel = requires(T* response) { response->mutable_status(); };
-
-template <typename T>
-void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
-    brpc::ClosureGuard closure_guard(done);
-    LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool.get_info();
-}
-
-template <CanCancel T>
-void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
-    brpc::ClosureGuard closure_guard(done);
-    // Should use status to generate protobuf message, because it will encoding Backend Info
-    // into the error message and then we could know which backend's pool is full.
-    Status st = Status::Error<TStatusCode::CANCELLED>(
-            "fail to offer request to the work pool, pool={}", pool.get_info());
-    st.to_protobuf(response->mutable_status());
-    LOG(WARNING) << "cancelled due to fail to offer request to the work pool, pool="
-                 << pool.get_info();
-}
-
 class PInternalService : public PBackendService {
 public:
     PInternalService(ExecEnv* exec_env);

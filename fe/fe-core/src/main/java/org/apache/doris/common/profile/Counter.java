@@ -21,6 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TUnit;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -35,6 +36,8 @@ public class Counter {
     private volatile int type;
     @SerializedName(value = "level")
     private volatile long level;
+    @SerializedName(value = "description")
+    private volatile String description;
 
     public static Counter read(DataInput input) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(input), Counter.class);
@@ -77,6 +80,13 @@ public class Counter {
         this.level = level;
     }
 
+    public Counter(String description) {
+        this.description = description;
+        this.value = 0;
+        // Make sure not merge.
+        this.level = 2;
+    }
+
     public void addValue(Counter other) {
         if (other == null) {
             return;
@@ -115,7 +125,11 @@ public class Counter {
     }
 
     public String print() {
-        return RuntimeProfile.printCounter(value, getType());
+        if (Strings.isNullOrEmpty(description)) {
+            return RuntimeProfile.printCounter(value, getType());
+        } else {
+            return description;
+        }
     }
 
     public String toString() {

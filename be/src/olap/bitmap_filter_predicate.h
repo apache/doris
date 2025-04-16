@@ -113,8 +113,6 @@ uint16_t BitmapFilterColumnPredicate<T>::_evaluate_inner(const vectorized::IColu
     } else {
         new_size = evaluate<false>(column, nullptr, sel, size);
     }
-    _evaluated_rows += size;
-    _passed_rows += new_size;
     update_filter_info(size - new_size, size);
     return new_size;
 }
