@@ -691,8 +691,6 @@ private:
 
     bool _read_on_line_mode = false;
     uint64_t _seek_to_row_number = 0;
-    std::shared_ptr<io::FileReader> inner_file_reader = nullptr;
-
     std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
             _row_id_column_iterator_pair = {nullptr, -1};
 };
