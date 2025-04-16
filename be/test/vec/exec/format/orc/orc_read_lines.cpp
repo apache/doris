@@ -95,7 +95,6 @@ static void read_orc_line(int64_t line, std::string block_dump) {
 
     static_cast<void>(local_fs->open_file(range.path, &file_reader));
 
-    reader->inner_file_reader = file_reader;
     ExecEnv::GetInstance()->set_orc_memory_pool(new ORCMemoryPool());
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair;
