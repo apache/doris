@@ -46,7 +46,7 @@ suite("test_stream_load_illegal_skip_lines", "p0") {
         set 'strict_mode','true'
 
         file 'large_test_file.csv'
-        set 'HTTP_SKIP_LINES', 'abc'  // 非法参数
+        set 'HTTP_SKIP_LINES', '-3'  
 
         check { result, exception, startTime, endTime ->
             if (exception != null) {
