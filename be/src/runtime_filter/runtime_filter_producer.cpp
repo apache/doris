@@ -46,6 +46,7 @@ Status RuntimeFilterProducer::_send_to_local_targets(RuntimeState* state, Runtim
 };
 
 Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
     _check_state({State::READY_TO_PUBLISH});
 
     auto do_merge = [&]() {
@@ -141,6 +142,7 @@ public:
 
 void RuntimeFilterProducer::latch_dependency(
         const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
+            std::unique_lock<std::recursive_mutex> l(_rmtx);
     if (_rf_state != State::WAITING_FOR_SEND_SIZE) {
         _check_state({State::WAITING_FOR_DATA});
         return;
@@ -151,6 +153,7 @@ void RuntimeFilterProducer::latch_dependency(
 }
 
 Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filter_size) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
     if (_rf_state != State::WAITING_FOR_SEND_SIZE) {
         _check_state({State::WAITING_FOR_DATA});
         return Status::OK();
@@ -166,7 +169,7 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
         LocalMergeContext* merger_context = nullptr;
         RETURN_IF_ERROR(state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
                 _wrapper->filter_id(), &merger_context));
-        std::lock_guard l(merger_context->mtx);
+        std::lock_guard merger_lock(merger_context->mtx);
         if (merger_context->merger->add_rf_size(local_filter_size)) {
             if (!_has_remote_target) {
                 for (auto filter : merger_context->producers) {
@@ -230,6 +233,7 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
 }
 
 void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
     if (!set_state(State::WAITING_FOR_DATA)) {
         _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED});
     }
