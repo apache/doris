@@ -81,8 +81,6 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
           _execution_dep(state->get_query_ctx()->get_execution_dependency()),
           _memory_sufficient_dependency(state->get_query_ctx()->get_memory_sufficient_dependency()),
           _pipeline_name(_pipeline->name()) {
-    _pipeline_task_watcher.start();
-
     if (!_shared_state_map.contains(_sink->dests_id().front())) {
         auto shared_state = _sink->create_shared_state();
         if (shared_state) {
@@ -190,6 +188,29 @@ Status PipelineTask::_extract_dependencies() {
     return Status::OK();
 }
 
+bool PipelineTask::inject_shared_state(std::shared_ptr<BasicSharedState> shared_state) {
+    if (!shared_state) {
+        return false;
+    }
+    // Shared state is created by upstream task's sink operator and shared by source operator of
+    // this task.
+    for (auto& op : _operators) {
+        if (shared_state->related_op_ids.contains(op->operator_id())) {
+            _op_shared_states.insert({op->operator_id(), shared_state});
+            return true;
+        }
+    }
+    // Shared state is created by the first sink operator and shared by sink operator of this task.
+    // For example, Set operations.
+    if (shared_state->related_op_ids.contains(_sink->dests_id().front())) {
+        DCHECK_EQ(_sink_shared_state, nullptr)
+                << " Sink: " << _sink->get_name() << " dest id: " << _sink->dests_id().front();
+        _sink_shared_state = shared_state;
+        return true;
+    }
+    return false;
+}
+
 void PipelineTask::_init_profile() {
     _task_profile =
             std::make_unique<RuntimeProfile>(fmt::format("PipelineTask (index={})", _index));
@@ -257,6 +278,12 @@ bool PipelineTask::_is_pending_finish() {
            std::any_of(
                    _finish_dependencies.begin(), _finish_dependencies.end(),
                    [&](Dependency* dep) -> bool { return dep->is_blocked_by(shared_from_this()); });
+}
+
+bool PipelineTask::is_revoking() const {
+    // Spilling may be in progress if eos is true.
+    return std::any_of(_spill_dependencies.begin(), _spill_dependencies.end(),
+                       [&](Dependency* dep) -> bool { return dep->is_blocked_by(); });
 }
 
 bool PipelineTask::_is_blocked() {
@@ -478,7 +505,8 @@ Status PipelineTask::execute(bool* done) {
             if (_state->get_query_ctx()->enable_reserve_memory() && workload_group &&
                 !(_wake_up_early || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
-                if (!_try_to_reserve_memory(sink_reserve_size, _sink.get())) {
+                if (sink_reserve_size > 0 &&
+                    !_try_to_reserve_memory(sink_reserve_size, _sink.get())) {
                     continue;
                 }
             }
@@ -544,8 +572,7 @@ Status PipelineTask::execute(bool* done) {
 bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBase* op) {
     auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(reserve_size);
     COUNTER_UPDATE(_memory_reserve_times, 1);
-    auto sink_revocable_mem_size =
-            reserve_size > 0 ? _sink->revocable_mem_size(_state) : Status::OK();
+    auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
     if (st.ok() && _state->enable_force_spill() && _sink->is_spillable() &&
         sink_revocable_mem_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
         st = Status(ErrorCode::QUERY_MEMORY_EXCEEDED, "Force Spill");

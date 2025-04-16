@@ -16,32 +16,20 @@
 // under the License.
 
 #pragma once
+#include "runtime/workload_group/workload_group_manager.h"
 
-#include <vector>
-
-// This file include
 namespace doris {
 
-struct GeoCoordinate {
-    double x;
-    double y;
-};
-
-struct GeoCoordinateList {
-    void add(const GeoCoordinate& coordinate) { list.push_back(coordinate); }
-    std::vector<GeoCoordinate> list;
-};
-
-struct GeoCoordinateListList {
-    ~GeoCoordinateListList() {
-        for (auto item : list) {
-            delete item;
-        }
+class MockWorkloadGroupMgr : public WorkloadGroupMgr {
+public:
+    MockWorkloadGroupMgr() : WorkloadGroupMgr() {}
+    void add_paused_query(const std::shared_ptr<QueryContext>& query_ctx, int64_t reserve_size,
+                          const Status& status) override {
+        _paused = true;
     }
-    GeoCoordinateListList() = default;
-    GeoCoordinateListList(GeoCoordinateListList&& other) : list(std::move(other.list)) {}
-    void add(GeoCoordinateList* coordinates) { list.push_back(coordinates); }
-    std::vector<GeoCoordinateList*> list;
+
+private:
+    bool _paused = false;
 };
 
 } // namespace doris
