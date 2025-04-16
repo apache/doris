@@ -53,7 +53,6 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -176,15 +175,7 @@ public class InsertUtils {
                 throw new AnalysisException(
                         "do not support non-literal expr in transactional insert operation: " + expr.toSql());
             }
-            if (expr instanceof NullLiteral) {
-                row.addColBuilder().setValue(StmtExecutor.NULL_VALUE_FOR_LOAD);
-            } else if (expr instanceof ArrayLiteral) {
-                row.addColBuilder().setValue(String.format("\"%s\"",
-                        ((ArrayLiteral) expr).toLegacyLiteral().getStringValueForArray(options)));
-            } else {
-                row.addColBuilder().setValue(String.format("\"%s\"",
-                        ((Literal) expr).toLegacyLiteral().getStringValue()));
-            }
+            row.addColBuilder().setValue(((Literal) expr).toLegacyLiteral().getStringValueForStreamLoad(options));
         }
         return row.build();
     }
@@ -253,7 +244,6 @@ public class InsertUtils {
                 .setTimeout((int) timeoutSecond)
                 .setTimezone(timeZone)
                 .setSendBatchParallelism(sendBatchParallelism)
-                .setTrimDoubleQuotes(true)
                 .setSequenceCol(columns.stream()
                         .filter(c -> Column.SEQUENCE_COL.equalsIgnoreCase(c.getName()))
                         .map(Column::getName)
