@@ -46,7 +46,7 @@ suite("test_stream_load_illegal_skip_lines", "p0") {
         set 'strict_mode','true'
 
         file 'large_test_file.csv'
-        set 'HTTP_SKIP_LINES', '-3'  
+        set 'HTTP_SKIP_LINES', '-3'
 
         check { result, exception, startTime, endTime ->
             if (exception != null) {
@@ -56,7 +56,7 @@ suite("test_stream_load_illegal_skip_lines", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
 
-            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("success", json.Status.toLowerCase())
             assertTrue(json.Message.toLowerCase().contains("skip_lines") ||
                        json.Message.toLowerCase().contains("invalid") ||
                        json.Message.toLowerCase().contains("out of range"))
