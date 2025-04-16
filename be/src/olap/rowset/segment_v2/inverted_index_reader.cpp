@@ -59,6 +59,7 @@
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/ik/IKAnalyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
@@ -134,6 +135,16 @@ std::unique_ptr<lucene::analysis::Analyzer> InvertedIndexReader::create_analyzer
             chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
         }
         analyzer = std::move(chinese_analyzer);
+    } else if (analyser_type == InvertedIndexParserType::PARSER_IK) {
+        auto ik_analyzer = std::make_unique<IKAnalyzer>();
+        ik_analyzer->initDict(config::inverted_index_dict_path + "/ik");
+        auto mode = inverted_index_ctx->parser_mode;
+        if (mode == INVERTED_INDEX_PARSER_SMART) {
+            ik_analyzer->setMode(true);
+        } else {
+            ik_analyzer->setMode(false);
+        }
+        analyzer = std::move(ik_analyzer);
     } else {
         // default
         analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();

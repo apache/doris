@@ -35,6 +35,7 @@
 #endif
 
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/ik/IKAnalyzer.h"
 
 #ifdef __clang__
 #pragma clang diagnostic pop
@@ -181,6 +182,20 @@ public:
         return chinese_analyzer;
     }
 
+    std::unique_ptr<lucene::analysis::Analyzer> create_ik_analyzer() {
+        auto ik_analyzer = std::make_unique<IKAnalyzer>();
+        ik_analyzer->initDict(config::inverted_index_dict_path + "/ik");
+
+        auto mode = get_parser_mode_string_from_properties(_index_meta->properties());
+        if (mode == INVERTED_INDEX_PARSER_SMART) {
+            ik_analyzer->setMode(true);
+        } else {
+            ik_analyzer->setMode(false);
+        }
+
+        return ik_analyzer;
+    }
+
     Status create_char_string_reader(std::unique_ptr<lucene::util::Reader>& string_reader) {
         CharFilterMap char_filter_map =
                 get_parser_char_filter_map_from_properties(_index_meta->properties());
@@ -241,6 +256,9 @@ public:
                 break;
             case InvertedIndexParserType::PARSER_CHINESE:
                 analyzer = create_chinese_analyzer();
+                break;
+            case InvertedIndexParserType::PARSER_IK:
+                analyzer = create_ik_analyzer();
                 break;
             default:
                 analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();

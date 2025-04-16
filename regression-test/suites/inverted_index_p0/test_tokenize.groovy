@@ -109,4 +109,13 @@ suite("test_tokenize"){
         throw e
       }
     }
+
+    qt_tokenize_sql """SELECT TOKENIZE('Apache Doris是一个现代化的MPP数据库', '"parser"="ik","parser_mode"="ik_smart"');"""
+    qt_tokenize_sql """SELECT TOKENIZE('北京大学计算机科学与技术系', '"parser"="ik","parser_mode"="ik_smart"');"""
+    qt_tokenize_sql """SELECT TOKENIZE('中华人民共和国', '"parser"="ik","parser_mode"="ik_smart"');"""
+
+    qt_tokenize_sql """SELECT TOKENIZE('Apache Doris是一个现代化的MPP数据库', '"parser"="ik","parser_mode"="ik_max_word"');"""
+    qt_tokenize_sql """SELECT TOKENIZE('北京大学计算机科学与技术系', '"parser"="ik","parser_mode"="ik_max_word"');"""
+    qt_tokenize_sql """SELECT TOKENIZE('中华人民共和国', '"parser"="ik","parser_mode"="ik_max_word"');"""
+
 }
