@@ -23,8 +23,7 @@ import mockit.Expectations;
 import mockit.Mocked;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -40,10 +39,12 @@ public class ThriftHMSClientTest {
     @Before
     public void setUp() throws Exception {
         // Mock basic HiveConf properties
-        new Expectations() {{
-            mockHiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
-            result = "test";
-        }};
+        new Expectations() {
+            {
+                mockHiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
+                result = "test";
+            }
+        };
 
         cachedClient = new ThriftHMSCachedClient(mockHiveConf, 2);
         thriftHMSClient = cachedClient.new ThriftHMSClient(mockHiveConf);
@@ -55,8 +56,8 @@ public class ThriftHMSClientTest {
         thriftHMSClient.close();
 
         // Then
-        assertTrue(thriftHMSClient.isInPool());
-        assertFalse(thriftHMSClient.isClosed());
+        Assert.assertTrue(thriftHMSClient.isInPool());
+        Assert.assertFalse(thriftHMSClient.isClosed());
     }
 
     @Test
@@ -68,8 +69,8 @@ public class ThriftHMSClientTest {
         thriftHMSClient.close();
 
         // Then
-        assertFalse(thriftHMSClient.isInPool());
-        assertTrue(thriftHMSClient.isClosed());
+        Assert.assertFalse(thriftHMSClient.isInPool());
+        Assert.assertTrue(thriftHMSClient.isClosed());
     }
 
     @Test
@@ -84,7 +85,7 @@ public class ThriftHMSClientTest {
         thriftHMSClient.close();
 
         // Then
-        assertFalse(thriftHMSClient.isInPool());
-        assertTrue(thriftHMSClient.isClosed());
+        Assert.assertFalse(thriftHMSClient.isInPool());
+        Assert.assertTrue(thriftHMSClient.isClosed());
     }
-} 
+}
