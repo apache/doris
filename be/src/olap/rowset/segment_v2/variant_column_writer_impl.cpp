@@ -308,10 +308,8 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
                 _tablet_column->name_lower_case() + "." + entry->path.get_path();
         const vectorized::DataTypePtr& final_data_type_from_object =
                 entry->data.get_least_common_type();
-        vectorized::PathInDataBuilder full_path_builder;
-        auto full_path = full_path_builder.append(_tablet_column->name_lower_case(), false)
-                                 .append(entry->path.get_parts(), false)
-                                 .build();
+        auto full_path = vectorized::PathInData(_tablet_column->name_lower_case() + "." +
+                                                entry->path.get_path());
         // set unique_id and parent_unique_id, will use unique_id to get iterator correct
         auto column = vectorized::schema_util::get_column_by_type(
                 final_data_type_from_object, column_name,
@@ -321,6 +319,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
         return column;
     };
     _subcolumns_indexes.resize(ptr->get_subcolumns().size());
+    std::unordered_set<std::string> subcolumn_set;
     // convert sub column data from engine format to storage layer format
     for (const auto& entry :
          vectorized::schema_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
@@ -333,6 +332,12 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
             // already handled
             continue;
         }
+        // deduplicate
+        if (subcolumn_set.contains(entry->path.get_path())) {
+            return Status::InvalidJsonPath("may contains duplicated entry : {}",
+                                           entry->path.get_path());
+        }
+        subcolumn_set.insert(entry->path.get_path());
         CHECK(entry->data.is_finalized());
 
         // create subcolumn writer
