@@ -146,9 +146,30 @@ auto get_json_token(T& path_string) {
     }
 }
 
+template <typename T>
+std::vector<std::string> get_json_token_vector(T& path_string) {
+    auto tok = get_json_token(path_string);
+    std::vector<std::string> paths(tok.begin(), tok.end());
+    if (!paths.empty() && paths[0].front() == '$' && paths[0].length() > 1) {
+        // we need to split path like "$[0]" to "$" and "[0]"
+        // because "$[0]" is a valid json path, but previously we can only handle "$.[0]".
+        // So here we transform to make it work for both format.
+        std::string first_element = std::move(paths[0]);
+        std::string prefix = "$";
+        std::string remainder = first_element.substr(1);
+
+        paths.erase(paths.begin());
+        paths.insert(paths.begin(), remainder);
+        paths.insert(paths.begin(), prefix);
+    }
+    return paths;
+}
+
 #ifdef USE_LIBCPP
 template <>
 auto get_json_token(std::string_view& path_string) = delete;
+template <>
+auto get_json_token_vector(std::string_view& path_string) = delete;
 #endif
 
 } // namespace doris

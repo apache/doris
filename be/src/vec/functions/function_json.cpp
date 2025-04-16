@@ -240,12 +240,11 @@ rapidjson::Value* get_json_object(std::string_view json_string, std::string_view
 
 #ifdef USE_LIBCPP
     std::string s(path_string);
-    auto tok = get_json_token(s);
+    auto paths = get_json_token_vector(s);
 #else
-    auto tok = get_json_token(path_string);
+    auto paths = get_json_token_vector(path_string);
 #endif
 
-    std::vector<std::string> paths(tok.begin(), tok.end());
     get_parsed_paths(paths, &tmp_parsed_paths);
     if (tmp_parsed_paths.empty()) {
         return document;
@@ -880,12 +879,10 @@ struct FunctionJsonExtractImpl {
 
 #ifdef USE_LIBCPP
         std::string s(path_string);
-        auto tok = get_json_token(s);
+        auto paths = get_json_token_vector(s);
 #else
-        auto tok = get_json_token(path_string);
+        auto paths = get_json_token_vector(path_string);
 #endif
-        // TODO: here maybe could use std::vector<std::string_view> or std::span
-        std::vector<std::string> paths(tok.begin(), tok.end());
         get_parsed_paths(paths, &parsed_paths);
         if (parsed_paths.empty()) {
             return nullptr;
@@ -1392,11 +1389,10 @@ private:
 
 #ifdef USE_LIBCPP
                 std::string s(path_string);
-                auto tok = get_json_token(s);
+                auto paths = get_json_token_vector(s);
 #else
-                auto tok = get_json_token(path_string);
+                auto paths = get_json_token_vector(path_string);
 #endif
-                std::vector<std::string> paths(tok.begin(), tok.end());
                 RETURN_IF_ERROR(get_parsed_paths_with_status(paths, &parsed_paths));
                 json_paths[col / 2].emplace_back(parsed_paths);
             }
