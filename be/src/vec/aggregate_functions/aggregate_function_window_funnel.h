@@ -77,79 +77,94 @@ WindowFunnelMode string_to_window_funnel_mode(const String& string) {
     }
 }
 
-template <TypeIndex TYPE_INDEX, typename NativeType>
+struct DataValue {
+    using TimestampEvent = std::vector<ColumnVector<UInt8>::Container>;
+    std::vector<UInt64> dt;
+    TimestampEvent event_columns_data;
+
+    DataValue() = default;
+    DataValue(DataValue&& other) noexcept
+            : dt(std::move(other.dt)), event_columns_data(std::move(other.event_columns_data)) {}
+
+    DataValue& operator=(DataValue&& other) noexcept {
+        if (this != &other) {
+            dt = std::move(other.dt);
+            event_columns_data = std::move(other.event_columns_data);
+        }
+        return *this;
+    }
+
+    bool operator<(const DataValue& other) const { return dt < other.dt; }
+    void clear() {
+        dt.clear();
+        event_columns_data.clear();
+    }
+
+    auto size() const { return dt.size(); }
+
+    bool empty() const { return dt.empty(); }
+};
+
+template <typename DateValueType, typename NativeType>
 struct WindowFunnelState {
-    using DateValueType = std::conditional_t<TYPE_INDEX == TypeIndex::DateTimeV2,
-                                             DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>;
+    // using DateValueType = std::conditional_t<TYPE_INDEX == TypeIndex::DateTimeV2,
+    //                                          DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>;
     int event_count = 0;
     int64_t window;
+    int version {};
     bool enable_mode;
     WindowFunnelMode window_funnel_mode;
-    mutable vectorized::MutableBlock mutable_block;
-    ColumnVector<NativeType>::Container* timestamp_column_data = nullptr;
-    std::vector<ColumnVector<UInt8>::Container*> event_columns_datas;
-    SortDescription sort_description {1};
+    DataValue events_list;
 
     WindowFunnelState() {
         event_count = 0;
         window = 0;
         window_funnel_mode = WindowFunnelMode::INVALID;
-
-        sort_description[0].column_number = 0;
-        sort_description[0].direction = 1;
-        sort_description[0].nulls_direction = -1;
     }
-    WindowFunnelState(int arg_event_count) : WindowFunnelState() {
+    WindowFunnelState(int arg_event_count, int arg_version) : WindowFunnelState() {
         event_count = arg_event_count;
-        event_columns_datas.resize(event_count);
-        auto timestamp_column = ColumnVector<NativeType>::create();
-
-        MutableColumns event_columns;
-        for (int i = 0; i < event_count; i++) {
-            event_columns.emplace_back(ColumnVector<UInt8>::create());
-        }
-        Block tmp_block;
-        tmp_block.insert({std::move(timestamp_column),
-                          DataTypeFactory::instance().create_data_type(TYPE_INDEX), "timestamp"});
-        for (int i = 0; i < event_count; i++) {
-            tmp_block.insert({std::move(event_columns[i]),
-                              DataTypeFactory::instance().create_data_type(TypeIndex::UInt8),
-                              "event_" + std::to_string(i)});
-        }
-
-        mutable_block = MutableBlock(std::move(tmp_block));
-        _reset_columns_ptr();
+        version = arg_version;
+        events_list.event_columns_data.resize(event_count);
     }
 
-    void _reset_columns_ptr() {
-        auto& ts_column = mutable_block.get_column_by_position(0);
-        timestamp_column_data = &assert_cast<ColumnVector<NativeType>&>(*ts_column).get_data();
-        for (int i = 0; i != event_count; i++) {
-            auto& event_column = mutable_block.get_column_by_position(i + 1);
-            event_columns_datas[i] = &assert_cast<ColumnVector<UInt8>&>(*event_column).get_data();
-        }
-    }
-    void reset() { mutable_block.clear_column_data(); }
+    void reset() { events_list.clear(); }
 
     void add(const IColumn** arg_columns, ssize_t row_num, int64_t win, WindowFunnelMode mode) {
         window = win;
         window_funnel_mode = enable_mode ? mode : WindowFunnelMode::DEFAULT;
-
-        timestamp_column_data->push_back(
+        events_list.dt.emplace_back(
                 assert_cast<const ColumnVector<NativeType>&>(*arg_columns[2]).get_data()[row_num]);
         for (int i = 0; i < event_count; i++) {
-            event_columns_datas[i]->push_back(
+            events_list.event_columns_data.emplace_back(
                     assert_cast<const ColumnVector<UInt8>&>(*arg_columns[3 + i])
                             .get_data()[row_num]);
         }
     }
 
     void sort() {
-        Block tmp_block = mutable_block.to_block();
-        auto block = tmp_block.clone_without_columns();
-        sort_block(tmp_block, block, sort_description, 0);
-        mutable_block = std::move(block);
-        _reset_columns_ptr();
+        std::vector<size_t> indices(events_list.size());
+        std::iota(indices.begin(), indices.end(), 0);
+
+        std::stable_sort(indices.begin(), indices.end(), [this](size_t i1, size_t i2) {
+            return events_list.dt[i1] < events_list.dt[i2];
+        });
+
+        auto reorder = [&indices](auto& vec) {
+            std::vector<typename std::decay_t<decltype(vec)>::value_type> temp;
+            temp.reserve(indices.size());
+            for (auto i : indices) {
+                temp.push_back(std::move(vec[i]));
+            }
+            vec.clear();
+            for (auto i : indices) {
+                vec.push_back(std::move(temp[i]));
+            }
+        };
+
+        reorder(events_list.dt);
+        for (auto& inner_vec : events_list.event_columns_data) {
+            reorder(inner_vec);
+        }
     }
 
     template <WindowFunnelMode WINDOW_FUNNEL_MODE>
@@ -159,13 +174,10 @@ struct WindowFunnelState {
         DateValueType end_timestamp;
         TimeInterval interval(SECOND, window, false);
 
-        int column_idx = 1;
-
-        const NativeType* timestamp_data = timestamp_column_data->data();
-        const auto& first_event_column = mutable_block.get_column_by_position(column_idx);
-        const auto& first_event_data =
-                assert_cast<const ColumnVector<UInt8>&>(*first_event_column).get_data();
-        auto match_row = simd::find_one(first_event_data.data(), start_row, row_count);
+        int column_idx = 0;
+        const auto& timestamp_data = events_list.dt;
+        const auto& first_event_data = events_list.event_columns_data[column_idx].data();
+        auto match_row = simd::find_one(first_event_data, start_row, row_count);
         start_row = match_row + 1;
         if (match_row < row_count) {
             auto prev_timestamp = binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
@@ -179,11 +191,10 @@ struct WindowFunnelState {
             ++match_row;
             for (; column_idx < event_count + 1 && match_row < row_count;
                  column_idx++, match_row++) {
-                const auto& event_column = mutable_block.get_column_by_position(column_idx);
-                const auto& event_data =
-                        assert_cast<const ColumnVector<UInt8>&>(*event_column).get_data();
+                const auto& event_data = events_list.event_columns_data[column_idx].data();
                 if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::FIXED) {
-                    if (event_data[match_row] == 1) {
+                    if (*(event_data + match_row) == 1) {
+                        // if (event_data[match_row] == 1) {
                         auto current_timestamp =
                                 binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
                         if (current_timestamp <= end_timestamp) {
@@ -193,7 +204,7 @@ struct WindowFunnelState {
                     }
                     break;
                 }
-                match_row = simd::find_one(event_data.data(), match_row, row_count);
+                match_row = simd::find_one(event_data, match_row, row_count);
                 if (match_row < row_count) {
                     auto current_timestamp =
                             binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
@@ -215,12 +226,9 @@ struct WindowFunnelState {
                         if (match_row != last_match_row + 1) {
                             for (int tmp_column_idx = 1; tmp_column_idx < column_idx;
                                  tmp_column_idx++) {
-                                const auto& tmp_event_column =
-                                        mutable_block.get_column_by_position(tmp_column_idx);
                                 const auto& tmp_event_data =
-                                        assert_cast<const ColumnVector<UInt8>&>(*tmp_event_column)
-                                                .get_data();
-                                auto dup_match_row = simd::find_one(tmp_event_data.data(),
+                                        events_list.event_columns_data[column_idx].data();
+                                auto dup_match_row = simd::find_one(tmp_event_data,
                                                                     last_match_row + 1, match_row);
                                 if (dup_match_row < match_row) {
                                     is_dup = true;
@@ -246,7 +254,7 @@ struct WindowFunnelState {
     int _get_internal() const {
         size_t start_row = 0;
         int max_found_event_count = 0;
-        auto row_count = mutable_block.rows();
+        auto row_count = events_list.size();
         while (start_row < row_count) {
             auto found_event_count = _match_event_list<WINDOW_FUNNEL_MODE>(start_row, row_count);
             if (found_event_count == event_count) {
@@ -257,7 +265,7 @@ struct WindowFunnelState {
         return max_found_event_count;
     }
     int get() const {
-        auto row_count = mutable_block.rows();
+        auto row_count = events_list.size();
         if (event_count == 0 || row_count == 0) {
             return 0;
         }
@@ -277,14 +285,17 @@ struct WindowFunnelState {
     }
 
     void merge(const WindowFunnelState& other) {
-        if (!other.mutable_block.empty()) {
-            auto st = mutable_block.merge(other.mutable_block.to_block());
-            if (!st.ok()) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
-                return;
-            }
+        if (other.events_list.empty()) {
+            return;
         }
-
+        events_list.dt.insert(std::end(events_list.dt), std::begin(other.events_list.dt),
+                              std::end(other.events_list.dt));
+        for (size_t i = 0; i < event_count; i++) {
+            events_list.event_columns_data[i].insert(
+                    std::end(events_list.event_columns_data[i]),
+                    std::begin(other.events_list.event_columns_data[i]),
+                    std::end(other.events_list.event_columns_data[i]));
+        }
         event_count = event_count > 0 ? event_count : other.event_count;
         window = window > 0 ? window : other.window;
         if (enable_mode) {
@@ -303,34 +314,17 @@ struct WindowFunnelState {
             write_var_int(static_cast<std::underlying_type_t<WindowFunnelMode>>(window_funnel_mode),
                           out);
         }
-        PBlock pblock;
-        size_t uncompressed_bytes = 0;
-        size_t compressed_bytes = 0;
-        Status status;
-        std::string buff;
-        Block block = mutable_block.to_block();
-        // as the branch-2.1 is used the new impl of window funnel, and the be_exec_version is 5
-        // but in branch-3.0 this be_exec_version have update to 7, so when upgrade from branch-2.1 to branch-3.0
-        // maybe have error send the branch-3.0 version of version 7 to branch-2.1([0---version--5])
-        status = block.serialize(
-                5, &pblock, &uncompressed_bytes, &compressed_bytes,
-                segment_v2::CompressionTypePB::ZSTD); // ZSTD for better compression ratio
-        block.clear_column_data();
-        if (!status.ok()) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, status.to_string());
-            return;
+        auto size = events_list.size();
+        write_var_int(size, out);
+        for (const auto& timestamp : events_list.dt) {
+            write_var_int(timestamp, out);
         }
-        if (!pblock.SerializeToString(&buff)) {
-            throw doris::Exception(ErrorCode::SERIALIZE_PROTOBUF_ERROR,
-                                   "Serialize window_funnel data");
-            return;
+        for (int64_t i = 0; i < event_count; i++) {
+            const auto& event_columns_data = events_list.event_columns_data[i];
+            for (auto event : event_columns_data) {
+                write_var_int(event, out);
+            }
         }
-        auto data_bytes = buff.size();
-        write_var_uint(data_bytes, out);
-        out.write(buff.data(), data_bytes);
-
-        mutable_block = std::move(block);
-        const_cast<WindowFunnelState<TYPE_INDEX, NativeType>*>(this)->_reset_columns_ptr();
     }
 
     void read(BufferReadable& in) {
@@ -344,53 +338,44 @@ struct WindowFunnelState {
             read_var_int(mode, in);
             window_funnel_mode = static_cast<WindowFunnelMode>(mode);
         }
-        uint64_t data_bytes = 0;
-        read_var_uint(data_bytes, in);
-        std::string buff;
-        buff.resize(data_bytes);
-        in.read(buff.data(), data_bytes);
-
-        PBlock pblock;
-        // It is preferable to change data_bytes to int type here,
-        // but due to compatibility issues, no changes will be made.
-        if (!pblock.ParseFromArray(buff.data(), (int)data_bytes)) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Failed to parse window_funnel data to block");
+        int64_t size = 0;
+        read_var_int(size, in);
+        events_list.clear();
+        events_list.dt.resize(size);
+        for (auto i = 0; i < size; i++) {
+            read_var_int(*reinterpret_cast<Int64*>(&events_list.dt[i]), in);
         }
-        Block block;
-        auto status = block.deserialize(pblock);
-        // If memory allocate failed during deserialize, st is not ok, throw exception here to
-        // stop the query.
-        if (!status.ok()) {
-            throw doris::Exception(status);
+        events_list.event_columns_data.resize(event_count);
+        for (int64_t i = 0; i < event_count; i++) {
+            auto& event_columns_data = events_list.event_columns_data[i];
+            event_columns_data.resize(size);
+            for (auto j = 0; j < size; j++) {
+                Int64 temp_value;
+                read_var_int(temp_value, in);
+                event_columns_data[j] = static_cast<UInt8>(temp_value);
+            }
         }
-        mutable_block = MutableBlock(std::move(block));
-        _reset_columns_ptr();
     }
 };
 
-template <TypeIndex TYPE_INDEX, typename NativeType>
+template <typename DateValueType, typename NativeType>
 class AggregateFunctionWindowFunnel
         : public IAggregateFunctionDataHelper<
-                  WindowFunnelState<TYPE_INDEX, NativeType>,
-                  AggregateFunctionWindowFunnel<TYPE_INDEX, NativeType>> {
+                  WindowFunnelState<DateValueType, NativeType>,
+                  AggregateFunctionWindowFunnel<DateValueType, NativeType>> {
 public:
     AggregateFunctionWindowFunnel(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<WindowFunnelState<TYPE_INDEX, NativeType>,
-                                           AggregateFunctionWindowFunnel<TYPE_INDEX, NativeType>>(
-                      argument_types_) {}
+            : IAggregateFunctionDataHelper<
+                      WindowFunnelState<DateValueType, NativeType>,
+                      AggregateFunctionWindowFunnel<DateValueType, NativeType>>(argument_types_) {}
 
     void create(AggregateDataPtr __restrict place) const override {
-        auto data = new (place) WindowFunnelState<TYPE_INDEX, NativeType>(
-                cast_set<int>(IAggregateFunction::get_argument_types().size() - 3));
+        auto data = new (place) WindowFunnelState<DateValueType, NativeType>();
         /// support window funnel mode from 2.0. See `BeExecVersionManager::max_be_exec_version`
         data->enable_mode = version >= 3;
     }
-
     String get_name() const override { return "window_funnel"; }
-
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt32>(); }
-
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
@@ -406,29 +391,25 @@ public:
                Arena*) const override {
         this->data(place).merge(this->data(rhs));
     }
-
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
-
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
         this->data(place).read(buf);
     }
-
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(const_cast<AggregateDataPtr>(place)).sort();
         assert_cast<ColumnInt32&>(to).get_data().push_back(
                 IAggregateFunctionDataHelper<
-                        WindowFunnelState<TYPE_INDEX, NativeType>,
-                        AggregateFunctionWindowFunnel<TYPE_INDEX, NativeType>>::data(place)
+                        WindowFunnelState<DateValueType, NativeType>,
+                        AggregateFunctionWindowFunnel<DateValueType, NativeType>>::data(place)
                         .get());
     }
 
 protected:
     using IAggregateFunction::version;
 };
-
 } // namespace doris::vectorized
 
 #include "common/compile_check_end.h"

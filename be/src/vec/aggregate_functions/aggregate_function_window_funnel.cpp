@@ -30,7 +30,6 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-
 AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& name,
                                                              const DataTypes& argument_types,
                                                              const bool result_is_nullable,
@@ -41,12 +40,11 @@ AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& 
     }
     if (WhichDataType(remove_nullable(argument_types[2])).is_date_time_v2()) {
         return creator_without_type::create<
-                AggregateFunctionWindowFunnel<TypeIndex::DateTimeV2, UInt64>>(argument_types,
-                                                                              result_is_nullable);
+                AggregateFunctionWindowFunnel<DateV2Value<DateTimeV2ValueType>, UInt64>>(
+                argument_types, result_is_nullable);
     } else if (WhichDataType(remove_nullable(argument_types[2])).is_date_time()) {
-        return creator_without_type::create<
-                AggregateFunctionWindowFunnel<TypeIndex::DateTime, Int64>>(argument_types,
-                                                                           result_is_nullable);
+        return creator_without_type::create<AggregateFunctionWindowFunnel<VecDateTimeValue, Int64>>(
+                argument_types, result_is_nullable);
     } else {
         LOG(WARNING) << "Only support DateTime type as window argument!";
         return nullptr;
@@ -59,4 +57,5 @@ void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& f
 void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory) {
     BeExecVersionManager::registe_restrict_function_compatibility("window_funnel");
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
