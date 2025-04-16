@@ -250,8 +250,11 @@ public class AlterRoutineLoadStmt extends DdlStmt implements NotFallbackInParser
         if (jobProperties.containsKey(CreateRoutineLoadStmt.WORKLOAD_GROUP)) {
             String workloadGroup = jobProperties.get(CreateRoutineLoadStmt.WORKLOAD_GROUP);
             if (!StringUtils.isEmpty(workloadGroup)) {
+                ConnectContext tmpCtx = new ConnectContext();
+                tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
+                tmpCtx.getSessionVariable().setWorkloadGroup(workloadGroup);
                 long wgId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroupByName(ConnectContext.get().getCurrentUserIdentity(), workloadGroup).get(0)
+                        .getWorkloadGroup(tmpCtx).get(0)
                         .getId();
                 analyzedJobProperties.put(CreateRoutineLoadStmt.WORKLOAD_GROUP, String.valueOf(wgId));
             }

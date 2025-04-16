@@ -261,7 +261,7 @@ public class WorkloadGroupMgrTest {
             workloadGroupMgr.getWorkloadGroup(ctx);
             Assert.fail();
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("can not find workload group"));
+            Assert.assertTrue(e.getMessage().contains("Can not find workload group"));
         }
     }
 
@@ -283,7 +283,7 @@ public class WorkloadGroupMgrTest {
         try {
             workloadGroupMgr.alterWorkloadGroup("", "abc", p0);
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("can not find workload group"));
+            Assert.assertTrue(e.getMessage().contains("Can not find workload group"));
         }
 
         long wgId1 = 1;
@@ -306,7 +306,7 @@ public class WorkloadGroupMgrTest {
             workloadGroupMgr.alterWorkloadGroup(cgName2, wgName2, prop2);
             Assert.fail();
         } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("can not find workload group"));
+            Assert.assertTrue(e.getMessage().contains("Can not find workload group"));
         }
 
         // test alter success

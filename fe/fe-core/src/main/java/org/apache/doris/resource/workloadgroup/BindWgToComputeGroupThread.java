@@ -47,38 +47,45 @@ public class BindWgToComputeGroupThread extends Thread {
                 FrontendNodeType feType = Env.getCurrentEnv().getFeType();
                 isReady = feType.equals(FrontendNodeType.INIT) || feType.equals(FrontendNodeType.UNKNOWN);
                 if (isReady) {
-                    LOG.info("[bing_wg_to_cg]FE is ready");
+                    LOG.info("[init_wg]FE is ready");
                     break;
                 } else {
-                    LOG.info("[bing_wg_to_cg]FE is not ready, just wait.");
+                    LOG.info("[init_wg]FE is not ready, just wait.");
                     Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
                 }
             }
-            Thread.currentThread()
-                    .join(Config.resource_not_ready_sleep_seconds * 1000L);
+            Thread.currentThread().join(Config.resource_not_ready_sleep_seconds * 1000L);
+            WorkloadGroupMgr wgMgr = Env.getCurrentEnv().getWorkloadGroupMgr();
+            wgMgr.tryCreateNormalWorkloadGroup();
 
-            List<WorkloadGroup> oldWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getOldWorkloadGroup();
+            LOG.info("[init_wg] print current cg before, id map:{}, name map : {}",
+                    wgMgr.getIdToWorkloadGroup(),
+                    wgMgr.getNameToWorkloadGroup());
+            List<WorkloadGroup> oldWgList = wgMgr.getOldWorkloadGroup();
             if (oldWgList.isEmpty()) {
-                LOG.info("[bing_wg_to_cg]There is no old workload group, just return.");
+                LOG.info("[init_wg]There is no old workload group, just return.");
                 return;
             }
 
             ComputeGroup allComputeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
             Set<String> cgIdents = allComputeGroup.getIdentifiers();
             while (cgIdents.size() == 0) {
-                LOG.info("[bing_wg_to_cg]Not get any backends, sleep");
+                LOG.info("[init_wg]Not get any backends, sleep");
                 Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
                 cgIdents = allComputeGroup.getIdentifiers();
             }
-            LOG.info("[bing_wg_to_cg]Get cgs from backend, {}", String.join(",", cgIdents));
+            LOG.info("[init_wg]Get cgs from backend, {}", String.join(",", cgIdents));
             for (WorkloadGroup wg : oldWgList) {
-                Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .bindWorkloadGroupToComputeGroup(allComputeGroup.getIdentifiers(), wg);
+                wgMgr.bindWorkloadGroupToComputeGroup(allComputeGroup.getIdentifiers(), wg);
             }
-            LOG.info("[bing_wg_to_cg]Finish bing workload group to compute group, wg size: {}, cg size: {}",
-                    oldWgList.size(), allComputeGroup.getIdentifiers());
+            LOG.info(
+                    "[init_wg]Finish bing workload group to compute group, wg size: {}, cg size: {}, "
+                            + "id map:{}, name map :{}",
+                    oldWgList.size(), allComputeGroup.getIdentifiers(),
+                    wgMgr.getIdToWorkloadGroup(),
+                    wgMgr.getNameToWorkloadGroup());
         } catch (Throwable t) {
-            LOG.info("[bing_wg_to_cg]Error happens when drop old workload group, ", t);
+            LOG.info("[init_wg]Error happens when drop old workload group, ", t);
         }
     }
 }

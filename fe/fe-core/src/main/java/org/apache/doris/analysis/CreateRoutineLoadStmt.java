@@ -582,8 +582,11 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
 
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
+            ConnectContext tmpCtx = new ConnectContext();
+            tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
+            tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
             this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getWorkloadGroupByName(ConnectContext.get().getCurrentUserIdentity(), inputWorkloadGroupStr).get(0)
+                    .getWorkloadGroup(tmpCtx).get(0)
                     .getId();
         }
 
