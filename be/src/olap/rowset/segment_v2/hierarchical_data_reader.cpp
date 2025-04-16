@@ -173,7 +173,7 @@ ordinal_t HierarchicalDataReader::get_current_ordinal() const {
 
 Status HierarchicalDataReader::_process_sub_columns(
         vectorized::ColumnObject& container_variant,
-        const vectorized::PathsWithColumnAndType& non_nested_subcolumns) {
+        const PathsWithColumnAndType& non_nested_subcolumns) {
     for (const auto& entry : non_nested_subcolumns) {
         DCHECK(!entry.path.has_nested_part());
         bool add = container_variant.add_sub_column(entry.path, entry.column->assume_mutable(),
@@ -188,8 +188,7 @@ Status HierarchicalDataReader::_process_sub_columns(
 
 Status HierarchicalDataReader::_process_nested_columns(
         vectorized::ColumnObject& container_variant,
-        const std::map<vectorized::PathInData, vectorized::PathsWithColumnAndType>&
-                nested_subcolumns,
+        const std::map<vectorized::PathInData, PathsWithColumnAndType>& nested_subcolumns,
         size_t nrows) {
     using namespace vectorized;
     // Iterate nested subcolumns and flatten them, the entry contains the nested subcolumns of the same nested parent

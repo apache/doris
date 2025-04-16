@@ -171,7 +171,7 @@ public:
 
         void reset_current_num_of_defaults() { current_num_of_defaults = 0; }
 
-        size_t cur_num_of_defaults() { return current_num_of_defaults; }
+        size_t cur_num_of_defaults() const { return current_num_of_defaults; }
 
         void insert_many_defaults(size_t length);
 

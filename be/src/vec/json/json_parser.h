@@ -124,6 +124,13 @@ enum class ExtractType {
 struct ParseConfig {
     bool enable_flatten_nested = false;
 };
+/// Result of parsing of a document.
+/// Contains all paths extracted from document
+/// and values which are related to them.
+struct ParseResult {
+    std::vector<PathInData> paths;
+    std::vector<Field> values;
+};
 template <typename ParserImpl>
 class JSONDataParser {
 public:
