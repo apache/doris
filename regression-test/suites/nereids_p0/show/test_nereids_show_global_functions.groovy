@@ -20,19 +20,17 @@ suite("test_nereids_show_global_functions") {
     String functionName = "global_xyz"
 
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
-    sql """CREATE global ALIAS FUNCTION ${dbName}.${functionName}(INT) WITH PARAMETER(id)  AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));"""
+    sql """CREATE global ALIAS FUNCTION ${functionName}(INT) WITH PARAMETER(id)  AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));"""
 
     checkNereidsExecute("use ${dbName}; show global functions;")
     checkNereidsExecute("use ${dbName}; show global full functions;")
     checkNereidsExecute("use ${dbName}; show global functions like 'global_%';")
     checkNereidsExecute("use ${dbName}; show global full functions like 'global_%';")
 
-    def res = sql """use ${dbName}; show global functions;"""
+    def res = sql """use ${dbName}; show global functions like 'global_%';"""
     assertTrue(res.size() == 1)
-    def res1 = sql """use ${dbName}; show global full functions;"""
+    def res1 = sql """use ${dbName}; show global full functions like 'global_%';"""
     assertTrue(res1.size() == 1)
-    def res2 = sql """use ${dbName}; show global functions like '${functionName}%';"""
-    assertTrue(res2.size() == 1)
     // in nereids, each column of 'show full functions' is empty string, except Signature.
     def res3 = sql """use ${dbName}; show global full functions like '${functionName}%';"""
     assertTrue(res3.size() == 1)
@@ -41,4 +39,5 @@ suite("test_nereids_show_global_functions") {
     assertEquals(res3.get(0).get(2), "")
     assertEquals(res3.get(0).get(3), "")
     assertEquals(res3.get(0).get(4), "")
+    sql """DROP GLOBAL FUNCTION  ${functionName}(INT)"""
 }
