@@ -179,7 +179,7 @@ public class FetchRemoteTabletSchemaUtil {
     private Column initColumnFromPB(ColumnPB column) throws AnalysisException {
         try {
             AggregateType aggType = AggregateType.getAggTypeFromAggName(column.getAggregation());
-            Type type = Type.getTypeFromTypeName(column.getType());
+            Type type = Type.getTypeFromTypeName(column.getType(), column.getPrecision(), column.getFrac());
             String columnName = column.getName();
             boolean isKey = column.getIsKey();
             boolean isNullable = column.getIsNullable();

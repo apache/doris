@@ -169,4 +169,75 @@ suite("test_predefine_ddl", "p0"){
         findException = true
     }
     assertFalse(findException)
+
+    findException = false
+    try {
+        sql "DROP TABLE IF EXISTS ${tableName}"
+        sql """CREATE TABLE ${tableName} (
+            `id` bigint NULL,
+            `var` variant<
+                MATCH_NAME 'ab' : json
+            > NULL,
+            INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        assertTrue(e.getMessage().contains("VARIANT unsupported sub-type: json"))
+        findException = true
+    }
+    assertTrue(findException)
+
+    findException = false
+    try {
+        sql "DROP TABLE IF EXISTS ${tableName}"
+        sql """CREATE TABLE ${tableName} (
+            `id` bigint NULL,
+            `var` variant<
+                MATCH_NAME 'ab' : int,
+                MATCH_NAME 'ab' : string
+            > NULL,
+            INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        assertTrue(e.getMessage().contains("Duplicate field name ab in struct variant<MATCH_NAME ab:int,MATCH_NAME ab:text>"))
+        findException = true
+    }
+    assertTrue(findException)
+
+    findException = false
+    try {
+        sql "DROP TABLE IF EXISTS ${tableName}"
+        sql """CREATE TABLE ${tableName} (
+            `id` bigint NULL,
+            `var` variant<
+                MATCH_NAME 'ab' : decimalv2(22, 2)
+            > NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        assertTrue(e.getMessage().contains("VARIANT unsupported sub-type: decimalv2(22,2)"))
+        findException = true
+    }
+    assertTrue(findException)
+
+    findException = false
+    try {
+        sql "DROP TABLE IF EXISTS ${tableName}"
+        sql """CREATE TABLE ${tableName} (
+            `id` bigint NULL,
+            `var` variant<
+                MATCH_NAME 'ab' : datev1
+            > NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        assertTrue(e.getMessage().contains("VARIANT unsupported sub-type: decimalv2(22,2)"))
+        findException = true
+    }
+    assertTrue(findException)
 }

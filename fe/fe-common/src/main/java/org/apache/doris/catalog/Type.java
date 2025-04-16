@@ -321,8 +321,6 @@ public abstract class Type {
         variantSubTypes.add(DECIMAL64);
         variantSubTypes.add(DECIMAL128);
         variantSubTypes.add(DECIMAL256);
-        variantSubTypes.add(DATE);
-        variantSubTypes.add(DATETIME);
         variantSubTypes.add(DATEV2);
         variantSubTypes.add(DATETIMEV2);
         variantSubTypes.add(IPV4);
@@ -2331,7 +2329,15 @@ public abstract class Type {
         return false;
     }
 
-    public static Type getTypeFromTypeName(String typeName) {
-        return typeMap.getOrDefault(typeName, Type.UNSUPPORTED);
+    public static Type getTypeFromTypeName(String typeName, int precision, int scale) {
+        Type res = typeMap.getOrDefault(typeName, Type.UNSUPPORTED);
+        if (res.isScalarType()) {
+            ScalarType scalarType = (ScalarType) res;
+            if (scalarType.isDecimalV3() || scalarType.isDecimalV2()) {
+                scalarType.setPrecision(precision);
+                scalarType.setScale(scale);
+            }
+        }
+        return res;
     }
 }

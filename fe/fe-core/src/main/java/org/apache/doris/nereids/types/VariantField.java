@@ -77,6 +77,10 @@ public class VariantField {
                 + (comment.isEmpty() ? "" : " COMMENT " + comment);
     }
 
+    public VariantField conversion() {
+        return new VariantField(pattern, dataType.conversion(), comment, patternType.toString());
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

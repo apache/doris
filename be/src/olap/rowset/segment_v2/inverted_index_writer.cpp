@@ -75,7 +75,7 @@ bool InvertedIndexColumnWriter::check_support_inverted_index(const TabletColumn&
     // bellow types are not supported in inverted index for extracted columns
     static std::set<FieldType> invalid_types = {
             FieldType::OLAP_FIELD_TYPE_DOUBLE, FieldType::OLAP_FIELD_TYPE_JSONB,
-            FieldType::OLAP_FIELD_TYPE_FLOAT, FieldType::OLAP_FIELD_TYPE_DECIMAL};
+            FieldType::OLAP_FIELD_TYPE_FLOAT};
     if (invalid_types.contains(column.type())) {
         return false;
     }

@@ -116,7 +116,6 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
 #undef DISABLE_INDEX_IF_FIELD_TYPE
 
 #undef CHECK_FIELD_TYPE
-    LOG(INFO) << "create column writer for " << column.name() << " type: " << (int)column.type();
     RETURN_IF_ERROR(ColumnWriter::create(*opt, &column, opt->file_writer, writer));
     RETURN_IF_ERROR((*writer)->init());
 
@@ -398,8 +397,8 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
                                                  current_column, ptr->rows(), current_column_id));
 
         // get stastics
-        // _statistics.subcolumns_non_null_size.emplace(entry->path.get_path(),
-        //                                              none_null_value_size);
+        _statistics.subcolumns_non_null_size.emplace(entry->path.get_path(),
+                                                     none_null_value_size);
     }
     return Status::OK();
 }
@@ -491,7 +490,7 @@ Status VariantColumnWriterImpl::finalize() {
         vectorized::schema_util::SubColumnInfo sub_column_info;
         if (vectorized::schema_util::generate_sub_column_info(*_opts.rowset_ctx->tablet_schema,
                                                               _tablet_column->unique_id(),
-                                                              entry->path, &sub_column_info)) {
+                                                              entry->path.get_path(), &sub_column_info)) {
             _subcolumns_info.emplace(entry->path, std::move(sub_column_info));
         }
     }
@@ -692,7 +691,7 @@ Status VariantSubcolumnWriter::finalize() {
     if (auto current_path = _tablet_column->path_info_ptr()->copy_pop_front();
         vectorized::schema_util::generate_sub_column_info(*_opts.rowset_ctx->tablet_schema,
                                                           _tablet_column->parent_unique_id(),
-                                                          current_path, &sub_column_info)) {
+                                                          current_path.get_path(), &sub_column_info)) {
         flush_column = sub_column_info.column;
         if (sub_column_info.index) {
             _index = std::make_unique<TabletIndex>(*sub_column_info.index);

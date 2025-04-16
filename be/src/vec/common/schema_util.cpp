@@ -714,7 +714,8 @@ void get_subpaths(const TabletColumn& variant,
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
         paths_with_sizes.reserve(stats.size());
         for (const auto& [path, size] : stats) {
-            if (size < 0) {
+            SubColumnInfo sub_column_info;
+            if (generate_sub_column_info(variant, uid, path, &sub_column_info)) {
                 uid_to_paths_set_info[uid].typed_path_set.emplace(path);
             } else {
                 paths_with_sizes.emplace_back(size, path);
@@ -841,7 +842,7 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
         VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
 
         // get the subpaths
-        get_subpaths(*column, uid_to_path_stats, uid_to_paths_set_info);
+        get_subpaths(target, uid_to_path_stats, uid_to_paths_set_info);
 
         auto append_subcolumn = [&](phmap::flat_hash_set<std::string>& path_set) {
             std::vector<StringRef> sorted_subpaths(path_set.begin(), path_set.end());
@@ -1145,19 +1146,14 @@ void get_field_info(const Field& field, FieldInfo* info) {
 }
 
 bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
-                              const PathInData& path, SubColumnInfo* sub_column_info) {
+                              const std::string& path, SubColumnInfo* sub_column_info) {
     const auto& parent_column = schema.column_by_uid(col_unique_id);
-    const auto& path_str = path.get_path();
     std::function<void(const TabletColumn&, TabletColumn*)> generate_result_column =
             [&](const TabletColumn& from_column, TabletColumn* to_column) {
-                to_column->set_name(parent_column.name_lower_case() + "." + path_str);
+                to_column->set_name(parent_column.name_lower_case() + "." + path);
                 to_column->set_type(from_column.type());
                 to_column->set_parent_unique_id(parent_column.unique_id());
-                vectorized::PathInDataBuilder full_path_builder;
-                auto full_path = full_path_builder.append(parent_column.name_lower_case(), false)
-                                         .append(path.get_parts(), false)
-                                         .build();
-                to_column->set_path_info(full_path);
+                to_column->set_path_info(PathInData(parent_column.name_lower_case() + "." + path));
                 to_column->set_aggregation_method(parent_column.aggregation());
                 to_column->set_is_nullable(true);
                 to_column->set_precision(from_column.precision());
@@ -1177,7 +1173,7 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
         const char* pattern = sub_column->name().c_str();
         switch (sub_column->pattern_type()) {
         case PatternTypePB::MATCH_NAME: {
-            if (strcmp(pattern, path_str.c_str()) == 0) {
+            if (strcmp(pattern, path.c_str()) == 0) {
                 generate_result_column(*sub_column, &sub_column_info->column);
                 sub_column_info->index =
                         schema.inverted_index_by_field_pattern(col_unique_id, std::string(pattern));

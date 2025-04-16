@@ -588,7 +588,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
                                     SubcolumnReader {std::move(reader), get_data_type_fn()});
             vectorized::schema_util::SubColumnInfo sub_column_info;
             if (vectorized::schema_util::generate_sub_column_info(
-                        *opts.tablet_schema, self_column_pb.unique_id(), relative_path,
+                        *opts.tablet_schema, self_column_pb.unique_id(), relative_path.get_path(),
                         &sub_column_info) &&
                 sub_column_info.index) {
                 const auto* index_meta = sub_column_info.index.get();

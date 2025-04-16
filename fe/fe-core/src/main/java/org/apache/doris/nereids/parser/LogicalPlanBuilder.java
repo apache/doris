@@ -3225,6 +3225,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     : ctx.type instanceof VariantPredefinedFieldsContext
                             ? visitVariantPredefinedFields((VariantPredefinedFieldsContext) ctx.type)
                         : visitAggStateDataType((AggStateDataTypeContext) ctx.type);
+        decimal_v2->decimal_v3
         colType = colType.conversion();
         boolean isKey = ctx.KEY() != null;
         ColumnNullableType nullableType = ColumnNullableType.DEFAULT;

@@ -785,7 +785,19 @@ public abstract class DataType {
             throw new AnalysisException("Unsupported data type: " + catalogType.toSql());
         }
 
-        if (catalogType.isScalarType()) {
+        if (catalogType.isVariantType()) {
+            ArrayList<org.apache.doris.catalog.VariantField> predefinedFields =
+                    ((org.apache.doris.catalog.VariantType) catalogType).getPredefinedFields();
+            Set<String> fieldPatterns = new HashSet<>();
+            for (org.apache.doris.catalog.VariantField field : predefinedFields) {
+                Type fieldType = field.getType();
+                validateNestedType(catalogType, fieldType);
+                if (!fieldPatterns.add(field.getPattern())) {
+                    throw new AnalysisException("Duplicate field name " + field.getPattern()
+                            + " in struct " + catalogType.toSql());
+                }
+            }
+        } else if (catalogType.isScalarType()) {
             validateScalarType((ScalarType) catalogType);
         } else if (catalogType.isComplexType()) {
             // now we not support array / map / struct nesting complex type
@@ -817,19 +829,6 @@ public abstract class DataType {
                             throw new AnalysisException("Duplicate field name " + field.getName()
                                     + " in struct " + catalogType.toSql());
                         }
-                    }
-                }
-            }
-            if (catalogType.isVariantType()) {
-                ArrayList<org.apache.doris.catalog.VariantField> predefinedFields =
-                        ((org.apache.doris.catalog.VariantType) catalogType).getPredefinedFields();
-                Set<String> fieldPatterns = new HashSet<>();
-                for (org.apache.doris.catalog.VariantField field : predefinedFields) {
-                    Type fieldType = field.getType();
-                    validateNestedType(catalogType, fieldType);
-                    if (!fieldPatterns.add(field.getPattern())) {
-                        throw new AnalysisException("Duplicate field name " + field.getPattern()
-                                + " in struct " + catalogType.toSql());
                     }
                 }
             }
