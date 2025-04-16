@@ -28,6 +28,7 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -644,6 +645,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         return builder.build();
     }
 
+    @VisibleForTesting
     public class ThriftHMSClient implements AutoCloseable {
         private final IMetaStoreClient client;
         private volatile Throwable throwable;
