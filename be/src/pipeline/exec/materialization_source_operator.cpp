@@ -28,7 +28,6 @@ Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized
                                                  bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-
     if (!local_state._shared_state->rpc_status.ok()) {
         return local_state._shared_state->rpc_status;
     }
@@ -39,10 +38,11 @@ Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized
         SCOPED_TIMER(local_state._merge_response_timer);
         RETURN_IF_ERROR(local_state._shared_state->merge_multi_response(block));
     }
-
     *eos = local_state._shared_state->last_block;
+
     if (!*eos) {
-        local_state._shared_state->sink_deps.back()->ready();
+        local_state._shared_state->sink_deps.back()->set_ready();
+
         ((CountedFinishDependency*)(local_state._shared_state->source_deps.back().get()))
                 ->add(local_state._shared_state->rpc_struct_map.size());
     } else {

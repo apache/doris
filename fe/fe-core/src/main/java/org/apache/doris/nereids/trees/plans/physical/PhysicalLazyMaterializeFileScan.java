@@ -48,7 +48,6 @@ public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
         return scan.getQualifier();
     }
 
-
     @Override
     public List<Slot> computeOutput() {
         if (output == null) {

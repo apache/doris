@@ -67,6 +67,10 @@ import java.util.Set;
  *     6: optional list<bool> fetch_row_store;
  *
  *     7：bool do_gc = false; // 最靠近root的 MaterializeNode设置为true，其它M 设置为false
+ *
+ *     类似于 slot_locs_lists, 不过其中的数字表示在 table 中的第几列
+ *     8. optional list<list<int>> table_idx_lists;
+ *
  * }
  */
 public class MaterializationNode extends PlanNode {
@@ -78,6 +82,7 @@ public class MaterializationNode extends PlanNode {
     private List<List<Column>> lazyColumns;
 
     private List<List<Integer>> locations;
+    private List<List<Integer>> idxs;
 
     private List<Boolean> rowStoreFlags;
 
@@ -124,6 +129,7 @@ public class MaterializationNode extends PlanNode {
         }
         output.append(detailPrefix).append("column_descs_lists").append(lazyColumns).append("\n");
         output.append(detailPrefix).append("locations: ").append(locations).append("\n");
+        output.append(detailPrefix).append("table_idxs: ").append(idxs).append("\n");
         output.append(detailPrefix).append("row_ids: ").append(rowIds).append("\n");
         output.append(detailPrefix).append("isTopMaterializeNode: ").append(isTopMaterializeNode).append("\n");
         return output.toString();
@@ -149,7 +155,7 @@ public class MaterializationNode extends PlanNode {
         msg.materialization_node.setColumnDescsLists(thriftCols);
 
         msg.materialization_node.setSlotLocsLists(locations);
-
+        msg.materialization_node.setColumnIdxsLists(idxs);
         msg.materialization_node.setFetchRowStores(rowStoreFlags);
         msg.materialization_node.setGcIdMap(isTopMaterializeNode);
     }
@@ -164,6 +170,10 @@ public class MaterializationNode extends PlanNode {
 
     public void setLocations(List<List<Integer>> locations) {
         this.locations = locations;
+    }
+
+    public void setIdxs(List<List<Integer>> idxs) {
+        this.idxs = idxs;
     }
 
     public void setRowStoreFlags(List<Boolean> rowStoreFlags) {

@@ -15,23 +15,47 @@ TEST(IdFileMapTest, BasicOperations) {
     IdFileMap id_file_map(1024);
 
     // Test adding a file mapping
-    auto mapping1 =
-            std::make_shared<FileMapping>(FileMapping {FileMappingType::DORIS_FORMAT, "file1"});
+
+    int64_t tablet_id = 1;
+    RowsetId rowset_id;
+    rowset_id.init(2);
+    uint32_t segment_id = 3;
+
+    auto mapping1 = std::make_shared<FileMapping>(tablet_id, rowset_id, segment_id);
     uint32_t id1 = id_file_map.get_file_mapping_id(mapping1);
     EXPECT_EQ(id1, 0);
 
-    auto mapping2 = std::make_shared<FileMapping>(FileMapping {FileMappingType::ORC, "file2"});
+    TFileRangeDesc scan_range;
+    scan_range.path = "https:a/b/c/d/a.parquet";
+    scan_range.start_offset = 120;
+
+    auto mapping2 = std::make_shared<FileMapping>(2, scan_range, false);
     uint32_t id2 = id_file_map.get_file_mapping_id(mapping2);
     EXPECT_EQ(id2, 1);
 
     // Test getting a file mapping
     auto retrieved_mapping1 = id_file_map.get_file_mapping(id1);
-    EXPECT_EQ(retrieved_mapping1->type, FileMappingType::DORIS_FORMAT);
-    EXPECT_EQ(retrieved_mapping1->value, "file1");
+    EXPECT_EQ(retrieved_mapping1->type, FileMappingType::INTERNAL);
+    std::cout << retrieved_mapping1->file_mapping_info_to_string() << "\n";
+    auto internal = retrieved_mapping1->file_mapping_info_to_string();
+
+    int64_t tablet_id_ans = 0;
+    memcpy(&tablet_id_ans, internal.data(), sizeof(tablet_id_ans));
+    EXPECT_EQ(tablet_id_ans, tablet_id);
+
+    RowsetId rowset_id_ans;
+    memcpy(&rowset_id_ans, internal.data() + sizeof(tablet_id_ans), sizeof(rowset_id_ans));
+    EXPECT_EQ(rowset_id_ans, rowset_id);
+
+    uint32_t segment_id_ans = 0;
+    memcpy(&segment_id_ans, internal.data() + sizeof(tablet_id_ans) + sizeof(rowset_id_ans),
+           sizeof(segment_id_ans));
+    EXPECT_EQ(segment_id_ans, segment_id);
 
     auto retrieved_mapping2 = id_file_map.get_file_mapping(id2);
-    EXPECT_EQ(retrieved_mapping2->type, FileMappingType::ORC);
-    EXPECT_EQ(retrieved_mapping2->value, "file2");
+    EXPECT_EQ(retrieved_mapping2->type, FileMappingType::EXTERNAL);
+    auto str = retrieved_mapping2->file_mapping_info_to_string();
+    EXPECT_TRUE(str.find(scan_range.path) != str.npos);
 
     // Test getting a non-existent file mapping
     auto retrieved_mapping3 = id_file_map.get_file_mapping(999);
@@ -41,17 +65,23 @@ TEST(IdFileMapTest, BasicOperations) {
 TEST(IdFileMapTest, ConcurrentAddAndGet) {
     IdFileMap id_file_map(1024);
     std::vector<std::thread> threads;
-    std::atomic<int> counter(0);
+
+    int64_t tablet_id = 1;
+    RowsetId rowset_id;
+    rowset_id.init(2);
 
     for (int i = 0; i < 10; ++i) {
         threads.emplace_back([&]() {
             for (int j = 0; j < 100; ++j) {
-                auto mapping = std::make_shared<FileMapping>(FileMapping {
-                        FileMappingType::DORIS_FORMAT, "file" + std::to_string(counter++)});
+                uint32_t segment_id = i * 1000 + j;
+
+                auto mapping = std::make_shared<FileMapping>(
+                        FileMapping {tablet_id, rowset_id, segment_id});
                 uint32_t id = id_file_map.get_file_mapping_id(mapping);
                 auto retrieved_mapping = id_file_map.get_file_mapping(id);
                 EXPECT_EQ(retrieved_mapping->type, mapping->type);
-                EXPECT_EQ(retrieved_mapping->value, mapping->value);
+                EXPECT_EQ(retrieved_mapping->file_mapping_info_to_string(),
+                          mapping->file_mapping_info_to_string());
             }
         });
     }

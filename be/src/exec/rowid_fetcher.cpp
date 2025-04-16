@@ -55,6 +55,7 @@
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"      // ExecEnv
+#include "runtime/fragment_mgr.h"  // FragmentMgr
 #include "runtime/runtime_state.h" // RuntimeState
 #include "runtime/types.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
@@ -67,6 +68,9 @@
 #include "vec/core/block.h" // Block
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/exec/format/orc/vorc_reader.h"
+#include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/scan/vfile_scanner.h"
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
@@ -285,15 +289,6 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     return Status::OK();
 }
 
-template <typename Func>
-auto scope_timer_run(Func fn, int64_t* cost) -> decltype(fn()) {
-    MonotonicStopWatch watch;
-    watch.start();
-    auto res = fn();
-    *cost += watch.elapsed_time() / 1000 / 1000;
-    return res;
-}
-
 struct IteratorKey {
     int64_t tablet_id;
     RowsetId rowset_id;
@@ -472,13 +467,17 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
 Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                                           PMultiGetResponseV2* response) {
     if (request.request_block_descs_size()) {
-        OlapReaderStatistics stats;
+        auto tquery_id = ((UniqueId)request.query_id()).to_thrift();
         std::vector<vectorized::Block> result_blocks(request.request_block_descs_size());
+
+        OlapReaderStatistics stats;
         int64_t acquire_tablet_ms = 0;
         int64_t acquire_rowsets_ms = 0;
         int64_t acquire_segments_ms = 0;
         int64_t lookup_row_data_ms = 0;
-        std::string row_store_buffer;
+
+        int64_t external_init_reader_ms = 0;
+        int64_t external_get_block_ms = 0;
 
         // Add counters for different file mapping types
         std::unordered_map<FileMappingType, int64_t> file_type_counts;
@@ -487,64 +486,40 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                 ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(request.query_id());
         if (!id_file_map) {
             return Status::InternalError("Backend:{} id_file_map is null, query_id: {}",
-                                         BackendOptions::get_localhost(),
-                                         print_id(request.query_id()));
+                                         BackendOptions::get_localhost(), print_id(tquery_id));
         }
 
         for (int i = 0; i < request.request_block_descs_size(); ++i) {
             const auto& request_block_desc = request.request_block_descs(i);
-
-            auto& result_block = result_blocks[i];
-            std::vector<SlotDescriptor> slots;
-            slots.reserve(request_block_desc.slots_size());
-            for (const auto& pslot : request_block_desc.slots()) {
-                slots.push_back(SlotDescriptor(pslot));
-            }
-            if (result_block.is_empty_column()) {
-                result_block = vectorized::Block(slots, request_block_desc.row_id_size());
-            }
-
-            TabletSchema full_read_schema;
-            for (const ColumnPB& column_pb : request_block_desc.column_descs()) {
-                full_read_schema.append_column(TabletColumn(column_pb));
-            }
-            std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
-
-            RowStoreReadStruct row_store_read_struct(row_store_buffer);
-            if (request_block_desc.fetch_row_store()) {
-                for (int j = 0; j < request_block_desc.slots_size(); ++j) {
-                    row_store_read_struct.serdes.emplace_back(
-                            slots[i].get_data_type_ptr()->get_serde());
-                    row_store_read_struct.col_uid_to_idx[slots[i].col_unique_id()] = i;
-                    row_store_read_struct.default_values.emplace_back(slots[i].col_default_value());
-                }
-            }
-
-            for (size_t j = 0; j < request_block_desc.row_id_size(); ++j) {
-                auto file_id = request_block_desc.file_id(j);
-                auto file_mapping = id_file_map->get_file_mapping(file_id);
-                if (!file_mapping) {
+            if (request_block_desc.row_id_size() >= 1) {
+                // Since this block belongs to the same table, we only need to take the first type for judgment.
+                auto first_file_id = request_block_desc.file_id(0);
+                auto first_file_mapping = id_file_map->get_file_mapping(first_file_id);
+                if (!first_file_mapping) {
                     return Status::InternalError(
                             "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
-                            BackendOptions::get_localhost(), print_id(request.query_id()), file_id);
+                            BackendOptions::get_localhost(), print_id(request.query_id()),
+                            first_file_id);
                 }
 
-                // Count file mapping types
-                file_type_counts[file_mapping->type]++;
+                file_type_counts[first_file_mapping->type] += request_block_desc.row_id_size();
 
-                if (file_mapping->type == FileMappingType::DORIS_FORMAT) {
-                    RETURN_IF_ERROR(read_doris_format_row(
-                            id_file_map, file_mapping, request_block_desc.row_id(j), slots,
-                            full_read_schema, row_store_read_struct, stats, &acquire_tablet_ms,
-                            &acquire_rowsets_ms, &acquire_segments_ms, &lookup_row_data_ms,
-                            iterator_map, result_block));
+                if (first_file_mapping->type == FileMappingType::INTERNAL) {
+                    RETURN_IF_ERROR(read_batch_doris_format_row(
+                            request_block_desc, id_file_map, tquery_id, result_blocks[i], stats,
+                            &acquire_tablet_ms, &acquire_rowsets_ms, &acquire_segments_ms,
+                            &lookup_row_data_ms));
+                } else {
+                    RETURN_IF_ERROR(read_batch_external_row(
+                            request_block_desc, id_file_map, first_file_mapping, tquery_id,
+                            result_blocks[i], &external_init_reader_ms, &external_get_block_ms));
                 }
             }
 
             [[maybe_unused]] size_t compressed_size = 0;
             [[maybe_unused]] size_t uncompressed_size = 0;
             int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
-            RETURN_IF_ERROR(result_block.serialize(
+            RETURN_IF_ERROR(result_blocks[i].serialize(
                     be_exec_version, response->add_blocks()->mutable_block(), &uncompressed_size,
                     &compressed_size, segment_v2::CompressionTypePB::LZ4));
         }
@@ -560,21 +535,170 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
         LOG(INFO) << "Query stats: "
                   << fmt::format(
+                             "Internal table:"
                              "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
                              "io_latency:{}ns, uncompressed_bytes_read:{}, bytes_read:{}, "
                              "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
-                             "lookup_row_data_ms:{}, file_types:[{}]",
+                             "lookup_row_data_ms:{}, file_types:[{}]; "
+                             "External table : init_reader_ms:{}, get_block_ms:{}",
                              stats.cached_pages_num, stats.total_pages_num,
                              stats.compressed_bytes_read, stats.io_ns,
                              stats.uncompressed_bytes_read, stats.bytes_read, acquire_tablet_ms,
                              acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms,
-                             file_type_stats);
+                             file_type_stats, external_init_reader_ms, external_get_block_ms);
     }
 
     if (request.has_gc_id_map() && request.gc_id_map()) {
         ExecEnv::GetInstance()->get_id_manager()->remove_id_file_map(request.query_id());
     }
 
+    return Status::OK();
+}
+
+Status RowIdStorageReader::read_batch_doris_format_row(
+        const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
+        const TUniqueId& query_id, vectorized::Block& result_block, OlapReaderStatistics& stats,
+        int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
+        int64_t* lookup_row_data_ms) {
+    std::vector<SlotDescriptor> slots;
+    slots.reserve(request_block_desc.slots_size());
+    for (const auto& pslot : request_block_desc.slots()) {
+        slots.push_back(SlotDescriptor(pslot));
+    }
+    if (result_block.is_empty_column()) [[likely]] {
+        result_block = vectorized::Block(slots, request_block_desc.row_id_size());
+    }
+
+    TabletSchema full_read_schema;
+    for (const ColumnPB& column_pb : request_block_desc.column_descs()) {
+        full_read_schema.append_column(TabletColumn(column_pb));
+    }
+    std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
+    std::string row_store_buffer;
+    RowStoreReadStruct row_store_read_struct(row_store_buffer);
+    if (request_block_desc.fetch_row_store()) {
+        for (int i = 0; i < request_block_desc.slots_size(); ++i) {
+            row_store_read_struct.serdes.emplace_back(slots[i].get_data_type_ptr()->get_serde());
+            row_store_read_struct.col_uid_to_idx[slots[i].col_unique_id()] = i;
+            row_store_read_struct.default_values.emplace_back(slots[i].col_default_value());
+        }
+    }
+
+    for (size_t j = 0; j < request_block_desc.row_id_size(); ++j) {
+        auto file_id = request_block_desc.file_id(j);
+        auto file_mapping = id_file_map->get_file_mapping(file_id);
+        if (!file_mapping) {
+            return Status::InternalError(
+                    "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
+                    BackendOptions::get_localhost(), print_id(query_id), file_id);
+        }
+
+        RETURN_IF_ERROR(read_doris_format_row(
+                id_file_map, file_mapping, request_block_desc.row_id(j), slots, full_read_schema,
+                row_store_read_struct, stats, acquire_tablet_ms, acquire_rowsets_ms,
+                acquire_segments_ms, lookup_row_data_ms, iterator_map, result_block));
+    }
+    return Status::OK();
+}
+
+Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& request_block_desc,
+                                                   std::shared_ptr<IdFileMap> id_file_map,
+                                                   std::shared_ptr<FileMapping> first_file_mapping,
+                                                   const TUniqueId& query_id,
+                                                   vectorized::Block& result_block,
+                                                   int64_t* init_reader_ms, int64_t* get_block_ms) {
+    std::vector<SlotDescriptor> slots;
+    TFileScanRangeParams rpc_scan_params;
+    TupleDescriptor tuple_desc(request_block_desc.desc(), false);
+    std::unordered_map<std::string, int> colname_to_slot_id;
+    std::unique_ptr<RuntimeState> runtime_state = nullptr;
+
+    std::unique_ptr<vectorized::VFileScanner> vfile_scanner_ptr = nullptr;
+
+    {
+        auto& external_info = first_file_mapping->get_external_file_info();
+        int plan_node_id = external_info.plan_node_id;
+        const auto& first_scan_range_desc = external_info.scan_range_desc;
+
+        auto query_ctx = ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(query_id);
+        const auto* old_scan_params = &(query_ctx->file_scan_range_params_map[plan_node_id]);
+        rpc_scan_params = *old_scan_params;
+
+        rpc_scan_params.required_slots.clear();
+        rpc_scan_params.column_idxs.clear();
+        rpc_scan_params.slot_name_to_schema_pos.clear();
+
+        std::set partition_name_set(first_scan_range_desc.columns_from_path_keys.begin(),
+                                    first_scan_range_desc.columns_from_path_keys.end());
+        slots.reserve(request_block_desc.slots().size());
+        for (auto slot_idx = 0; slot_idx < request_block_desc.slots().size(); ++slot_idx) {
+            auto pslot = request_block_desc.slots().at(slot_idx);
+
+            // Since vfile_scanner does not handle materialized slots,
+            // I manually change the slot to non-materialized here.
+            pslot.set_is_materialized(false);
+
+            slots.emplace_back(SlotDescriptor {pslot});
+            auto& slot = slots.back();
+
+            tuple_desc.add_slot(&slot);
+            colname_to_slot_id.emplace(slot.col_name(), slot.id());
+            TFileScanSlotInfo slot_info;
+            slot_info.slot_id = slot.id();
+            auto column_idx = request_block_desc.column_idxs(slot_idx);
+            if (partition_name_set.contains(slot.col_name())) {
+                //This is partition column.
+                slot_info.is_file_slot = false;
+            } else {
+                rpc_scan_params.column_idxs.emplace_back(column_idx);
+                slot_info.is_file_slot = true;
+            }
+            rpc_scan_params.required_slots.emplace_back(slot_info);
+            rpc_scan_params.slot_name_to_schema_pos.emplace(slot.col_name(), column_idx);
+        }
+
+        if (result_block.is_empty_column()) [[likely]] {
+            result_block = vectorized::Block(slots, request_block_desc.row_id_size());
+        }
+
+        const auto& query_options = query_ctx->get_query_options();
+        const auto& query_globals = query_ctx->get_query_globals();
+
+        /*
+         * The scan stage needs the information in query_options to generate different behaviors according to the specific variables:
+         *  query_options.hive_parquet_use_column_names, query_options.truncate_char_or_varchar_columns,query_globals.time_zone ...
+         *
+         * To ensure the same behavior as the scan stage, I get query_options query_globals from query_ctx, then create runtime_state
+         * and pass it to vfile_scanner so that the runtime_state information is the same as the scan stage and the behavior is also consistent.
+         */
+        runtime_state = RuntimeState::create_unique(query_id, -1, query_options, query_globals,
+                                                    ExecEnv::GetInstance(), query_ctx.get());
+
+        vfile_scanner_ptr = vectorized::VFileScanner::create_unique(
+                runtime_state.get(), &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
+
+        RETURN_IF_ERROR(vfile_scanner_ptr->prepare_for_read_one_line(first_scan_range_desc));
+    }
+
+    for (size_t j = 0; j < request_block_desc.row_id_size(); ++j) {
+        auto file_id = request_block_desc.file_id(j);
+        auto file_mapping = id_file_map->get_file_mapping(file_id);
+        if (!file_mapping) {
+            return Status::InternalError(
+                    "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
+                    BackendOptions::get_localhost(), print_id(query_id), file_id);
+        }
+
+        auto& external_info = file_mapping->get_external_file_info();
+        auto& scan_range_desc = external_info.scan_range_desc;
+
+        // Clear to avoid reading iceberg position delete file...
+        scan_range_desc.table_format_params.iceberg_params = TIcebergFileDesc {};
+
+        RETURN_IF_ERROR(vfile_scanner_ptr->read_one_line_from_range(
+                scan_range_desc, request_block_desc.row_id(j), &result_block, external_info,
+                init_reader_ms, get_block_ms));
+    }
     return Status::OK();
 }
 

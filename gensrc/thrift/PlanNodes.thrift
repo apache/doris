@@ -987,6 +987,8 @@ struct TMaterializationNode {
     7: optional list<bool> fetch_row_stores
     // Whethe to clear id map
     8: optional bool gc_id_map
+    // 与 slot_locs_lists 类型 不过它代表的是 当前slot 在 表中的位置（第几列）
+    9: optional list<list<i32>> column_idxs_lists; 
 }
 
 struct TPreAggregationNode {
