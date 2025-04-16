@@ -280,6 +280,9 @@ public class PaimonScanNode extends FileQueryScanNode {
         boolean applyCountPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
         // Just for counting the number of selected partitions for this paimon table
         Set<BinaryRow> selectedPartitionValues = Sets.newHashSet();
+        // if applyCountPushdown is true, we cannot to split the file
+        // because the raw file and deletion vector is one-to-one mapping
+        long realFileSplitSize = getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0);
         for (org.apache.paimon.table.source.Split split : paimonSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(split.rowCount());
@@ -304,9 +307,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                         try {
                             List<Split> dorisSplits = FileSplitter.splitFile(
                                     locationPath,
-                                    // if applyCountPushdown is true, we can't to split the file
-                                    // becasue the raw file and deletion vector is one-to-one mapping
-                                    getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0),
+                                    realFileSplitSize,
                                     null,
                                     file.length(),
                                     -1,
@@ -343,6 +344,9 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
             splitStats.add(splitStat);
         }
+
+        // We need to set the target size for all splits so that we can calculate the proportion of each split later.
+        splits.forEach(s -> s.setTargetSplitSize(realFileSplitSize));
 
         // if applyCountPushdown is true, calcute row count for count pushdown
         if (applyCountPushdown) {
