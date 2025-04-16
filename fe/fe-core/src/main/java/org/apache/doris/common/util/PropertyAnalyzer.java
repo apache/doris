@@ -1262,9 +1262,7 @@ public class PropertyAnalyzer {
         return Pair.of(storageVaultName, storageVaultId);
     }
 
-    /**
-     * analyze property like : "type" = "xxx";
-     */
+    /** analyze property like : "type" = "xxx"; */
     public static String analyzeType(Map<String, String> properties) {
         String type = null;
         if (properties != null && properties.containsKey(PROPERTIES_TYPE)) {
@@ -1470,19 +1468,17 @@ public class PropertyAnalyzer {
         Short replicaNumVal = analyzeReplicationNum(properties, prefix, (short) 0);
         ReplicaAllocation replicaAlloc = analyzeSpecifiedReplicaAllocation(properties, prefix, checkBackends);
 
-        // if both "replication_num" and "replication_allocation" properties are given,
-        // check if they are consistent
+        // both "replication_num" and "replication_allocation" are given
         if (replicaNumVal > 0 && !replicaAlloc.isEmpty()) {
-            // if the "replication_allocation" property only contains the default backend tag,
-            // and is equal to the value of "replication_num", return the default backend tag
+            // if allocation only uses the default tag and matches the number, allow it
             if (replicaAlloc.getAllocMap().size() == 1
                     && replicaNumVal.equals(replicaAlloc.getAllocMap().get(Tag.DEFAULT_BACKEND_TAG))) {
                 return new ReplicaAllocation(replicaNumVal);
-            } else {
-                throw new AnalysisException("duplicate properties: ["
-                        + PROPERTIES_REPLICATION_NUM + "] and ["
-                        + PROPERTIES_REPLICATION_ALLOCATION + "]");
             }
+            // otherwise, it's a conflict
+            throw new AnalysisException("duplicate properties: ["
+                + PROPERTIES_REPLICATION_NUM + "] and ["
+                + PROPERTIES_REPLICATION_ALLOCATION + "]");
         }
         // if only "replication_num" property is given, return with default backend tag
         if (replicaNumVal > 0) {
