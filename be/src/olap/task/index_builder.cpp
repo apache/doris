@@ -399,7 +399,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 auto column_name = inverted_index.columns[0];
                 auto column_idx = output_rowset_schema->field_index(column_name);
                 if (column_idx < 0) {
-                    if (!inverted_index.column_unique_ids.empty()) {
+                    if (inverted_index.__isset.column_unique_ids &&
+                        !inverted_index.column_unique_ids.empty()) {
                         column_idx = output_rowset_schema->field_index(
                                 inverted_index.column_unique_ids[0]);
                     }
