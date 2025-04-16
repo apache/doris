@@ -80,10 +80,6 @@ void update_rowsets_and_segments_num_metrics() {
         auto* metrics = DorisMetrics::instance();
         metrics->all_rowsets_num->set_value(engine.tablet_manager()->get_rowset_nums());
         metrics->all_segments_num->set_value(engine.tablet_manager()->get_segment_nums());
-        metrics->valid_delete_bitmap_key_count->set_value(
-                engine.tablet_manager()->get_valid_delete_bitmap_key_count());
-        metrics->invalid_delete_bitmap_key_count->set_value(
-                engine.tablet_manager()->get_invalid_delete_bitmap_key_count());
     }
 }
 
@@ -462,6 +458,18 @@ void Daemon::report_runtime_query_statistics_thread() {
     }
 }
 
+void Daemon::report_delete_bitmap_metrics_thread() {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::report_delete_bitmap_metrics_interval_s))) {
+        StorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_local();
+        auto* metrics = DorisMetrics::instance();
+        metrics->valid_delete_bitmap_key_count->set_value(
+                engine.tablet_manager()->get_valid_delete_bitmap_key_count());
+        metrics->invalid_delete_bitmap_key_count->set_value(
+                engine.tablet_manager()->get_invalid_delete_bitmap_key_count());
+    }
+}
+
 void Daemon::je_reset_dirty_decay_thread() const {
     do {
         std::unique_lock<std::mutex> l(doris::JemallocControl::je_reset_dirty_decay_lock);
@@ -621,6 +629,11 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "query_runtime_statistics_thread",
             [this]() { this->report_runtime_query_statistics_thread(); }, &_threads.emplace_back());
+    CHECK(st.ok()) << st;
+
+    st = Thread::create(
+            "Daemon", "delete_bitmap_metrics_thread",
+            [this]() { this->report_delete_bitmap_metrics_thread(); }, &_threads.emplace_back());
     CHECK(st.ok()) << st;
 
     if (config::enable_be_proc_monitor) {
