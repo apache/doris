@@ -54,6 +54,9 @@ public:
                   const std::vector<RowsetSharedPtr>& target_rowsets, int64_t end_version,
                   DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                   DeleteBitmapPtr tablet_delete_bitmap);
+    Status submit(BaseTabletSPtr tablet, RowsetId rowset_id,
+                  const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                  DeleteBitmapPtr delete_bitmap);
 
     // wait all tasks in token to be completed.
     Status wait();
