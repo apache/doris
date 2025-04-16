@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <functional>
+#include <memory>
 #include <type_traits>
 
 #include "common/exception.h"
@@ -34,6 +36,7 @@
 #include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/number_traits.h"
@@ -931,6 +934,13 @@ private:
     }
 };
 
+struct BinaryArithmeticState {
+    std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, uint32_t, size_t)> impl;
+    DataTypePtr left_type;
+    DataTypePtr right_type;
+    DataTypePtr result_type;
+};
+
 template <template <typename, typename> class Operation, typename Name, bool is_to_null_type>
 class FunctionBinaryArithmetic : public IFunction {
     using OpTraits = OperationTraits<Operation>;
@@ -1032,25 +1042,22 @@ public:
         return type_res;
     }
 
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
-        auto* left_generic = block.get_by_position(arguments[0]).type.get();
-        auto* right_generic = block.get_by_position(arguments[1]).type.get();
-        auto* result_generic = block.get_by_position(result).type.get();
-        if (left_generic->is_nullable()) {
-            left_generic =
-                    static_cast<const DataTypeNullable*>(left_generic)->get_nested_type().get();
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
         }
-        if (right_generic->is_nullable()) {
-            right_generic =
-                    static_cast<const DataTypeNullable*>(right_generic)->get_nested_type().get();
-        }
-        if (result_generic->is_nullable()) {
-            result_generic =
-                    static_cast<const DataTypeNullable*>(result_generic)->get_nested_type().get();
-        }
+        std::shared_ptr<BinaryArithmeticState> state = std::make_shared<BinaryArithmeticState>();
+        context->set_function_state(scope, state);
 
-        bool check_overflow_for_decimal = context->check_overflow_for_decimal();
+        state->left_type =
+                DataTypeFactory::instance().create_data_type(*context->get_arg_type(0), false);
+        state->right_type =
+                DataTypeFactory::instance().create_data_type(*context->get_arg_type(1), false);
+        state->result_type =
+                DataTypeFactory::instance().create_data_type(context->get_return_type(), false);
+        const auto* left_generic = state->left_type.get();
+        const auto* right_generic = state->right_type.get();
+        const auto* result_generic = state->result_type.get();
         Status status;
         bool valid = cast_both_types(
                 left_generic, right_generic, result_generic,
@@ -1062,47 +1069,17 @@ public:
                             typename BinaryOperationTraits<Operation, LeftDataType,
                                                            RightDataType>::ResultDataType;
                     if constexpr (
-                            !std::is_same_v<ResultDataType, InvalidType> &&
+                            (!std::is_same_v<ResultDataType,
+                                             InvalidType> /* Cannot be InvalidType */) &&
                             (IsDataTypeDecimal<ExpectedResultDataType> ==
                              IsDataTypeDecimal<
-                                     ResultDataType>)&&(IsDataTypeDecimal<ExpectedResultDataType> ==
-                                                        (IsDataTypeDecimal<LeftDataType> ||
-                                                         IsDataTypeDecimal<RightDataType>))) {
-                        if (check_overflow_for_decimal) {
-                            // !is_to_null_type: plus, minus, multiply,
-                            //                   pow, bitxor, bitor, bitand
-                            // if check_overflow and params are decimal types:
-                            //   for functions pow, bitxor, bitor, bitand, return error
-                            if constexpr (IsDataTypeDecimal<ResultDataType> && !is_to_null_type &&
-                                          !OpTraits::is_multiply && !OpTraits::is_plus_minus) {
-                                status = Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
-                                        "cannot check overflow with decimal for function {}", name);
-                                return false;
-                            }
-                            auto column_result = ConstOrVectorAdapter<
-                                    LeftDataType, RightDataType,
-                                    std::conditional_t<IsDataTypeDecimal<ExpectedResultDataType>,
-                                                       ExpectedResultDataType, ResultDataType>,
-                                    Operation, Name, is_to_null_type,
-                                    true>::execute(block.get_by_position(arguments[0]).column,
-                                                   block.get_by_position(arguments[1]).column, left,
-                                                   right,
-                                                   remove_nullable(
-                                                           block.get_by_position(result).type));
-                            block.replace_by_position(result, std::move(column_result));
-                        } else {
-                            auto column_result = ConstOrVectorAdapter<
-                                    LeftDataType, RightDataType,
-                                    std::conditional_t<IsDataTypeDecimal<ExpectedResultDataType>,
-                                                       ExpectedResultDataType, ResultDataType>,
-                                    Operation, Name, is_to_null_type,
-                                    false>::execute(block.get_by_position(arguments[0]).column,
-                                                    block.get_by_position(arguments[1]).column,
-                                                    left, right,
-                                                    remove_nullable(
-                                                            block.get_by_position(result).type));
-                            block.replace_by_position(result, std::move(column_result));
-                        }
+                                     ResultDataType> /* The type planned by FE and the type planned by BE must both be Decimal or not */) &&
+                            (IsDataTypeDecimal<ExpectedResultDataType> ==
+                             (IsDataTypeDecimal<LeftDataType> ||
+                              IsDataTypeDecimal<
+                                      RightDataType>)/* Only when at least one of left or right is Decimal, the return value can be Decimal */)) {
+                        state->impl = execute_with_type<LeftDataType, RightDataType,
+                                                        ExpectedResultDataType>;
                         return true;
                     }
                     return false;
@@ -1113,6 +1090,87 @@ public:
                                             get_name());
             }
             return status;
+        }
+
+        return Status::OK();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto* state = reinterpret_cast<BinaryArithmeticState*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        if (!state) {
+            return Status::RuntimeError("function context for function '{}' must have Set;",
+                                        get_name());
+        }
+        if (state->impl) {
+            return state->impl(context, block, arguments, result, input_rows_count);
+        } else {
+            return Status::RuntimeError("function context for function '{}' must have Set;",
+                                        get_name());
+        }
+    }
+
+    template <typename LeftDataType, typename RightDataType, typename ExpectedResultDataType>
+    static Status execute_with_type(FunctionContext* context, Block& block,
+                                    const ColumnNumbers& arguments, uint32_t result,
+                                    size_t input_rows_count) {
+        auto left_type = std::dynamic_pointer_cast<const LeftDataType>(
+                remove_nullable(block.get_by_position(arguments[0]).type));
+        auto right_type = std::dynamic_pointer_cast<const RightDataType>(
+                remove_nullable(block.get_by_position(arguments[1]).type));
+
+        if (left_type == nullptr || right_type == nullptr) {
+            auto* state = reinterpret_cast<BinaryArithmeticState*>(
+                    context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+            auto expected_type =
+                    fmt::format("signature({}, {}) -> {}", state->left_type->get_name(),
+                                state->right_type->get_name(), state->result_type->get_name());
+            auto runtime_type = fmt ::format("signature({}, {}) -> {}",
+                                             block.get_by_position(arguments[0]).type->get_name(),
+                                             block.get_by_position(arguments[1]).type->get_name(),
+                                             block.get_by_position(result).type->get_name());
+            return Status::RuntimeError(
+                    "function context for function '{}' runtime types do not match expected types "
+                    ", expected type is  {} , actual runtime type is  {} ",
+                    name, expected_type, runtime_type);
+        }
+
+        bool check_overflow_for_decimal = context->check_overflow_for_decimal();
+        using ResultDataType = typename BinaryOperationTraits<Operation, LeftDataType,
+                                                              RightDataType>::ResultDataType;
+
+        if (check_overflow_for_decimal) {
+            // !is_to_null_type: plus, minus, multiply,
+            //                   pow, bitxor, bitor, bitand
+            // if check_overflow and params are decimal types:
+            //   for functions pow, bitxor, bitor, bitand, return error
+            if constexpr (IsDataTypeDecimal<ResultDataType> && !is_to_null_type &&
+                          !OpTraits::is_multiply && !OpTraits::is_plus_minus) {
+                return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                        "cannot check overflow with decimal for function {}", name);
+            }
+            auto column_result = ConstOrVectorAdapter<
+                    LeftDataType, RightDataType,
+                    std::conditional_t<IsDataTypeDecimal<ExpectedResultDataType>,
+                                       ExpectedResultDataType, ResultDataType>,
+                    Operation, Name, is_to_null_type,
+                    true>::execute(block.get_by_position(arguments[0]).column,
+                                   block.get_by_position(arguments[1]).column, *left_type,
+                                   *right_type,
+                                   remove_nullable(block.get_by_position(result).type));
+            block.replace_by_position(result, std::move(column_result));
+        } else {
+            auto column_result = ConstOrVectorAdapter<
+                    LeftDataType, RightDataType,
+                    std::conditional_t<IsDataTypeDecimal<ExpectedResultDataType>,
+                                       ExpectedResultDataType, ResultDataType>,
+                    Operation, Name, is_to_null_type,
+                    false>::execute(block.get_by_position(arguments[0]).column,
+                                    block.get_by_position(arguments[1]).column, *left_type,
+                                    *right_type,
+                                    remove_nullable(block.get_by_position(result).type));
+            block.replace_by_position(result, std::move(column_result));
         }
 
         return Status::OK();
