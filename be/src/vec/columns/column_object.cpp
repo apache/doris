@@ -260,7 +260,7 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
         if (schema_util::is_conversion_required_between_integers(
                     base_type.idx, least_common_type.get_base_type_id())) {
             VLOG_DEBUG << "Conversion between " << getTypeName(base_type.idx) << " and "
-                       << getTypeName(least_common_type.get_type_id());
+                       << getTypeName(least_common_type.get_base_type_id());
             DataTypePtr base_data_type;
             TypeIndex base_data_type_id;
             get_least_supertype_jsonb(
@@ -792,7 +792,8 @@ void ColumnObject::try_insert(const Field& field) {
     }
     for (auto& entry : subcolumns) {
         if (old_size == entry->data.size()) {
-            bool inserted = try_insert_default_from_nested(entry);
+            bool inserted = UNLIKELY(entry->path.has_nested_part() &&
+                                     try_insert_default_from_nested(entry));
             if (!inserted) {
                 entry->data.insert_default();
             }
@@ -838,7 +839,6 @@ bool ColumnObject::Subcolumn::is_null_at(size_t n) const {
         }
         ind -= part->size();
     }
-
     throw doris::Exception(ErrorCode::OUT_OF_BOUND, "Index ({}) for getting field is out of range",
                            n);
 }
@@ -873,7 +873,6 @@ void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
 
         ind -= part->size();
     }
-
     throw doris::Exception(ErrorCode::OUT_OF_BOUND, "Index ({}) for getting field is out of range",
                            n);
 }
@@ -894,20 +893,18 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
     row -= num_of_defaults_in_prefix;
     for (size_t i = 0; i < data.size(); ++i) {
         const auto& part = data[i];
-        size_t current_column_size = part->size();
+        const auto& nullable_col =
+                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*part);
+        size_t current_column_size = nullable_col.get_null_map_data().size();
         if (row < current_column_size) {
             // no need null in sparse column
-            if (!assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*part).is_null_at(
-                        row)) {
+            if (!nullable_col.is_null_at(row)) {
                 // insert key
                 key->insert_data(path.data(), path.size());
 
                 // every subcolumn is always Nullable
                 auto nullable_serde =
                         std::static_pointer_cast<DataTypeNullableSerDe>(data_serdes[i]);
-                auto& nullable_col =
-                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*part);
-
                 // insert value
                 ColumnString::Chars& chars = value->get_chars();
                 nullable_serde->get_nested_serde()->write_one_cell_to_binary(
@@ -1343,7 +1340,6 @@ size_t ColumnObject::Subcolumn::serialize_text_json(size_t n, BufferWritable& ou
 
         ind -= part->size();
     }
-
     throw doris::Exception(ErrorCode::OUT_OF_BOUND,
                            "Index ({}) for serializing JSON is out of range", n);
 }
@@ -1906,7 +1902,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
         for (size_t i = 0; i < std::min(size_t(_max_subcolumns_count), sorted_by_size.size());
              ++i) {
             // if too many null values, then consider it as sparse column
-            if ((double)sorted_by_size[i].second < (double)num_rows * 0.95) {
+            if ((double)sorted_by_size[i].second < (double)num_rows * 0.99) {
                 continue;
             }
             selected_path.insert(sorted_by_size[i].first);
@@ -2035,6 +2031,7 @@ void ColumnObject::clear_column_data() {
             (*std::move(part)).clear();
         }
         entry->data.num_of_defaults_in_prefix = 0;
+        entry->data.current_num_of_defaults = 0;
         entry->data.num_rows = 0;
     }
     serialized_sparse_column->clear();
