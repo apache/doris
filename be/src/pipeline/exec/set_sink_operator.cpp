@@ -66,6 +66,11 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
                     e.to_string(), _terminated, _finish_dependency->debug_string());
         }
     }
+
+    if (_runtime_filter_producer_helper) {
+        _runtime_filter_producer_helper->collect_realtime_profile(profile());
+    }
+
     return Base::close(state, exec_status);
 }
 
@@ -209,7 +214,7 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
 
     RETURN_IF_ERROR(_shared_state->update_build_not_ignore_null(_child_exprs));
 
-    _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelperSet>(profile());
+    _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelperSet>();
     RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, _child_exprs,
                                                           parent._runtime_filter_descs));
     return Status::OK();

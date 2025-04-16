@@ -22,6 +22,7 @@
 #include "pipeline/dependency.h"
 #include "runtime/query_context.h"
 #include "runtime_filter/runtime_filter.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -46,10 +47,8 @@ public:
     };
 
     static Status create(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
-                         std::shared_ptr<RuntimeFilterProducer>* res,
-                         RuntimeProfile* parent_profile) {
-        *res = std::shared_ptr<RuntimeFilterProducer>(
-                new RuntimeFilterProducer(query_ctx, desc, parent_profile));
+                         std::shared_ptr<RuntimeFilterProducer>* res) {
+        *res = std::shared_ptr<RuntimeFilterProducer>(new RuntimeFilterProducer(query_ctx, desc));
         RETURN_IF_ERROR((*res)->_init_with_desc(desc, &query_ctx->query_options()));
         return Status::OK();
     }
@@ -117,23 +116,32 @@ public:
             return false;
         }
         _rf_state = state;
-        _profile->add_info_string("Info", debug_string());
         return true;
     }
 
     std::shared_ptr<RuntimeFilterWrapper> wrapper() const { return _wrapper; }
     void set_wrapper(std::shared_ptr<RuntimeFilterWrapper> wrapper) { _wrapper = wrapper; }
 
-private:
-    RuntimeFilterProducer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
-                          RuntimeProfile* parent_profile)
-            : RuntimeFilter(desc),
-              _is_broadcast_join(desc->is_broadcast_join),
-              _profile(new RuntimeProfile(fmt::format("RF{}", desc->filter_id))) {
-        if (parent_profile) { //tmp filter for mgr has no profile
-            parent_profile->add_child(_profile.get(), true, nullptr);
+    void collect_realtime_profile(RuntimeProfile* parent_operator_profile) {
+        DCHECK(parent_operator_profile != nullptr);
+        if (parent_operator_profile == nullptr) {
+            return;
+        }
+        /*
+        RuntimeFilterInfo:
+            - RF0 Info: xxxx
+        */
+        {
+            std::unique_lock<std::mutex> l(_mtx);
+            parent_operator_profile->add_description(
+                    fmt::format("RF{} Info", _wrapper->filter_id()), debug_string(),
+                    "RuntimeFilterInfo");
         }
     }
+
+private:
+    RuntimeFilterProducer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc)
+            : RuntimeFilter(desc), _is_broadcast_join(desc->is_broadcast_join) {}
 
     Status _send_to_remote_targets(RuntimeState* state, RuntimeFilter* merger_filter);
     Status _send_to_local_targets(RuntimeState* state, RuntimeFilter* merger_filter, bool global);
@@ -150,7 +158,6 @@ private:
         RETURN_IF_ERROR(RuntimeFilter::_init_with_desc(desc, options));
         _need_sync_filter_size = _wrapper->build_bf_by_runtime_size() && !_is_broadcast_join;
         _rf_state = _need_sync_filter_size ? State::WAITING_FOR_SEND_SIZE : State::WAITING_FOR_DATA;
-        _profile->add_info_string("Info", debug_string());
         return Status::OK();
     }
 
@@ -161,7 +168,6 @@ private:
     std::shared_ptr<pipeline::CountedFinishDependency> _dependency;
 
     std::atomic<State> _rf_state;
-    std::unique_ptr<RuntimeProfile> _profile;
 
     // only used to lock set_state() to make _rf_state is protected
     // set_synced_size and RuntimeFilterProducerHelper::terminate may called in different threads at the same time

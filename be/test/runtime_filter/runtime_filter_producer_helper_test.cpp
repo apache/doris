@@ -57,7 +57,7 @@ class RuntimeFilterProducerHelperTest : public RuntimeFilterTest {
 };
 
 TEST_F(RuntimeFilterProducerHelperTest, basic) {
-    auto helper = RuntimeFilterProducerHelper(&_profile, true, false);
+    auto helper = RuntimeFilterProducerHelper(true, false);
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
@@ -82,7 +82,7 @@ TEST_F(RuntimeFilterProducerHelperTest, basic) {
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
-    auto helper = RuntimeFilterProducerHelper(&_profile, true, false);
+    auto helper = RuntimeFilterProducerHelper(true, false);
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
@@ -106,7 +106,7 @@ TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
-    auto helper = RuntimeFilterProducerHelper(&_profile, true, false);
+    auto helper = RuntimeFilterProducerHelper(true, false);
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
@@ -137,7 +137,7 @@ TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, broadcast) {
-    auto helper = RuntimeFilterProducerHelper(&_profile, true, true);
+    auto helper = RuntimeFilterProducerHelper(true, true);
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
@@ -160,7 +160,7 @@ TEST_F(RuntimeFilterProducerHelperTest, broadcast) {
             helper.build(_runtime_states[0].get(), &block, true, runtime_filters));
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.publish(_runtime_states[0].get()));
 
-    auto helper2 = RuntimeFilterProducerHelper(&_profile, false, true);
+    auto helper2 = RuntimeFilterProducerHelper(false, true);
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper2.init(_runtime_states[1].get(), build_expr_ctxs, runtime_filter_descs));
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(

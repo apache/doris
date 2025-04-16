@@ -88,7 +88,7 @@ TEST_F(RuntimeFilterConsumerHelperTest, basic) {
 
     std::shared_ptr<RuntimeFilterProducer> producer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
-            _query_ctx.get(), runtime_filter_descs.data(), &producer, &_profile));
+            _query_ctx.get(), runtime_filter_descs.data(), &producer));
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
     helper._consumers[0]->signal(producer.get());
 
