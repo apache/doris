@@ -1033,7 +1033,22 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
         const GeoPoint* point = (const GeoPoint*)rhs;
-        return _polygon->Contains(*point->point());
+        if (!_polygon->Contains(*point->point())) {
+            return false;
+        }
+
+        // Point on the edge of polygon doesn't count as "Contians"
+        for (int i = 0; i < _polygon->num_loops(); ++i) {
+            const S2Loop* loop = _polygon->loop(i);
+            for (int j = 0; j < loop->num_vertices(); ++j) {
+                const S2Point& p1 = loop->vertex(j);
+                const S2Point& p2 = loop->vertex((j + 1) % loop->num_vertices());
+                if (compute_distance_to_line(*point->point(), p1, p2) < TOLERANCE) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
