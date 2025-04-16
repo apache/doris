@@ -6391,7 +6391,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean ifExist = ctx.EXISTS() != null;
         UserDesc userDesc = visitGrantUserIdentify(ctx.grantUserIdentify());
         PasswordOptions passwordOptions = visitPasswordOption(ctx.passwordOption());
-        String comment = ctx.STRING_LITERAL() != null ? ctx.STRING_LITERAL().getText() : null;
+        String comment = ctx.STRING_LITERAL() != null ? stripQuotes(ctx.STRING_LITERAL().getText()) : null;
         AlterUserInfo alterUserInfo = new AlterUserInfo(ifExist, userDesc, passwordOptions, comment);
         return new AlterUserCommand(alterUserInfo);
     }
