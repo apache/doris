@@ -41,4 +41,6 @@ suite("like_with_escape") {
 	
 	result = sql "select * from test_employees_001 where name like '%#_#%' escape '#';"
 	assertEquals(3, result.size())
+	
+	sql """drop database if exists test_like_with_escape"""
 }
