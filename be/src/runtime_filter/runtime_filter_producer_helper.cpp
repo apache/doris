@@ -45,12 +45,15 @@ Status RuntimeFilterProducerHelper::init(
 
 Status RuntimeFilterProducerHelper::send_filter_size(
         RuntimeState* state, uint64_t hash_table_size,
-        std::shared_ptr<pipeline::CountedFinishDependency> dependency) {
+        const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
     if (_skip_runtime_filters_process) {
         return Status::OK();
     }
     for (const auto& filter : _producers) {
-        RETURN_IF_ERROR(filter->send_size(state, hash_table_size, dependency));
+        filter->latch_dependency(dependency);
+    }
+    for (const auto& filter : _producers) {
+        RETURN_IF_ERROR(filter->send_size(state, hash_table_size));
     }
     return Status::OK();
 }
@@ -84,18 +87,14 @@ Status RuntimeFilterProducerHelper::_publish(RuntimeState* state) {
     return Status::OK();
 }
 
-Status RuntimeFilterProducerHelper::process(
-        RuntimeState* state, const vectorized::Block* block,
-        const vectorized::SharedHashTableContextPtr& shared_hash_table_ctx) {
+Status RuntimeFilterProducerHelper::build(
+        RuntimeState* state, const vectorized::Block* block, bool use_shared_table,
+        std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters) {
     if (_skip_runtime_filters_process) {
         return Status::OK();
     }
 
-    bool wake_up_early = state->get_task()->wake_up_early();
-    // Runtime filter is ignored partially which has no effect on correctness.
-    auto wrapper_state = wake_up_early ? RuntimeFilterWrapper::State::IGNORED
-                                       : RuntimeFilterWrapper::State::READY;
-    if (_should_build_hash_table && !wake_up_early) {
+    if (_should_build_hash_table) {
         // Hash table is completed and runtime filter has a global size now.
         uint64_t hash_table_size = block ? block->rows() : 0;
         RETURN_IF_ERROR(_init_filters(state, hash_table_size));
@@ -106,30 +105,53 @@ Status RuntimeFilterProducerHelper::process(
     }
 
     for (const auto& filter : _producers) {
-        if (shared_hash_table_ctx && !wake_up_early) {
+        if (use_shared_table) {
             DCHECK(_is_broadcast_join);
             if (_should_build_hash_table) {
-                filter->copy_to_shared_context(shared_hash_table_ctx);
+                DCHECK(!runtime_filters.contains(filter->wrapper()->filter_id()));
+                runtime_filters[filter->wrapper()->filter_id()] = filter->wrapper();
             } else {
-                filter->copy_from_shared_context(shared_hash_table_ctx);
+                DCHECK(runtime_filters.contains(filter->wrapper()->filter_id()));
+                filter->set_wrapper(runtime_filters[filter->wrapper()->filter_id()]);
             }
         }
-        filter->set_wrapper_state_and_ready_to_publish(wrapper_state);
+        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    }
+    return Status::OK();
+}
+
+Status RuntimeFilterProducerHelper::terminate(RuntimeState* state) {
+    if (_skip_runtime_filters_process) {
+        return Status::OK();
+    }
+
+    for (const auto& filter : _producers) {
+        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
     }
 
     RETURN_IF_ERROR(_publish(state));
     return Status::OK();
 }
 
+Status RuntimeFilterProducerHelper::publish(RuntimeState* state) {
+    if (_skip_runtime_filters_process) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_publish(state));
+    return Status::OK();
+}
+
 Status RuntimeFilterProducerHelper::skip_process(RuntimeState* state) {
-    RETURN_IF_ERROR(send_filter_size(state, 0, nullptr));
+    auto mocked_dependency =
+            std::make_shared<pipeline::CountedFinishDependency>(0, 0, "MOCKED_FINISH_DEPENDENCY");
+    RETURN_IF_ERROR(send_filter_size(state, 0, mocked_dependency));
 
     for (const auto& filter : _producers) {
         filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED,
                                                        "skip all rf process");
     }
 
-    RETURN_IF_ERROR(_publish(state));
+    RETURN_IF_ERROR(publish(state));
     _skip_runtime_filters_process = true;
     _profile->add_info_string("SkipProcess", "True");
     return Status::OK();

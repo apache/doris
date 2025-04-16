@@ -145,7 +145,8 @@ Status VHivePartitionWriter::close(const Status& status) {
         }
     }
     if (status_ok) {
-        _state->hive_partition_updates().emplace_back(_build_partition_update());
+        auto partition_update = _build_partition_update();
+        _state->add_hive_partition_updates(partition_update);
     }
     return result_status;
 }

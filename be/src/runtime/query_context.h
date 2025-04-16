@@ -41,7 +41,6 @@
 #include "util/hash_util.hpp"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/runtime/shared_hash_table_controller.h"
 #include "workload_group/workload_group.h"
 
 namespace doris {
@@ -61,6 +60,7 @@ struct ReportStatusRequest {
     TUniqueId fragment_instance_id;
     int backend_num;
     RuntimeState* runtime_state;
+    std::string load_error_url;
     std::function<void(const Status&)> cancel_fn;
 };
 
@@ -149,7 +149,7 @@ public:
 
     void init_query_task_controller();
 
-    ExecEnv* exec_env() { return _exec_env; }
+    ExecEnv* exec_env() const { return _exec_env; }
 
     bool is_timeout(timespec now) const {
         if (_timeout_second <= 0) {
@@ -184,10 +184,6 @@ public:
     void set_memory_sufficient(bool sufficient);
 
     void set_ready_to_execute_only();
-
-    std::shared_ptr<vectorized::SharedHashTableController> get_shared_hash_table_controller() {
-        return _shared_hash_table_controller;
-    }
 
     bool has_runtime_predicate(int source_node_id) {
         return _runtime_predicates.contains(source_node_id);
@@ -392,6 +388,9 @@ public:
 
     std::string debug_string();
 
+    void set_load_error_url(std::string error_url);
+    std::string get_load_error_url();
+
 private:
     int _timeout_second;
     TUniqueId _query_id;
@@ -414,7 +413,6 @@ private:
     void _init_resource_context();
     void _init_query_mem_tracker();
 
-    std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
@@ -480,6 +478,9 @@ private:
 
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
     _collect_realtime_query_profile() const;
+
+    std::mutex _error_url_lock;
+    std::string _load_error_url;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

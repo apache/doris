@@ -37,7 +37,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "inverted_index_query_type.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"

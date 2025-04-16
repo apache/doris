@@ -47,7 +47,6 @@ class RuntimeFilterConsumerHelperTest : public RuntimeFilterTest {
 
         _task.reset(new pipeline::PipelineTask(_pipeline, 0, _runtime_states[0].get(), nullptr,
                                                &_profile, {}, 0));
-        _runtime_states[0]->set_task(_task.get());
 
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(ExecEnv::GetInstance()->init_pipeline_task_scheduler());
     }
@@ -70,37 +69,38 @@ TEST_F(RuntimeFilterConsumerHelperTest, basic) {
             TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build(),
             TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build()};
 
-    std::vector<std::shared_ptr<pipeline::RuntimeFilterDependency>> runtime_filter_dependencies;
+    std::vector<std::shared_ptr<pipeline::Dependency>> runtime_filter_dependencies;
     SlotDescriptor slot_desc;
     TupleDescriptor tuple_desc;
     tuple_desc.add_slot(&slot_desc);
     RowDescriptor row_desc;
     _tbl._slot_desc_map[0] = &slot_desc;
     const_cast<std::vector<TupleDescriptor*>&>(row_desc._tuple_desc_map).push_back(&tuple_desc);
-    auto helper = RuntimeFilterConsumerHelper(0, runtime_filter_descs, row_desc);
+    auto helper = RuntimeFilterConsumerHelper(runtime_filter_descs);
 
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.init(_runtime_states[0].get(), &_profile, true,
-                                                 runtime_filter_dependencies, 0, 0, ""));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            helper.init(_runtime_states[0].get(), true, 0, 0, runtime_filter_dependencies, ""));
 
     vectorized::VExprContextSPtrs conjuncts;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.acquire_runtime_filter(conjuncts));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            helper.acquire_runtime_filter(_runtime_states[0].get(), conjuncts, row_desc));
     ASSERT_EQ(conjuncts.size(), 0);
 
     std::shared_ptr<RuntimeFilterProducer> producer;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterProducer::create(RuntimeFilterParamsContext::create(_query_ctx.get()),
-                                          runtime_filter_descs.data(), &producer, &_profile));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
+            _query_ctx.get(), runtime_filter_descs.data(), &producer, &_profile));
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
     helper._consumers[0]->signal(producer.get());
 
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.acquire_runtime_filter(conjuncts));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            helper.acquire_runtime_filter(_runtime_states[0].get(), conjuncts, row_desc));
     ASSERT_EQ(conjuncts.size(), 1);
 
     conjuncts.clear();
     int arrived_rf_num = -1;
     helper._consumers[1]->signal(producer.get());
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.try_append_late_arrival_runtime_filter(&arrived_rf_num, conjuncts));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.try_append_late_arrival_runtime_filter(
+            _runtime_states[0].get(), &arrived_rf_num, conjuncts, row_desc));
     ASSERT_EQ(conjuncts.size(), 1);
     ASSERT_EQ(arrived_rf_num, 2);
 }

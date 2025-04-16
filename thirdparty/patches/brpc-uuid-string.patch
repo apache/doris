@@ -1,0 +1,123 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -110,6 +110,34 @@ set(DEFINE_CLOCK_GETTIME "-DNO_CLOCK_GETTIME_IN_MAC")
+     endif()
+     set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -Wno-deprecated-declarations -Wno-inconsistent-missing-override")
++
++    # Check if xcrun exists and get SDK version if it does
++    execute_process(
++        COMMAND which xcrun
++        RESULT_VARIABLE XCRUN_RESULT
++        OUTPUT_QUIET
++        ERROR_QUIET
++    )
++
++    if(XCRUN_RESULT EQUAL 0)
++        # xcrun exists, detect SDK version
++        execute_process(
++            COMMAND xcrun --sdk macosx --show-sdk-version
++            OUTPUT_VARIABLE MACOSX_SDK_VERSION
++            OUTPUT_STRIP_TRAILING_WHITESPACE
++        )
++        message(STATUS "Detected macOS SDK version: ${MACOSX_SDK_VERSION}")
++
++        if(MACOSX_SDK_VERSION VERSION_LESS 10.14)
++            message(STATUS "macOS SDK version < 10.14; not applying _DARWIN_C_SOURCE or uuid fix.")
++        else()
++            message(STATUS "macOS SDK version >= 10.14; applying Darwin-specific uuid fix.")
++            add_definitions(-D_DARWIN_C_SOURCE)
++            add_definitions(-DUSE_DARWIN_UUID_FIX)
++        endif()
++    else()
++        message(STATUS "xcrun not found; skipping Darwin-specific SDK checks.")
++    endif()
+ endif()
+
+ set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} ${DEFINE_CLOCK_GETTIME} -DBRPC_WITH_GLOG=${WITH_GLOG_VAL} -DBRPC_WITH_RDMA=${WITH_RDMA_VAL} -DGFLAGS_NS=${GFLAGS_NS}")
+
+diff --git a/src/brpc/macos_uuid_fix.h b/src/brpc/macos_uuid_fix.h
+new file mode 100644
+index 00000000..623a6454
+--- /dev/null
++++ b/src/brpc/macos_uuid_fix.h
+@@ -0,0 +1,9 @@
++#ifdef __APPLE__
++#ifdef USE_DARWIN_UUID_FIX
++#include <uuid/uuid.h>
++#ifndef _UUID_STRING_T
++#define _UUID_STRING_T
++typedef char uuid_string_t[37];
++#endif
++#endif
++#endif
+
+diff --git a/src/butil/mac/bundle_locations.mm b/src/butil/mac/bundle_locations.mm
+--- a/src/butil/mac/bundle_locations.mm
++++ b/src/butil/mac/bundle_locations.mm
+@@ -1,7 +1,8 @@
+ // Copyright (c) 2012 The Chromium Authors. All rights reserved.
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+
++#include "brpc/macos_uuid_fix.h"
+ #include "butil/mac/bundle_locations.h"
+
+ #include "butil/logging.h"
+
+diff --git a/src/butil/mac/foundation_util.h b/src/butil/mac/foundation_util.h
+--- a/src/butil/mac/foundation_util.h
++++ b/src/butil/mac/foundation_util.h
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+
++#include "brpc/macos_uuid_fix.h"
+ #ifndef BUTIL_MAC_FOUNDATION_UTIL_H_
+ #define BUTIL_MAC_FOUNDATION_UTIL_H_
+
+
+diff --git a/src/butil/mac/foundation_util.mm b/src/butil/mac/foundation_util.mm
+--- a/src/butil/mac/foundation_util.mm
++++ b/src/butil/mac/foundation_util.mm
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+
++#include "brpc/macos_uuid_fix.h"
+ #include "butil/mac/foundation_util.h"
+
+ #include <stdlib.h>
+
+diff --git a/src/butil/threading/platform_thread_mac.mm b/src/butil/threading/platform_thread_mac.mm
+--- a/src/butil/threading/platform_thread_mac.mm
++++ b/src/butil/threading/platform_thread_mac.mm
+@@ -3,3 +3,4 @@
+ // found in the LICENSE file.
+
++#include "brpc/macos_uuid_fix.h"
+ #include "butil/threading/platform_thread.h"
+
+diff --git a/src/butil/file_util_mac.mm b/src/butil/file_util_mac.mm
+--- a/src/butil/file_util_mac.mm
++++ b/src/butil/file_util_mac.mm
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+
++#include "brpc/macos_uuid_fix.h"
+ #include "butil/file_util.h"
+
+ #import <Foundation/Foundation.h>
+
+diff --git a/src/butil/strings/sys_string_conversions_mac.mm b/src/butil/strings/sys_string_conversions_mac.mm
+--- a/src/butil/strings/sys_string_conversions_mac.mm
++++ b/src/butil/strings/sys_string_conversions_mac.mm
+@@ -2,5 +2,6 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+
++#include "brpc/macos_uuid_fix.h"
+ #include "butil/mac/foundation_util.h"
+ #include "butil/mac/scoped_cftyperef.h"
+

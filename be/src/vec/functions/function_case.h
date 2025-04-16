@@ -25,7 +25,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
