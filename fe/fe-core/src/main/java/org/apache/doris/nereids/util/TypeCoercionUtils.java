@@ -163,7 +163,7 @@ public class TypeCoercionUtils {
         if (originExpr.getDataType().equals(result.getDataType())) {
             return result;
         }
-        // backend can use direct use all string like type without cast
+        // backend can direct use all string like type without cast
         if (originExpr.getDataType().isStringLikeType() && result.getDataType().isStringLikeType()) {
             return result;
         }
