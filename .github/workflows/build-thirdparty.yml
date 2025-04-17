@@ -163,7 +163,6 @@ jobs:
             'coreutils'
             'gnu-getopt'
             'python@3'
-            'cmake@3.22'
             'ninja'
             'ccache'
             'bison'
@@ -177,9 +176,15 @@ jobs:
             'llvm@16'
           )
 
-          brew unlink cmake || true
+          # Install packages except cmake
           brew install "${packages[@]}" || true
-          brew link cmake@3.22
+
+          # Install specific version of cmake
+          brew unlink cmake || true
+          wget https://github.com/Kitware/CMake/releases/download/v3.22.1/cmake-3.22.1-macos-universal.tar.gz
+          tar -xzf cmake-3.22.1-macos-universal.tar.gz
+          sudo cp -r cmake-3.22.1-macos-universal/CMake.app/Contents/* /usr/local/
+          cmake --version
 
       - name: Build
         run: |
@@ -216,7 +221,6 @@ jobs:
             'coreutils'
             'gnu-getopt'
             'python@3'
-            'cmake@3.22'
             'ninja'
             'ccache'
             'bison'
@@ -230,9 +234,13 @@ jobs:
             'llvm@16'
           )
 
-          brew unlink cmake || true
+          # Install packages except cmake
           brew install "${packages[@]}" || true
-          brew link cmake@3.22
+
+          # Install specific version of cmake
+          brew unlink cmake || true
+          brew install --build-from-source https://raw.githubusercontent.com/Homebrew/homebrew-core/e38c9acd1a/Formula/cmake.rb
+          cmake --version
 
       - name: Build
         run: |
