@@ -81,6 +81,10 @@ enum class InvertedIndexQueryType {
     MATCH_PHRASE_EDGE_QUERY = 10,
 };
 
+inline bool is_equal_query(InvertedIndexQueryType query_type) {
+    return query_type == InvertedIndexQueryType::EQUAL_QUERY;
+}
+
 inline bool is_range_query(InvertedIndexQueryType query_type) {
     return (query_type == InvertedIndexQueryType::GREATER_THAN_QUERY ||
             query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY ||

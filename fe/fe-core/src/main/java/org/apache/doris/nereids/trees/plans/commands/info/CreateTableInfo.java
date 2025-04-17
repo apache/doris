@@ -676,7 +676,9 @@ public class CreateTableInfo {
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             boolean disableInvertedIndexV1ForVariant = false;
-            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
+
+            Set<Pair<IndexDef.IndexType, List<String>>> nonInvertedIndexes = new HashSet<>();
+            Map<List<String>, Set<Boolean>> invertedIndexes = new HashMap<>();
             try {
                 invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
                         new HashMap<>(properties));
@@ -709,6 +711,23 @@ public class CreateTableInfo {
                     }
                 }
                 distinct.add(indexDef.getIndexName());
+
+                List<String> colNames = indexDef.getColumnNames().stream()
+                        .map(String::toUpperCase)
+                        .collect(Collectors.toList());
+                if (indexDef.isAllStringInvertedIndex(columns)) {
+                    boolean isAnalyzed = indexDef.isAnalyzedInvertedIndex();
+                    Set<Boolean> analyzedSet = invertedIndexes.computeIfAbsent(colNames, k -> new HashSet<>());
+                    if (!analyzedSet.add(isAnalyzed)) {
+                        throw new AnalysisException(
+                                "Duplicate inverted index with same analyzed property on columns: " + colNames);
+                    }
+                } else {
+                    Pair<IndexDef.IndexType, List<String>> pair = Pair.of(indexDef.getIndexType(), colNames);
+                    if (!nonInvertedIndexes.add(pair)) {
+                        throw new AnalysisException("Duplicate index type and columns: " + pair);
+                    }
+                }
             }
             if (distinct.size() != indexes.size()) {
                 throw new AnalysisException("index name must be unique.");

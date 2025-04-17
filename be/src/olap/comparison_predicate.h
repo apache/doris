@@ -73,7 +73,6 @@ public:
         if (iterator == nullptr) {
             return Status::OK();
         }
-        std::string column_name = name_with_type.first;
 
         InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
         switch (PT) {
@@ -104,7 +103,7 @@ public:
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(
                 InvertedIndexQueryParamFactory::create_query_value<Type>(&_value, query_param));
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, query_param->get_value(),
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(name_with_type, query_param->get_value(),
                                                            query_type, num_rows, roaring));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL

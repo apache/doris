@@ -776,8 +776,8 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
     // UNTOKENIZED strings exceed ignore_above, they are written as null, causing range query errors
     if (PredicateTypeTraits::is_range(pred->type()) &&
         _inverted_index_iterators[pred_column_id] != nullptr &&
-        _inverted_index_iterators[pred_column_id]->get_inverted_index_reader_type() ==
-                InvertedIndexReaderType::STRING_TYPE) {
+        _inverted_index_iterators[pred_column_id]->get_reader(
+                InvertedIndexReaderType::STRING_TYPE)) {
         return false;
     }
 
@@ -854,9 +854,9 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
 }
 
 bool SegmentIterator::_column_has_fulltext_index(int32_t cid) {
-    bool has_fulltext_index = _inverted_index_iterators[cid] != nullptr &&
-                              _inverted_index_iterators[cid]->get_inverted_index_reader_type() ==
-                                      InvertedIndexReaderType::FULLTEXT;
+    bool has_fulltext_index =
+            _inverted_index_iterators[cid] != nullptr &&
+            _inverted_index_iterators[cid]->get_reader(InvertedIndexReaderType::FULLTEXT);
 
     return has_fulltext_index;
 }
@@ -946,18 +946,13 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
 
 Status SegmentIterator::_apply_inverted_index() {
     std::vector<ColumnPredicate*> remaining_predicates;
-    std::set<const ColumnPredicate*> no_need_to_pass_column_predicate_set;
 
-    for (auto pred : _col_predicates) {
-        if (no_need_to_pass_column_predicate_set.count(pred) > 0) {
-            continue;
-        } else {
-            bool continue_apply = true;
-            RETURN_IF_ERROR(_apply_inverted_index_on_column_predicate(pred, remaining_predicates,
-                                                                      &continue_apply));
-            if (!continue_apply) {
-                break;
-            }
+    for (auto* pred : _col_predicates) {
+        bool continue_apply = true;
+        RETURN_IF_ERROR(_apply_inverted_index_on_column_predicate(pred, remaining_predicates,
+                                                                  &continue_apply));
+        if (!continue_apply) {
+            break;
         }
     }
 
@@ -1082,21 +1077,13 @@ Status SegmentIterator::_init_inverted_index_iterators() {
             // This is because the sub-column is created in create_materialized_variant_column.
             // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
             const auto& column = _opts.tablet_schema->column(cid);
-            const TabletIndex* index_meta = nullptr;
-            if (column.is_extracted_column()) {
-                if (_segment->_column_readers.find(column.parent_unique_id()) ==
-                    _segment->_column_readers.end()) {
-                    continue;
-                }
-                auto* column_reader = _segment->_column_readers.at(column.parent_unique_id()).get();
-                index_meta = assert_cast<VariantColumnReader*>(column_reader)
-                                     ->find_subcolumn_tablet_index(column.suffix_path());
-            } else {
-                index_meta = _segment->_tablet_schema->inverted_index(column.unique_id());
-            }
-            if (index_meta) {
+            int32_t col_unique_id =
+                    column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
+            auto inverted_indexs =
+                    _segment->_tablet_schema->inverted_indexs(col_unique_id, column.suffix_path());
+            for (const auto& inverted_index : inverted_indexs) {
                 RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
-                        column, index_meta, _opts, &_inverted_index_iterators[cid]));
+                        column, inverted_index, _opts, &_inverted_index_iterators[cid]));
             }
         }
     }

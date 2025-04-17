@@ -659,7 +659,7 @@ public:
             return Status::OK();
         }
 
-        if (iter->get_inverted_index_reader_type() != segment_v2::InvertedIndexReaderType::BKD) {
+        if (iter->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
             // Not support only bkd index
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, ip range reader can only support by bkd "
@@ -717,13 +717,13 @@ public:
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &min_ip, query_param));
         RETURN_IF_ERROR(iter->read_from_inverted_index(
-                data_type_with_name.first, query_param->get_value(),
+                data_type_with_name, query_param->get_value(),
                 segment_v2::InvertedIndexQueryType::GREATER_EQUAL_QUERY, num_rows, res_roaring));
         // <= max ip
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &max_ip, query_param));
         RETURN_IF_ERROR(iter->read_from_inverted_index(
-                data_type_with_name.first, query_param->get_value(),
+                data_type_with_name, query_param->get_value(),
                 segment_v2::InvertedIndexQueryType::LESS_EQUAL_QUERY, num_rows, max_roaring));
 
         DBUG_EXECUTE_IF("ip.inverted_index_filtered", {

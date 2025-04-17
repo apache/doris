@@ -223,15 +223,18 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (_opts.write_type == DataWriteType::TYPE_DIRECT && schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
-
     // indexes for this column
-    if (const auto& index = schema->inverted_index(column);
-        index != nullptr && !skip_inverted_index) {
-        opts.inverted_index = index;
-        opts.need_inverted_index = true;
-        DCHECK(_inverted_index_file_writer != nullptr);
+    if (!skip_inverted_index) {
+        auto inverted_indexs = schema->inverted_indexs(column);
+        if (!inverted_indexs.empty()) {
+            for (const auto& index : inverted_indexs) {
+                opts.inverted_indexs.emplace_back(index);
+            }
+            opts.need_inverted_index = true;
+            DCHECK(_inverted_index_file_writer != nullptr);
+            opts.inverted_index_file_writer = _inverted_index_file_writer;
+        }
     }
-    opts.inverted_index_file_writer = _inverted_index_file_writer;
 
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \

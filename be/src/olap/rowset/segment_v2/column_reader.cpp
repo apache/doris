@@ -781,9 +781,10 @@ Status ColumnReader::new_inverted_index_iterator(
     RETURN_IF_ERROR(_ensure_inverted_index_loaded(std::move(index_file_reader), index_meta));
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
-        if (_inverted_index) {
-            RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.io_ctx, read_options.stats,
-                                                          read_options.runtime_state, iterator));
+        auto iter = _inverted_indexs.find(index_meta->index_id());
+        if (iter != _inverted_indexs.end()) {
+            RETURN_IF_ERROR(iter->second->new_iterator(read_options.io_ctx, read_options.stats,
+                                                       read_options.runtime_state, iterator));
         }
     }
     return Status::OK();
@@ -1066,8 +1067,13 @@ Status ColumnReader::_load_inverted_index_index(
         std::shared_ptr<InvertedIndexFileReader> index_file_reader, const TabletIndex* index_meta) {
     std::unique_lock<std::shared_mutex> wlock(_load_index_lock);
 
-    if (_inverted_index && index_meta &&
-        _inverted_index->get_index_id() == index_meta->index_id()) {
+    if (index_meta == nullptr) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "Failed to load inverted index: index metadata is null");
+    }
+
+    auto it = _inverted_indexs.find(index_meta->index_id());
+    if (it != _inverted_indexs.end()) {
         return Status::OK();
     }
 
@@ -1080,17 +1086,18 @@ Status ColumnReader::_load_inverted_index_index(
         type = _type_info->type();
     }
 
+    std::shared_ptr<InvertedIndexReader> inverted_index;
     if (is_string_type(type)) {
         if (parser_type != InvertedIndexParserType::PARSER_NONE) {
             try {
-                _inverted_index = FullTextIndexReader::create_shared(index_meta, index_file_reader);
+                inverted_index = FullTextIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create FullTextIndexReader error: {}", e.what());
             }
         } else {
             try {
-                _inverted_index =
+                inverted_index =
                         StringTypeInvertedIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -1099,18 +1106,16 @@ Status ColumnReader::_load_inverted_index_index(
         }
     } else if (is_numeric_type(type)) {
         try {
-            _inverted_index = BkdIndexReader::create_shared(index_meta, index_file_reader);
+            inverted_index = BkdIndexReader::create_shared(index_meta, index_file_reader);
         } catch (const CLuceneError& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "create BkdIndexReader error: {}", e.what());
         }
     } else {
-        _inverted_index.reset();
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "Field type {} is not supported for inverted index", type);
     }
-    // TODO: move has null to inverted_index_reader's query function
-    //bool has_null = true;
-    //RETURN_IF_ERROR(index_file_reader->has_null(index_meta, &has_null));
-    //_inverted_index->set_has_null(has_null);
+    _inverted_indexs[index_meta->index_id()] = inverted_index;
     return Status::OK();
 }
 
