@@ -27,11 +27,9 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <iterator>
 #include <memory>
-#include <optional>
 #include <type_traits>
 #include <utility>
 
-#include "agent/be_exec_version_manager.h"
 #include "common/cast_set.h"
 #include "common/compiler_util.h"
 #include "common/exception.h"
@@ -42,7 +40,6 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/sort_block.h"
-#include "vec/core/sort_description.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
@@ -129,7 +126,6 @@ struct WindowFunnelState {
                                              DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>;
     int event_count = 0;
     int64_t window;
-    int version {};
     bool enable_mode;
     WindowFunnelMode window_funnel_mode;
     DataValue events_list;
@@ -156,31 +152,15 @@ struct WindowFunnelState {
                     assert_cast<const ColumnVector<UInt8>&>(*arg_columns[3 + i])
                             .get_data()[row_num]);
         }
-        LOG(INFO) << "add: " << events_list.debug_string();
     }
 
     void sort() {
         std::vector<size_t> indices(events_list.size());
         std::iota(indices.begin(), indices.end(), 0);
-        std::string before = "\n";
-        for (size_t i = 0; i < indices.size(); ++i) {
-            before += std::to_string(indices[i]) + ",";
-        }
-        before += "\n";
-        std::sort(indices.begin(), indices.end(), [this](size_t i1, size_t i2) {
-            return events_list.dt[i1] < events_list.dt[i2];
-        });
-        for (size_t i = 0; i < indices.size(); ++i) {
-            before += std::to_string(indices[i]) + ",";
-        }
-        LOG(INFO)<< before;
+        std::sort(indices.begin(), indices.end(),
+                  [this](size_t i1, size_t i2) { return events_list.dt[i1] < events_list.dt[i2]; });
 
         auto reorder = [&indices](auto& vec) {
-            std::string before = "\n";
-            for (size_t i = 0; i < vec.size(); ++i) {
-                before += std::to_string(vec[i]) + ",";
-            }
-            before += "\n";
             std::vector<typename std::decay_t<decltype(vec)>::value_type> temp;
             temp.reserve(indices.size());
             for (auto idx : indices) {
@@ -190,11 +170,6 @@ struct WindowFunnelState {
             for (auto val : temp) {
                 vec.push_back(val);
             }
-            for (size_t i = 0; i < vec.size(); ++i) {
-                before += std::to_string(vec[i]) + ",";
-            }
-            before += "\n";
-            LOG(INFO) << before;
         };
 
         reorder(events_list.dt);
@@ -209,7 +184,6 @@ struct WindowFunnelState {
         DateValueType start_timestamp;
         DateValueType end_timestamp;
         TimeInterval interval(SECOND, window, false);
-        LOG(INFO) << events_list.debug_string();
         int column_idx = 0;
         const auto& timestamp_data = events_list.dt;
         const auto& first_event_data = events_list.event_columns_data[column_idx].data();
@@ -225,10 +199,8 @@ struct WindowFunnelState {
             auto last_match_row = match_row;
             ++match_row;
             for (; column_idx < event_count && match_row < row_count; column_idx++, match_row++) {
-                // const auto& event_data = events_list.event_columns_data[column_idx].data();
                 const auto& event_data = events_list.event_columns_data[column_idx];
                 if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::FIXED) {
-                    // if (*(event_data + match_row) == 1) {
                     if (event_data[match_row] == 1) {
                         auto current_timestamp =
                                 binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
@@ -240,13 +212,10 @@ struct WindowFunnelState {
                     break;
                 }
                 match_row = simd::find_one(event_data.data(), match_row, row_count);
-                LOG(INFO) << "last_match_row: " << last_match_row << " match_row: " << match_row<<" "<<
-                            column_idx << " " << event_data[match_row];
                 if (match_row < row_count) {
                     auto current_timestamp =
                             binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
                     bool is_matched = current_timestamp <= end_timestamp;
-                    LOG(INFO)<<"asd time: "<<prev_timestamp<<" "<<current_timestamp<<" "<<end_timestamp<<" "<<is_matched<<" "<<((WINDOW_FUNNEL_MODE == WindowFunnelMode::DEDUPLICATION));
                     if (is_matched) {
                         if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::INCREASE) {
                             is_matched = current_timestamp > prev_timestamp;
@@ -268,7 +237,6 @@ struct WindowFunnelState {
                                         events_list.event_columns_data[tmp_column_idx].data();
                                 auto dup_match_row = simd::find_one(tmp_event_data,
                                                                     last_match_row + 1, match_row);
-                                LOG(INFO)<<"dup_match_row: " << last_match_row <<" "<<match_row<<" "<<dup_match_row<<" "<<tmp_column_idx;
                                 if (dup_match_row < match_row) {
                                     is_dup = true;
                                     break;
@@ -305,23 +273,17 @@ struct WindowFunnelState {
     }
     int get() const {
         auto row_count = events_list.size();
-        LOG(INFO) << "asd " << event_count << " " << row_count << " ";
-        ;
         if (event_count == 0 || row_count == 0) {
             return 0;
         }
         switch (window_funnel_mode) {
         case WindowFunnelMode::DEFAULT:
-            LOG(INFO) << "default";
             return _get_internal<WindowFunnelMode::DEFAULT>();
         case WindowFunnelMode::DEDUPLICATION:
-            LOG(INFO) << "deduplication";
             return _get_internal<WindowFunnelMode::DEDUPLICATION>();
         case WindowFunnelMode::FIXED:
-            LOG(INFO) << "fixed";
             return _get_internal<WindowFunnelMode::FIXED>();
         case WindowFunnelMode::INCREASE:
-            LOG(INFO) << "increase";
             return _get_internal<WindowFunnelMode::INCREASE>();
         default:
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid window_funnel mode");
@@ -400,7 +362,6 @@ struct WindowFunnelState {
                 event_columns_data[j] = static_cast<UInt8>(temp_value);
             }
         }
-        LOG(INFO) << "read " << event_count << " " << window;
     }
 };
 
@@ -419,7 +380,7 @@ public:
         auto data = new (place) WindowFunnelState<TYPE_INDEX, NativeType>(
                 cast_set<int>(IAggregateFunction::get_argument_types().size() - 3));
         /// support window funnel mode from 2.0. See `BeExecVersionManager::max_be_exec_version`
-        data->enable_mode = version >= 3;
+        data->enable_mode = IAggregateFunction::version >= 3;
     }
 
     String get_name() const override { return "window_funnel"; }
