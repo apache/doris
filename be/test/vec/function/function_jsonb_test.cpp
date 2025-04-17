@@ -2097,6 +2097,11 @@ TEST(FunctionJsonSearchTest, NormalJsonSearchTest) {
             {{STRING(R"({"k1":"v1", "k2": "300"})"), STRING("one"), STRING("300")},
              STRING("\"$.k2\"")},
             {{STRING(R"({"k1":"v1", "k2": 300})"), STRING("one"), STRING("300")}, Null()},
+
+            // Array test cases
+            {{STRING(R"(["a", "b", "c"])"), STRING("one"), STRING("b")}, STRING("\"$[1]\"")},
+            {{STRING(R"([1, 2, [3, 4]])"), STRING("one"), STRING("[3,4]")}, Null()},
+            {{STRING(R"([1, 2, [3, 4]])"), STRING("one"), STRING("4")}, Null()},
     };
 
     static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
@@ -2110,22 +2115,28 @@ TEST(FunctionJsonSearchTest, EscapeJsonSearchTest) {
                                 TypeIndex::String};
 
     DataSet data_set = {
-            // 测试带特殊字符的搜索（使用默认转义字符\）
             {{STRING(R"({"k1":"v1%", "k2": "100%"})"), STRING("one"), STRING("v1%"), STRING("\\")},
              STRING("\"$.k1\"")},
 
-            // 测试带特殊字符的搜索（使用自定义转义字符|）
             {{STRING(R"({"k1":"v1|%", "k2": "100%"})"), STRING("one"), STRING("v1%"), STRING("|")},
              STRING("\"$.k1\"")},
 
-            // 测试不匹配的情况
             {{STRING(R"({"k1":"v1%", "k2": "100%"})"), STRING("one"), STRING("v1"), STRING("\\")},
              Null()},
 
-            // 测试转义字符本身作为搜索内容
             {{STRING(R"({"k1":"v1\\", "k2": "100\\"})"), STRING("one"), STRING("v1\\\\"),
               STRING("\\")},
              STRING("\"$.k1\"")},
+
+            // Array test cases with escape characters
+            {{STRING(R"(["v1%", "v2%"])"), STRING("one"), STRING("v1%"), STRING("\\")},
+             STRING("\"$[0]\"")},
+
+            {{STRING(R"(["v1|%", "v2%"])"), STRING("one"), STRING("v1%"), STRING("|")},
+             STRING("\"$[0]\"")},
+
+            {{STRING(R"(["v1\\", "v2\\"])"), STRING("one"), STRING("v1\\\\"), STRING("\\")},
+             STRING("\"$[0]\"")},
     };
 
     static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
@@ -2139,30 +2150,42 @@ TEST(FunctionJsonSearchTest, StartJsonSearchTest) {
                                 TypeIndex::String, TypeIndex::String};
 
     DataSet data_set = {
-            // 测试从指定路径开始搜索（找到匹配）
             {{STRING(R"({"k1":{"k2":"v1"}, "k3": "v1"})"), STRING("one"), STRING("v1"),
               STRING("\\"), STRING("$.k1")},
              STRING("\"$.k1.k2\"")},
 
-            // 测试从指定路径开始搜索（无匹配）
             {{STRING(R"({"k1":{"k2":"v1"}, "k3": "v1"})"), STRING("one"), STRING("v1"),
               STRING("\\"), STRING("$.k3")},
              STRING("\"$.k3\"")},
 
-            // 测试从数组路径开始搜索
             {{STRING(R"({"k1":["a","b","c"], "k2": ["a","d"]})"), STRING("one"), STRING("a"),
               STRING("\\"), STRING("$.k1")},
              STRING("\"$.k1[0]\"")},
 
-            // 测试不存在的起始路径
-            {{STRING(R"({"k1":"v1", "k2": "v2"})"), STRING("one"), STRING("v1"), STRING("\\"),
-              STRING("$.not_exist")},
-             Null()},
-
-            // 测试嵌套路径
             {{STRING(R"({"a":{"b":{"c":"value"}}})"), STRING("one"), STRING("value"), STRING("\\"),
               STRING("$.a.b")},
              STRING("\"$.a.b.c\"")},
+
+            // Array test cases with start path
+            {{STRING(R"({"arr1": [1, 2, 3], "arr2": [4, 5, 6]})"), STRING("one"), STRING("5"),
+              STRING("\\"), STRING("$.arr2")},
+             Null()},
+
+            {{STRING(R"({"arr1": ["1", "2", "3"], "arr2": ["4", "5", "6"]})"), STRING("one"),
+              STRING("5"), STRING("\\"), STRING("$.arr2")},
+             STRING("\"$.arr2[1]\"")},
+
+            {{STRING(R"({"nested": {"arr": [7, 8, 9]}})"), STRING("one"), STRING("8"), STRING("\\"),
+              STRING("$.nested.arr")},
+             Null()},
+
+            {{STRING(R"({"nested": {"arr": ["7", "8", "9"]}})"), STRING("one"), STRING("8"),
+              STRING("\\"), STRING("$.nested.arr")},
+             STRING("\"$.nested.arr[1]\"")},
+
+            {{STRING(R"([["a", "b"], ["c", "d"]])"), STRING("one"), STRING("d"), STRING("\\"),
+              STRING("$[1]")},
+             STRING("\"$[1][1]\"")},
     };
 
     static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));

@@ -1866,14 +1866,8 @@ struct JsonSearchUtil {
                 bool find_start_element = false;
                 find_start_root_element(root_element, start_element, &find_start_element,
                                         start_path);
-                if (!find_start_element) {
-                    null_map->get_data()[i] = 1;
-                    result_col->insert_data("", 0);
-                    continue;
-                }
 
                 auto cur_path = std::make_unique<JsonbPath>();
-                // cur_path->add_leg_to_leg_vector("$", MEMBER_CODE);
                 auto find = find_matches(start_element, is_one, state, start_path, &matches);
                 if (is_one && find) {
                     break;

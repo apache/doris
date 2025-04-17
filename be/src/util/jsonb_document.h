@@ -401,9 +401,15 @@ public:
 
     bool starts_with(const JsonbPath& other) const {
         for (size_t i = 0; i < other.get_leg_vector_size(); i++) {
-            if (other.leg_vector[i]->leg_len != leg_vector[i]->leg_len ||
-                strcmp(other.leg_vector[i]->leg_ptr, leg_vector[i]->leg_ptr) != 0) {
-                return false;
+            if (other.leg_vector[i]->type == MEMBER_CODE) {
+                if (strncmp(leg_vector[i]->leg_ptr, other.leg_vector[i]->leg_ptr,
+                            other.leg_vector[i]->leg_len) != 0) {
+                    return false;
+                }
+            } else if (other.leg_vector[i]->type == ARRAY_CODE) {
+                if (leg_vector[i]->array_index != other.leg_vector[i]->array_index) {
+                    return false;
+                }
             }
         }
         return true;
@@ -420,9 +426,15 @@ public:
             return false;
         }
         for (size_t i = 0; i < get_leg_vector_size(); i++) {
-            if (leg_vector[i]->leg_len != other.leg_vector[i]->leg_len ||
-                strcmp(leg_vector[i]->leg_ptr, other.leg_vector[i]->leg_ptr) != 0) {
-                return false;
+            if (other.leg_vector[i]->type == MEMBER_CODE) {
+                if (strncmp(leg_vector[i]->leg_ptr, other.leg_vector[i]->leg_ptr,
+                            other.leg_vector[i]->leg_len) != 0) {
+                    return false;
+                }
+            } else if (other.leg_vector[i]->type == ARRAY_CODE) {
+                if (leg_vector[i]->array_index != other.leg_vector[i]->array_index) {
+                    return false;
+                }
             }
         }
         return true;
