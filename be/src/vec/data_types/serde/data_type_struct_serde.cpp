@@ -351,7 +351,8 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
     bool begin = true;
     for (size_t j = 0; j < elem_serdes_ptrs.size(); ++j) {
         if (!begin) {
-            if (0 != result.push_string(", ", 2)) {
+            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
+                                        options.mysql_collection_delim.size())) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         }
@@ -375,6 +376,7 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
+            ++options.level;
             if (remove_nullable(col.get_column_ptr(j))->is_column_string() &&
                 options.wrapper_len > 0) {
                 if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
@@ -389,6 +391,7 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
                 RETURN_IF_ERROR(elem_serdes_ptrs[j]->write_column_to_mysql(
                         col.get_column(j), result, col_index, false, options));
             }
+            --options.level;
         }
         begin = false;
     }

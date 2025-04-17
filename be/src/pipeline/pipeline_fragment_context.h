@@ -126,6 +126,8 @@ public:
         }
     }
 
+    std::string get_load_error_url();
+
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
                             const DescriptorTbl& descs, OperatorPtr* root, PipelinePtr cur_pipe);
@@ -234,7 +236,7 @@ private:
 
     OperatorPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
-    std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
+    std::vector<std::vector<std::shared_ptr<PipelineTask>>> _tasks;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
@@ -319,8 +321,6 @@ private:
      * +--------------------------------------+-------+
      */
     std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
-
-    std::vector<RuntimeFilterParamsContext*> _runtime_filter_states;
 
     // Total instance num running on all BEs
     int _total_instances = -1;

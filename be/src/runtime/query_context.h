@@ -60,6 +60,7 @@ struct ReportStatusRequest {
     TUniqueId fragment_instance_id;
     int backend_num;
     RuntimeState* runtime_state;
+    std::string load_error_url;
     std::function<void(const Status&)> cancel_fn;
 };
 
@@ -148,7 +149,7 @@ public:
 
     void init_query_task_controller();
 
-    ExecEnv* exec_env() { return _exec_env; }
+    ExecEnv* exec_env() const { return _exec_env; }
 
     bool is_timeout(timespec now) const {
         if (_timeout_second <= 0) {
@@ -387,6 +388,9 @@ public:
 
     std::string debug_string();
 
+    void set_load_error_url(std::string error_url);
+    std::string get_load_error_url();
+
 private:
     int _timeout_second;
     TUniqueId _query_id;
@@ -474,6 +478,9 @@ private:
 
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
     _collect_realtime_query_profile() const;
+
+    std::mutex _error_url_lock;
+    std::string _load_error_url;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

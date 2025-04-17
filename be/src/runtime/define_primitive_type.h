@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <type_traits>
+#include <cstdint>
 
-#include "gutil/integral_types.h"
 namespace doris {
 
 using PrimitiveNative = uint8_t;

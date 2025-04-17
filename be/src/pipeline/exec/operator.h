@@ -102,7 +102,9 @@ public:
 
     [[nodiscard]] virtual std::string get_name() const = 0;
     [[nodiscard]] virtual Status prepare(RuntimeState* state) = 0;
+    [[nodiscard]] virtual Status terminate(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
+    [[nodiscard]] virtual int node_id() const = 0;
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
         if (_child && child != nullptr) {
@@ -173,6 +175,7 @@ public:
     // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state) = 0;
+    virtual Status terminate(RuntimeState* state) = 0;
 
     // If use projection, we should clear `_origin_block`.
     void clear_origin_block();
@@ -245,6 +248,7 @@ protected:
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
 
     bool _closed = false;
+    std::atomic<bool> _terminated = false;
     vectorized::Block _origin_block;
 };
 
@@ -262,6 +266,7 @@ public:
     virtual std::string name_suffix() const;
 
     Status close(RuntimeState* state) override;
+    Status terminate(RuntimeState* state) override;
 
     [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 
@@ -434,6 +439,7 @@ public:
     // Do initialization. This step can be executed multiple times, so we should make sure it is
     // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) = 0;
+    virtual Status terminate(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
     [[nodiscard]] virtual bool is_finished() const { return false; }
 
@@ -480,7 +486,7 @@ protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed = false;
-    std::atomic<bool> _eos = false;
+    bool _terminated = false;
     //NOTICE: now add a faker profile, because sometimes the profile record is useless
     //so we want remove some counters and timers, eg: in join node, if it's broadcast_join
     //and shared hash table, some counter/timer about build hash table is useless,
@@ -510,6 +516,7 @@ public:
 
     Status open(RuntimeState* state) override { return Status::OK(); }
 
+    Status terminate(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
     [[nodiscard]] std::string debug_string(int indentation_level) const override;
@@ -557,6 +564,7 @@ public:
     }
 
     Status prepare(RuntimeState* state) override { return Status::OK(); }
+    Status terminate(RuntimeState* state) override;
     [[nodiscard]] bool is_finished(RuntimeState* state) const {
         auto result = state->get_sink_local_state_result();
         if (!result) {
@@ -618,7 +626,7 @@ public:
 
     [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
-    [[nodiscard]] int node_id() const { return _node_id; }
+    [[nodiscard]] int node_id() const override { return _node_id; }
 
     [[nodiscard]] std::string get_name() const override { return _name; }
 
@@ -818,6 +826,7 @@ public:
     [[nodiscard]] virtual Status hold_tablets(RuntimeState* state) { return Status::OK(); }
     Status prepare(RuntimeState* state) override;
 
+    Status terminate(RuntimeState* state) override;
     [[nodiscard]] virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                                            bool* eos) = 0;
 
@@ -879,7 +888,7 @@ public:
     [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
 
     [[nodiscard]] int operator_id() const { return _operator_id; }
-    [[nodiscard]] int node_id() const { return _node_id; }
+    [[nodiscard]] int node_id() const override { return _node_id; }
     [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
     [[nodiscard]] int64_t limit() const { return _limit; }
@@ -1078,6 +1087,119 @@ protected:
     std::shared_ptr<Dependency> _async_writer_dependency;
     std::shared_ptr<Dependency> _finish_dependency;
 };
+
+#ifdef BE_TEST
+class DummyOperatorLocalState final : public PipelineXLocalState<FakeSharedState> {
+public:
+    ENABLE_FACTORY_CREATOR(DummyOperatorLocalState);
+
+    DummyOperatorLocalState(RuntimeState* state, OperatorXBase* parent)
+            : PipelineXLocalState<FakeSharedState>(state, parent) {
+        _tmp_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                    "DummyOperatorDependency", true);
+        _finish_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                       "DummyOperatorDependency", true);
+        _filter_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                       "DummyOperatorDependency", true);
+        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                      "DummyOperatorDependency", true);
+    }
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
+    ~DummyOperatorLocalState() = default;
+
+    std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
+    std::vector<Dependency*> filter_dependencies() override { return {_filter_dependency.get()}; }
+    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
+
+private:
+    std::shared_ptr<Dependency> _tmp_dependency;
+    std::shared_ptr<Dependency> _finish_dependency;
+    std::shared_ptr<Dependency> _filter_dependency;
+};
+
+class DummyOperator final : public OperatorX<DummyOperatorLocalState> {
+public:
+    DummyOperator() : OperatorX<DummyOperatorLocalState>(nullptr, 0, 0) {}
+
+    [[nodiscard]] bool is_source() const override { return true; }
+
+    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+        *eos = _eos;
+        return Status::OK();
+    }
+    void set_low_memory_mode(RuntimeState* state) override { _low_memory_mode = true; }
+    Status terminate(RuntimeState* state) override {
+        _terminated = true;
+        return Status::OK();
+    }
+    size_t revocable_mem_size(RuntimeState* state) const override { return _revocable_mem_size; }
+    size_t get_reserve_mem_size(RuntimeState* state) override {
+        return _disable_reserve_mem
+                       ? 0
+                       : OperatorX<DummyOperatorLocalState>::get_reserve_mem_size(state);
+    }
+
+private:
+    friend class AssertNumRowsLocalState;
+    bool _eos = false;
+    bool _low_memory_mode = false;
+    bool _terminated = false;
+    size_t _revocable_mem_size = 0;
+    bool _disable_reserve_mem = false;
+};
+
+class DummySinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
+public:
+    using Base = PipelineXSinkLocalState<BasicSharedState>;
+    ENABLE_FACTORY_CREATOR(DummySinkLocalState);
+    DummySinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {
+        _tmp_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                    "DummyOperatorDependency", true);
+        _finish_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                       "DummyOperatorDependency", true);
+        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                      "DummyOperatorDependency", true);
+    }
+
+    std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
+    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
+    bool is_finished() const override { return _is_finished; }
+
+private:
+    std::shared_ptr<Dependency> _tmp_dependency;
+    std::shared_ptr<Dependency> _finish_dependency;
+    std::atomic_bool _is_finished = false;
+};
+
+class DummySinkOperatorX final : public DataSinkOperatorX<DummySinkLocalState> {
+public:
+    DummySinkOperatorX(int op_id, int node_id, int dest_id)
+            : DataSinkOperatorX<DummySinkLocalState>(op_id, node_id, dest_id) {}
+    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
+        return _return_eof ? Status::Error<ErrorCode::END_OF_FILE>("source have closed")
+                           : Status::OK();
+    }
+    void set_low_memory_mode(RuntimeState* state) override { _low_memory_mode = true; }
+    Status terminate(RuntimeState* state) override {
+        _terminated = true;
+        return Status::OK();
+    }
+    size_t revocable_mem_size(RuntimeState* state) const override { return _revocable_mem_size; }
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override {
+        return _disable_reserve_mem
+                       ? 0
+                       : DataSinkOperatorX<DummySinkLocalState>::get_reserve_mem_size(state, eos);
+    }
+
+private:
+    bool _low_memory_mode = false;
+    bool _terminated = false;
+    std::atomic_bool _return_eof = false;
+    size_t _revocable_mem_size = 0;
+    bool _disable_reserve_mem = false;
+};
+#endif
 
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

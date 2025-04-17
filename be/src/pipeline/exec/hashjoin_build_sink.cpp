@@ -88,7 +88,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     // Hash Table Init
     RETURN_IF_ERROR(_hash_table_init(state));
     _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelper>(
-            profile(), _should_build_hash_table, p._is_broadcast_join);
+            _should_build_hash_table, p._is_broadcast_join);
     RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, _build_expr_ctxs,
                                                           p._runtime_filter_descs));
     return Status::OK();
@@ -99,6 +99,15 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
     return Status::OK();
+}
+
+Status HashJoinBuildSinkLocalState::terminate(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    if (_terminated) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_runtime_filter_producer_helper->terminate(state));
+    return JoinBuildSinkLocalState::terminate(state);
 }
 
 size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
@@ -211,7 +220,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
 
         if (p._use_shared_hash_table) {
-            std::unique_lock(p._mutex);
+            std::unique_lock lock(p._mutex);
             p._signaled = true;
             for (auto& dep : _shared_state->sink_deps) {
                 dep->set_ready();
@@ -222,25 +231,27 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }};
 
-    if (!_runtime_filter_producer_helper || state->is_cancelled() || !_eos) {
-        return Base::close(state, exec_status);
-    }
-
     try {
-        RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
-                state, _shared_state->build_block.get(), p._use_shared_hash_table,
-                p._runtime_filters));
+        if (!_terminated && _runtime_filter_producer_helper && !state->is_cancelled()) {
+            RETURN_IF_ERROR(_runtime_filter_producer_helper->build(
+                    state, _shared_state->build_block.get(), p._use_shared_hash_table,
+                    p._runtime_filters));
+            RETURN_IF_ERROR(_runtime_filter_producer_helper->publish(state));
+        }
     } catch (Exception& e) {
         bool blocked_by_shared_hash_table_signal =
                 !_should_build_hash_table && p._use_shared_hash_table && !p._signaled;
 
         return Status::InternalError(
-                "rf process meet error: {}, wake_up_early: {}, should_build_hash_table: "
+                "rf process meet error: {}, _terminated: {}, should_build_hash_table: "
                 "{}, _finish_dependency: {}, "
                 "blocked_by_shared_hash_table_signal: "
                 "{}",
-                e.to_string(), state->get_task()->wake_up_early(), _should_build_hash_table,
+                e.to_string(), _terminated, _should_build_hash_table,
                 _finish_dependency->debug_string(), blocked_by_shared_hash_table_signal);
+    }
+    if (_runtime_filter_producer_helper) {
+        _runtime_filter_producer_helper->collect_realtime_profile(profile());
     }
     return Base::close(state, exec_status);
 }
@@ -604,7 +615,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit
         // return eof will make task marked as wake_up_early
         // todo: remove signaled after we can guarantee that wake up eraly is always set accurately
-        if (!_signaled || state->get_task()->wake_up_early()) {
+        if (!_signaled || local_state._terminated) {
             return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
         }
 
@@ -624,7 +635,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     }
 
     if (eos) {
-        local_state._eos = true;
         // If a shared hash table is used, states are shared by all tasks.
         // Sink and source has n-n relationship If a shared hash table is used otherwise 1-1 relationship.
         // So we should notify the `_task_idx` source task if a shared hash table is used.

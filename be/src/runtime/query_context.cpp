@@ -130,8 +130,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _memory_sufficient_dependency =
             pipeline::Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
 
-    _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker(), true);
+    _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(true);
 
     _timeout_second = query_options.execution_timeout;
 
@@ -344,6 +343,16 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
 
     set_ready_to_execute(new_status);
     cancel_all_pipeline_context(new_status, fragment_id);
+}
+
+void QueryContext::set_load_error_url(std::string error_url) {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    _load_error_url = error_url;
+}
+
+std::string QueryContext::get_load_error_url() {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    return _load_error_url;
 }
 
 void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {

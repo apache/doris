@@ -58,6 +58,36 @@ suite("test_cloud_multi_segments_re_calc_in_publish", "nonConcurrent") {
         assert lastRowsetSegmentNum == Integer.parseInt(segmentNumStr)
     }
 
+    def loadMultiSegmentData = { tableName, rows, succ, String err="" ->
+        // load data that will have multi segments and there are duplicate keys between segments
+        String content = ""
+        (1..rows).each {
+            content += "${it},${it},${it}\n"
+        }
+        content += content
+        streamLoad {
+            table "${tableName}"
+            set 'column_separator', ','
+            inputStream new ByteArrayInputStream(content.getBytes())
+            time 30000
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                def json = parseJson(result)
+                if (succ) {
+                    assert "success" == json.Status.toLowerCase()
+                    assert rows*2 == json.NumberTotalRows
+                    assert 0 == json.NumberFilteredRows
+                } else {
+                    assert "fail" == json.Status.toLowerCase()
+                    assert json.Message.contains(err)
+                }
+            }
+        }
+    }
+
     // to cause multi segments
     def customBeConfig = [
         doris_scanner_row_bytes : 1
@@ -75,33 +105,7 @@ suite("test_cloud_multi_segments_re_calc_in_publish", "nonConcurrent") {
 
             Thread.sleep(1000)
 
-            def t1 = Thread.start {
-                // load data that will have multi segments and there are duplicate keys between segments
-                String content = ""
-                (1..4096).each {
-                    content += "${it},${it},${it}\n"
-                }
-                content += content
-                streamLoad {
-                    table "${table1}"
-                    set 'column_separator', ','
-                    inputStream new ByteArrayInputStream(content.getBytes())
-                    time 30000 // limit inflight 10s
-
-                    check { result, exception, startTime, endTime ->
-                        if (exception != null) {
-                            throw exception
-                        }
-                        def json = parseJson(result)
-                        assert "success" == json.Status.toLowerCase()
-                        assert 8192 == json.NumberTotalRows
-                        assert 0 == json.NumberFilteredRows
-                    }
-                }
-            }
-
-
-            t1.join()
+            loadMultiSegmentData(table1, 4096, true)
 
             GetDebugPoint().clearDebugPointsForAllBEs()
             Thread.sleep(2000)
@@ -112,6 +116,53 @@ suite("test_cloud_multi_segments_re_calc_in_publish", "nonConcurrent") {
 
             // ensure that we really write multi segments
             checkSegmentNum(4, 3)
+        } catch(Exception e) {
+            logger.info(e.getMessage())
+            throw e
+        } finally {
+            GetDebugPoint().clearDebugPointsForAllBEs()
+            GetDebugPoint().clearDebugPointsForAllFEs()
+        }
+    }
+
+    // abnormal case, fail when calc between segments
+    def table2 = "test_cloud_multi_segments_re_calc_in_publish_fail"
+    sql "DROP TABLE IF EXISTS ${table2} FORCE;"
+    sql """ CREATE TABLE IF NOT EXISTS ${table2} (
+            `k1` int NOT NULL,
+            `c1` int,
+            `c2` int
+            )UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+            "enable_unique_key_merge_on_write" = "true",
+            "disable_auto_compaction" = "true",
+            "replication_num" = "1"); """
+
+    sql "insert into ${table2} values(99999,99999,99999);"
+    sql "insert into ${table2} values(88888,88888,88888);"
+    sql "insert into ${table2} values(77777,77777,77777);"
+    sql "sync;"
+    qt_sql "select * from ${table2} order by k1;"
+
+    setBeConfigTemporary(customBeConfig) {
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush")
+            GetDebugPoint().enableDebugPointForAllBEs("CloudTxnDeleteBitmapCache::get_delete_bitmap.cache_miss")
+
+            // fail in calc_delete_bitmap_between_segments
+            GetDebugPoint().enableDebugPointForAllBEs("_handle_rowset.inject.before.calc_between_segments")
+
+            Thread.sleep(1000)
+
+            loadMultiSegmentData(table2, 4096, false, "injected MemoryLimitExceeded error")
+
+            GetDebugPoint().clearDebugPointsForAllBEs()
+            Thread.sleep(2000)
+
+            qt_sql "select count() from ${table2};"
+
+            qt_dup_key_count "select count() from (select k1,count() as cnt from ${table2} group by k1 having cnt > 1) A;"
         } catch(Exception e) {
             logger.info(e.getMessage())
             throw e
