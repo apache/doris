@@ -34,7 +34,7 @@ __pycache__
 .project
 .cache
 .settings/
-.idea/
+**/.idea/
 !.idea/vcs.xml
 !.idea/icon.svg
 **/.vscode/
