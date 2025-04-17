@@ -127,7 +127,7 @@ Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label
         }
     }
     if (path_vec_num == size) {
-        return Status::BufferAllocFailed("Store path has less than 10% free space");
+       return Status::Error<DISK_REACH_CAPACITY_LIMIT, false>("exceed capacity limit.");
     }
     return status;
 }
