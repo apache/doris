@@ -100,7 +100,8 @@ Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label
     while (retry--) {
         {
             size_t _disk_capacity_bytes = 0;
-            size_t _available_bytes = 0;
+            size_t disk_capacity_bytes = 0;
+            size_t available_bytes = 0;
 
             RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path_vec[_idx], &_disk_capacity_bytes,
                                                                           &_available_bytes));
