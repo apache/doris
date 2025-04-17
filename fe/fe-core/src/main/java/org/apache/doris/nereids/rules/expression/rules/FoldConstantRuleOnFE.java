@@ -566,7 +566,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         }
         if (whenClauses.isEmpty()) {
             return ensureResultType(
-                    originCaseWhen, defaultResult == null ? new NullLiteral(caseWhen.getDataType()) : defaultResult
+                    originCaseWhen, defaultResult == null ? new NullLiteral(caseWhen.getDataType()) : defaultResult,
+                    context
             );
         }
         if (defaultResult == null) {
@@ -575,10 +576,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 // it's safe to return null literal here
                 return new NullLiteral();
             } else {
-                return ensureResultType(originCaseWhen, new CaseWhen(whenClauses));
+                return ensureResultType(originCaseWhen, new CaseWhen(whenClauses), context);
             }
         }
-        return ensureResultType(originCaseWhen, new CaseWhen(whenClauses, defaultResult));
+        return ensureResultType(originCaseWhen, new CaseWhen(whenClauses, defaultResult), context);
     }
 
     @Override
@@ -586,11 +587,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         If originIf = ifExpr;
         ifExpr = rewriteChildren(ifExpr, context);
         if (ifExpr.child(0) instanceof NullLiteral || ifExpr.child(0).equals(BooleanLiteral.FALSE)) {
-            return ensureResultType(originIf, ifExpr.child(2));
+            return ensureResultType(originIf, ifExpr.child(2), context);
         } else if (ifExpr.child(0).equals(BooleanLiteral.TRUE)) {
-            return ensureResultType(originIf, ifExpr.child(1));
+            return ensureResultType(originIf, ifExpr.child(1), context);
         }
-        return ensureResultType(originIf, ifExpr);
+        return ensureResultType(originIf, ifExpr, context);
     }
 
     @Override
@@ -694,14 +695,14 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         for (Expression expr : nvl.children()) {
             if (expr.isLiteral()) {
                 if (!expr.isNullLiteral()) {
-                    return ensureResultType(originNvl, expr);
+                    return ensureResultType(originNvl, expr, context);
                 }
             } else {
-                return ensureResultType(originNvl, nvl);
+                return ensureResultType(originNvl, nvl, context);
             }
         }
         // all nulls
-        return ensureResultType(originNvl, nvl.child(0));
+        return ensureResultType(originNvl, nvl.child(0), context);
     }
 
     private <E extends Expression> E rewriteChildren(E expr, ExpressionRewriteContext context) {
@@ -788,7 +789,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 .toRule(ExpressionRuleType.FOLD_CONSTANT_ON_FE);
     }
 
-    private Expression ensureResultType(Expression originExpr, Expression result) {
+    private Expression ensureResultType(Expression originExpr, Expression result, ExpressionRewriteContext context) {
         if (originExpr.getDataType().equals(result.getDataType())) {
             return result;
         }
@@ -796,6 +797,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (originExpr.getDataType().isStringLikeType() && result.getDataType().isStringLikeType()) {
             return result;
         }
-        return new Cast(result, originExpr.getDataType());
+        return FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE.visitCast(
+                new Cast(result, originExpr.getDataType()), context
+        );
     }
 }
