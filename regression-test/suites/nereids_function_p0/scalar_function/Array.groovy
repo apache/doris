@@ -1281,30 +1281,25 @@ suite("nereids_scalar_fn_Array") {
     qt_sequence_datetime_hour """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint-3 hour), interval kint hour) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_minute """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 minute), interval kint minute) from fn_test order by kdtmv2s1;"""
     qt_sequence_datetime_second """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint second), interval kint-1 second) from fn_test order by kdtmv2s1;"""
-    // make large error size
-    test {
-        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year), interval kint hour)) from fn_test order by kdtmv2s1;"
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
+
+    // max_array_size_as_field = 1000000;
+    sql "select count(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year))) from fn_test"
+    sql "select count(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year), INTERVAL 5 YEAR)) from fn_test"
+    order_qt_sql_sequence_dt_3args "select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year), INTERVAL 125 YEAR) from fn_test"
+    sql "select count(sequence(kint, kint+100000)) from fn_test"
+    sql "select count(sequence(kint, kint+100000, 10000)) from fn_test"
+    order_qt_sql_sequence_int_3args "select sequence(kint, kint+100000, 10000) from fn_test"
 
     test {
-        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+10000 month), interval kint hour)) from fn_test order by kdtmv2s1;"
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
+        sql "select sequence(kdtmv2s1, date_add(kdtmv2s1, interval 5000 year), interval 1 second) from fn_test"
+        exception "Array size exceeds the limit 1000000"
     }
-
+    sql "select sequence(kdtmv2s1, date_add(kdtmv2s1, interval 5000 year), interval 500 year) from fn_test"
     test {
-        sql "select array_size(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000001 day), interval kint day)) from fn_test order by kdtmv2s1;"
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
+        sql "select count(sequence(kint, kint+10000000)) from fn_test"
+        exception "Array size exceeds the limit 1000000"
     }
+    sql "select count(sequence(kint, kint+10000000, 50)) from fn_test"
 
     // with array empty
     qt_array_empty_fe """select array()"""

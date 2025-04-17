@@ -279,4 +279,70 @@ TEST_F(RuntimeProfileCounterTreeNodeTest, NonZeroCounterToThrfit) {
     ASSERT_EQ(child_counter_map[RuntimeProfile::ROOT_COUNTER].size(), 0);
 }
 
+TEST_F(RuntimeProfileCounterTreeNodeTest, DescriptionCounter) {
+    RuntimeProfile::CounterMap counterMap;
+    RuntimeProfile::ChildCounterMap childCounterMap;
+    /*
+    ""
+        "root"
+            "description_entry"
+    */
+
+    auto rootCounter = std::make_unique<RuntimeProfile::Counter>(TUnit::UNIT);
+    auto descriptionEntry = std::make_unique<RuntimeProfile::DescriptionEntry>(
+            "description_entry", "Updated description");
+
+    counterMap["root"] = rootCounter.get();
+    counterMap["description_entry"] = descriptionEntry.get();
+
+    childCounterMap[RuntimeProfile::ROOT_COUNTER].insert("root");
+    childCounterMap["root"].insert("description_entry");
+
+    RuntimeProfileCounterTreeNode rootNode = RuntimeProfileCounterTreeNode::from_map(
+            counterMap, childCounterMap, RuntimeProfile::ROOT_COUNTER);
+
+    std::vector<TCounter> tcounter;
+    std::map<std::string, std::set<std::string>> child_counter_map;
+
+    rootNode.to_thrift(tcounter, child_counter_map);
+
+    /*
+    ROOT_COUNTER
+        root
+            description_entry
+    */
+
+    /* 
+    tcounter: root, description_entry
+    child_counter_map:
+        ROOT_COUNTER -> {root}
+        root -> {description_entry}
+    */
+
+    for (const auto& counter : tcounter) {
+        std::cout << "Counter: " << counter.name;
+        if (counter.name == "description_entry") {
+            EXPECT_TRUE(counter.__isset.description);
+            EXPECT_EQ(counter.description, "Updated description");
+        }
+        if (counter.__isset.description) {
+            std::cout << ", Description: " << counter.description;
+        }
+        std::cout << std::endl;
+    }
+
+    ASSERT_EQ(tcounter.size(), 2);
+    EXPECT_EQ(tcounter[0].name, "root");
+    EXPECT_EQ(tcounter[1].name, "description_entry");
+
+    ASSERT_TRUE(tcounter[1].__isset.description);
+    EXPECT_EQ(tcounter[1].description, "Updated description");
+    EXPECT_EQ(tcounter[1].level, 2);
+
+    ASSERT_EQ(child_counter_map.size(), 2);
+    ASSERT_EQ(child_counter_map[RuntimeProfile::ROOT_COUNTER].size(), 1);
+    ASSERT_EQ(child_counter_map["root"].size(), 1);
+    ASSERT_EQ(*child_counter_map["root"].begin(), "description_entry");
+}
+
 } // namespace doris

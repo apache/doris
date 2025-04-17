@@ -132,26 +132,26 @@ suite("test_single_compaction_with_variant_inverted", "p2, nonConcurrent") {
 
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
-    sql """ set disable_inverted_index_v1_for_variant = false """
-    sql """
-        CREATE TABLE ${tableName} (
-            `id` int(11) NULL,
-            `name` varchar(255) NULL,
-            `score` int(11) NULL,
-            `properties` variant,
-            INDEX idx_props (`properties`) USING INVERTED PROPERTIES("parser" = "none") COMMENT ''
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`id`)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "2",
-            "enable_single_replica_compaction" = "true",
-            "inverted_index_storage_format" = "V1",
-            "compaction_policy" = "time_series"
-        );
-    """
-    sql """ set disable_inverted_index_v1_for_variant = true """
+    setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
+        sql """
+            CREATE TABLE ${tableName} (
+                `id` int(11) NULL,
+                `name` varchar(255) NULL,
+                `score` int(11) NULL,
+                `properties` variant,
+                INDEX idx_props (`properties`) USING INVERTED PROPERTIES("parser" = "none") COMMENT ''
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "2",
+                "enable_single_replica_compaction" = "true",
+                "inverted_index_storage_format" = "V1",
+                "compaction_policy" = "time_series"
+            );
+        """
+    }
 
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 

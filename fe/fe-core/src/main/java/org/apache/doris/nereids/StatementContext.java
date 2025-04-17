@@ -214,6 +214,8 @@ public class StatementContext implements Closeable {
 
     private boolean privChecked;
 
+    private boolean prepareStage = false;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -773,5 +775,13 @@ public class StatementContext implements Closeable {
 
     public void setPrivChecked(boolean privChecked) {
         this.privChecked = privChecked;
+    }
+
+    public void setPrepareStage(boolean isPrepare) {
+        this.prepareStage = isPrepare;
+    }
+
+    public boolean isPrepareStage() {
+        return prepareStage;
     }
 }

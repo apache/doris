@@ -57,6 +57,9 @@ suite("test_task_mtmv") {
            log.info("cancel error msg: " + e.getMessage())
            assertTrue(e.getMessage().contains("no running task"));
         }
+    def tasksAfterCancel = sql """ select TaskId from tasks('type'='mv') where MvName = '${mvName}';"""
+   // should only has one task after cancel
+    assertEquals(1, tasksAfterCancel.size());
     sql """drop materialized view if exists ${mvName};"""
 
 }

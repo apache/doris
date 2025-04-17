@@ -17,10 +17,10 @@
 
 #pragma once
 
+#include <utility>
 #include <variant>
 #include <vector>
 
-#include "vec/common/arena.h"
 #include "vec/common/hash_table/hash_map_context.h"
 #include "vec/common/hash_table/hash_map_util.h"
 #include "vec/common/hash_table/ph_hash_map.h"
@@ -80,7 +80,8 @@ static constexpr size_t PARTITION_SORT_ROWS_THRESHOLD = 20000;
 struct PartitionBlocks {
 public:
     PartitionBlocks(std::shared_ptr<PartitionSortInfo> partition_sort_info, bool is_first_sorter)
-            : _is_first_sorter(is_first_sorter), _partition_sort_info(partition_sort_info) {}
+            : _is_first_sorter(is_first_sorter),
+              _partition_sort_info(std::move(partition_sort_info)) {}
     ~PartitionBlocks() = default;
 
     void add_row_idx(size_t row) { _selector.push_back(row); }
