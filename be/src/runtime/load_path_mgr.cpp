@@ -198,14 +198,14 @@ void LoadPathMgr::process_path(time_t now, const std::string& path, int64_t rese
 
 void LoadPathMgr::clean_files_in_path_vec(const std::string& path){
     bool exists = false;
-    // 检查路径是否存在
+    // Check if the path exists
     Status status = io::global_local_filesystem()->exists(path, &exists);
     if (!status.ok()) {
         LOG(WARNING) << "Failed to check if path exists: " << path << ", error: " << status;
         return;
     }
     if (exists) {
-        // 若路径存在，则删除该路径对应的文件或目录
+        // If the path exists, delete the file or directory corresponding to that path
         status = io::global_local_filesystem()->delete_directory_or_file(path);
         if (status.ok()) {
             LOG(INFO) << "Delete path success: " << path;
