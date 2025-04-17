@@ -27,12 +27,14 @@ import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.planner.CloudStreamLoadPlanner;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -178,11 +180,17 @@ public class StreamLoadHandler {
 
         for (String tableName : tableNames) {
             Table table = db.getTableOrMetaException(tableName, TableType.OLAP);
-            if (!((OlapTable) table).getTableProperty().getUseSchemaLightChange()
-                    && (request.getGroupCommitMode() != null
-                    && !request.getGroupCommitMode().equals("off_mode"))) {
-                throw new UserException(
-                        "table light_schema_change is false, can't do stream load with group commit mode");
+            if (request.getGroupCommitMode() != null
+                    && !request.getGroupCommitMode().equals("off_mode")) {
+                if (!((OlapTable) table).getTableProperty().getUseSchemaLightChange()) {
+                    throw new UserException(
+                            "table light_schema_change is false, can't do stream load with group commit mode");
+                }
+                if (Env.getCurrentEnv().getGroupCommitManager().isBlock(table.getId())) {
+                    String msg = "insert table " + table.getId() + GroupCommitPlanner.SCHEMA_CHANGE;
+                    LOG.info(msg);
+                    throw new AnalysisException(msg);
+                }
             }
             if (table.isTemporary()) {
                 throw new UserException("Do not support load for temporary table " + tableName);
