@@ -239,7 +239,9 @@ jobs:
 
           # Install specific version of cmake
           brew unlink cmake || true
-          brew install --build-from-source https://raw.githubusercontent.com/Homebrew/homebrew-core/e38c9acd1a/Formula/cmake.rb
+          wget https://github.com/Kitware/CMake/releases/download/v3.22.1/cmake-3.22.1-macos-universal.tar.gz
+          tar -xzf cmake-3.22.1-macos-universal.tar.gz
+          sudo cp -r cmake-3.22.1-macos-universal/CMake.app/Contents/* /usr/local/
           cmake --version
 
       - name: Build
