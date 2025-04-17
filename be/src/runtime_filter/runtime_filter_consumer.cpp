@@ -68,7 +68,7 @@ void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
 
 std::shared_ptr<pipeline::RuntimeFilterTimer> RuntimeFilterConsumer::create_filter_timer(
         std::shared_ptr<pipeline::Dependency> dependencies) {
-            std::unique_lock<std::recursive_mutex> l(_rmtx);
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
     auto timer = std::make_shared<pipeline::RuntimeFilterTimer>(_registration_time,
                                                                 _rf_wait_time_ms, dependencies);
     _filter_timer.push_back(timer);
