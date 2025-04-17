@@ -107,12 +107,8 @@ public class NodeAction extends RestBaseController {
     // Returns all fe information, similar to 'show frontends'.
     @RequestMapping(path = "/frontends", method = RequestMethod.GET)
     public Object frontends_info(HttpServletRequest request, HttpServletResponse response) throws Exception {
-        /**
-         * As required, the interface should require user have GlobalAuth-PrivPredicate.ADMIN permission.
-         * However, a user who uses spark-doris-connector/flink-doris-connector does not have corresponding permission.
-         * To ensure that the connector works properly, we do not verify the permission of the interface.
-         */
         executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         return fetchNodeInfo(request, response, "/frontends");
     }
@@ -120,12 +116,8 @@ public class NodeAction extends RestBaseController {
     // Returns all be information, similar to 'show backends'.
     @RequestMapping(path = "/backends", method = RequestMethod.GET)
     public Object backends_info(HttpServletRequest request, HttpServletResponse response) throws Exception {
-        /**
-         * As required, the interface should require user have GlobalAuth-PrivPredicate.ADMIN permission.
-         * However, a user who uses spark-doris-connector/flink-doris-connector does not have corresponding permission.
-         * To ensure that the connector works properly, we do not verify the permission of the interface.
-         */
         executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         return fetchNodeInfo(request, response, "/backends");
     }
@@ -133,12 +125,8 @@ public class NodeAction extends RestBaseController {
     // Returns all broker information, similar to 'show broker'.
     @RequestMapping(path = "/brokers", method = RequestMethod.GET)
     public Object brokers_info(HttpServletRequest request, HttpServletResponse response) throws Exception {
-        /**
-         * As required, the interface should require user have GlobalAuth-PrivPredicate.ADMIN permission.
-         * However, a user who uses spark-doris-connector/flink-doris-connector does not have corresponding permission.
-         * To ensure that the connector works properly, we do not verify the permission of the interface.
-         */
         executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         return fetchNodeInfo(request, response, "/brokers");
     }
@@ -235,12 +223,8 @@ public class NodeAction extends RestBaseController {
     // }
     @RequestMapping(path = "/node_list", method = RequestMethod.GET)
     public Object nodeList(HttpServletRequest request, HttpServletResponse response) {
-        /**
-         * As required, the interface should require user have GlobalAuth-PrivPredicate.ADMIN permission.
-         * However, a user who uses spark-doris-connector/flink-doris-connector does not have corresponding permission.
-         * To ensure that the connector works properly, we do not verify the permission of the interface.
-         */
         executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         Map<String, List<String>> result = Maps.newHashMap();
         result.put("frontend", getFeList());
@@ -266,12 +250,8 @@ public class NodeAction extends RestBaseController {
      */
     @RequestMapping(path = "/config", method = RequestMethod.GET)
     public Object config(HttpServletRequest request, HttpServletResponse response) {
-        /**
-         * As required, the interface should require user have GlobalAuth-PrivPredicate.ADMIN permission.
-         * However, a user who uses spark-doris-connector/flink-doris-connector does not have corresponding permission.
-         * To ensure that the connector works properly, we do not verify the permission of the interface.
-         */
         executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         List<List<String>> configs = ConfigBase.getConfigInfo(null);
         // Sort all configs by config key.
@@ -332,7 +312,7 @@ public class NodeAction extends RestBaseController {
             @RequestParam(value = "type") String type,
             @RequestBody(required = false) ConfigInfoRequestBody requestBody) {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         initHttpExecutor();
 
