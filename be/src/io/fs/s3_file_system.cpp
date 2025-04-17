@@ -45,6 +45,7 @@
 #include "io/fs/s3_file_writer.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -357,6 +358,7 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
     std::vector<FileWriterPtr> obj_writers(local_files.size());
 
     auto upload_task = [&, this](size_t idx) {
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->s3_file_buffer_tracker());
         const auto& local_file = local_files[idx];
         const auto& remote_file = remote_files[idx];
         auto& obj_writer = obj_writers[idx];

@@ -41,11 +41,11 @@ public:
         APPLIED, // The consumer will switch to this state after the expression is acquired
     };
 
-    static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
-                         int node_id, std::shared_ptr<RuntimeFilterConsumer>* res) {
+    static Status create(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc, int node_id,
+                         std::shared_ptr<RuntimeFilterConsumer>* res) {
         *res = std::shared_ptr<RuntimeFilterConsumer>(
-                new RuntimeFilterConsumer(state, desc, node_id));
-        RETURN_IF_ERROR((*res)->_init_with_desc(desc, &state->get_query_ctx()->query_options()));
+                new RuntimeFilterConsumer(query_ctx, desc, node_id));
+        RETURN_IF_ERROR((*res)->_init_with_desc(desc, &query_ctx->query_options()));
         return Status::OK();
     }
 
@@ -64,7 +64,7 @@ public:
                            _reached_timeout ? "true" : "false", std::to_string(_rf_wait_time_ms));
     }
 
-    bool is_applied() { return _rf_state == State::APPLIED; }
+    bool is_applied() const { return _rf_state == State::APPLIED; }
 
     // Called by RuntimeFilterConsumerHelper
     void collect_realtime_profile(RuntimeProfile* parent_operator_profile);
@@ -85,20 +85,17 @@ public:
     }
 
 private:
-    friend class RuntimeFilterProducer;
-
-    RuntimeFilterConsumer(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
+    RuntimeFilterConsumer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
                           int node_id)
-            : RuntimeFilter(state, desc),
+            : RuntimeFilter(desc),
               _probe_expr(desc->planId_to_target_expr.find(node_id)->second),
               _registration_time(MonotonicMillis()),
-              _rf_state(State::NOT_READY),
-              _filter_id(desc->filter_id) {
+              _rf_state(State::NOT_READY) {
         // If bitmap filter is not applied, it will cause the query result to be incorrect
-        bool wait_infinitely = _state->get_query_ctx()->runtime_filter_wait_infinitely() ||
+        bool wait_infinitely = query_ctx->runtime_filter_wait_infinitely() ||
                                _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER;
-        _rf_wait_time_ms = wait_infinitely ? _state->get_query_ctx()->execution_timeout() * 1000
-                                           : _state->get_query_ctx()->runtime_filter_wait_time_ms();
+        _rf_wait_time_ms = wait_infinitely ? query_ctx->execution_timeout() * 1000
+                                           : query_ctx->runtime_filter_wait_time_ms();
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);
     }
 
@@ -106,7 +103,6 @@ private:
 
     Status _get_push_exprs(std::vector<vectorized::VRuntimeFilterPtr>& container,
                            const TExpr& probe_expr);
-
     void _check_state(std::vector<State> assumed_states) {
         if (!check_state_impl<RuntimeFilterConsumer>(_rf_state, assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -129,9 +125,8 @@ private:
             DorisMetrics::instance()->runtime_filter_consumer_wait_ready_ms->increment(
                     MonotonicMillis() - _registration_time);
             _wrapper = other;
-            _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED,
-                                  RuntimeFilterWrapper::State::IGNORED,
-                                  RuntimeFilterWrapper::State::READY});
+            _check_wrapper_state(
+                    {RuntimeFilterWrapper::State::DISABLED, RuntimeFilterWrapper::State::READY});
             _check_state({State::NOT_READY, State::TIMEOUT});
         }
         _rf_state = rf_state;
@@ -160,13 +155,12 @@ private:
 
     std::atomic<State> _rf_state;
     // only used to lock _set_state() to make _wrapper and _rf_state is protected
-    // signal and acquire_expr are called in different threads at the same time
+    // signal and acquire_expr may called in different threads at the same time
     std::mutex _mtx;
 
     bool _reached_timeout = false;
 
     friend class RuntimeFilterProducer;
-    int _filter_id = -1;
 };
 #include "common/compile_check_end.h"
 } // namespace doris

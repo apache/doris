@@ -22,16 +22,15 @@
 #include <glog/logging.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <math.h>
-#include <stdint.h>
 #include <sys/types.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <memory>
 #include <new>
 #include <ostream>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -42,14 +41,12 @@
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/slice.h"
-#include "util/spinlock.h"
 #include "util/timezone_utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -58,8 +55,6 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/exec/format/parquet/parquet_column_convert.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
 #include "vec/exec/format/parquet/schema_desc.h"
@@ -67,12 +62,11 @@
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
 #include "vec/exec/format/parquet/vparquet_group_reader.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 
 class ParquetThriftReaderTest : public testing::Test {
 public:
-    ParquetThriftReaderTest() {}
+    ParquetThriftReaderTest() = default;
 };
 
 TEST_F(ParquetThriftReaderTest, normal) {
@@ -464,6 +458,4 @@ TEST_F(ParquetThriftReaderTest, dict_decoder) {
     read_parquet_data_and_check("./be/test/exec/test_data/parquet_scanner/dict-decoder.parquet",
                                 "./be/test/exec/test_data/parquet_scanner/dict-decoder.txt", 12);
 }
-} // namespace vectorized
-
-} // namespace doris
+} // namespace doris::vectorized

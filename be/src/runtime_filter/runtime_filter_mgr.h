@@ -32,7 +32,6 @@
 #include <utility>
 #include <vector>
 
-#include "common/object_pool.h"
 #include "common/status.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
@@ -53,7 +52,6 @@ class MemTrackerLimiter;
 class RuntimeState;
 class RuntimeFilterWrapper;
 class QueryContext;
-class RuntimeFilterParamsContext;
 class ExecEnv;
 class RuntimeProfile;
 
@@ -62,8 +60,7 @@ struct LocalMergeContext {
     std::shared_ptr<RuntimeFilterMerger> merger;
     std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
 
-    Status register_producer(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
-                             RuntimeProfile* parent_profile,
+    Status register_producer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
                              std::shared_ptr<RuntimeFilterProducer> producer);
 };
 
@@ -80,27 +77,23 @@ struct GlobalMergeContext {
 // RuntimeFilterMgr will be destroyed when RuntimeState is destroyed
 class RuntimeFilterMgr {
 public:
-    RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParamsContext* state,
-                     const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker,
-                     const bool is_global);
-
-    ~RuntimeFilterMgr();
+    RuntimeFilterMgr(const bool is_global);
 
     // get/set consumer
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> get_consume_filters(int filter_id);
-    Status register_consumer_filter(const TRuntimeFilterDesc& desc, int node_id,
+    Status register_consumer_filter(const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
+                                    int node_id,
                                     std::shared_ptr<RuntimeFilterConsumer>* consumer_filter);
 
-    Status register_local_merger_producer_filter(
-            const TRuntimeFilterDesc& desc, std::shared_ptr<RuntimeFilterProducer> producer_filter,
-            RuntimeProfile* parent_profile);
+    Status register_local_merger_producer_filter(const QueryContext* query_ctx,
+                                                 const TRuntimeFilterDesc& desc,
+                                                 std::shared_ptr<RuntimeFilterProducer> producer);
 
     Status get_local_merge_producer_filters(int filter_id, LocalMergeContext** local_merge_filters);
 
     // Create local producer. This producer is hold by RuntimeFilterProducerHelper.
-    Status register_producer_filter(const TRuntimeFilterDesc& desc,
-                                    std::shared_ptr<RuntimeFilterProducer>* producer_filter,
-                                    RuntimeProfile* parent_profile);
+    Status register_producer_filter(const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
+                                    std::shared_ptr<RuntimeFilterProducer>* producer);
 
     // update filter by remote
     bool set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
@@ -127,10 +120,7 @@ private:
     std::set<int32_t> _producer_id_set;
     std::map<int32_t, LocalMergeContext> _local_merge_map;
 
-    RuntimeFilterParamsContext* _state = nullptr;
     std::unique_ptr<MemTracker> _tracker;
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
-    ObjectPool _pool;
 
     TNetworkAddress _merge_addr;
 
@@ -144,33 +134,27 @@ private:
 // the class is destroyed with the last fragment_exec.
 class RuntimeFilterMergeControllerEntity {
 public:
-    RuntimeFilterMergeControllerEntity(RuntimeFilterParamsContext* state)
-            : _query_id(0, 0), _state(state) {}
-    ~RuntimeFilterMergeControllerEntity() = default;
-
-    Status init(UniqueId query_id, const TRuntimeFilterParams& runtime_filter_params);
+    Status init(std::shared_ptr<QueryContext> query_ctx,
+                const TRuntimeFilterParams& runtime_filter_params);
 
     // handle merge rpc
-    Status merge(std::weak_ptr<QueryContext> query_ctx, const PMergeFilterRequest* request,
+    Status merge(std::shared_ptr<QueryContext> query_ctx, const PMergeFilterRequest* request,
                  butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    Status send_filter_size(std::weak_ptr<QueryContext> query_ctx,
+    Status send_filter_size(std::shared_ptr<QueryContext> query_ctx,
                             const PSendFilterSizeRequest* request);
 
-    UniqueId query_id() const { return _query_id; }
-
 private:
-    Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
+    Status _init_with_desc(std::shared_ptr<QueryContext> query_ctx,
+                           const TRuntimeFilterDesc* runtime_filter_desc,
                            const std::vector<TRuntimeFilterTargetParamsV2>&& target_info,
                            const int producer_size);
 
-    UniqueId _query_id;
     // protect _filter_map
     std::shared_mutex _filter_map_mutex;
     std::shared_ptr<MemTracker> _mem_tracker;
 
     std::map<int, GlobalMergeContext> _filter_map;
-    RuntimeFilterParamsContext* _state = nullptr;
 };
 #include "common/compile_check_end.h"
 } // namespace doris
