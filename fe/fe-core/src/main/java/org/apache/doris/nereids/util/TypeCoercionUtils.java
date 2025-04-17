@@ -24,6 +24,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -152,6 +154,23 @@ public class TypeCoercionUtils {
     );
 
     private static final Logger LOG = LogManager.getLogger(TypeCoercionUtils.class);
+
+    /**
+     * ensure the result's data type equals to the originExpr's dataType
+     */
+    public static Expression ensureResultType(
+            Expression originExpr, Expression result, ExpressionRewriteContext context) {
+        if (originExpr.getDataType().equals(result.getDataType())) {
+            return result;
+        }
+        // backend can use direct use all string like type without cast
+        if (originExpr.getDataType().isStringLikeType() && result.getDataType().isStringLikeType()) {
+            return result;
+        }
+        return FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE.visitCast(
+                new Cast(result, originExpr.getDataType()), context
+        );
+    }
 
     /**
      * Return Optional.empty() if we cannot do implicit cast.
