@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
@@ -39,11 +39,11 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(Coalesce.class).then(SimplifyConditionalFunction::rewriteCoalesce)
+                matchesType(Coalesce.class).thenApply(SimplifyConditionalFunction::rewriteCoalesce)
                         .toRule(ExpressionRuleType.SIMPLIFY_CONDITIONAL_FUNCTION),
-                matchesType(Nvl.class).then(SimplifyConditionalFunction::rewriteNvl)
+                matchesType(Nvl.class).thenApply(SimplifyConditionalFunction::rewriteNvl)
                         .toRule(ExpressionRuleType.SIMPLIFY_CONDITIONAL_FUNCTION),
-                matchesType(NullIf.class).then(SimplifyConditionalFunction::rewriteNullIf)
+                matchesType(NullIf.class).thenApply(SimplifyConditionalFunction::rewriteNullIf)
                         .toRule(ExpressionRuleType.SIMPLIFY_CONDITIONAL_FUNCTION)
         );
     }
@@ -54,12 +54,13 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
      * coalesce(null,null) => null
      * coalesce(expr1) => expr1
      * */
-    private static Expression rewriteCoalesce(Coalesce coalesce) {
+    private static Expression rewriteCoalesce(ExpressionMatchingContext<Coalesce> ctx) {
+        Coalesce coalesce = ctx.expr;
         if (1 == coalesce.arity()) {
-            return ensureResultType(coalesce, coalesce.child(0));
+            return FoldConstantRuleOnFE.ensureResultType(coalesce, coalesce.child(0), ctx.rewriteContext);
         }
         if (!(coalesce.child(0) instanceof NullLiteral) && coalesce.child(0).nullable()) {
-            return ensureResultType(coalesce, coalesce);
+            return FoldConstantRuleOnFE.ensureResultType(coalesce, coalesce, ctx.rewriteContext);
         }
         ImmutableList.Builder<Expression> childBuilder = ImmutableList.builder();
         for (int i = 0; i < coalesce.arity(); i++) {
@@ -68,7 +69,7 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
                 continue;
             }
             if (!child.nullable()) {
-                return ensureResultType(coalesce, child);
+                return FoldConstantRuleOnFE.ensureResultType(coalesce, child, ctx.rewriteContext);
             } else {
                 for (int j = i; j < coalesce.arity(); j++) {
                     childBuilder.add(coalesce.children().get(j));
@@ -78,9 +79,13 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
         }
         List<Expression> newChildren = childBuilder.build();
         if (newChildren.isEmpty()) {
-            return ensureResultType(coalesce, new NullLiteral(coalesce.getDataType()));
+            return FoldConstantRuleOnFE.ensureResultType(
+                    coalesce, new NullLiteral(coalesce.getDataType()), ctx.rewriteContext
+            );
         } else {
-            return ensureResultType(coalesce, coalesce.withChildren(newChildren));
+            return FoldConstantRuleOnFE.ensureResultType(
+                    coalesce, coalesce.withChildren(newChildren), ctx.rewriteContext
+            );
         }
     }
 
@@ -88,12 +93,13 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
     * nvl(null,R) => R
     * nvl(L(not-nullable ),R) => L
     * */
-    private static Expression rewriteNvl(Nvl nvl) {
+    private static Expression rewriteNvl(ExpressionMatchingContext<Nvl> ctx) {
+        Nvl nvl = ctx.expr;
         if (nvl.child(0) instanceof NullLiteral) {
-            return ensureResultType(nvl, nvl.child(1));
+            return FoldConstantRuleOnFE.ensureResultType(nvl, nvl.child(1), ctx.rewriteContext);
         }
         if (!nvl.child(0).nullable()) {
-            return ensureResultType(nvl, nvl.child(0));
+            return FoldConstantRuleOnFE.ensureResultType(nvl, nvl.child(0), ctx.rewriteContext);
         }
         return nvl;
     }
@@ -102,22 +108,14 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
     * nullif(null, R) => Null
     * nullif(L, null) => Null
      */
-    private static Expression rewriteNullIf(NullIf nullIf) {
+    private static Expression rewriteNullIf(ExpressionMatchingContext<NullIf> ctx) {
+        NullIf nullIf = ctx.expr;
         if (nullIf.child(0) instanceof NullLiteral || nullIf.child(1) instanceof NullLiteral) {
-            return ensureResultType(nullIf, new Nullable(nullIf.child(0)));
+            return FoldConstantRuleOnFE.ensureResultType(
+                    nullIf, new Nullable(nullIf.child(0)), ctx.rewriteContext
+            );
         } else {
             return nullIf;
         }
-    }
-
-    private static Expression ensureResultType(Expression originExpr, Expression result) {
-        if (originExpr.getDataType().equals(result.getDataType())) {
-            return result;
-        }
-        // backend can use direct use all string like type without cast
-        if (originExpr.getDataType().isStringLikeType() && result.getDataType().isStringLikeType()) {
-            return result;
-        }
-        return new Cast(result, originExpr.getDataType());
     }
 }
