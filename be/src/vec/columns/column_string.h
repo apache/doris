@@ -559,7 +559,7 @@ public:
 
     ColumnPtr convert_column_if_overflow() override;
 
-    void remove_first_n_values(size_t count) override;
+    void erase(size_t start, size_t length) override;
 };
 
 using ColumnString = ColumnStr<UInt32>;

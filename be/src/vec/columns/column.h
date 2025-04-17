@@ -177,15 +177,15 @@ public:
     }
 
     /**
-    * Removes the first 'n' elements from the column.
-    * @param n The number of elements to remove from the beginning of the column
+    * erase data from 'start' and length elements from the column.
+    * @param length The number of elements to remove from the start position of the column
     * @throws doris::Exception with NOT_IMPLEMENTED_ERROR if the operation is not supported
     *         for this column type
-    * eg: remove_first_n_values(2) means remove the idx 0 and 1 elements
+    * eg: erase(3, 2) means remove the idx 3 and 4 elements (0-based)
     */
-    virtual void remove_first_n_values(size_t n) {
+    virtual void erase(size_t start, size_t length) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method remove_first_n_values is not supported for " + get_name());
+                               "Method erase is not supported for " + get_name());
     }
 
     /// cut or expand inplace. `this` would be moved, only the return value is avaliable.

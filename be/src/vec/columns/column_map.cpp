@@ -545,14 +545,23 @@ ColumnPtr ColumnMap::convert_to_full_column_if_const() const {
                              offsets_column->convert_to_full_column_if_const());
 }
 
-void ColumnMap::remove_first_n_values(size_t n) {
-    DCHECK_GE(size(), n);
-    auto offset = get_offsets()[n - 1];
-    keys_column->remove_first_n_values(offset);
-    values_column->remove_first_n_values(offset);
-    offsets_column->remove_first_n_values(n);
-    for (size_t i = 0; i < offsets_column->size(); ++i) {
-        get_offsets()[i] -= offset;
+void ColumnMap::erase(size_t start, size_t length) {
+    if (start >= size() || length == 0) {
+        return;
+    }
+    length = std::min(length, size() - start);
+
+    const auto& offsets_data = get_offsets();
+    auto entry_start = offsets_data[start - 1];
+    auto entry_end = offsets_data[start + length - 1];
+    auto entry_length = entry_end - entry_start;
+
+    keys_column->erase(entry_start, entry_length);
+    values_column->erase(entry_start, entry_length);
+    offsets_column->erase(start, length);
+
+    for (auto i = start; i < size(); ++i) {
+        get_offsets()[i] -= entry_length;
     }
 }
 

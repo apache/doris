@@ -442,9 +442,9 @@ public:
 
     void finalize() override { get_nested_column().finalize(); }
 
-    void remove_first_n_values(size_t n) override {
-        get_nested_column().remove_first_n_values(n);
-        get_null_map_column().remove_first_n_values(n);
+    void erase(size_t start, size_t length) override {
+        get_nested_column().erase(start, length);
+        get_null_map_column().erase(start, length);
     }
 
 private:

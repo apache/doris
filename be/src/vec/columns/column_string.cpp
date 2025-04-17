@@ -703,19 +703,26 @@ ColumnPtr ColumnStr<T>::convert_column_if_overflow() {
 }
 
 template <typename T>
-void ColumnStr<T>::remove_first_n_values(size_t n) {
-    DCHECK_GE(offsets.size(), n);
-    const size_t remain_size = offsets.size() - n;
-    const T chars_to_remove = offsets[n - 1];
-    memmove(offsets.data(), offsets.data() + n, remain_size * sizeof(T));
+void ColumnStr<T>::erase(size_t start, size_t length) {
+    if (start >= offsets.size() || length == 0) {
+        return;
+    }
+    length = std::min(length, offsets.size() - start);
+
+    auto char_start = offsets[start - 1];
+    auto char_end = offsets[start + length - 1];
+    auto char_length = char_end - char_start;
+    memmove(chars.data() + char_start, chars.data() + char_end, chars.size() - char_end);
+    chars.resize(chars.size() - char_length);
+
+    const size_t remain_size = offsets.size() - length;
+    memmove(offsets.data() + start, offsets.data() + start + length,
+            (remain_size - start) * sizeof(T));
     offsets.resize(remain_size);
 
-    for (size_t i = 0; i < remain_size; ++i) {
-        offsets[i] -= chars_to_remove;
+    for (size_t i = start; i < remain_size; ++i) {
+        offsets[i] -= char_length;
     }
-
-    std::copy(chars.begin() + chars_to_remove, chars.end(), chars.begin());
-    chars.resize(offsets.back());
 }
 
 template class ColumnStr<uint32_t>;

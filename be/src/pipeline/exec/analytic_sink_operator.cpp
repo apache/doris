@@ -831,14 +831,14 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
         SCOPED_TIMER(_remove_rows_timer);
         for (size_t i = 0; i < _agg_functions_size; i++) {
             for (size_t j = 0; j < _agg_expr_ctxs[i].size(); j++) {
-                _agg_input_columns[i][j]->remove_first_n_values(remove_rows);
+                _agg_input_columns[i][j]->erase(0, remove_rows);
             }
         }
         for (size_t i = 0; i < _partition_exprs_size; i++) {
-            _partition_by_columns[i]->remove_first_n_values(remove_rows);
+            _partition_by_columns[i]->erase(0, remove_rows);
         }
         for (size_t i = 0; i < _order_by_exprs_size; i++) {
-            _order_by_columns[i]->remove_first_n_values(remove_rows);
+            _order_by_columns[i]->erase(0, remove_rows);
         }
     }
     COUNTER_UPDATE(_remove_count, 1);

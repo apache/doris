@@ -407,11 +407,14 @@ public:
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
 
-    void remove_first_n_values(size_t count) override {
-        DCHECK_GE(data.size(), count);
-        size_t remain_size = data.size() - count;
-        memmove(data.data(), data.data() + count, remain_size * sizeof(T));
-        data.resize(remain_size);
+    void erase(size_t start, size_t length) override {
+        if (start >= data.size() || length == 0) {
+            return;
+        }
+        length = std::min(length, data.size() - start);
+        size_t elements_to_move = data.size() - start - length;
+        memmove(data.data() + start, data.data() + start + length, elements_to_move * sizeof(T));
+        data.resize(data.size() - length);
     }
 
 protected:

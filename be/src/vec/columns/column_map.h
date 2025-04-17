@@ -202,7 +202,7 @@ public:
         return IColumn::convert_column_if_overflow();
     }
 
-    void remove_first_n_values(size_t n) override;
+    void erase(size_t start, size_t length) override;
 
 private:
     friend class COWHelper<IColumn, ColumnMap>;

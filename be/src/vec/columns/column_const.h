@@ -277,9 +277,12 @@ public:
 
     void finalize() override { data->finalize(); }
 
-    void remove_first_n_values(size_t n) override {
-        DCHECK_GE(s, n);
-        s = s - n;
+    void erase(size_t start, size_t length) override {
+        if (start >= s || length == 0) {
+            return;
+        }
+        length = std::min(length, s - start);
+        s = s - length;
     }
 };
 } // namespace doris::vectorized
