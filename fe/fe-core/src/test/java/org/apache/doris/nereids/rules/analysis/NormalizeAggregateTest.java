@@ -37,23 +37,35 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 import java.util.List;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class NormalizeAggregateTest implements MemoPatternMatchSupported {
+public class NormalizeAggregateTest extends TestWithFeService implements MemoPatternMatchSupported {
     private LogicalPlan rStudent;
 
-    @BeforeAll
-    public final void beforeAll() {
+    @Override
+    protected void runBeforeAll() throws Exception {
         rStudent = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
                 ImmutableList.of());
+        createDatabase("test");
+        connectContext.setDatabase("default_cluster:test");
+        createTables(
+                "CREATE TABLE IF NOT EXISTS t1 (\n"
+                        + "    id int not null,\n"
+                        + "    name char\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(id)\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n"
+        );
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
     /*-
@@ -189,5 +201,104 @@ public class NormalizeAggregateTest implements MemoPatternMatchSupported {
                                         .equals(new IntegerLiteral(2)))
 
                 );
+    }
+
+    // add test for agg eliminate const
+    @Test
+    void testEliminateGroupByConst() {
+        String sql = "select id ,1, 'abc' from t1 group by 1,2,3";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalAggregate().when(aggregate -> aggregate.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void useTinyIntEliminateGroupByConst() {
+        String sql = "select 1, 'abc' from t1 group by 1,2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalAggregate());
+    }
+
+    @Test
+    void testMixedConstTypes() {
+        String sql = "select id, 1, 'abc', true from t1 group by 1, 2, 3, 4";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void testNullConst() {
+        String sql = "select id, NULL from t1 group by 1, 2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void testTwoNullConst() {
+        String sql = "select Null, NULL from t1 group by 1, 2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalAggregate());
+    }
+
+    @Test
+    void testExpressionConst() {
+        String sql = "select id, 1+1, CONCAT('a','b') from t1 group by 1, 2, 3";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void testFunctionCallConst() {
+        String sql = "select id, NOW(), PI() from t1 group by 1, 2, 3";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void testDifferentOrder() {
+        String sql = "select 1, id, 'abc' from t1 group by 2, 1, 3";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void testDuplicateConst() {
+        String sql = "select id, 1, 1 from t1 group by 1, 2, 3";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void testWithAggFunction() {
+        String sql = "select 'abc', 1, COUNT(*) from t1 group by 1, 2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1
+                                && agg.getOutputExpressions().stream().anyMatch(e -> e.toString().contains("COUNT"))));
     }
 }
