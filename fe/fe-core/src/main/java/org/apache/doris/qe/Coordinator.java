@@ -2155,6 +2155,11 @@ public class Coordinator implements CoordInterface {
                         replicaNumPerHost, isEnableOrderedLocations);
             }
         }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("query id:{}, per backend replica:{}", DebugUtil.printId(queryId),
+                    assignedBytesPerHost.toString());
+        }
     }
 
     // To ensure the same bucketSeq tablet to the same execHostPort
