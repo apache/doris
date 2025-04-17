@@ -32,7 +32,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "rapidjson/document.h"
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"

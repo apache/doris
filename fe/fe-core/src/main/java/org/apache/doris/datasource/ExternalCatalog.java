@@ -501,7 +501,23 @@ public abstract class ExternalCatalog
         return remoteToLocalPairs;
     }
 
-    public void onRefresh(boolean invalidCache) {
+    /**
+     * Resets the Catalog state to uninitialized, releases resources held by {@code initLocalObjectsImpl()}
+     * <p>
+     * This method is typically invoked during operations such as {@code CREATE CATALOG}
+     * and {@code MODIFY CATALOG}. It marks the object as uninitialized, clears cached
+     * configurations, and ensures that resources allocated during {@link #initLocalObjectsImpl()}
+     * are properly released via {@link #onClose()}
+     * </p>
+     * <p>
+     * The {@code onClose()} method is responsible for cleaning up resources that were initialized
+     * in {@code initLocalObjectsImpl()}, preventing potential resource leaks.
+     * </p>
+     *
+     * @param invalidCache if {@code true}, the catalog cache will be invalidated
+     *                     and reloaded during the refresh process.
+     */
+    public void resetToUninitialized(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
         synchronized (this.propLock) {
@@ -511,6 +527,7 @@ public abstract class ExternalCatalog
         synchronized (this.confLock) {
             this.cachedConf = null;
         }
+        onClose();
 
         refreshOnlyCatalogCache(invalidCache);
     }
@@ -727,7 +744,12 @@ public abstract class ExternalCatalog
         if (threadPoolWithPreAuth != null) {
             ThreadPoolManager.shutdownExecutorService(threadPoolWithPreAuth);
         }
-        CatalogIf.super.onClose();
+        if (null != preExecutionAuthenticator) {
+            preExecutionAuthenticator = null;
+        }
+        if (null != transactionManager) {
+            transactionManager = null;
+        }
     }
 
     private void removeAccessController() {
