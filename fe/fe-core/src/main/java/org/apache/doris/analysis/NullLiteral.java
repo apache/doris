@@ -23,6 +23,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -106,14 +107,19 @@ public class NullLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         return null;
+    }
+
+    @Override
+    public String getStringValueForStreamLoad(FormatOptions options) {
+        return FeConstants.null_string;
     }
 
     // the null value inside an array is represented as "null", for exampe:
     // [null, null]. Not same as other primitive type to represent as \N.
     @Override
-    public String getStringValueForArray(FormatOptions options) {
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
         return options.getNullFormat();
     }
 

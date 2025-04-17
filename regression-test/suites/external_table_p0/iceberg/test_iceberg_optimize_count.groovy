@@ -56,7 +56,7 @@ suite("test_iceberg_optimize_count", "p0,external,doris,external_docker,external
         qt_q04 """${sqlstr4}""" 
 
         // traditional mode
-        sql """set num_partitions_in_batch_mode=1"""
+        sql """set num_files_in_batch_mode=100000"""
         explain {
             sql("""select * from sample_cow_orc""")
             notContains "approximate"
@@ -88,7 +88,7 @@ suite("test_iceberg_optimize_count", "p0,external,doris,external_docker,external
         }
 
         // batch mode
-        sql """set num_partitions_in_batch_mode=1025"""
+        sql """set num_files_in_batch_mode=1"""
         explain {
             sql("""select * from sample_cow_orc""")
             contains "approximate"

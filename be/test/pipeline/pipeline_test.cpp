@@ -77,7 +77,7 @@ private:
                 parent ? std::min(parent->num_tasks(), num_instances) : num_instances,
                 parent ? parent->num_tasks() : num_instances);
         _pipelines.push_back(pip);
-        _pipeline_tasks.push_back(std::vector<std::unique_ptr<PipelineTask>> {});
+        _pipeline_tasks.push_back(std::vector<std::shared_ptr<PipelineTask>> {});
         _runtime_states.push_back(std::vector<std::unique_ptr<RuntimeState>> {});
         _pipeline_profiles.push_back(nullptr);
         if (parent) {
@@ -156,7 +156,7 @@ private:
 
     // Task Level
     // Fragment0[Pipeline0[Task0] -> Pipeline1[Task0]] -> Fragment1[Pipeline2[Task0] -> Pipeline3[Task0]]
-    std::vector<std::vector<std::unique_ptr<PipelineTask>>> _pipeline_tasks;
+    std::vector<std::vector<std::shared_ptr<PipelineTask>>> _pipeline_tasks;
     std::vector<std::vector<std::unique_ptr<RuntimeState>>> _runtime_states;
 
     // Instance level
@@ -276,10 +276,9 @@ TEST_F(PipelineTest, HAPPY_PATH) {
                                 std::vector<std::shared_ptr<Dependency>>>>
                 shared_state_map;
         auto task = std::make_unique<PipelineTask>(
-                cur_pipe, task_id, local_runtime_state.get(), _context.back().get(),
+                cur_pipe, task_id, local_runtime_state.get(), _context.back(),
                 _pipeline_profiles[cur_pipe->id()].get(), shared_state_map, task_id);
         cur_pipe->incr_created_tasks(task_id, task.get());
-        local_runtime_state->set_task(task.get());
         task->set_task_queue(_task_queue.get());
         _pipeline_tasks[cur_pipe->id()].push_back(std::move(task));
         _runtime_states[cur_pipe->id()].push_back(std::move(local_runtime_state));
@@ -313,9 +312,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
             downstream_runtime_state.get(), memory_used_counter, dest0, 1, 1,
             downstream_pipeline_profile.get(), false, block_mem_usage - 1);
     std::vector<TScanRangeParams> scan_ranges;
-    EXPECT_EQ(_pipeline_tasks[cur_pipe->id()].back()->prepare(scan_ranges, 0, tsink,
-                                                              _query_ctx.get()),
-              Status::OK());
+    EXPECT_EQ(_pipeline_tasks[cur_pipe->id()].back()->prepare(scan_ranges, 0, tsink), Status::OK());
 
     auto& local_state = _runtime_states.back()
                                 .front()
@@ -324,7 +321,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
     auto& sink_local_state =
             _runtime_states.back().front()->get_sink_local_state()->cast<ExchangeSinkLocalState>();
     EXPECT_EQ(sink_local_state.channels.size(), 1);
-    EXPECT_EQ(sink_local_state.only_local_exchange, true);
+    EXPECT_EQ(sink_local_state._only_local_exchange, true);
 
     EXPECT_EQ(local_state.stream_recvr->sender_queues().size(), 1);
 
@@ -909,9 +906,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         int task_id = 0;
         _runtime_filter_mgrs.resize(parallelism);
         for (int j = 0; j < parallelism; j++) {
-            auto runtime_filter_state = RuntimeFilterParamsContext::create(_query_ctx.get());
-            _runtime_filter_mgrs[j] = std::make_unique<RuntimeFilterMgr>(
-                    _query_id, runtime_filter_state, _query_ctx->query_mem_tracker(), false);
+            _runtime_filter_mgrs[j] = std::make_unique<RuntimeFilterMgr>(false);
         }
         for (size_t i = 0; i < _pipelines.size(); i++) {
             EXPECT_EQ(_pipelines[i]->id(), i);
@@ -935,15 +930,13 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                 local_runtime_state->set_task_execution_context(
                         std::static_pointer_cast<TaskExecutionContext>(_context.back()));
                 local_runtime_state->set_runtime_filter_mgr(_runtime_filter_mgrs[j].get());
-                _runtime_filter_mgrs[j]->_state->set_state(local_runtime_state.get());
                 std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
                                         std::vector<std::shared_ptr<Dependency>>>>
                         shared_state_map;
                 auto task = std::make_unique<PipelineTask>(
-                        _pipelines[i], task_id, local_runtime_state.get(), _context.back().get(),
+                        _pipelines[i], task_id, local_runtime_state.get(), _context.back(),
                         _pipeline_profiles[_pipelines[i]->id()].get(), shared_state_map, j);
                 _pipelines[i]->incr_created_tasks(j, task.get());
-                local_runtime_state->set_task(task.get());
                 task->set_task_queue(_task_queue.get());
                 _pipeline_tasks[_pipelines[i]->id()].push_back(std::move(task));
                 _runtime_states[_pipelines[i]->id()].push_back(std::move(local_runtime_state));
@@ -975,8 +968,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
     for (size_t i = 0; i < _pipelines.size(); i++) {
         for (int j = 0; j < parallelism; j++) {
             std::vector<TScanRangeParams> scan_ranges;
-            EXPECT_EQ(_pipeline_tasks[_pipelines[i]->id()][j]->prepare(scan_ranges, j, tsink,
-                                                                       _query_ctx.get()),
+            EXPECT_EQ(_pipeline_tasks[_pipelines[i]->id()][j]->prepare(scan_ranges, j, tsink),
                       Status::OK());
             if (i == 1) {
                 auto& local_state = _runtime_states[i][j]

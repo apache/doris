@@ -22,7 +22,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -565,7 +564,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             MTMVCache cache;
             try {
                 cache = mtmv.getOrGenerateCache(ConnectContext.get());
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 LOG.warn(String.format("LogicalOlapScan computeUnique fail, mv name is %s", mtmv.getName()), e);
                 return;
             }
@@ -604,7 +603,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             MTMVCache cache;
             try {
                 cache = mtmv.getOrGenerateCache(ConnectContext.get());
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 LOG.warn(String.format("LogicalOlapScan computeUniform fail, mv name is %s", mtmv.getName()), e);
                 return;
             }
@@ -625,7 +624,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             MTMVCache cache;
             try {
                 cache = mtmv.getOrGenerateCache(ConnectContext.get());
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 LOG.warn(String.format("LogicalOlapScan computeEqualSet fail, mv name is %s", mtmv.getName()), e);
                 return;
             }
@@ -646,7 +645,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             MTMVCache cache;
             try {
                 cache = mtmv.getOrGenerateCache(ConnectContext.get());
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 LOG.warn(String.format("LogicalOlapScan computeFd fail, mv name is %s", mtmv.getName()), e);
                 return;
             }
@@ -677,7 +676,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         MTMVCache cache;
         try {
             cache = mtmv.getOrGenerateCache(ConnectContext.get());
-        } catch (AnalysisException e) {
+        } catch (Exception e) {
             LOG.warn(String.format("LogicalOlapScan constructReplaceMap fail, mv name is %s", mtmv.getName()), e);
             return replaceMap;
         }

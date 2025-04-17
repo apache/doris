@@ -30,14 +30,15 @@ namespace doris {
 Status RuntimeFilterProducer::_send_to_remote_targets(RuntimeState* state,
                                                       RuntimeFilter* merger_filter) {
     TNetworkAddress addr;
-    RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_merge_addr(&addr));
+    RETURN_IF_ERROR(state->global_runtime_filter_mgr()->get_merge_addr(&addr));
     return merger_filter->_push_to_remote(state, &addr);
 };
 
-Status RuntimeFilterProducer::_send_to_local_targets(RuntimeFilter* source, bool global) {
+Status RuntimeFilterProducer::_send_to_local_targets(RuntimeState* state, RuntimeFilter* source,
+                                                     bool global) {
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> filters =
-            global ? _state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id())
-                   : _state->local_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id());
+            global ? state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id())
+                   : state->local_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id());
     for (auto filter : filters) {
         filter->signal(source);
     }
@@ -51,14 +52,14 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
         // two case we need do local merge:
         // 1. has remote target
         // 2. has local target and has global consumer (means target scan has local shuffle)
-        if (!_has_remote_target && _state->global_runtime_filter_mgr()
+        if (!_has_remote_target && state->global_runtime_filter_mgr()
                                            ->get_consume_filters(_wrapper->filter_id())
                                            .empty()) {
             // when global consumer not exist, send_to_local_targets will do nothing, so merge rf is useless
             return Status::OK();
         }
         LocalMergeContext* context = nullptr;
-        RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
+        RETURN_IF_ERROR(state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
                 _wrapper->filter_id(), &context));
         std::lock_guard l(context->mtx);
         RETURN_IF_ERROR(context->merger->merge_from(this));
@@ -66,7 +67,7 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
             if (_has_remote_target) {
                 RETURN_IF_ERROR(_send_to_remote_targets(state, context->merger.get()));
             } else {
-                RETURN_IF_ERROR(_send_to_local_targets(context->merger.get(), true));
+                RETURN_IF_ERROR(_send_to_local_targets(state, context->merger.get(), true));
             }
         }
         return Status::OK();
@@ -76,7 +77,7 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
         // A runtime filter may have multiple targets and some of those are local-merge RF and others are not.
         // So for all runtime filters' producers, `publish` should notify all consumers in global RF mgr which manages local-merge RF and local RF mgr which manages others.
         RETURN_IF_ERROR(do_merge());
-        RETURN_IF_ERROR(_send_to_local_targets(this, false));
+        RETURN_IF_ERROR(_send_to_local_targets(state, this, false));
     } else if (build_hash_table) {
         if (_is_broadcast_join) {
             RETURN_IF_ERROR(_send_to_remote_targets(state, this));
@@ -105,9 +106,8 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
 
     void _process_if_rpc_failed() override {
         Defer defer {[&]() {
-            if (_dependency) {
-                ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
-            }
+            Base::_process_if_rpc_failed();
+            ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
         }};
         auto wrapper = _wrapper.lock();
         if (!wrapper) {
@@ -115,14 +115,12 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
         }
 
         wrapper->set_state(RuntimeFilterWrapper::State::DISABLED, cntl_->ErrorText());
-        Base::_process_if_rpc_failed();
     }
 
     void _process_if_meet_error_status(const Status& status) override {
         Defer defer {[&]() {
-            if (_dependency) {
-                ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
-            }
+            Base::_process_if_meet_error_status(status);
+            ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
         }};
         auto wrapper = _wrapper.lock();
         if (!wrapper) {
@@ -141,26 +139,32 @@ public:
             : Base(req, callback, context), _dependency(std::move(dependency)), _wrapper(wrapper) {}
 };
 
-Status RuntimeFilterProducer::send_size(
-        RuntimeState* state, uint64_t local_filter_size,
+void RuntimeFilterProducer::latch_dependency(
         const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
+    if (_rf_state != State::WAITING_FOR_SEND_SIZE) {
+        _check_state({State::WAITING_FOR_DATA});
+        return;
+    }
+    DCHECK(dependency != nullptr);
+    _dependency = dependency;
+    _dependency->add();
+}
+
+Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filter_size) {
     if (_rf_state != State::WAITING_FOR_SEND_SIZE) {
         _check_state({State::WAITING_FOR_DATA});
         return Status::OK();
     }
-    if (dependency) {
-        _dependency = dependency;
-        _dependency->add();
-    }
+    DCHECK(_dependency != nullptr);
     set_state(State::WAITING_FOR_SYNCED_SIZE);
 
     // two case we need do local merge:
     // 1. has remote target
     // 2. has local target and has global consumer (means target scan has local shuffle)
     if (_has_remote_target ||
-        !_state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id()).empty()) {
+        !state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id()).empty()) {
         LocalMergeContext* merger_context = nullptr;
-        RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
+        RETURN_IF_ERROR(state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
                 _wrapper->filter_id(), &merger_context));
         std::lock_guard l(merger_context->mtx);
         if (merger_context->merger->add_rf_size(local_filter_size)) {
@@ -182,9 +186,9 @@ Status RuntimeFilterProducer::send_size(
     }
 
     TNetworkAddress addr;
-    RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_merge_addr(&addr));
+    RETURN_IF_ERROR(state->global_runtime_filter_mgr()->get_merge_addr(&addr));
     std::shared_ptr<PBackendService_Stub> stub(
-            _state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(addr));
+            state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(addr));
     if (!stub) {
         return Status::InternalError("Get rpc stub failed, host={}, port={}", addr.hostname,
                                      addr.port);
@@ -199,8 +203,8 @@ Status RuntimeFilterProducer::send_size(
                                                           ? std::weak_ptr<QueryContext> {}
                                                           : state->get_query_ctx_weak());
     auto* pquery_id = request->mutable_query_id();
-    pquery_id->set_hi(_state->get_query_ctx()->query_id().hi);
-    pquery_id->set_lo(_state->get_query_ctx()->query_id().lo);
+    pquery_id->set_hi(state->get_query_ctx()->query_id().hi);
+    pquery_id->set_lo(state->get_query_ctx()->query_id().lo);
 
     auto* source_addr = request->mutable_source_addr();
     source_addr->set_hostname(BackendOptions::get_local_backend().host);
@@ -227,14 +231,12 @@ Status RuntimeFilterProducer::send_size(
 
 void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
     if (!set_state(State::WAITING_FOR_DATA)) {
-        _check_wrapper_state(
-                {RuntimeFilterWrapper::State::DISABLED, RuntimeFilterWrapper::State::IGNORED});
+        _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED});
     }
 
     _synced_size = global_size;
-    if (_dependency) {
-        _dependency->sub();
-    }
+    DCHECK(_dependency != nullptr);
+    _dependency->sub();
 }
 
 Status RuntimeFilterProducer::init(size_t local_size) {

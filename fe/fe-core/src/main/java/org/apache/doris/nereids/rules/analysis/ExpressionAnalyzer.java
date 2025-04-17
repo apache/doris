@@ -81,6 +81,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -299,6 +300,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 Expression firstBound = bounded.get(0);
                 if (!foundInThisScope && firstBound instanceof Slot
                         && !outerScope.get().getCorrelatedSlots().contains(firstBound)) {
+                    if (currentPlan instanceof LogicalJoin) {
+                        throw new AnalysisException(
+                                "Unsupported correlated subquery with correlated slot in join conjuncts "
+                                        + currentPlan);
+                    }
                     outerScope.get().getCorrelatedSlots().add((Slot) firstBound);
                 }
                 return firstBound;
@@ -623,6 +629,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
         Expression realExpr = context.cascadesContext.getStatementContext()
                     .getIdToPlaceholderRealExpr().get(placeholder.getPlaceholderId());
+        // In prepare stage, the realExpr has not been set, set it to NullLiteral so that we can plan the statement
+        // and get the output slots in prepare stage, which is required by Mysql api definition.
+        if (realExpr == null && context.cascadesContext.getStatementContext().isPrepareStage()) {
+            realExpr = new NullLiteral();
+        }
         return visit(realExpr, context);
     }
 
@@ -697,6 +708,16 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
         } else {
             newCompareExpr = afterTypeCoercion.left();
+        }
+        if (getScope().getOuterScope().isPresent()) {
+            Scope outerScope = getScope().getOuterScope().get();
+            for (Slot slot : newCompareExpr.getInputSlots()) {
+                if (outerScope.getCorrelatedSlots().contains(slot)) {
+                    throw new AnalysisException(
+                            String.format("access outer query column %s in expression %s is not supported",
+                                    slot, inSubquery));
+                }
+            }
         }
         return new InSubquery(newCompareExpr, (ListQuery) afterTypeCoercion.right(),
                 inSubquery.getCorrelateSlots(), ((ListQuery) afterTypeCoercion.right()).getTypeCoercionExpr(),

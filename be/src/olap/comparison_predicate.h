@@ -267,8 +267,16 @@ public:
             } else {
                 current_evaluated_rows += size;
             }
-            _evaluated_rows += current_evaluated_rows;
         }
+
+        // defer is created after its reference args are created.
+        // so defer will be destroyed BEFORE the reference args.
+        // so reference here is safe.
+        // https://stackoverflow.com/questions/14688285/c-local-variable-destruction-order
+        Defer defer([&]() {
+            update_filter_info(current_evaluated_rows - current_passed_rows,
+                               current_evaluated_rows);
+        });
 
         if (column.is_nullable()) {
             const auto* nullable_column_ptr =
@@ -354,7 +362,6 @@ public:
             for (uint16_t i = 0; i < size; i++) {
                 current_passed_rows += flags[i];
             }
-            _passed_rows += current_passed_rows;
             do_judge_selectivity(current_evaluated_rows - current_passed_rows,
                                  current_evaluated_rows);
         }

@@ -274,8 +274,6 @@ namespace ErrorCode {
     E(SEGCOMPACTION_INIT_READER, -3117, false);              \
     E(SEGCOMPACTION_INIT_WRITER, -3118, false);              \
     E(SEGCOMPACTION_FAILED, -3119, false);                   \
-    E(PIP_WAIT_FOR_RF, -3120, false);                        \
-    E(PIP_WAIT_FOR_SC, -3121, false);                        \
     E(ROWSET_ADD_TO_BINLOG_FAILED, -3122, true);             \
     E(ROWSET_BINLOG_NOT_ONLY_ONE_VERSION, -3123, true);      \
     E(INVERTED_INDEX_INVALID_PARAMETERS, -6000, false);      \
@@ -492,8 +490,6 @@ public:
     ERROR_CTOR(NotSupported, NOT_IMPLEMENTED_ERROR)
     ERROR_CTOR_NOSTACK(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)
-    ERROR_CTOR_NOSTACK(WaitForRf, PIP_WAIT_FOR_RF)
-    ERROR_CTOR_NOSTACK(WaitForScannerContext, PIP_WAIT_FOR_SC)
     ERROR_CTOR(RuntimeError, RUNTIME_ERROR)
     ERROR_CTOR_NOSTACK(Cancelled, CANCELLED)
     ERROR_CTOR(MemoryLimitExceeded, MEM_LIMIT_EXCEEDED)

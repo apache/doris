@@ -23,10 +23,12 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 
 #include "common/status.h"
+#include "util/simd/vstring_function.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -46,6 +48,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/functions/array/function_array_index.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
@@ -286,12 +289,165 @@ public:
     }
 };
 
+class FunctionStrToMap : public IFunction {
+public:
+    static constexpr auto name = "str_to_map";
+    static FunctionPtr create() { return std::make_shared<FunctionStrToMap>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeString>()),
+                                             make_nullable(std::make_shared<DataTypeString>()));
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        DCHECK(arguments.size() == 3);
+
+        bool cols_const[2];
+        ColumnPtr cols[2];
+        for (size_t i = 0; i < 2; ++i) {
+            cols_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        }
+        // convert to full column if necessary
+        default_preprocess_parameter_columns(cols, cols_const, {0, 1}, block, arguments);
+        const auto& [col3, col3_const] =
+                unpack_if_const(block.get_by_position(arguments[2]).column);
+
+        const auto& str_column = assert_cast<const ColumnString*>(cols[0].get());
+        const auto& pair_delim_column = assert_cast<const ColumnString*>(cols[1].get());
+        const auto& kv_delim_column = assert_cast<const ColumnString*>(col3.get());
+
+        ColumnPtr result_col;
+        if (cols_const[0] && cols_const[1]) {
+            result_col = execute_vector<true, false>(input_rows_count, *str_column,
+                                                     *pair_delim_column, *kv_delim_column);
+        } else if (col3_const) {
+            result_col = execute_vector<false, true>(input_rows_count, *str_column,
+                                                     *pair_delim_column, *kv_delim_column);
+        } else {
+            result_col = execute_vector<false, false>(input_rows_count, *str_column,
+                                                      *pair_delim_column, *kv_delim_column);
+        }
+
+        block.replace_by_position(result, std::move(result_col));
+
+        return Status::OK();
+    }
+
+private:
+    template <bool is_str_and_pair_delim_const, bool is_kv_delim_const>
+    static ColumnPtr execute_vector(const size_t input_rows_count, const ColumnString& str_col,
+                                    const ColumnString& pair_delim_col,
+                                    const ColumnString& kv_delim_col) {
+        // map keys column
+        auto result_col_map_keys_data =
+                ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+        result_col_map_keys_data->reserve(input_rows_count);
+        // map values column
+        auto result_col_map_vals_data =
+                ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+        result_col_map_vals_data->reserve(input_rows_count);
+        // map offsets column
+        auto result_col_map_offsets = ColumnUInt64::create();
+        result_col_map_offsets->reserve(input_rows_count);
+
+        std::vector<std::string_view> kvs;
+        std::string_view kv_delim;
+        if constexpr (is_str_and_pair_delim_const) {
+            auto str = str_col.get_data_at(0).to_string_view();
+            auto pair_delim = pair_delim_col.get_data_at(0).to_string_view();
+            kvs = split_pair_by_delim(str, pair_delim);
+        }
+        if constexpr (is_kv_delim_const) {
+            kv_delim = kv_delim_col.get_data_at(0).to_string_view();
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if constexpr (!is_str_and_pair_delim_const) {
+                auto str = str_col.get_data_at(i).to_string_view();
+                auto pair_delim = pair_delim_col.get_data_at(i).to_string_view();
+                kvs = split_pair_by_delim(str, pair_delim);
+            }
+            if constexpr (!is_kv_delim_const) {
+                kv_delim = kv_delim_col.get_data_at(i).to_string_view();
+            }
+
+            for (const auto& kv : kvs) {
+                auto kv_parts = split_kv_by_delim(kv, kv_delim);
+                if (kv_parts.size() == 2) {
+                    result_col_map_keys_data->insert_data(kv_parts[0].data(), kv_parts[0].size());
+                    result_col_map_vals_data->insert_data(kv_parts[1].data(), kv_parts[1].size());
+                } else {
+                    result_col_map_keys_data->insert_data(kv.data(), kv.size());
+                    result_col_map_vals_data->insert_default();
+                }
+            }
+            result_col_map_offsets->insert_value(result_col_map_keys_data->size());
+        }
+
+        return ColumnMap::create(std::move(result_col_map_keys_data),
+                                 std::move(result_col_map_vals_data),
+                                 std::move(result_col_map_offsets));
+    }
+
+    static std::vector<std::string_view> split_pair_by_delim(const std::string_view& str,
+                                                             const std::string_view& delim) {
+        if (str.empty()) {
+            return {str};
+        }
+        if (delim.empty()) {
+            std::vector<std::string_view> result;
+            size_t offset = 0;
+            while (offset < str.size()) {
+                auto len = get_utf8_byte_length(str[offset]);
+                result.push_back(str.substr(offset, len));
+                offset += len;
+            }
+            return result;
+        }
+        std::vector<std::string_view> result;
+        size_t offset = 0;
+        while (offset < str.size()) {
+            auto pos = str.find(delim, offset);
+            if (pos == std::string::npos) {
+                result.push_back(str.substr(offset));
+                break;
+            }
+            result.push_back(str.substr(offset, pos - offset));
+            offset = pos + delim.size();
+        }
+        return result;
+    }
+
+    static std::vector<std::string_view> split_kv_by_delim(const std::string_view& str,
+                                                           const std::string_view& delim) {
+        if (str.empty()) {
+            return {str};
+        }
+        if (delim.empty()) {
+            auto len = get_utf8_byte_length(str[0]);
+            return {str.substr(0, len), str.substr(len)};
+        }
+        auto pos = str.find(delim);
+        if (pos == std::string::npos) {
+            return {str};
+        } else {
+            return {str.substr(0, pos), str.substr(pos + delim.size())};
+        }
+    }
+};
+
 void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMap>();
     factory.register_function<FunctionMapContains<true>>();
     factory.register_function<FunctionMapContains<false>>();
     factory.register_function<FunctionMapEntries<true>>();
     factory.register_function<FunctionMapEntries<false>>();
+    factory.register_function<FunctionStrToMap>();
 }
 
 } // namespace doris::vectorized

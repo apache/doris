@@ -76,6 +76,11 @@ public:
             : Base(pool, plan_node_id, operator_id), _cache_param(cache_param) {
         _op_name = "CACHE_SOURCE_OPERATOR";
     };
+
+#ifdef BE_TEST
+    CacheSourceOperatorX() = default;
+#endif
+
     ~CacheSourceOperatorX() override = default;
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 

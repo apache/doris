@@ -24,11 +24,13 @@
 #include "column_nullable_test.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "testutil/column_helper.h"
 #include "vec/columns/columns_number.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
 
@@ -46,12 +48,6 @@ TEST(ColumnNullableTest, NullTest) {
     dst_col->insert(Field());
     EXPECT_TRUE(dst_col->has_null());
     dst_col->clear();
-    EXPECT_FALSE(dst_col->has_null());
-    dst_col->insert_many_from_not_nullable(*source_col, 0, 10);
-    EXPECT_FALSE(dst_col->has_null());
-    dst_col->insert_from_not_nullable(*source_col, 5);
-    EXPECT_FALSE(dst_col->has_null());
-    dst_col->insert_many_from_not_nullable(*source_col, 5, 5);
     EXPECT_FALSE(dst_col->has_null());
     dst_col->insert_range_from_not_nullable(*source_col, 5, 5);
     EXPECT_FALSE(dst_col->has_null());
@@ -108,5 +104,23 @@ TEST(ColumnNullableTest, PredicateTest) {
     EXPECT_EQ(nullable_pred->filter_by_selector(selector, 2, null_dst.get()), Status::OK());
     // filter_by_selector must announce to update has_null to make below right.
     EXPECT_TRUE(null_dst->has_null());
+}
+
+TEST(ColumnNullableTest, append_data_by_selector) {
+    auto srt_column = ColumnHelper::create_nullable_column<DataTypeInt64>(
+            {1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+            {true, false, true, false, false, false, true, false, false, false});
+
+    IColumn::Selector selector = {0, 2, 4, 6, 8};
+
+    IColumn::MutablePtr dst_column =
+            ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
+
+    srt_column->append_data_by_selector(dst_column, selector);
+
+    auto expected_column = ColumnHelper::create_nullable_column<DataTypeInt64>(
+            {1, 3, 5, 7, 9}, {true, true, false, true, false});
+
+    EXPECT_TRUE(ColumnHelper::column_equal(std::move(dst_column), expected_column));
 }
 } // namespace doris::vectorized

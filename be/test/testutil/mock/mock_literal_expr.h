@@ -43,6 +43,12 @@ public:
         _data_type = data.type;
         _column_ptr = data.column;
         _expr_name = data.name;
+        if (!check_and_get_column<ColumnConst>(data.column.get())) {
+            _mock_const_expr_col =
+                    std::make_shared<ColumnPtrWrapper>(ColumnConst::create(data.column, 1));
+        } else {
+            _mock_const_expr_col = std::make_shared<ColumnPtrWrapper>(data.column);
+        }
     }
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
@@ -101,8 +107,15 @@ public:
         return ctxs;
     }
 
+    Status get_const_col(VExprContext* context,
+                         std::shared_ptr<ColumnPtrWrapper>* column_wrapper) override {
+        *column_wrapper = _mock_const_expr_col;
+        return Status::OK();
+    }
+
 private:
     const std::string _name = "MockLiteral";
+    std::shared_ptr<ColumnPtrWrapper> _mock_const_expr_col;
 };
 
 } // namespace vectorized

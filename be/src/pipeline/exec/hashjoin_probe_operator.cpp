@@ -529,11 +529,14 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     }
 
     for (auto conjunct : _other_join_conjuncts) {
-        conjunct->root()->collect_slot_column_ids(_other_conjunct_refer_column_ids);
+        conjunct->root()->collect_slot_column_ids(_should_not_lazy_materialized_column_ids);
     }
 
     for (auto& conjunct : _mark_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+        if (_have_other_join_conjunct) {
+            conjunct->root()->collect_slot_column_ids(_should_not_lazy_materialized_column_ids);
+        }
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));

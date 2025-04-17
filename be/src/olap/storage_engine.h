@@ -109,7 +109,8 @@ public:
     // start all background threads. This should be call after env is ready.
     virtual Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) = 0;
 
-    virtual Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) = 0;
+    virtual Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
+                                              SyncRowsetStats* sync_stats = nullptr) = 0;
 
     void register_report_listener(ReportWorker* listener);
     void deregister_report_listener(ReportWorker* listener);
@@ -146,6 +147,7 @@ public:
 protected:
     void _evict_querying_rowset();
     void _evict_quring_rowset_thread_callback();
+    bool _should_delay_large_task();
 
     int32_t _effective_cluster_id = -1;
     HeartbeatFlags* _heartbeat_flags = nullptr;
@@ -172,6 +174,11 @@ protected:
 
     std::shared_ptr<bvar::Status<size_t>> _tablet_max_delete_bitmap_score_metrics;
     std::shared_ptr<bvar::Status<size_t>> _tablet_max_base_rowset_delete_bitmap_score_metrics;
+
+    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    int _cumu_compaction_thread_pool_used_threads {0};
+    int _cumu_compaction_thread_pool_small_tasks_running {0};
 };
 
 class CompactionSubmitRegistry {
@@ -221,7 +228,8 @@ public:
 
     Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 
-    Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) override;
+    Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
+                                      SyncRowsetStats* sync_stats = nullptr) override;
 
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
@@ -481,8 +489,6 @@ private:
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
 
-    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
-    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _single_replica_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
@@ -526,6 +532,8 @@ private:
 
     std::mutex _cold_compaction_tablet_submitted_mtx;
     std::unordered_set<int64_t> _cold_compaction_tablet_submitted;
+
+    std::mutex _cumu_compaction_delay_mtx;
 
     // tablet_id, publish_version, transaction_id, partition_id
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;

@@ -96,7 +96,7 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
                                      .parent_profile = &profile,
                                      .sender_id = 0,
                                      .shared_state = shared_state.get(),
-                                     .le_state_map = {},
+                                     .shared_state_map = {},
                                      .tsink = TDataSink {}};
             sink_local_state_uptr->_fn_place_ptr = &buffer[0];
             sink_local_state_uptr->_agg_input_columns.resize(1);
@@ -116,7 +116,7 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
             LocalStateInfo info {.parent_profile = &profile,
                                  .scan_ranges = {},
                                  .shared_state = shared_state.get(),
-                                 .le_state_map = {},
+                                 .shared_state_map = {},
                                  .task_idx = 0};
 
             EXPECT_TRUE(source_local_state_uptr->init(state.get(), info).ok());

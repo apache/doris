@@ -22,6 +22,7 @@
 #include "common/config.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "util/time.h"
@@ -126,6 +127,14 @@ void Rowset::clear_cache() {
             auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
             file_cache->remove_if_cached_async(file_key);
         }
+
+        // inverted index
+        auto file_names = get_index_file_names();
+        for (const auto& file_name : file_names) {
+            auto file_key = io::BlockFileCache::hash(file_name);
+            auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+            file_cache->remove_if_cached_async(file_key);
+        }
     }
 }
 
@@ -161,6 +170,26 @@ void Rowset::merge_rowset_meta(const RowsetMeta& other) {
     // rowset->meta_meta()->tablet_schema() maybe updated so make sure _schema is
     // consistent with rowset meta
     _schema = _rowset_meta->tablet_schema();
+}
+
+std::vector<std::string> Rowset::get_index_file_names() {
+    std::vector<std::string> file_names;
+    auto idx_version = _schema->get_inverted_index_storage_format();
+    for (int64_t seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        if (idx_version == InvertedIndexStorageFormatPB::V1) {
+            for (const auto& index : _schema->inverted_indexes()) {
+                auto file_name = segment_v2::InvertedIndexDescriptor::get_index_file_name_v1(
+                        rowset_id().to_string(), seg_id, index->index_id(),
+                        index->get_index_suffix());
+                file_names.emplace_back(std::move(file_name));
+            }
+        } else {
+            auto file_name = segment_v2::InvertedIndexDescriptor::get_index_file_name_v2(
+                    rowset_id().to_string(), seg_id);
+            file_names.emplace_back(std::move(file_name));
+        }
+    }
+    return file_names;
 }
 
 } // namespace doris
