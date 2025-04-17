@@ -108,8 +108,6 @@ constexpr bool is_int_or_bool(PrimitiveType type) {
            type == TYPE_INT || type == TYPE_BIGINT || type == TYPE_LARGEINT;
 }
 
-bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs);
-
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype);
 TPrimitiveType::type to_thrift(PrimitiveType ptype);
 std::string type_to_string(PrimitiveType t);
