@@ -21,7 +21,6 @@ import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -138,10 +137,6 @@ public class GrantStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-
-        if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
-            throw new AnalysisException("Grant is prohibited when Ranger is enabled.");
-        }
 
         if (userIdent != null) {
             userIdent.analyze();
