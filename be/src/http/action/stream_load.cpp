@@ -154,10 +154,10 @@ void StreamLoadAction::handle(HttpRequest* req) {
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
     if (!ctx->data_saved_path.empty()) {
-         load_path_mgr->clean_tmp_files(ctx->data_saved_path);
+        _exec_env->load_path_mgr()->clean_tmp_files(ctx->data_saved_path);
       }
-    if (load_path_mgr != nullptr) {
-        load_path_mgr->clean_tmp_files(ctx->data_saved_path);
+    if (_exec_env->load_path_mgr() != nullptr) {
+        _exec_env->load_path_mgr()->clean_tmp_files(ctx->data_saved_path);
     } else {
         LOG(WARNING) << "LoadPathMgr instance is null, cannot call clean_tmp_files.";
     }
