@@ -168,8 +168,7 @@ public class BaseViewInfo {
             for (Slot output : outputs) {
                 DataType dataType = TypeCoercionUtils.replaceSpecifiedType(output.getDataType(), NullType.class,
                         TinyIntType.INSTANCE);
-                Column column = new Column(output.getName(), dataType.toCatalogDataType(),
-                        !output.isColumnFromTable() || output.nullable());
+                Column column = new Column(output.getName(), dataType.toCatalogDataType(), output.nullable());
                 finalCols.add(column);
             }
         } else {
@@ -181,7 +180,7 @@ public class BaseViewInfo {
                 DataType dataType = TypeCoercionUtils.replaceSpecifiedType(output.getDataType(), NullType.class,
                         TinyIntType.INSTANCE);
                 Column column = new Column(simpleColumnDefinitions.get(i).getName(),
-                        dataType.toCatalogDataType(), !output.isColumnFromTable() || output.nullable());
+                        dataType.toCatalogDataType(), output.nullable());
                 column.setComment(simpleColumnDefinitions.get(i).getComment());
                 finalCols.add(column);
             }
