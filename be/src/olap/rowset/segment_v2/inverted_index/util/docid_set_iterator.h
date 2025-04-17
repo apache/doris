@@ -25,7 +25,7 @@
 
 namespace doris::segment_v2 {
 
-using DISI = std::variant<TermPosIterPtr, UnionTermIterPtr, MockIterPtr>;
+using DISI = std::variant<TermPositionsIterPtr, UnionTermIterPtr, MockIterPtr>;
 
 template <typename DISIType, typename Func, typename... Args>
 auto visit_node(DISIType&& disi, Func&& func, Args&&... args) {

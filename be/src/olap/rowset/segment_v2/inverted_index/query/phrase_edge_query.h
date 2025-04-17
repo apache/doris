@@ -50,7 +50,7 @@ private:
     const io::IOContext* _io_ctx = nullptr;
 
     std::wstring _field_name;
-    std::vector<std::string> _terms;
+    std::vector<TermInfo> _term_infos;
     std::unique_ptr<CL_NS(search)::MultiPhraseQuery> _query;
     int32_t _max_expansions = 50;
 };
