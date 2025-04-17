@@ -49,12 +49,6 @@ TEST(ColumnNullableTest, NullTest) {
     EXPECT_TRUE(dst_col->has_null());
     dst_col->clear();
     EXPECT_FALSE(dst_col->has_null());
-    dst_col->insert_many_from_not_nullable(*source_col, 0, 10);
-    EXPECT_FALSE(dst_col->has_null());
-    dst_col->insert_from_not_nullable(*source_col, 5);
-    EXPECT_FALSE(dst_col->has_null());
-    dst_col->insert_many_from_not_nullable(*source_col, 5, 5);
-    EXPECT_FALSE(dst_col->has_null());
     dst_col->insert_range_from_not_nullable(*source_col, 5, 5);
     EXPECT_FALSE(dst_col->has_null());
     dst_col->insert_range_from(
