@@ -41,8 +41,10 @@ private:
     bool processEnglishLetter(AnalyzeContext& context);
     bool processArabicLetter(AnalyzeContext& context);
     bool processMixLetter(AnalyzeContext& context);
-    bool isLetterConnector(char input);
-    bool isNumConnector(char input);
+    bool isLetterConnector(int32_t input);
+    bool isNumConnector(int32_t input);
+
+    Lexeme createLexeme(AnalyzeContext& context, int start, int end, Lexeme::Type type);
 
     int start_ {-1};
     int end_ {-1};
