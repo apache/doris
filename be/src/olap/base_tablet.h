@@ -241,11 +241,10 @@ public:
     static Status update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
                                        int64_t txn_id, int64_t txn_expiration = 0,
                                        DeleteBitmapPtr tablet_delete_bitmap = nullptr);
-
     virtual Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                       DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                                       const RowsetIdUnorderedSet& cur_rowset_ids,
-                                      int64_t lock_id = -1) = 0;
+                                      int64_t lock_id = -1, int64_t next_visible_version = -1) = 0;
     virtual CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() = 0;
 
     void calc_compaction_output_rowset_delete_bitmap(

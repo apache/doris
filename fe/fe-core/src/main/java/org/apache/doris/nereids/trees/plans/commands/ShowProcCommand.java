@@ -69,6 +69,11 @@ public class ShowProcCommand extends ShowCommand {
         return builder.build();
     }
 
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return ShowResultSetMetaData.builder().build();
+    }
+
     private ShowResultSet handleShowProc(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkGlobalPriv(ctx, PrivPredicate.ADMIN_OR_NODE)) {
