@@ -649,8 +649,9 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         int col_idx = _col_idxs[i];
         // col idx is out of range, fill with null.
-        const Slice& value =
-                col_idx < _split_values.size() ? _split_values[col_idx] : Slice{_options.null_format, _options.null_len};
+        const Slice& value = col_idx < _split_values.size()
+                                     ? _split_values[col_idx]
+                                     : Slice {_options.null_format, _options.null_len};
         Slice slice {value.data, value.size};
 
         IColumn* col_ptr = columns[i].get();
