@@ -265,10 +265,10 @@ struct WindowFunnelState {
                             for (int tmp_column_idx = 0; tmp_column_idx < column_idx;
                                  tmp_column_idx++) {
                                 const auto& tmp_event_data =
-                                        events_list.event_columns_data[column_idx].data();
+                                        events_list.event_columns_data[tmp_column_idx].data();
                                 auto dup_match_row = simd::find_one(tmp_event_data,
                                                                     last_match_row + 1, match_row);
-                                LOG(INFO)<<"dup_match_row: " << match_row<<" "<<last_match_row<<" "<<dup_match_row<<" "<<tmp_column_idx;
+                                LOG(INFO)<<"dup_match_row: " << last_match_row <<" "<<match_row<<" "<<dup_match_row<<" "<<tmp_column_idx;
                                 if (dup_match_row < match_row) {
                                     is_dup = true;
                                     break;
