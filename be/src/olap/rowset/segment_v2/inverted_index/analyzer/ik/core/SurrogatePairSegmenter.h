@@ -17,9 +17,9 @@
 
 #pragma once
 
-#include "ISegmenter.h"
 #include "AnalyzeContext.h"
 #include "CharacterUtil.h"
+#include "ISegmenter.h"
 #include "Lexeme.h"
 
 namespace doris::segment_v2 {
@@ -36,4 +36,4 @@ public:
     void reset() override;
 };
 
-} // namespace doris::segment_v2 
+} // namespace doris::segment_v2

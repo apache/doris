@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include <unicode/uchar.h>
+
 #include <functional>
 #include <memory>
 #include <vector>
-#include <unicode/uchar.h> 
 
 #include "CLucene/_ApiHeader.h"
 #include "CLucene/analysis/jieba/Unicode.hpp"

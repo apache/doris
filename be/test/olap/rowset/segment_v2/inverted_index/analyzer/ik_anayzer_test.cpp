@@ -264,7 +264,11 @@ TEST_F(IKTokenizerTest, TestSpecialCharacters) {
     // Test with special characters
     std::string specialText = "😊🚀👍测试特殊符号：@#¥%……&*（）";
     tokenize(specialText, datas, true);
-    ASSERT_EQ(datas.size(), 2);
+    ASSERT_EQ(datas.size(), 5);
+    std::vector<std::string> expectedTokens = {"😊", "🚀", "👍", "测试", "特殊符号"};
+    for (size_t i = 0; i < datas.size(); i++) {
+        ASSERT_EQ(datas[i], expectedTokens[i]);
+    }
 }
 
 TEST_F(IKTokenizerTest, TestBufferBoundaryWithSpace) {
@@ -456,7 +460,7 @@ TEST_F(IKTokenizerTest, TestFullWidthCharacters) {
     ASSERT_EQ(datas.size(), 1);
     ASSERT_EQ(datas[0], "￥");
     datas.clear();
-    
+
     // test full width symbol in word
     std::string mixedText = "High＆Low";
     tokenize(mixedText, datas, false);
@@ -466,7 +470,7 @@ TEST_F(IKTokenizerTest, TestFullWidthCharacters) {
         ASSERT_EQ(datas[i], expectedMixed[i]);
     }
     datas.clear();
-    
+
     // test special separator
     std::string specialSeparatorText = "1･2";
     tokenize(specialSeparatorText, datas, false);
@@ -476,7 +480,7 @@ TEST_F(IKTokenizerTest, TestFullWidthCharacters) {
         ASSERT_EQ(datas[i], expectedSeparator[i]);
     }
     datas.clear();
-    
+
     // test special character
     std::string specialCharText = "﨑";
     tokenize(specialCharText, datas, false);
@@ -494,13 +498,13 @@ TEST_F(IKTokenizerTest, TestEmojiAndSpecialCharacters) {
     ASSERT_EQ(datas.size(), 1);
     ASSERT_EQ(datas[0], "🐼");
     datas.clear();
-    
+
     std::string emojiText2 = "🝢";
     tokenize(emojiText2, datas, false);
     ASSERT_EQ(datas.size(), 1);
     ASSERT_EQ(datas[0], "🝢");
     datas.clear();
-    
+
     // test special latin character
     std::string specialLatinText1 = "abcşabc";
     tokenize(specialLatinText1, datas, false);
@@ -508,14 +512,14 @@ TEST_F(IKTokenizerTest, TestEmojiAndSpecialCharacters) {
     ASSERT_EQ(datas[0], "abc");
     ASSERT_EQ(datas[1], "abc");
     datas.clear();
-    
+
     std::string specialLatinText2 = "abcīabc";
     tokenize(specialLatinText2, datas, false);
     ASSERT_EQ(datas.size(), 2);
     ASSERT_EQ(datas[0], "abc");
     ASSERT_EQ(datas[1], "abc");
     datas.clear();
-    
+
     std::string specialLatinText3 = "celebrity…get";
     tokenize(specialLatinText3, datas, false);
     std::vector<std::string> expectedEllipsis = {"celebrity", "get"};
@@ -524,7 +528,7 @@ TEST_F(IKTokenizerTest, TestEmojiAndSpecialCharacters) {
         ASSERT_EQ(datas[i], expectedEllipsis[i]);
     }
     datas.clear();
-    
+
     // test mixed alphabet word
     std::string mixedAlphabetText1 = "Hulyaiрole";
     tokenize(mixedAlphabetText1, datas, false);
@@ -532,7 +536,7 @@ TEST_F(IKTokenizerTest, TestEmojiAndSpecialCharacters) {
     ASSERT_EQ(datas[0], "hulyai");
     ASSERT_EQ(datas[1], "ole");
     datas.clear();
-    
+
     std::string mixedAlphabetText2 = "Nisa Aşgabat";
     tokenize(mixedAlphabetText2, datas, false);
     std::vector<std::string> expectedName = {"nisa", "gabat"};
@@ -541,7 +545,7 @@ TEST_F(IKTokenizerTest, TestEmojiAndSpecialCharacters) {
         ASSERT_EQ(datas[i], expectedName[i]);
     }
     datas.clear();
-    
+
     // test special connector
     std::string specialConnectorText = "alـameer";
     tokenize(specialConnectorText, datas, false);
@@ -549,20 +553,20 @@ TEST_F(IKTokenizerTest, TestEmojiAndSpecialCharacters) {
     ASSERT_EQ(datas[0], "al");
     ASSERT_EQ(datas[1], "ameer");
     datas.clear();
-    
+
     // test rare unicode character
     std::string rareUnicodeText1 = "𐓚";
     tokenize(rareUnicodeText1, datas, false);
     ASSERT_EQ(datas.size(), 1);
     ASSERT_EQ(datas[0], "𐓚");
     datas.clear();
-    
+
     std::string rareUnicodeText2 = "𑪱";
     tokenize(rareUnicodeText2, datas, false);
     ASSERT_EQ(datas.size(), 1);
     ASSERT_EQ(datas[0], "𑪱");
     datas.clear();
-    
+
     std::string rareUnicodeText3 = "𐴗";
     tokenize(rareUnicodeText3, datas, false);
     ASSERT_EQ(datas.size(), 1);

@@ -30,7 +30,6 @@ class LetterSegmenter : public ISegmenter {
 public:
     static constexpr AnalyzeContext::SegmenterType SEGMENTER_TYPE =
             AnalyzeContext::SegmenterType::LETTER_SEGMENTER;
-    static const std::string SEGMENTER_NAME;
     LetterSegmenter();
     ~LetterSegmenter() override = default;
 
