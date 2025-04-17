@@ -158,7 +158,7 @@ public class TypeCoercionUtils {
     /**
      * ensure the result's data type equals to the originExpr's dataType
      */
-    public static Expression ensureResultType(
+    public static Expression ensureSameResultType(
             Expression originExpr, Expression result, ExpressionRewriteContext context) {
         if (originExpr.getDataType().equals(result.getDataType())) {
             return result;

@@ -566,7 +566,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             defaultResult = newDefault;
         }
         if (whenClauses.isEmpty()) {
-            return TypeCoercionUtils.ensureResultType(
+            return TypeCoercionUtils.ensureSameResultType(
                     originCaseWhen, defaultResult == null ? new NullLiteral(caseWhen.getDataType()) : defaultResult,
                     context
             );
@@ -577,10 +577,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 // it's safe to return null literal here
                 return new NullLiteral();
             } else {
-                return TypeCoercionUtils.ensureResultType(originCaseWhen, new CaseWhen(whenClauses), context);
+                return TypeCoercionUtils.ensureSameResultType(originCaseWhen, new CaseWhen(whenClauses), context);
             }
         }
-        return TypeCoercionUtils.ensureResultType(originCaseWhen, new CaseWhen(whenClauses, defaultResult), context);
+        return TypeCoercionUtils.ensureSameResultType(
+                originCaseWhen, new CaseWhen(whenClauses, defaultResult), context
+        );
     }
 
     @Override
@@ -588,11 +590,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         If originIf = ifExpr;
         ifExpr = rewriteChildren(ifExpr, context);
         if (ifExpr.child(0) instanceof NullLiteral || ifExpr.child(0).equals(BooleanLiteral.FALSE)) {
-            return TypeCoercionUtils.ensureResultType(originIf, ifExpr.child(2), context);
+            return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.child(2), context);
         } else if (ifExpr.child(0).equals(BooleanLiteral.TRUE)) {
-            return TypeCoercionUtils.ensureResultType(originIf, ifExpr.child(1), context);
+            return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.child(1), context);
         }
-        return TypeCoercionUtils.ensureResultType(originIf, ifExpr, context);
+        return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr, context);
     }
 
     @Override
@@ -696,14 +698,14 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         for (Expression expr : nvl.children()) {
             if (expr.isLiteral()) {
                 if (!expr.isNullLiteral()) {
-                    return TypeCoercionUtils.ensureResultType(originNvl, expr, context);
+                    return TypeCoercionUtils.ensureSameResultType(originNvl, expr, context);
                 }
             } else {
-                return TypeCoercionUtils.ensureResultType(originNvl, nvl, context);
+                return TypeCoercionUtils.ensureSameResultType(originNvl, nvl, context);
             }
         }
         // all nulls
-        return TypeCoercionUtils.ensureResultType(originNvl, nvl.child(0), context);
+        return TypeCoercionUtils.ensureSameResultType(originNvl, nvl.child(0), context);
     }
 
     private <E extends Expression> E rewriteChildren(E expr, ExpressionRewriteContext context) {
