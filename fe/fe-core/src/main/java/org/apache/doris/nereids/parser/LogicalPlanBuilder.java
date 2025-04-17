@@ -330,6 +330,7 @@ import org.apache.doris.nereids.DorisParser.ShowEncryptKeysContext;
 import org.apache.doris.nereids.DorisParser.ShowEventsContext;
 import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
 import org.apache.doris.nereids.DorisParser.ShowFunctionsContext;
+import org.apache.doris.nereids.DorisParser.ShowGlobalFunctionsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsForUserContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
@@ -5401,6 +5402,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             wild = stripQuotes(ctx.STRING_LITERAL().getText());
         }
         return new ShowFunctionsCommand(dbName, isBuiltin, isVerbose, wild);
+    }
+
+    @Override
+    public LogicalPlan visitShowGlobalFunctions(ShowGlobalFunctionsContext ctx) {
+        boolean isVerbose = ctx.FULL() != null;
+
+        String wild = null;
+        if (ctx.STRING_LITERAL() != null) {
+            wild = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+        return new ShowFunctionsCommand(isVerbose, wild, true);
     }
 
     @Override

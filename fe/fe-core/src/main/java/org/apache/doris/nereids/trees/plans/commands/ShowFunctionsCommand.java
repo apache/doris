@@ -83,6 +83,18 @@ public class ShowFunctionsCommand extends ShowCommand {
         this.likeCondition = likeCondition;
     }
 
+    /**
+     * constructor for global functions
+     */
+    public ShowFunctionsCommand(boolean isVerbose, String likeCondition, boolean isGlobal) {
+        super(PlanType.SHOW_GLOBAL_FUNCTIONS_COMMAND);
+        this.isVerbose = isVerbose;
+        this.likeCondition = likeCondition;
+        if (isGlobal) {
+            this.type = SetType.GLOBAL;
+        }
+    }
+
     /***
      * get Info by nereids.
      * To make the code in nereids more concise, all irrelevant information here will use an empty string.
