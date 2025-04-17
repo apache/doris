@@ -131,7 +131,7 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
 TabletColumn create_sparse_column(const TabletColumn& variant);
 
 // get the subpaths and sparse paths for the variant column
-void get_subpaths(const TabletColumn& variant,
+void get_subpaths(const TabletSchema& schema, int32_t col_unique_id,
                   const std::unordered_map<int32_t, PathToNoneNullValues>& path_stats,
                   std::unordered_map<int32_t, TabletSchema::PathsSetInfo>& uid_to_paths_set_info);
 
@@ -162,6 +162,6 @@ struct SubColumnInfo {
 };
 
 bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
-                              const PathInData& path, SubColumnInfo* sub_column_info);
+                              const std::string& path, SubColumnInfo* sub_column_info);
 
 } // namespace  doris::vectorized::schema_util

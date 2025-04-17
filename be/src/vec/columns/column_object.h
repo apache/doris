@@ -94,7 +94,6 @@ namespace schema_util {
 struct SubColumnInfo;
 }
 
-void get_field_info(const Field& field, FieldInfo* info);
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
  *  a trie-like structure. ColumnObject is not suitable for writing into tables
@@ -304,6 +303,8 @@ private:
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
     int32_t _max_subcolumns_count = 0;
+
+    size_t typed_path_count = 0;
 
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
@@ -573,8 +574,11 @@ public:
                                                                       size_t row);
 
     Status pick_subcolumns_to_sparse_column(
-            const std::unordered_map<PathInData, schema_util::SubColumnInfo, PathInData::Hash>&
-                    typed_paths);
+            const std::unordered_map<std::string, schema_util::SubColumnInfo>& typed_paths);
+
+    void set_max_subcolumns_count(int32_t max_subcolumns_count) {
+        _max_subcolumns_count = max_subcolumns_count;
+    }
 
 private:
     // May throw execption

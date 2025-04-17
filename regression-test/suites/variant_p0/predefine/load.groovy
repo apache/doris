@@ -86,7 +86,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
             `v1` variant<
                 'array_int':array<int>,
                 'array_string':array<string>,
-                'array_decimal':array<decimalv3(27,9)>,
+                'array_decimal':array<decimalv3(26,9)>,
                 'array_datetime':array<datetime>,
                 'array_datetimev2':array<datetimev2>,
                 'array_date':array<date>,
@@ -97,7 +97,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
                 'array_boolean':array<boolean>,
                 'int_':int, 
                 'string_':string, 
-                'decimal_':decimalv3(27,9), 
+                'decimal_':decimalv3(26,9), 
                 'datetime_':datetime,
                 'datetimev2_':datetimev2(6),
                 'date_':date,
@@ -198,6 +198,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
     sql "insert into test_predefine2 values(4, '${json4}')"
        
     qt_sql """select * from test_predefine2 order by id"""
+    qt_sql """ desc test_predefine2 """
 
     for (int i = 10; i < 100; i++) {
         sql "insert into test_predefine2 values(${i}, '${json4}')"

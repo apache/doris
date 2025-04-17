@@ -30,17 +30,18 @@ suite("test_variant_predefine_index_type", "p0"){
         > NULL,
         INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="path.int", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_a_c (var) USING INVERTED PROPERTIES("field_pattern"="path.decimal") COMMENT ''
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "0")"""
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "0")"""
 
-    sql """insert into ${tableName} values(1, '{"path" : {"int" : 123, "decimal" : 123.123456789012}}')"""
-    sql """insert into ${tableName} values(2, '{"path" : {"int" : 456, "decimal" : 456.456789123456}}')"""
-    sql """insert into ${tableName} values(3, '{"path" : {"int" : 789, "decimal" : 789.789123456789}}')"""
-    sql """insert into ${tableName} values(4, '{"path" : {"int" : 100, "decimal" : 100.100123456789}}')"""
-    sql """insert into ${tableName} values(5, '{"path" : {"int" : 111, "decimal" : 111.111111111111}}')"""
+    sql """insert into ${tableName} values(1, '{"path" : {"int" : 123, "decimal" : 123.123456789012}}'),
+                                          (2, '{"path" : {"int" : 456, "decimal" : 456.456789123456}}'),
+                                          (3, '{"path" : {"int" : 789, "decimal" : 789.789123456789}}'),
+                                          (4, '{"path" : {"int" : 100, "decimal" : 100.100123456789}}'),
+                                          (5, '{"path" : {"int" : 111, "decimal" : 111.111111111111}}')"""
     
     qt_sql """ desc ${tableName} """
     qt_sql """select * from ${tableName} order by id"""
-    
+    sql """ set profile_level = 2"""
+    sql """ set inverted_index_skip_threshold = 0 """
     qt_sql """ select count() from ${tableName} where cast(var['path']['int'] as int) = 789 """
-    qt_sql """ select count() from ${tableName} where cast(var['path']['decimal'] as DECIMAL(15,12)) = 789.789123456789 """
+    qt_sql """ select count() from ${tableName} where cast(var['path']['decimal'] as DECIMAL(15, 12)) = 789.789123456789 """
 }

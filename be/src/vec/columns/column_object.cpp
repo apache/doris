@@ -1113,7 +1113,11 @@ bool ColumnObject::try_add_new_subcolumn(const PathInData& path) {
     if (subcolumns.get_root() == nullptr || path.empty()) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "column object has no root or path is empty");
     }
-    if (!_max_subcolumns_count || subcolumns.size() < _max_subcolumns_count + 1) {
+    if (path.get_is_typed()) {
+        return add_sub_column(path, num_rows);
+    }
+    if (!_max_subcolumns_count ||
+        (subcolumns.size() - typed_path_count) < _max_subcolumns_count + 1) {
         return add_sub_column(path, num_rows);
     }
 
@@ -1417,6 +1421,9 @@ bool ColumnObject::add_sub_column(const PathInData& key, MutableColumnPtr&& subc
         VLOG_DEBUG << "Size of subcolumn is in consistent with column";
         return false;
     }
+    if (key.get_is_typed()) {
+        typed_path_count++;
+    }
     return true;
 }
 
@@ -1447,6 +1454,9 @@ bool ColumnObject::add_sub_column(const PathInData& key, size_t new_size) {
     } else if (new_size != num_rows) {
         VLOG_DEBUG << "Size of subcolumn is in consistent with column";
         return false;
+    }
+    if (key.get_is_typed()) {
+        typed_path_count++;
     }
     return true;
 }
@@ -1749,9 +1759,6 @@ Status ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWri
 size_t ColumnObject::Subcolumn::get_non_null_value_size() const {
     size_t res = 0;
     for (const auto& part : data) {
-        if (!part->is_nullable()) {
-            return res;
-        }
         const auto& null_data = assert_cast<const ColumnNullable&>(*part).get_null_map_data();
         res += simd::count_zero_num((int8_t*)null_data.data(), null_data.size());
     }
@@ -1873,8 +1880,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
 }
 
 Status ColumnObject::pick_subcolumns_to_sparse_column(
-        const std::unordered_map<PathInData, schema_util::SubColumnInfo, PathInData::Hash>&
-                typed_paths) {
+        const std::unordered_map<std::string, schema_util::SubColumnInfo>& typed_paths) {
     DCHECK(_max_subcolumns_count >= 0) << "max subcolumns count is: " << _max_subcolumns_count;
 
     // root column must be exsit in subcolumns
@@ -1903,7 +1909,8 @@ Status ColumnObject::pick_subcolumns_to_sparse_column(
         if (entry->data.is_root) {
             continue;
         }
-        if (typed_paths.find(entry->path) != typed_paths.end()) {
+        if (typed_paths.find(entry->path.get_path()) != typed_paths.end()) {
+            LOG(INFO) << "pick " << entry->path.get_path() << " as typed column";
             new_subcolumns.add(entry->path, entry->data);
             continue;
         }
@@ -1922,9 +1929,9 @@ Status ColumnObject::pick_subcolumns_to_sparse_column(
     // 3. pick config::variant_max_subcolumns_count selected subcolumns
     for (size_t i = 0; i < std::min(size_t(_max_subcolumns_count), sorted_by_size.size()); ++i) {
         // if too many null values, then consider it as sparse column
-        if ((double)sorted_by_size[i].second < (double)num_rows * 0.95) {
-            continue;
-        }
+        // if ((double)sorted_by_size[i].second < (double)num_rows * 0.95) {
+        //     continue;
+        // }
         selected_path.insert(sorted_by_size[i].first);
     }
     std::map<std::string_view, Subcolumn> remaing_subcolumns;
@@ -1932,17 +1939,20 @@ Status ColumnObject::pick_subcolumns_to_sparse_column(
     for (auto&& entry : subcolumns) {
         if (selected_path.find(entry->path.get_path()) != selected_path.end()) {
             new_subcolumns.add(entry->path, entry->data);
+            LOG(INFO) << "pick " << entry->path.get_path() << " as sub column";
         } else if (none_null_value_sizes.find(entry->path.get_path()) !=
                    none_null_value_sizes.end()) {
-            VLOG_DEBUG << "pick " << entry->path.get_path() << " as sparse column";
+            LOG(INFO) << "pick " << entry->path.get_path() << " as sparse column";
             remaing_subcolumns.emplace(entry->path.get_path(), entry->data);
         }
     }
 
     ENABLE_CHECK_CONSISTENCY(this);
-    clear_sparse_column();
+    // clear_sparse_column();
 
     RETURN_IF_ERROR(serialize_sparse_columns(std::move(remaing_subcolumns)));
+    std::swap(subcolumns, new_subcolumns);
+    ENABLE_CHECK_CONSISTENCY(this);
     return Status::OK();
 }
 

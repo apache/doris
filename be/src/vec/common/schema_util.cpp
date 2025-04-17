@@ -700,9 +700,10 @@ Status collect_path_stats(const RowsetSharedPtr& rs,
 }
 
 // get the subpaths and sparse paths for the variant column
-void get_subpaths(const TabletColumn& variant,
+void get_subpaths(const TabletSchema& schema, int32_t col_unique_id,
                   const std::unordered_map<int32_t, PathToNoneNullValues>& path_stats,
                   std::unordered_map<int32_t, TabletSchema::PathsSetInfo>& uid_to_paths_set_info) {
+    const TabletColumn& variant = schema.column_by_uid(col_unique_id);
     if (path_stats.find(variant.unique_id()) == path_stats.end()) {
         return;
     }
@@ -715,7 +716,7 @@ void get_subpaths(const TabletColumn& variant,
         paths_with_sizes.reserve(stats.size());
         for (const auto& [path, size] : stats) {
             SubColumnInfo sub_column_info;
-            if (generate_sub_column_info(variant, uid, path, &sub_column_info)) {
+            if (generate_sub_column_info(schema, col_unique_id, path, &sub_column_info)) {
                 uid_to_paths_set_info[uid].typed_path_set.emplace(path);
             } else {
                 paths_with_sizes.emplace_back(size, path);
@@ -842,7 +843,7 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
         VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
 
         // get the subpaths
-        get_subpaths(target, uid_to_path_stats, uid_to_paths_set_info);
+        get_subpaths(*target, column->unique_id(), uid_to_path_stats, uid_to_paths_set_info);
 
         auto append_subcolumn = [&](phmap::flat_hash_set<std::string>& path_set) {
             std::vector<StringRef> sorted_subpaths(path_set.begin(), path_set.end());
@@ -1153,7 +1154,8 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                 to_column->set_name(parent_column.name_lower_case() + "." + path);
                 to_column->set_type(from_column.type());
                 to_column->set_parent_unique_id(parent_column.unique_id());
-                to_column->set_path_info(PathInData(parent_column.name_lower_case() + "." + path));
+                to_column->set_path_info(
+                        PathInData(parent_column.name_lower_case() + "." + path, true));
                 to_column->set_aggregation_method(parent_column.aggregation());
                 to_column->set_is_nullable(true);
                 to_column->set_precision(from_column.precision());
@@ -1182,7 +1184,7 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
             break;
         }
         case PatternTypePB::MATCH_NAME_GLOB: {
-            int result = fnmatch(pattern, path_str.c_str(), FNM_PATHNAME);
+            int result = fnmatch(pattern, path.c_str(), FNM_PATHNAME);
             if (result == 0) {
                 generate_result_column(*sub_column, &sub_column_info->column);
                 sub_column_info->index =

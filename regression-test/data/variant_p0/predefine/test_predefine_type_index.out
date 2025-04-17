@@ -2,7 +2,7 @@
 -- !sql --
 id	bigint	Yes	true	\N	
 var	variant<MATCH_NAME path.int:int,MATCH_NAME path.decimal:decimalv3(15,12)>	Yes	false	\N	NONE
-var.path.decimal	decimal(18,0)	Yes	false	\N	NONE
+var.path.decimal	decimal(15,12)	Yes	false	\N	NONE
 var.path.int	int	Yes	false	\N	NONE
 
 -- !sql --

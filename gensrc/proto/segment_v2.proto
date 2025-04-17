@@ -157,6 +157,7 @@ message ColumnPathInfo {
     optional bool has_nested = 3;
     // The original parent variant's unique id, used to distinguish from different variants
     optional uint32 parrent_column_unique_id = 4;
+    optional bool is_typed = 5;
 }
 
 message VariantStatisticsPB {

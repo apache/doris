@@ -236,7 +236,24 @@ suite("test_predefine_ddl", "p0"){
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("VARIANT unsupported sub-type: decimalv2(22,2)"))
+        assertTrue(e.getMessage().contains("VARIANT unsupported sub-type: date"))
+        findException = true
+    }
+    assertTrue(findException)
+
+    findException = false
+    try {
+        sql "DROP TABLE IF EXISTS ${tableName}"
+        sql """CREATE TABLE ${tableName} (
+            `id` bigint NULL,
+            `var` variant<
+                MATCH_NAME 'ab' : datetimev1
+            > NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        assertTrue(e.getMessage().contains("VARIANT unsupported sub-type: datetime"))
         findException = true
     }
     assertTrue(findException)

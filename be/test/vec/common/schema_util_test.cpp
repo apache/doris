@@ -229,17 +229,18 @@ TEST_F(SchemaUtilTest, calculate_variant_stats) {
 }
 
 TEST_F(SchemaUtilTest, get_subpaths) {
+    TabletSchema schema;
     TabletColumn variant;
     variant.set_unique_id(1);
     variant.set_variant_max_subcolumns_count(3);
-
+    schema.append_column(variant);
     std::unordered_map<int32_t, schema_util::PathToNoneNullValues> path_stats;
     path_stats[1] = {
             {"path1", 1000}, {"path2", 800}, {"path3", 500}, {"path4", 300}, {"path5", 200}};
 
     // get subpaths
     std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
-    schema_util::get_subpaths(variant, path_stats, uid_to_paths_set_info);
+    schema_util::get_subpaths(schema, 1, path_stats, uid_to_paths_set_info);
 
     EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 3);
     EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 2);
@@ -258,15 +259,17 @@ TEST_F(SchemaUtilTest, get_subpaths) {
 }
 
 TEST_F(SchemaUtilTest, get_subpaths_equal_to_max) {
+    TabletSchema schema;
     TabletColumn variant;
     variant.set_unique_id(1);
     variant.set_variant_max_subcolumns_count(3);
+    schema.append_column(variant);
 
     std::unordered_map<int32_t, schema_util::PathToNoneNullValues> path_stats;
     path_stats[1] = {{"path1", 1000}, {"path2", 800}, {"path3", 500}};
 
     std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
-    schema_util::get_subpaths(variant, path_stats, uid_to_paths_set_info);
+    schema_util::get_subpaths(schema, 1, path_stats, uid_to_paths_set_info);
 
     EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 3);
     EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 0);
@@ -280,17 +283,22 @@ TEST_F(SchemaUtilTest, get_subpaths_equal_to_max) {
 }
 
 TEST_F(SchemaUtilTest, get_subpaths_multiple_variants) {
+    TabletSchema schema;
     TabletColumn variant1;
+
     variant1.set_unique_id(1);
     variant1.set_variant_max_subcolumns_count(3);
+    schema.append_column(variant1);
 
     TabletColumn variant2;
     variant2.set_unique_id(2);
     variant2.set_variant_max_subcolumns_count(2);
+    schema.append_column(variant2);
 
     TabletColumn variant3;
     variant3.set_unique_id(3);
     variant3.set_variant_max_subcolumns_count(4);
+    schema.append_column(variant3);
 
     std::unordered_map<int32_t, schema_util::PathToNoneNullValues> path_stats;
     path_stats[1] = {
@@ -301,9 +309,9 @@ TEST_F(SchemaUtilTest, get_subpaths_multiple_variants) {
             {"path1", 1000}, {"path2", 800}, {"path3", 500}, {"path4", 300}, {"path5", 200}};
 
     std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
-    schema_util::get_subpaths(variant1, path_stats, uid_to_paths_set_info);
-    schema_util::get_subpaths(variant2, path_stats, uid_to_paths_set_info);
-    schema_util::get_subpaths(variant3, path_stats, uid_to_paths_set_info);
+    schema_util::get_subpaths(schema, 1, path_stats, uid_to_paths_set_info);
+    schema_util::get_subpaths(schema, 2, path_stats, uid_to_paths_set_info);
+    schema_util::get_subpaths(schema, 3, path_stats, uid_to_paths_set_info);
 
     EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 3);
     EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 2);
@@ -342,15 +350,17 @@ TEST_F(SchemaUtilTest, get_subpaths_multiple_variants) {
 }
 
 TEST_F(SchemaUtilTest, get_subpaths_no_path_stats) {
+    TabletSchema schema;
     TabletColumn variant;
     variant.set_unique_id(1);
     variant.set_variant_max_subcolumns_count(3);
+    schema.append_column(variant);
 
     std::unordered_map<int32_t, schema_util::PathToNoneNullValues> path_stats;
     path_stats[2] = {{"path1", 1000}, {"path2", 800}};
 
     std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
-    schema_util::get_subpaths(variant, path_stats, uid_to_paths_set_info);
+    schema_util::get_subpaths(schema, 1, path_stats, uid_to_paths_set_info);
 
     EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 0);
     EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 0);
@@ -385,25 +395,22 @@ TEST_F(SchemaUtilTest, generate_sub_column_info_based) {
     schema.append_column(variant);
 
     schema_util::SubColumnInfo sub_column_info;
-    bool match = schema_util::generate_sub_column_info(schema, 10, PathInData("profile.id.name"),
-                                                       &sub_column_info);
+    bool match =
+            schema_util::generate_sub_column_info(schema, 10, "profile.id.name", &sub_column_info);
     EXPECT_TRUE(match);
     EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
 
-    match = schema_util::generate_sub_column_info(schema, 10, PathInData("profile.name.x"),
-                                                  &sub_column_info);
+    match = schema_util::generate_sub_column_info(schema, 10, "profile.name.x", &sub_column_info);
     EXPECT_TRUE(match);
     EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
 
-    match = schema_util::generate_sub_column_info(schema, 10, PathInData("profile.name.xx"),
-                                                  &sub_column_info);
+    match = schema_util::generate_sub_column_info(schema, 10, "profile.name.xx", &sub_column_info);
     EXPECT_FALSE(match);
 
-    match = schema_util::generate_sub_column_info(schema, 10, PathInData("id5"), &sub_column_info);
+    match = schema_util::generate_sub_column_info(schema, 10, "id5", &sub_column_info);
     EXPECT_TRUE(match);
 
-    match = schema_util::generate_sub_column_info(schema, 10, PathInData("id5.profile.name"),
-                                                  &sub_column_info);
+    match = schema_util::generate_sub_column_info(schema, 10, "id5.profile.name", &sub_column_info);
     EXPECT_TRUE(match);
 }
 
@@ -447,23 +454,19 @@ TEST_F(SchemaUtilTest, generate_sub_column_info_advanced) {
     schema.append_index(std::move(index2));
 
     schema_util::SubColumnInfo sub_column_info;
-    bool match = schema_util::generate_sub_column_info(schema, 10, PathInData("profile.id.name"),
-                                                       &sub_column_info);
+    bool match =
+            schema_util::generate_sub_column_info(schema, 10, "profile.id.name", &sub_column_info);
     EXPECT_TRUE(match);
     EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
     EXPECT_TRUE(sub_column_info.index);
 
-    match = schema_util::generate_sub_column_info(schema, 10, PathInData("profile.id2"),
-                                                  &sub_column_info);
+    match = schema_util::generate_sub_column_info(schema, 10, "profile.id2", &sub_column_info);
     EXPECT_TRUE(match);
     EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
     EXPECT_TRUE(sub_column_info.index);
 
-    match = schema_util::generate_sub_column_info(schema, 10, PathInData("profilexid"),
-                                                  &sub_column_info);
+    match = schema_util::generate_sub_column_info(schema, 10, "profilexid", &sub_column_info);
     EXPECT_TRUE(match);
     EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
     EXPECT_FALSE(sub_column_info.index);
-
 }
-

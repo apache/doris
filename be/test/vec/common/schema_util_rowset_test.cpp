@@ -288,7 +288,7 @@ TEST_F(SchemaUtilRowsetTest, typed_path) {
 
     // 3. create rowset
     std::vector<RowsetSharedPtr> rowsets;
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 1; i++) {
         const auto& res = RowsetFactory::create_rowset_writer(
                 *_engine_ref,
                 rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path()), false);
@@ -307,11 +307,7 @@ TEST_F(SchemaUtilRowsetTest, typed_path) {
 
     for (const auto& [uid, path_stats] : path_stats) {
         for (const auto& [path, size] : path_stats) {
-            if (path == "key0") {
-                EXPECT_LT(size, 0);
-            } else {
-                EXPECT_EQ(all_path_stats[uid][path], size);
-            }
+            EXPECT_EQ(all_path_stats[uid][path], size);
         }
     }
 
