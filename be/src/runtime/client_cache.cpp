@@ -122,8 +122,13 @@ Status ClientCacheHelper::_create_client(const TNetworkAddress& hostport,
     }
 
     DCHECK(*client_key != nullptr);
-    client_impl->set_send_timeout(timeout_ms);
-    client_impl->set_recv_timeout(timeout_ms);
+    // In thrift, timeout == 0, means wait infinitely, so that it should not happen.
+    // See https://github.com/apache/thrift/blob/master/lib/cpp/src/thrift/transport/TSocket.cpp.
+    // There is some code like this:      int ret = THRIFT_POLL(fds, 2, (recvTimeout_ == 0) ? -1 : recvTimeout_);
+    // If the developer missed to set the timeout, we should use default timeout, not infinitely.
+    // See https://linux.die.net/man/2/poll. Specifying a negative value in timeout means an infinite timeout.
+    client_impl->set_send_timeout(timeout_ms == 0 ? config::thrift_rpc_timeout_ms : timeout_ms);
+    client_impl->set_recv_timeout(timeout_ms == 0 ? config::thrift_rpc_timeout_ms : timeout_ms);
 
     {
         std::lock_guard<std::mutex> lock(_lock);
