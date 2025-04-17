@@ -1191,10 +1191,10 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 )
         ));
 
-        // assertRewriteExpression("nvl(NULL, 1)", "1");
-        // assertRewriteExpression("nvl(NULL, NULL)", "NULL");
-        // assertRewriteAfterTypeCoercion("nvl(IA, NULL)", "ifnull(IA, NULL)");
-        // assertRewriteAfterTypeCoercion("nvl(IA, 1)", "ifnull(IA, 1)");
+        assertRewriteExpression("nvl(NULL, 1)", "1");
+        assertRewriteExpression("nvl(NULL, NULL)", "NULL");
+        assertRewriteAfterTypeCoercion("nvl(IA, NULL)", "ifnull(IA, NULL)");
+        assertRewriteAfterTypeCoercion("nvl(IA, 1)", "ifnull(IA, 1)");
 
         Expression foldNvl = executor.rewrite(
                 PARSER.parseExpression("nvl(cast('2025-04-17' as datetime(0)), cast('2025-04-18 01:02:03.123456' as datetime(6)))"),
