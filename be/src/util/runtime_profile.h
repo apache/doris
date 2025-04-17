@@ -295,6 +295,38 @@ public:
         const std::string _parent_name;
     };
 
+    class DescriptionEntry : public Counter {
+    public:
+        DescriptionEntry(const std::string& name, const std::string& description)
+                : Counter(TUnit::NONE, 0, 2), _description(description), _name(name) {}
+
+        virtual Counter* clone() const override {
+            return new DescriptionEntry(_name, _description);
+        }
+
+        void set(int64_t value) override {
+            // Do nothing
+        }
+        void set(double value) override {
+            // Do nothing
+        }
+        void update(int64_t delta) override {
+            // Do nothing
+        }
+
+        TCounter to_thrift(const std::string& name) const override {
+            TCounter counter;
+            counter.name = name;
+            counter.__set_level(2);
+            counter.__set_description(_description);
+            return counter;
+        }
+
+    private:
+        const std::string _description;
+        const std::string _name;
+    };
+
     // Create a runtime profile object with 'name'.
     RuntimeProfile(const std::string& name, bool is_averaged_profile = false);
 
@@ -348,6 +380,9 @@ public:
             const std::string& parent_counter_name = RuntimeProfile::ROOT_COUNTER,
             int64_t level = 2);
 
+    // Add a description entry under target counter.
+    void add_description(const std::string& name, const std::string& description,
+                         std::string parent_counter_name);
     // Add a derived counter with 'name'/'type'. The counter is owned by the
     // RuntimeProfile object.
     // If parent_counter_name is a non-empty string, the counter is added as a child of

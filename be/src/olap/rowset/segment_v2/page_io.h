@@ -23,6 +23,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/block_file_cache.h"
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "util/slice.h"
@@ -40,6 +41,9 @@ class FileReader;
 namespace segment_v2 {
 class EncodingInfo;
 class PageHandle;
+
+io::UInt128Wrapper file_cache_key_from_path(const std::string& seg_path);
+std::string file_cache_key_str(const std::string& seg_path);
 
 struct PageReadOptions {
     // whether to verify page checksum
@@ -66,12 +70,31 @@ struct PageReadOptions {
 
     const EncodingInfo* encoding_info = nullptr;
 
-    const io::IOContext& io_ctx;
+    const io::IOContext io_ctx;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
         CHECK_NOTNULL(stats);
     }
+    PageReadOptions(const io::IOContext& ioctx) : io_ctx(ioctx) {}
+
+    PageReadOptions(const PageReadOptions& old) : io_ctx(old.io_ctx) {
+        file_reader = old.file_reader;
+        page_pointer = old.page_pointer;
+        codec = old.codec;
+        stats = old.stats;
+        verify_checksum = old.verify_checksum;
+        use_page_cache = old.use_page_cache;
+        kept_in_memory = old.kept_in_memory;
+        type = old.type;
+        encoding_info = old.encoding_info;
+        pre_decode = old.pre_decode;
+    }
+};
+
+struct InjectionContext {
+    uint32_t* crc;
+    PageReadOptions* opts;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const PageReadOptions& opt) {
@@ -124,13 +147,16 @@ public:
     //     `body' points to page body,
     //     `footer' stores the page footer.
     // This method is exception safe, it will failed when allocate memory failed.
+    // deal with CORRUPTION when using file cache, retry from remote
     static Status read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
-                                           Slice* body, PageFooterPB* footer) {
+                                           Slice* body, PageFooterPB* footer);
+
+private:
+    static Status do_read_and_decompress_page(const PageReadOptions& opts, PageHandle* handle,
+                                              Slice* body, PageFooterPB* footer) {
         RETURN_IF_CATCH_EXCEPTION(
                 { return read_and_decompress_page_(opts, handle, body, footer); });
     }
-
-private:
     // An internal method that not deal with exception.
     static Status read_and_decompress_page_(const PageReadOptions& opts, PageHandle* handle,
                                             Slice* body, PageFooterPB* footer);

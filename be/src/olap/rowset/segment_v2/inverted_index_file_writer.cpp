@@ -61,9 +61,8 @@ Result<std::shared_ptr<DorisFSDirectory>> InvertedIndexFileWriter::open(
         const TabletIndex* index_meta) {
     auto local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
             _tmp_dir, _rowset_id, _seg_id, index_meta->index_id(), index_meta->get_index_suffix());
-    bool can_use_ram_dir = true;
     auto dir = std::shared_ptr<DorisFSDirectory>(DorisFSDirectoryFactory::getDirectory(
-            _local_fs, local_fs_index_path.c_str(), can_use_ram_dir));
+            _local_fs, local_fs_index_path.c_str(), _can_use_ram_dir));
     auto st =
             _insert_directory_into_map(index_meta->index_id(), index_meta->get_index_suffix(), dir);
     if (!st.ok()) {
@@ -346,6 +345,8 @@ Status InvertedIndexFileWriter::write_v1() {
         FINALLY({
             FINALLY_CLOSE(output);
             FINALLY_CLOSE(out_dir);
+            output = nullptr;
+            out_dir = nullptr;
         })
     }
 
