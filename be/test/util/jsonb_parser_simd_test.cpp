@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "util/jsonb_parser_simd.h"
+
 #include "common/status.h"
 #include "gtest/gtest.h"
 #include "util/jsonb_error.h"
-#include "util/jsonb_parser_simd.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 
