@@ -163,7 +163,7 @@ jobs:
             'coreutils'
             'gnu-getopt'
             'python@3'
-            'cmake'
+            'cmake@3.22'
             'ninja'
             'ccache'
             'bison'
@@ -177,7 +177,9 @@ jobs:
             'llvm@16'
           )
 
+          brew unlink cmake || true
           brew install "${packages[@]}" || true
+          brew link cmake@3.22
 
       - name: Build
         run: |
@@ -214,7 +216,7 @@ jobs:
             'coreutils'
             'gnu-getopt'
             'python@3'
-            'cmake'
+            'cmake@3.22'
             'ninja'
             'ccache'
             'bison'
@@ -228,7 +230,9 @@ jobs:
             'llvm@16'
           )
 
+          brew unlink cmake || true
           brew install "${packages[@]}" || true
+          brew link cmake@3.22
 
       - name: Build
         run: |
