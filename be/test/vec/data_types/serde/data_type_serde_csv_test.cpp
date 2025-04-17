@@ -540,6 +540,77 @@ TEST(CsvSerde, ComplexTypeSerdeSchemaChangedCsvTest) {
         EXPECT_EQ(string_col.get_data_at(1).to_string(), "2\003test");
     }
 
+    { // null
+        DataTypeSerDe::FormatOptions formatOptions;
+        formatOptions.collection_delim = '\002';
+        formatOptions.map_key_delim = '\003';
+        std::string null_format = "null";
+        formatOptions.escape_char = '|';
+        formatOptions.null_format = null_format.data();
+        formatOptions.null_len = null_format.size();
+
+        static const string str = "null";
+
+        DataTypePtr data_type_ptr = make_nullable(
+                std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>())));
+
+        auto col = data_type_ptr->create_column();
+        Slice slice(str.data(), str.size());
+        DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
+        Status st = serde->deserialize_one_cell_from_hive_text(*col, slice, formatOptions);
+        EXPECT_EQ(st, Status::OK());
+        EXPECT_EQ(col->is_null_at(0), 1);
+    }
+
+    { //  \\N
+        DataTypeSerDe::FormatOptions formatOptions;
+        formatOptions.collection_delim = '\002';
+        formatOptions.map_key_delim = '\003';
+        std::string null_format = "null";
+        formatOptions.escape_char = '|';
+        formatOptions.null_format = null_format.data();
+        formatOptions.null_len = null_format.size();
+
+        static const string str = "\\N";
+        DataTypes substruct_dataTypes;
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+
+        DataTypePtr data_type_ptr =
+                make_nullable(std::make_shared<DataTypeStruct>(substruct_dataTypes));
+
+        auto col = data_type_ptr->create_column();
+        Slice slice(str.data(), str.size());
+        DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
+        Status st = serde->deserialize_one_cell_from_hive_text(*col, slice, formatOptions);
+        EXPECT_EQ(st, Status::OK());
+        EXPECT_EQ(col->is_null_at(0), 0);
+    }
+
+    { //  \\N
+        DataTypeSerDe::FormatOptions formatOptions;
+        formatOptions.collection_delim = '\002';
+        formatOptions.map_key_delim = '\003';
+        formatOptions.escape_char = '|';
+
+        static const string str = "\\N";
+        DataTypes substruct_dataTypes;
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+
+        DataTypePtr data_type_ptr =
+                make_nullable(std::make_shared<DataTypeStruct>(substruct_dataTypes));
+
+        auto col = data_type_ptr->create_column();
+        Slice slice(str.data(), str.size());
+        DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
+        Status st = serde->deserialize_one_cell_from_hive_text(*col, slice, formatOptions);
+        EXPECT_EQ(st, Status::OK());
+        EXPECT_EQ(col->is_null_at(0), 1);
+    }
+
     { // random
         auto randomControlChar = [&]() { return static_cast<char>(rand() % 7 + 2); };
 
