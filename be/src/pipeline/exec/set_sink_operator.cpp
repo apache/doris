@@ -26,19 +26,6 @@
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
-uint64_t get_hash_table_size(const auto& hash_table_variant) {
-    uint64_t hash_table_size = 0;
-    std::visit(
-            [&](auto&& arg) {
-                using HashTableCtxType = std::decay_t<decltype(arg)>;
-                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    hash_table_size = arg.hash_table->size();
-                }
-            },
-            hash_table_variant);
-    return hash_table_size;
-}
-
 template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::terminate(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
@@ -58,14 +45,18 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
     if (!_terminated && _runtime_filter_producer_helper && !state->is_cancelled()) {
         try {
             RETURN_IF_ERROR(_runtime_filter_producer_helper->process(
-                    state, &_shared_state->build_block,
-                    get_hash_table_size(_shared_state->hash_table_variants->method_variant)));
+                    state, &_shared_state->build_block, _shared_state->get_hash_table_size()));
         } catch (Exception& e) {
             return Status::InternalError(
                     "rf process meet error: {}, _terminated: {}, _finish_dependency: {}",
                     e.to_string(), _terminated, _finish_dependency->debug_string());
         }
     }
+
+    if (_runtime_filter_producer_helper) {
+        _runtime_filter_producer_helper->collect_realtime_profile(profile());
+    }
+
     return Base::close(state, exec_status);
 }
 
@@ -100,15 +91,14 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
         local_state._mutable_block.clear();
 
         if (eos) {
-            uint64_t hash_table_size = get_hash_table_size(
-                    local_state._shared_state->hash_table_variants->method_variant);
+            uint64_t hash_table_size = local_state._shared_state->get_hash_table_size();
             valid_element_in_hash_tbl = is_intersect ? 0 : hash_table_size;
 
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
+            DCHECK_GT(_child_quantity, 1);
             RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->send_filter_size(
                     state, hash_table_size, local_state._finish_dependency));
-            local_state._eos = true;
         }
     }
     return Status::OK();
@@ -148,16 +138,18 @@ template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::_extract_build_column(
         SetSinkLocalState<is_intersect>& local_state, vectorized::Block& block,
         vectorized::ColumnRawPtrs& raw_ptrs, size_t& rows) {
-    std::vector<int> result_locs(local_state._child_exprs.size(), -1);
+    // use local state child exprs
+    auto& child_expr = local_state._child_exprs;
+    std::vector<int> result_locs(child_expr.size(), -1);
     bool is_all_const = true;
 
-    for (size_t i = 0; i < local_state._child_exprs.size(); ++i) {
-        RETURN_IF_ERROR(local_state._child_exprs[i]->execute(&block, &result_locs[i]));
+    for (size_t i = 0; i < child_expr.size(); ++i) {
+        RETURN_IF_ERROR(child_expr[i]->execute(&block, &result_locs[i]));
         is_all_const &= is_column_const(*block.get_by_position(result_locs[i]).column);
     }
     rows = is_all_const ? 1 : rows;
 
-    for (size_t i = 0; i < local_state._child_exprs.size(); ++i) {
+    for (size_t i = 0; i < child_expr.size(); ++i) {
         size_t result_col_id = result_locs[i];
 
         if (is_all_const) {
@@ -210,7 +202,7 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
 
     RETURN_IF_ERROR(_shared_state->update_build_not_ignore_null(_child_exprs));
 
-    _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelperSet>(profile());
+    _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelperSet>();
     RETURN_IF_ERROR(_runtime_filter_producer_helper->init(state, _child_exprs,
                                                           parent._runtime_filter_descs));
     return Status::OK();

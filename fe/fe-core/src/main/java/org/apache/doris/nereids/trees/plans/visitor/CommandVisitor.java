@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
@@ -61,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
@@ -80,7 +82,9 @@ import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
@@ -140,6 +144,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand
 import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
@@ -648,6 +653,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showFrontendsCommand, context);
     }
 
+    default R visitShowFunctionsCommand(ShowFunctionsCommand showFunctionsCommand, C context) {
+        return visitCommand(showFunctionsCommand, context);
+    }
+
     default R visitAdminRebalanceDiskCommand(AdminRebalanceDiskCommand adminRebalanceDiskCommand, C context) {
         return visitCommand(adminRebalanceDiskCommand, context);
     }
@@ -889,6 +898,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(describeCommand, context);
     }
 
+    default R visitAlterUserCommand(AlterUserCommand alterUserCommand, C context) {
+        return visitCommand(alterUserCommand, context);
+    }
+
     default R visitShowTableStatusCommand(ShowTableStatusCommand showTableStatusCommand, C context) {
         return visitCommand(showTableStatusCommand, context);
     }
@@ -941,6 +954,14 @@ public interface CommandVisitor<R, C> {
         return visitCommand(alterColumnStatsCommand, context);
     }
 
+    default R visitDropResourceCommand(DropResourceCommand dropResourceCommand, C context) {
+        return visitCommand(dropResourceCommand, context);
+    }
+
+    default R visitDropRowPolicyCommand(DropRowPolicyCommand dropRowPolicyCommand, C context) {
+        return visitCommand(dropRowPolicyCommand, context);
+    }
+
     default R visitTransactionBeginCommand(TransactionBeginCommand transactionBeginCommand, C context) {
         return visitCommand(transactionBeginCommand, context);
     }
@@ -963,5 +984,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitColocateGroupCommand(AlterColocateGroupCommand alterColocateGroupCommand, C context) {
         return visitCommand(alterColocateGroupCommand, context);
+    }
+
+    default R visitCreateUserCommand(CreateUserCommand createUserCommand, C context) {
+        return visitCommand(createUserCommand, context);
     }
 }

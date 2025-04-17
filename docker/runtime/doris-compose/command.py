@@ -902,7 +902,7 @@ class DownCommand(Command):
                     shutil.rmtree(node.get_path())
                     register_file = "{}/{}-{}-register".format(
                         CLUSTER.get_status_path(cluster.name),
-                        node.node_type(), node.get_ip())
+                        node.node_type(), node.id)
                     if os.path.exists(register_file):
                         os.remove(register_file)
                     LOG.info(

@@ -266,7 +266,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         return value.toPlainString();
     }
 
@@ -278,11 +278,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
     @Override
     public String getStringValue() {
         return value.toPlainString();
-    }
-
-    @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
     }
 
     @Override

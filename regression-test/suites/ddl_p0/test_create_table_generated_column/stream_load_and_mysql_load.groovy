@@ -141,4 +141,40 @@ suite("test_generated_column_stream_mysql_load") {
     """
     sql "sync"
     qt_specify_value_for_gencol "select * from test_gen_col_common_steam_mysql_load order by 1,2,3"
+
+    sql """
+    drop table if exists objects3;
+    """
+    sql """
+    CREATE TABLE `objects3` (
+      `OBJECTIDHASH` tinyint AS ((`OBJECTID` % 10)) NULL,
+      `OBJECTID` bigint NOT NULL,
+    ) ENGINE=OLAP
+    UNIQUE KEY(`OBJECTIDHASH`, `OBJECTID`)
+    DISTRIBUTED BY HASH( `OBJECTIDHASH`) BUCKETS 128
+    PROPERTIES (
+        "file_cache_ttl_seconds" = "0",
+        "is_being_synced" = "false",
+        "storage_medium" = "hdd",
+        "storage_format" = "V2",
+        "inverted_index_storage_format" = "V2",
+        "compression" = "ZSTD",
+        "enable_unique_key_merge_on_write" = "true",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false",
+        "enable_single_replica_compaction" = "false",
+        "group_commit_interval_ms" = "5000",
+        "group_commit_data_bytes" = "134217728",
+        "enable_mow_light_delete" = "false"
+    );
+    """
+    streamLoad {
+        table 'objects3'
+        set 'column_separator', ','
+        file 'objects3.csv'
+        set 'columns', 'OBJECTID'
+        time 10000 // limit inflight 10s
+    }
+    sql "sync"
+    qt_test_load_cast "select * from objects3 order by OBJECTIDHASH,OBJECTID"
 }
