@@ -96,7 +96,7 @@ jobs:
             'autoconf'
             'libtool-bin'
             'pkg-config'
-            'cmake=3.22.1-1ubuntu1'
+            'cmake=3.22.1-1ubuntu1.22.04.2'
             'ninja-build'
             'ccache'
             'python-is-python3'
