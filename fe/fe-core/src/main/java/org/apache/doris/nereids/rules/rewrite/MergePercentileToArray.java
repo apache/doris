@@ -80,6 +80,9 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
             List<Literal> literals = new ArrayList<>();
             for (AggregateFunction aggFunc : entry.getValue()) {
                 List<Expression> literal = aggFunc.child(1).collectToList(expr -> expr instanceof Literal);
+                if (literal.isEmpty()) {
+                    return ImmutableList.of();
+                }
                 literals.add((Literal) literal.get(0));
             }
             ArrayLiteral arrayLiteral = new ArrayLiteral(literals);
@@ -127,6 +130,9 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
 
         // construct new Aggregate
         List<AggregateFunction> newPercentileArrays = getPercentileArrays(funcMap);
+        if (newPercentileArrays.isEmpty()) {
+            return aggregate;
+        }
         ImmutableList.Builder<NamedExpression> normalizedAggOutputBuilder =
                 ImmutableList.builderWithExpectedSize(aggregate.getGroupByExpressions().size()
                         + aggFuncsNotChange.size() + newPercentileArrays.size());
