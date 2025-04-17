@@ -172,7 +172,6 @@ bool AnalyzeContext::moveCursor() {
 
 void AnalyzeContext::initCursor() {
     cursor_ = 0;
-    typed_runes_[cursor_].regularize(config_->isEnableLowercase());
 }
 
 bool AnalyzeContext::isBufferConsumed() const {

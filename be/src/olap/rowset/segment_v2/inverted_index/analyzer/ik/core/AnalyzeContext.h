@@ -73,7 +73,12 @@ private:
     void compound(Lexeme& lexeme);
 
 public:
-    enum class SegmenterType { CJK_SEGMENTER, CN_QUANTIFIER, LETTER_SEGMENTER, SURROGATE_PAIR_SEGMENTER};
+    enum class SegmenterType {
+        CJK_SEGMENTER,
+        CN_QUANTIFIER,
+        LETTER_SEGMENTER,
+        SURROGATE_PAIR_SEGMENTER
+    };
     const CharacterUtil::TypedRuneArray& getTypedRuneArray() const { return typed_runes_; }
     explicit AnalyzeContext(IKMemoryPool<Cell>& pool, std::shared_ptr<Configuration> config);
     virtual ~AnalyzeContext();

@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include <unicode/uchar.h>
+
 #include <functional>
 #include <memory>
 #include <vector>
-#include <unicode/uchar.h> 
 
 #include "CLucene/_ApiHeader.h"
 #include "CLucene/analysis/jieba/Unicode.hpp"
@@ -80,8 +81,6 @@ public:
     static bool decodeString(const char* str, size_t length, RuneStrArray& runes);
 
     static void regularizeCharInfo(TypedRune& type_rune, bool use_lowercase);
-
-    static size_t adjustToCompleteChar(const char* buffer, size_t buffer_length);
 
     static void regularizeString(std::string& input, bool use_lowercase = true);
 };

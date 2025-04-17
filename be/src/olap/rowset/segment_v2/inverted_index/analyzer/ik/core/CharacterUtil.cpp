@@ -29,18 +29,14 @@ int32_t CharacterUtil::identifyCharType(int32_t rune) {
 
     UBlockCode block = ublock_getCode(rune);
 
-    if (block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS || 
-        block == UBLOCK_CJK_COMPATIBILITY_IDEOGRAPHS || 
+    if (block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS || block == UBLOCK_CJK_COMPATIBILITY_IDEOGRAPHS ||
         block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A) {
         return CHAR_CHINESE;
     }
-    
-    if (block == UBLOCK_HALFWIDTH_AND_FULLWIDTH_FORMS ||
-        block == UBLOCK_HANGUL_SYLLABLES ||
-        block == UBLOCK_HANGUL_JAMO ||
-        block == UBLOCK_HANGUL_COMPATIBILITY_JAMO ||
-        block == UBLOCK_HIRAGANA ||
-        block == UBLOCK_KATAKANA ||
+
+    if (block == UBLOCK_HALFWIDTH_AND_FULLWIDTH_FORMS || block == UBLOCK_HANGUL_SYLLABLES ||
+        block == UBLOCK_HANGUL_JAMO || block == UBLOCK_HANGUL_COMPATIBILITY_JAMO ||
+        block == UBLOCK_HIRAGANA || block == UBLOCK_KATAKANA ||
         block == UBLOCK_KATAKANA_PHONETIC_EXTENSIONS) {
         return CHAR_OTHER_CJK;
     }
@@ -58,7 +54,7 @@ int32_t CharacterUtil::regularize(int32_t rune, bool use_lowercase) {
         return 0x0020;
     }
 
-    // All full-width characters 
+    // All full-width characters
     if (rune > 0xFF00 && rune < 0xFF5F) {
         rune = rune - 0xFEE0;
     }
@@ -71,12 +67,8 @@ int32_t CharacterUtil::regularize(int32_t rune, bool use_lowercase) {
 }
 
 void CharacterUtil::TypedRune::regularize(bool use_lowercase) {
-    CharacterUtil::regularizeCharInfo(*this, use_lowercase);
-}
-
-void CharacterUtil::regularizeCharInfo(TypedRune& typedRune, bool use_lowercase) {
-    typedRune.rune = regularize(typedRune.rune, use_lowercase);
-    typedRune.char_type = identifyCharType(typedRune.rune);
+    this->rune = CharacterUtil::regularize(this->rune, use_lowercase);
+    this->char_type = CharacterUtil::identifyCharType(this->rune);
 }
 
 CharacterUtil::RuneStrLite CharacterUtil::decodeChar(const char* str, size_t length) {
@@ -100,71 +92,22 @@ void CharacterUtil::decodeStringToRunes(const char* str, size_t length, TypedRun
         typed_runes.emplace_back(runeStr.rune, byte_pos, runeStr.len, typed_runes.size(), 1);
 
         typed_runes.back().regularize(use_lowercase);
-        
+
         byte_pos += runeStr.len;
     }
-}
-
-// TODO: Maybe delete this function
-size_t CharacterUtil::adjustToCompleteChar(const char* buffer, size_t buffer_length) {
-    if (buffer_length == 0) return 0;
-
-    unsigned char last_byte = buffer[buffer_length - 1];
-
-    if (last_byte < 0x80) {
-        return buffer_length;
-    }
-
-    if ((last_byte & 0xC0) == 0x80) {
-        size_t adjustedLen = buffer_length - 1;
-        while (adjustedLen > 0) {
-            unsigned char byte = buffer[adjustedLen - 1];
-            if ((byte & 0xC0) != 0x80) {
-                int charLen = 0;
-                if ((byte & 0xE0) == 0xC0)
-                    charLen = 2;
-                else if ((byte & 0xF0) == 0xE0)
-                    charLen = 3;
-                else if ((byte & 0xF8) == 0xF0)
-                    charLen = 4;
-                if (buffer_length - adjustedLen + 1 < charLen) {
-                    return adjustedLen - 1;
-                }
-                return buffer_length;
-            }
-            adjustedLen--;
-        }
-        return 0;
-    }
-
-    int charLen = 0;
-    if ((last_byte & 0xE0) == 0xC0)
-        charLen = 2;
-    else if ((last_byte & 0xF0) == 0xE0)
-        charLen = 3;
-    else if ((last_byte & 0xF8) == 0xF0)
-        charLen = 4;
-
-    if (charLen > 1) {
-        return buffer_length - 1;
-    }
-
-    return buffer_length;
 }
 
 void CharacterUtil::regularizeString(std::string& input, bool use_lowercase) {
     std::string temp;
     size_t len = input.size();
     temp.reserve(len);
-    for (size_t i = 0; i < len; ) {
+    for (size_t i = 0; i < len;) {
         unsigned char c = input[i];
         if ((c & 0xF0) == 0xE0 && i + 2 < len) {
-            int rune = ((c & 0x0F) << 12) | 
-                       ((input[i + 1] & 0x3F) << 6) | 
-                       (input[i + 2] & 0x3F);
-            if (rune == 0x3000) { 
+            int rune = ((c & 0x0F) << 12) | ((input[i + 1] & 0x3F) << 6) | (input[i + 2] & 0x3F);
+            if (rune == 0x3000) {
                 temp += ' ';
-            } else if (rune >= 0xFF01 && rune <= 0xFF5E) { 
+            } else if (rune >= 0xFF01 && rune <= 0xFF5E) {
                 char half = static_cast<char>(rune - 0xFEE0);
                 if (use_lowercase && half >= 'A' && half <= 'Z') {
                     half += 32;

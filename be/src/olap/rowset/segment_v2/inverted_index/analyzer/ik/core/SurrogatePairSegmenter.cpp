@@ -21,16 +21,17 @@ namespace doris::segment_v2 {
 
 void SurrogatePairSegmenter::analyze(AnalyzeContext& context) {
     const auto& current_char_type = context.getCurrentCharType();
-    
+
     if (current_char_type == CharacterUtil::CHAR_SURROGATE) {
         Lexeme newLexeme(context.getBufferOffset(), context.getCurrentCharOffset(),
-                         context.getCurrentCharLen(), Lexeme::Type::CNChar, context.getCursor(), context.getCursor());
+                         context.getCurrentCharLen(), Lexeme::Type::CNChar, context.getCursor(),
+                         context.getCursor());
         context.addLexeme(newLexeme);
-    } 
-       
+    }
+
     context.unlockBuffer(SEGMENTER_TYPE);
 }
 
 void SurrogatePairSegmenter::reset() {}
 
-} // namespace doris::segment_v2 
+} // namespace doris::segment_v2

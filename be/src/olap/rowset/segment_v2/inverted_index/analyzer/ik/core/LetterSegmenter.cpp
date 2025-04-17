@@ -67,7 +67,8 @@ bool LetterSegmenter::processEnglishLetter(AnalyzeContext& context) {
             english_end_ = context.getCursor();
         } else {
             // Encounter non-English characters, output tokens
-            Lexeme newLexeme = createLexeme(context, english_start_, english_end_, Lexeme::Type::English);
+            Lexeme newLexeme =
+                    createLexeme(context, english_start_, english_end_, Lexeme::Type::English);
             context.addLexeme(newLexeme);
             english_start_ = -1;
             english_end_ = -1;
@@ -75,7 +76,8 @@ bool LetterSegmenter::processEnglishLetter(AnalyzeContext& context) {
     }
 
     if (context.isBufferConsumed() && (english_start_ != -1 && english_end_ != -1)) {
-        Lexeme newLexeme = createLexeme(context, english_start_, english_end_, Lexeme::Type::English);
+        Lexeme newLexeme =
+                createLexeme(context, english_start_, english_end_, Lexeme::Type::English);
         context.addLexeme(newLexeme);
         english_start_ = -1;
         english_end_ = -1;
@@ -109,7 +111,8 @@ bool LetterSegmenter::processArabicLetter(AnalyzeContext& context) {
             // Do not output numbers, but do not mark the end
         } else {
             // Encounter non-Arabic characters, output tokens
-            Lexeme newLexeme = createLexeme(context, arabic_start_, arabic_end_, Lexeme::Type::Arabic);
+            Lexeme newLexeme =
+                    createLexeme(context, arabic_start_, arabic_end_, Lexeme::Type::Arabic);
             context.addLexeme(newLexeme);
             arabic_start_ = -1;
             arabic_end_ = -1;
@@ -173,29 +176,25 @@ bool LetterSegmenter::processMixLetter(AnalyzeContext& context) {
 
 bool LetterSegmenter::isLetterConnector(int32_t input) {
     if (input < 128) {
-        return std::binary_search(std::begin(letter_connectors_), std::end(letter_connectors_), 
-                                 static_cast<char>(input));
+        return std::binary_search(std::begin(letter_connectors_), std::end(letter_connectors_),
+                                  static_cast<char>(input));
     }
     return false;
 }
 
 bool LetterSegmenter::isNumConnector(int32_t input) {
     if (input < 128) {
-        return std::binary_search(std::begin(num_connectors_), std::end(num_connectors_), 
-                                 static_cast<char>(input));
+        return std::binary_search(std::begin(num_connectors_), std::end(num_connectors_),
+                                  static_cast<char>(input));
     }
     return false;
 }
 
-Lexeme LetterSegmenter::createLexeme(AnalyzeContext& context, int start, int end, Lexeme::Type type) {
+Lexeme LetterSegmenter::createLexeme(AnalyzeContext& context, int start, int end,
+                                     Lexeme::Type type) {
     const auto& typed_runes = context.getTypedRuneArray();
-    return Lexeme(
-        context.getBufferOffset(),
-        typed_runes[start].getBytePosition(),
-        typed_runes[end].getNextBytePosition() - typed_runes[start].getBytePosition(),
-        type,
-        start,
-        end
-    );
+    return Lexeme(context.getBufferOffset(), typed_runes[start].getBytePosition(),
+                  typed_runes[end].getNextBytePosition() - typed_runes[start].getBytePosition(),
+                  type, start, end);
 }
 } // namespace doris::segment_v2
