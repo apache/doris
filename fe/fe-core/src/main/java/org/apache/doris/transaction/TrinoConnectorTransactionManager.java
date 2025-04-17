@@ -17,10 +17,35 @@
 
 package org.apache.doris.transaction;
 
-public enum TransactionType {
-    UNKNOWN,
-    HMS,
-    ICEBERG,
-    JDBC,
-    TRINO_CONNECTOR
+import org.apache.doris.common.UserException;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+/**
+ * Transaction manager for Trino connector.
+ */
+public class TrinoConnectorTransactionManager implements TransactionManager {
+    private static final Logger LOG = LogManager.getLogger(TrinoConnectorTransactionManager.class);
+
+    @Override
+    public long begin() {
+        LOG.info("begin trino connector transaction");
+        return 0;
+    }
+
+    @Override
+    public void commit(long id) throws UserException {
+        LOG.info("commit trino connector transaction: {}", id);
+    }
+
+    @Override
+    public void rollback(long id) {
+        LOG.info("rollback trino connector transaction: {}", id);
+    }
+
+    @Override
+    public Transaction getTransaction(long id) {
+        return null;
+    }
 }

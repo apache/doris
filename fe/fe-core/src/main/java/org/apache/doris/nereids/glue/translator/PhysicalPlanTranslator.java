@@ -68,6 +68,7 @@ import org.apache.doris.datasource.odbc.source.OdbcScanNode;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
+import org.apache.doris.datasource.trinoconnector.sink.TrinoConnectorTableSink;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemDirectoryLister;
@@ -153,6 +154,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTrinoConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
@@ -515,6 +517,30 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         JdbcTableSink sink = new JdbcTableSink(
                 ((JdbcExternalTable) jdbcTableSink.getTargetTable()).getJdbcTable(),
                 insertCols
+        );
+        rootFragment.setSink(sink);
+        return rootFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalTrinoConnectorTableSink(
+            PhysicalTrinoConnectorTableSink<? extends Plan> trinoConnectorTableSink, PlanTranslatorContext context) {
+        PlanFragment rootFragment = trinoConnectorTableSink.child().accept(this, context);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+
+        TupleDescriptor trinoConnectorTuple = context.generateTupleDesc();
+        List<Column> targetTableColumns = trinoConnectorTableSink.getCols();
+        for (Column column : targetTableColumns) {
+            SlotDescriptor slotDesc = context.addSlotDesc(trinoConnectorTuple);
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setType(column.getType());
+            slotDesc.setColumn(column);
+            slotDesc.setIsNullable(column.isAllowNull());
+            slotDesc.setAutoInc(column.isAutoInc());
+        }
+
+        TrinoConnectorTableSink sink = new TrinoConnectorTableSink(
+                ((TrinoConnectorExternalTable) trinoConnectorTableSink.getTargetTable())
         );
         rootFragment.setSink(sink);
         return rootFragment;

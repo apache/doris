@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTrinoConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -157,6 +158,14 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     public Void visitPhysicalJdbcTableSink(
             PhysicalJdbcTableSink<? extends Plan> jdbcTableSink, PlanContext context) {
         // Always use gather properties for jdbcTableSink
+        addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalTrinoConnectorTableSink(
+            PhysicalTrinoConnectorTableSink<? extends Plan> trinoConnectorTableSink, PlanContext context) {
+        // Always use gather properties for trinoConnectorTableSink
         addRequestPropertyToChildren(PhysicalProperties.GATHER);
         return null;
     }
