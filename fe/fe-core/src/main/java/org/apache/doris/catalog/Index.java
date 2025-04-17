@@ -182,6 +182,10 @@ public class Index implements Writable {
         }
     }
 
+    public String getInvertedIndexCustomAnalyzer() {
+        return InvertedIndexUtil.getInvertedIndexCustomAnalyzer(properties);
+    }
+
     public String getComment() {
         return getComment(false);
     }

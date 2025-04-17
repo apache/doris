@@ -33,6 +33,7 @@ import org.apache.doris.analysis.ShowCreateMTMVStmt;
 import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
+import org.apache.doris.analysis.ShowIndexPolicyStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
@@ -219,6 +220,8 @@ public class ShowExecutor {
             handleAdminDiagnoseTablet();
         } else if (stmt instanceof ShowPolicyStmt) {
             handleShowPolicy();
+        } else if (stmt instanceof ShowIndexPolicyStmt) {
+            handleShowIndexPolicy();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
         } else if (stmt instanceof ShowQueuedAnalyzeJobsStmt) {
@@ -1107,6 +1110,11 @@ public class ShowExecutor {
     public void handleShowPolicy() throws AnalysisException {
         ShowPolicyStmt showStmt = (ShowPolicyStmt) stmt;
         resultSet = Env.getCurrentEnv().getPolicyMgr().showPolicy(showStmt);
+    }
+
+    public void handleShowIndexPolicy() throws AnalysisException {
+        ShowIndexPolicyStmt showStmt = (ShowIndexPolicyStmt) stmt;
+        resultSet = Env.getCurrentEnv().getIndexPolicyMgr().showIndexPolicy(showStmt);
     }
 
     private void handleShowAnalyze() {

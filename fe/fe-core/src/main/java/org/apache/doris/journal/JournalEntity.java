@@ -46,6 +46,8 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.indexpolicy.DropIndexPolicyLog;
+import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.bdbje.Timestamp;
@@ -969,6 +971,16 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DICTIONARY_DEC_VERSION: {
                 data = DictionaryDecreaseVersionInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_INDEX_POLICY: {
+                data = IndexPolicy.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_INDEX_POLICY: {
+                data = DropIndexPolicyLog.read(in);
                 isRead = true;
                 break;
             }
