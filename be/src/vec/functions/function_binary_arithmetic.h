@@ -219,6 +219,24 @@ struct BinaryOperationImpl {
     }
 };
 
+template <typename A, typename B, typename Result>
+constexpr bool use_opt_mul_for_decimal = false;
+
+template <>
+inline constexpr bool use_opt_mul_for_decimal<Decimal64, Decimal64, Decimal128V3> = true;
+
+template <>
+inline constexpr bool use_opt_mul_for_decimal<Decimal32, Decimal64, Decimal128V3> = true;
+
+template <>
+inline constexpr bool use_opt_mul_for_decimal<Decimal64, Decimal32, Decimal128V3> = true;
+
+template <>
+inline constexpr bool use_opt_mul_for_decimal<Decimal32, Decimal32, Decimal64> = true;
+
+template <>
+inline constexpr bool use_opt_mul_for_decimal<Decimal32, Decimal32, Decimal128V3> = true;
+
 #define THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(left_value, op_name, right_value, result_value, \
                                                    result_type_name)                               \
     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,                                         \
@@ -237,6 +255,9 @@ struct DecimalBinaryOperation {
     using OpTraits = OperationTraits<Operation, A, B>;
 
     using NativeResultType = typename NativeType<ResultType>::Type;
+    using NativeAType = typename NativeType<A>::Type;
+    using NativeBType = typename NativeType<B>::Type;
+
     using Op = Operation<NativeResultType, NativeResultType>;
 
     using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
@@ -263,9 +284,16 @@ private:
             std::visit(
                     [&](auto need_adjust_scale) {
                         for (size_t i = 0; i < size; i++) {
-                            c[i] = typename ArrayC::value_type(apply<need_adjust_scale>(
-                                    a[i], b[i], type_left, type_right, type_result,
-                                    max_result_number, scale_diff_multiplier));
+                            if constexpr (OpTraits::is_multiply &&
+                                          use_opt_mul_for_decimal<A, B, ResultType>) {
+                                c[i] = typename ArrayC::value_type(
+                                        apply_for_opt_mul<need_adjust_scale>(
+                                                a[i], b[i], scale_diff_multiplier));
+                            } else {
+                                c[i] = typename ArrayC::value_type(apply<need_adjust_scale>(
+                                        a[i], b[i], type_left, type_right, type_result,
+                                        max_result_number, scale_diff_multiplier));
+                            }
                         }
                     },
                     make_bool_variant(need_adjust_scale && check_overflow));
@@ -654,6 +682,22 @@ private:
                 return res;
             }
         }
+    }
+
+    template <bool need_adjust_scale>
+    static ALWAYS_INLINE NativeResultType
+    apply_for_opt_mul(NativeAType a, NativeBType b, const ResultType& scale_diff_multiplier) {
+        NativeResultType res;
+        res = static_cast<NativeResultType>(a) * static_cast<NativeResultType>(b);
+        // if constexpr (OpTraits::is_multiply && need_adjust_scale) {
+        //     if (res >= 0) {
+        //         res = (res + scale_diff_multiplier.value / 2) / scale_diff_multiplier.value;
+        //     } else {
+        //         res = (res - scale_diff_multiplier.value / 2) / scale_diff_multiplier.value;
+        //     }
+        // }
+        DCHECK(!need_adjust_scale);
+        return res;
     }
 
     /// null_map for divide and mod
