@@ -37,7 +37,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "inverted_index_query_type.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"
@@ -276,6 +275,10 @@ Status InvertedIndexReader::match_index_search(
         const FulltextIndexSearcherPtr& index_searcher,
         const std::shared_ptr<roaring::Roaring>& term_match_bitmap) {
     const auto& queryOptions = runtime_state->query_options();
+    auto* reader = index_searcher->getReader();
+    if (runtime_state && runtime_state->query_options().inverted_index_compatible_read) {
+        reader->setCompatibleRead(true);
+    }
     try {
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
         auto query = QueryFactory::create(query_type, index_searcher, queryOptions, io_ctx);

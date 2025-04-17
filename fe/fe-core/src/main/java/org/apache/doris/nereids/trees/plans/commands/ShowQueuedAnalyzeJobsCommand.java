@@ -161,7 +161,12 @@ public class ShowQueuedAnalyzeJobsCommand extends ShowCommand {
                         job.catalogName, job.dbName, job.tableName, e.getMessage());
             }
         }
-        return new ShowResultSet(META_DATA, resultRows);
+        return new ShowResultSet(getMetaData(), resultRows);
+    }
+
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
     }
 
     @Override

@@ -29,6 +29,7 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "gutil/macros.h"
 #include "olap/column_mapping.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
@@ -107,10 +108,15 @@ public:
         }
         std::string segment_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 _context.segment_path(segment_id))};
+        // default to true, only when base compaction, we need to check the config
+        bool can_use_ram_dir = true;
+        if (_context.compaction_type == ReaderType::READER_BASE_COMPACTION) {
+            can_use_ram_dir = config::inverted_index_ram_dir_enable_when_base_compaction;
+        }
         *index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                 _context.fs(), segment_prefix, _context.rowset_id.to_string(), segment_id,
                 _context.tablet_schema->get_inverted_index_storage_format(),
-                std::move(idx_file_v2_ptr));
+                std::move(idx_file_v2_ptr), can_use_ram_dir);
         return Status::OK();
     }
 
