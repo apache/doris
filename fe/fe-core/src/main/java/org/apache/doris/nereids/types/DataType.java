@@ -355,10 +355,6 @@ public abstract class DataType {
             case CHAR: return CharType.createCharType(type.getLength());
             case VARCHAR: return VarcharType.createVarcharType(type.getLength());
             case STRING: return StringType.INSTANCE;
-            case VARIANT: {
-                org.apache.doris.catalog.VariantType scType = (org.apache.doris.catalog.VariantType) type;
-                return new VariantType(scType.getVariantMaxSubcolumnsCount());
-            }
             case JSONB: return JsonType.INSTANCE;
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;
@@ -399,6 +395,14 @@ public abstract class DataType {
         } else if (type.isArrayType()) {
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
             return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
+        } else if (type.isVariantType()) {
+            List<VariantField> variantFields = ((org.apache.doris.catalog.VariantType) type)
+                    .getPredefinedFields().stream()
+                    .map(cf -> new VariantField(cf.getPattern(), fromCatalogType(cf.getType()),
+                            cf.getComment() == null ? "" : cf.getComment(), cf.getPatternType().toString()))
+                    .collect(ImmutableList.toImmutableList());
+            return new VariantType(variantFields,
+                            ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount());
         } else {
             return UnsupportedType.INSTANCE;
         }

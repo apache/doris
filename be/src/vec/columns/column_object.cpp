@@ -1769,6 +1769,8 @@ Status ColumnObject::serialize_sparse_columns(
         std::map<std::string_view, Subcolumn>&& remaing_subcolumns) {
     CHECK(is_finalized());
 
+    clear_sparse_column();
+
     if (remaing_subcolumns.empty()) {
         serialized_sparse_column->resize(num_rows);
         return Status::OK();
@@ -1948,7 +1950,6 @@ Status ColumnObject::pick_subcolumns_to_sparse_column(
     }
 
     ENABLE_CHECK_CONSISTENCY(this);
-    // clear_sparse_column();
 
     RETURN_IF_ERROR(serialize_sparse_columns(std::move(remaing_subcolumns)));
     std::swap(subcolumns, new_subcolumns);
