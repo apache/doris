@@ -22,15 +22,9 @@
 #pragma once
 
 #include <boost/intrusive/list.hpp>
-#include <functional>
 #include <list>
-#include <memory>
 #include <mutex>
-#include <tuple>
 #include <unordered_map>
-
-#include "gutil/macros.h"
-#include "util/spinlock.h"
 
 namespace doris {
 
@@ -99,7 +93,8 @@ public:
     LruMultiCache(LruMultiCache&&) = delete;
     LruMultiCache& operator=(LruMultiCache&&) = delete;
 
-    DISALLOW_COPY_AND_ASSIGN(LruMultiCache);
+    LruMultiCache(const LruMultiCache&) = delete;
+    const LruMultiCache& operator=(const LruMultiCache&) = delete;
 
     /// Returns the number of stored objects in O(1) time
     size_t size();
@@ -130,13 +125,12 @@ public:
 private:
     /// Doubly linked list and auto_unlink is used for O(1) remove from LRU list, in case of
     /// get and evict.
-    typedef boost::intrusive::list_member_hook<
-            boost::intrusive::link_mode<boost::intrusive::auto_unlink>>
-            link_type;
+    using link_type = boost::intrusive::list_member_hook<
+            boost::intrusive::link_mode<boost::intrusive::auto_unlink>>;
 
     /// Internal type storing everything needed for O(1) operations
     struct ValueType_internal {
-        typedef std::list<ValueType_internal> Container_internal;
+        using Container_internal = std::list<ValueType_internal>;
 
         /// Variadic template is used to support emplace
         template <typename... Args>
@@ -171,19 +165,17 @@ private:
     };
 
     /// Owning list typedef
-    typedef std::list<ValueType_internal> Container;
+    using Container = std::list<ValueType_internal>;
 
     /// Hash table typedef
-    typedef std::unordered_map<KeyType, Container> HashTableType;
+    using HashTableType = std::unordered_map<KeyType, Container>;
 
-    typedef boost::intrusive::member_hook<ValueType_internal, link_type,
-                                          &ValueType_internal::member_hook>
-            MemberHookOption;
+    using MemberHookOption = boost::intrusive::member_hook<ValueType_internal, link_type,
+                                                           &ValueType_internal::member_hook>;
 
     /// No constant time size to support self unlink, cache size is tracked by the class
-    typedef boost::intrusive::list<ValueType_internal, MemberHookOption,
-                                   boost::intrusive::constant_time_size<false>>
-            LruListType;
+    using LruListType = boost::intrusive::list<ValueType_internal, MemberHookOption,
+                                               boost::intrusive::constant_time_size<false>>;
 
     void release(ValueType_internal* p_value_internal);
     void destroy(ValueType_internal* p_value_internal);
@@ -203,7 +195,7 @@ private:
 
     /// Protects access to cache. No need for read/write cache as there is no costly
     /// pure read operation
-    SpinLock _lock;
+    std::mutex _lock;
 
 public:
     /// RAII Accessor to give unqiue access for a cached object
@@ -216,7 +208,8 @@ public:
         Accessor(Accessor&&);
         Accessor& operator=(Accessor&&);
 
-        DISALLOW_COPY_AND_ASSIGN(Accessor);
+        Accessor(const Accessor&) = delete;
+        const Accessor& operator=(const Accessor&) = delete;
 
         /// Automatic release in destructor
         ~Accessor();

@@ -53,8 +53,6 @@ class TMasterResult;
 class TReportRequest;
 } // namespace doris
 
-using std::map;
-using std::string;
 using apache::thrift::transport::TTransportException;
 
 namespace doris {
@@ -229,12 +227,12 @@ Status MasterServerClient::confirm_unused_remote_files(
     return Status::OK();
 }
 
-bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_stderr) {
+bool AgentUtils::exec_cmd(const std::string& command, std::string* errmsg, bool redirect_stderr) {
     // The exit status of the command.
     uint32_t rc = 0;
 
     // Redirect stderr to stdout to get error message.
-    string cmd = command;
+    std::string cmd = command;
     if (redirect_stderr) {
         cmd += " 2>&1";
     }
@@ -273,7 +271,8 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
     }
 }
 
-bool AgentUtils::write_json_to_file(const map<string, string>& info, const string& path) {
+bool AgentUtils::write_json_to_file(const std::map<std::string, std::string>& info,
+                                    const std::string& path) {
     rapidjson::Document json_info(rapidjson::kObjectType);
     for (auto& it : info) {
         json_info.AddMember(rapidjson::Value(it.first.c_str(), json_info.GetAllocator()).Move(),

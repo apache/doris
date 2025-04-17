@@ -520,15 +520,13 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
 Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_conditions_param_timer_ns);
     std::vector<ColumnPredicate*> predicates;
-    auto emplace_predicate = [&predicates](auto& param, ColumnPredicate* predicate) {
-        predicate->set_runtime_filter_id(param.runtime_filter_id);
-        predicates.emplace_back(predicate);
-    };
 
-    auto parse_and_emplace_predicates = [this, &emplace_predicate](auto& params) {
+    auto parse_and_emplace_predicates = [this, &predicates](auto& params) {
         for (const auto& param : params) {
             ColumnPredicate* predicate = _parse_to_predicate({param.column_name, param.filter});
-            emplace_predicate(param, predicate);
+            predicate->attach_profile_counter(param.runtime_filter_id, param.filtered_rows_counter,
+                                              param.input_rows_counter);
+            predicates.emplace_back(predicate);
         }
     };
 
@@ -544,7 +542,9 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
                 parse_to_predicate(mcolumn, index, tmp_cond, _predicate_arena.get());
         // record condition value into predicate_params in order to pushdown segment_iterator,
         // _gen_predicate_result_sign will build predicate result unique sign with condition value
-        emplace_predicate(param, predicate);
+        predicate->attach_profile_counter(param.runtime_filter_id, param.filtered_rows_counter,
+                                          param.input_rows_counter);
+        predicates.emplace_back(predicate);
     }
     parse_and_emplace_predicates(read_params.bloom_filters);
     parse_and_emplace_predicates(read_params.bitmap_filters);

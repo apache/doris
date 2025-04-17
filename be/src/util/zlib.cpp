@@ -25,9 +25,6 @@
 #include <ostream>
 #include <string>
 
-using std::ostream;
-using std::string;
-
 #define ZRETURN_NOT_OK(call) RETURN_IF_ERROR(ZlibResultToStatus(call))
 
 namespace doris {
@@ -61,11 +58,11 @@ Status ZlibResultToStatus(int rc) {
 }
 } // anonymous namespace
 
-Status Compress(Slice input, ostream* out) {
+Status Compress(Slice input, std::ostream* out) {
     return CompressLevel(input, Z_DEFAULT_COMPRESSION, out);
 }
 
-Status CompressLevel(Slice input, int level, ostream* out) {
+Status CompressLevel(Slice input, int level, std::ostream* out) {
     z_stream zs;
     memset(&zs, 0, sizeof(zs));
     ZRETURN_NOT_OK(deflateInit2(&zs, level, Z_DEFLATED, 15 + 16 /* 15 window bits, enable gzip */,
