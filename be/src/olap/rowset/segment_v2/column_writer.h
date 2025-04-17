@@ -65,8 +65,7 @@ struct ColumnWriterOptions {
     uint8_t gram_size;
     uint16_t gram_bf_size;
     BloomFilterOptions bf_options;
-    std::vector<const TabletIndex*> indexes; // unused
-    const TabletIndex* inverted_index = nullptr;
+    std::vector<const TabletIndex*> inverted_indexs;
     InvertedIndexFileWriter* inverted_index_file_writer;
     std::string to_string() const {
         std::stringstream ss;
@@ -277,7 +276,7 @@ private:
     std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
     std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder;
     std::unique_ptr<BitmapIndexWriter> _bitmap_index_builder;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::vector<std::unique_ptr<InvertedIndexColumnWriter>> _inverted_index_builders;
     std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
 
     // call before flush data page.
@@ -406,7 +405,7 @@ private:
     std::unique_ptr<OffsetColumnWriter> _offset_writer;
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::vector<std::unique_ptr<InvertedIndexColumnWriter>> _inverted_index_builders;
     ColumnWriterOptions _opts;
 };
 
@@ -460,7 +459,7 @@ private:
     // we need null writer to make sure a row is null or not
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<OffsetColumnWriter> _offsets_writer;
-    std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::vector<std::unique_ptr<InvertedIndexColumnWriter>> _inverted_index_builders;
     ColumnWriterOptions _opts;
 };
 

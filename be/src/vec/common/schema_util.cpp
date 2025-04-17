@@ -379,17 +379,19 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
     }
 
     // 2. inverted index
-    const auto* source_index_meta = target_schema->inverted_index(source.unique_id());
-    if (source_index_meta != nullptr) {
-        // add index meta
+    std::vector<TabletIndex> indexes_to_update;
+    auto source_indexes = target_schema->inverted_indexs(source.unique_id());
+    for (const auto& source_index_meta : source_indexes) {
         TabletIndex index_info = *source_index_meta;
         index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
-        const auto* target_index_meta = target_schema->inverted_index(
-                target.parent_unique_id(), target.path_info_ptr()->get_path());
-        if (target_index_meta != nullptr) {
-            // already exist
-            target_schema->update_index(target, IndexType::INVERTED, std::move(index_info));
-        } else {
+        indexes_to_update.emplace_back(std::move(index_info));
+    }
+    auto target_indexes = target_schema->inverted_indexs(target.parent_unique_id(),
+                                                         target.path_info_ptr()->get_path());
+    if (!target_indexes.empty()) {
+        target_schema->update_index(target, IndexType::INVERTED, std::move(indexes_to_update));
+    } else {
+        for (auto& index_info : indexes_to_update) {
             target_schema->append_index(std::move(index_info));
         }
     }
@@ -613,10 +615,20 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
         return true;
     }
 
-    bool new_schema_has_inverted_index = new_schema->inverted_index(column_new);
-    bool old_schema_has_inverted_index = old_schema->inverted_index(column_old);
+    auto new_schema_inverted_indexs = new_schema->inverted_indexs(column_new);
+    auto old_schema_inverted_indexs = old_schema->inverted_indexs(column_old);
 
-    return new_schema_has_inverted_index != old_schema_has_inverted_index;
+    if (new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size()) {
+        return true;
+    }
+
+    for (size_t i = 0; i < new_schema_inverted_indexs.size(); ++i) {
+        if (new_schema_inverted_indexs[i] != old_schema_inverted_indexs[i]) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 #include "common/compile_check_end.h"

@@ -20,6 +20,7 @@
 
 #include <CLucene.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <cstring>
@@ -38,6 +39,8 @@
 #include "olap/tablet_schema_helper.h"
 #include "runtime/runtime_state.h"
 #include "util/slice.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 
 namespace doris::segment_v2 {
 
@@ -1891,6 +1894,97 @@ TEST_F(InvertedIndexReaderTest, StringIndexLargeDocsetV3) {
 // Test reading existing large document set index file
 TEST_F(InvertedIndexReaderTest, CompatibleTest) {
     test_compatible_read_cross_platform();
+}
+
+class MockInvertedIndexReader : public InvertedIndexReader {
+public:
+    MockInvertedIndexReader(InvertedIndexReaderType type, const TabletIndex* tablet_index)
+            : InvertedIndexReader(tablet_index, nullptr), _type(type) {}
+
+    MOCK_METHOD(Status, new_iterator,
+                (const io::IOContext& io_ctx, OlapReaderStatistics* stats,
+                 RuntimeState* runtime_state, std::unique_ptr<InvertedIndexIterator>* iterator),
+                (override));
+
+    MOCK_METHOD(Status, query,
+                (const io::IOContext* io_ctx, OlapReaderStatistics* stats,
+                 RuntimeState* runtime_state, const std::string& column_name,
+                 const void* query_value, InvertedIndexQueryType query_type,
+                 std::shared_ptr<roaring::Roaring>& bit_map),
+                (override));
+
+    MOCK_METHOD(Status, try_query,
+                (const io::IOContext* io_ctx, OlapReaderStatistics* stats,
+                 RuntimeState* runtime_state, const std::string& column_name,
+                 const void* query_value, InvertedIndexQueryType query_type, uint32_t* count),
+                (override));
+
+    InvertedIndexReaderType type() override { return _type; }
+
+private:
+    InvertedIndexReaderType _type;
+};
+
+TEST_F(InvertedIndexReaderTest, InvertedIndexIteratorTest) {
+    // Mock dependencies
+    io::IOContext io_ctx;
+    TabletIndex tablet_index;
+
+    // Create iterator
+    InvertedIndexIterator iterator(io_ctx, nullptr, nullptr);
+
+    // Create mock readers
+    auto string_reader = std::make_shared<MockInvertedIndexReader>(
+            InvertedIndexReaderType::STRING_TYPE, &tablet_index);
+    auto fulltext_reader = std::make_shared<MockInvertedIndexReader>(
+            InvertedIndexReaderType::FULLTEXT, &tablet_index);
+    auto bkd_reader =
+            std::make_shared<MockInvertedIndexReader>(InvertedIndexReaderType::BKD, &tablet_index);
+
+    // Test add_reader and get_reader
+    iterator.add_reader(InvertedIndexReaderType::STRING_TYPE, string_reader);
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, fulltext_reader);
+    iterator.add_reader(InvertedIndexReaderType::BKD, bkd_reader);
+
+    // Verify get_reader returns correct readers
+    ASSERT_EQ(iterator.get_reader(InvertedIndexReaderType::STRING_TYPE), string_reader);
+    ASSERT_EQ(iterator.get_reader(InvertedIndexReaderType::FULLTEXT), fulltext_reader);
+    ASSERT_EQ(iterator.get_reader(InvertedIndexReaderType::BKD), bkd_reader);
+    ASSERT_EQ(iterator.get_reader(InvertedIndexReaderType::UNKNOWN), nullptr);
+
+    // Test _select_best_reader() - should return first reader when no criteria
+    auto best_reader = iterator._select_best_reader();
+    ASSERT_TRUE(best_reader.has_value());
+    ASSERT_TRUE(best_reader.value()); // First added
+
+    // Test _select_best_reader with type and query criteria
+    // Create mock column types
+    auto string_type = std::make_shared<vectorized::DataTypeString>();
+    auto int_type = std::make_shared<vectorized::DataTypeUInt32>();
+
+    // String type with match query should prefer fulltext
+    auto result =
+            iterator._select_best_reader(string_type, InvertedIndexQueryType::MATCH_ANY_QUERY);
+    ASSERT_TRUE(result.has_value());
+    ASSERT_EQ(result.value(), fulltext_reader);
+
+    // String type with equal query should prefer string reader
+    result = iterator._select_best_reader(string_type, InvertedIndexQueryType::EQUAL_QUERY);
+    ASSERT_TRUE(result.has_value());
+    ASSERT_EQ(result.value(), string_reader);
+
+    // Numeric type should return error since we don't have logic for it in this implementation
+    result = iterator._select_best_reader(int_type, InvertedIndexQueryType::LESS_THAN_QUERY);
+    ASSERT_FALSE(result.has_value());
+
+    // Test empty readers case
+    InvertedIndexIterator empty_iterator(io_ctx, nullptr, nullptr);
+    auto empty_result = empty_iterator._select_best_reader();
+    ASSERT_FALSE(empty_result.has_value());
+
+    empty_result = empty_iterator._select_best_reader(string_type,
+                                                      InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+    ASSERT_FALSE(empty_result.has_value());
 }
 
 } // namespace doris::segment_v2

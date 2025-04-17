@@ -283,7 +283,7 @@ private:
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
-    std::shared_ptr<InvertedIndexReader> _inverted_index;
+    std::unordered_map<int64_t, std::shared_ptr<InvertedIndexReader>> _inverted_indexs;
     std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
