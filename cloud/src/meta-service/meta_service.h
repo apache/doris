@@ -275,16 +275,6 @@ public:
                                        GetDeleteBitmapUpdateLockResponse* response,
                                        ::google::protobuf::Closure* done) override;
 
-    void get_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
-                                          const GetDeleteBitmapUpdateLockRequest* request,
-                                          GetDeleteBitmapUpdateLockResponse* response,
-                                          ::google::protobuf::Closure* done);
-
-    void get_delete_bitmap_update_lock_v1(google::protobuf::RpcController* controller,
-                                          const GetDeleteBitmapUpdateLockRequest* request,
-                                          GetDeleteBitmapUpdateLockResponse* response,
-                                          ::google::protobuf::Closure* done);
-
     void remove_delete_bitmap(google::protobuf::RpcController* controller,
                               const RemoveDeleteBitmapRequest* request,
                               RemoveDeleteBitmapResponse* response,
@@ -294,16 +284,6 @@ public:
                                           const RemoveDeleteBitmapUpdateLockRequest* request,
                                           RemoveDeleteBitmapUpdateLockResponse* response,
                                           ::google::protobuf::Closure* done) override;
-
-    void remove_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
-                                             const RemoveDeleteBitmapUpdateLockRequest* request,
-                                             RemoveDeleteBitmapUpdateLockResponse* response,
-                                             ::google::protobuf::Closure* done);
-
-    void remove_delete_bitmap_update_lock_v1(google::protobuf::RpcController* controller,
-                                             const RemoveDeleteBitmapUpdateLockRequest* request,
-                                             RemoveDeleteBitmapUpdateLockResponse* response,
-                                             ::google::protobuf::Closure* done);
 
     // cloud control get cluster's status by this api
     void get_cluster_status(google::protobuf::RpcController* controller,
@@ -340,6 +320,26 @@ private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
             std::function<std::pair<MetaServiceCode, std::string>(InstanceInfoPB*)> action);
+
+    void get_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
+                                          const GetDeleteBitmapUpdateLockRequest* request,
+                                          GetDeleteBitmapUpdateLockResponse* response,
+                                          ::google::protobuf::Closure* done);
+
+    void get_delete_bitmap_update_lock_v1(google::protobuf::RpcController* controller,
+                                          const GetDeleteBitmapUpdateLockRequest* request,
+                                          GetDeleteBitmapUpdateLockResponse* response,
+                                          ::google::protobuf::Closure* done);
+
+    void remove_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
+                                             const RemoveDeleteBitmapUpdateLockRequest* request,
+                                             RemoveDeleteBitmapUpdateLockResponse* response,
+                                             ::google::protobuf::Closure* done);
+
+    void remove_delete_bitmap_update_lock_v1(google::protobuf::RpcController* controller,
+                                             const RemoveDeleteBitmapUpdateLockRequest* request,
+                                             RemoveDeleteBitmapUpdateLockResponse* response,
+                                             ::google::protobuf::Closure* done);
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
