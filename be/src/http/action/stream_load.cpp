@@ -253,6 +253,10 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
 
     // get format of this put
     std::string format_str = http_req->header(HTTP_FORMAT_KEY);
+    if (iequal(format_str, BeConsts::PARQUET)){
+        return Status::NotSupported(
+                "stream load not support parquet format, please use broker load");
+    }
     if (iequal(format_str, BeConsts::CSV_WITH_NAMES) ||
         iequal(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
         ctx->header_type = format_str;
