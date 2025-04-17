@@ -310,7 +310,8 @@ public class MTMV extends OlapTable {
     /**
      * Called when in query, Should use one connection context in query
      */
-    public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws AnalysisException {
+    public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws
+            org.apache.doris.nereids.exceptions.AnalysisException {
         readMvLock();
         try {
             if (cache != null) {
