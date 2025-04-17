@@ -786,7 +786,7 @@ public class Profile {
 
     private boolean isSlowQueryForHbo() {
         long durationMs = this.queryFinishTimestamp - summaryProfile.getQueryBeginTime();
-        return durationMs > Config.hbo_slow_query_threshold_ms;
+        return durationMs > Config.qe_slow_log_ms;
     }
 
     void getOnStorageProfile(StringBuilder builder) {
