@@ -41,10 +41,10 @@ private:
     static const size_t BUFF_SIZE = 4096;
     static const size_t BUFF_EXHAUST_CRITICAL = 100;
 
-    static constexpr uint8_t CJK_SEGMENTER_FLAG = 0x01;    // 0001
-    static constexpr uint8_t CN_QUANTIFIER_FLAG = 0x02;    // 0010
-    static constexpr uint8_t LETTER_SEGMENTER_FLAG = 0x04; // 0100
-
+    static constexpr uint8_t CJK_SEGMENTER_FLAG = 0x01;            // 0001
+    static constexpr uint8_t CN_QUANTIFIER_FLAG = 0x02;            // 0010
+    static constexpr uint8_t LETTER_SEGMENTER_FLAG = 0x04;         // 0100
+    static constexpr uint8_t SURROGATE_PAIR_SEGMENTER_FLAG = 0x08; // 1000
     // String buffer
     std::string segment_buff_;
     // An array storing Unicode code points (runes)Character information array
@@ -73,7 +73,7 @@ private:
     void compound(Lexeme& lexeme);
 
 public:
-    enum class SegmenterType { CJK_SEGMENTER, CN_QUANTIFIER, LETTER_SEGMENTER };
+    enum class SegmenterType { CJK_SEGMENTER, CN_QUANTIFIER, LETTER_SEGMENTER, SURROGATE_PAIR_SEGMENTER};
     const CharacterUtil::TypedRuneArray& getTypedRuneArray() const { return typed_runes_; }
     explicit AnalyzeContext(IKMemoryPool<Cell>& pool, std::shared_ptr<Configuration> config);
     virtual ~AnalyzeContext();

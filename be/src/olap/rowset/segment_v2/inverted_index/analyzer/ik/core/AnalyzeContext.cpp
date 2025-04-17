@@ -199,6 +199,9 @@ void AnalyzeContext::lockBuffer(SegmenterType type) {
     case SegmenterType::LETTER_SEGMENTER:
         buffer_locker_ |= LETTER_SEGMENTER_FLAG;
         break;
+    case SegmenterType::SURROGATE_PAIR_SEGMENTER:
+        buffer_locker_ |= SURROGATE_PAIR_SEGMENTER_FLAG;
+        break;
     }
 }
 
@@ -212,6 +215,9 @@ void AnalyzeContext::unlockBuffer(SegmenterType type) {
         break;
     case SegmenterType::LETTER_SEGMENTER:
         buffer_locker_ &= ~LETTER_SEGMENTER_FLAG;
+        break;
+    case SegmenterType::SURROGATE_PAIR_SEGMENTER:
+        buffer_locker_ &= ~SURROGATE_PAIR_SEGMENTER_FLAG;
         break;
     }
 }

@@ -17,34 +17,23 @@
 
 #pragma once
 
-#include <iostream>
-#include <memory>
-#include <vector>
-
-#include "AnalyzeContext.h"
-#include "CJKSegmenter.h"
-#include "CN_QuantifierSegmenter.h"
-#include "IKArbitrator.h"
 #include "ISegmenter.h"
-#include "LetterSegmenter.h"
-#include "SurrogatePairSegmenter.h"
-#include "olap/rowset/segment_v2/inverted_index/analyzer/ik/cfg/Configuration.h"
+#include "AnalyzeContext.h"
+#include "CharacterUtil.h"
+#include "Lexeme.h"
+
 namespace doris::segment_v2 {
 
-class IKSegmenter {
+class SurrogatePairSegmenter : public ISegmenter {
 public:
-    IKSegmenter(std::shared_ptr<Configuration> config);
-    bool next(Lexeme& lexeme);
-    void reset(lucene::util::Reader* newInput);
-    int getLastUselessCharNum();
+    static constexpr AnalyzeContext::SegmenterType SEGMENTER_TYPE =
+            AnalyzeContext::SegmenterType::SURROGATE_PAIR_SEGMENTER;
 
-private:
-    std::vector<std::unique_ptr<ISegmenter>> loadSegmenters();
-    IKMemoryPool<Cell> pool_;
-    lucene::util::Reader* input_;
-    std::shared_ptr<Configuration> config_;
-    std::unique_ptr<AnalyzeContext> context_;
-    std::vector<std::unique_ptr<ISegmenter>> segmenters_;
-    IKArbitrator arbitrator_;
+    SurrogatePairSegmenter() = default;
+    ~SurrogatePairSegmenter() override = default;
+
+    void analyze(AnalyzeContext& context) override;
+    void reset() override;
 };
-} // namespace doris::segment_v2
+
+} // namespace doris::segment_v2 
