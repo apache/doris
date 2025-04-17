@@ -2583,6 +2583,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
         // Remove txn index kv
         auto index_key = txn_index_key({instance_id_, txn_id});
         txn->remove(index_key);
+        // Remove txn info kv
         std::string info_key, info_val;
         txn_info_key({instance_id_, db_id, txn_id}, &info_key);
         err = txn->get(info_key, &info_val);
@@ -2595,6 +2596,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
             LOG_WARNING("failed to parse txn info").tag("key", hex(info_key));
             return -1;
         }
+        txn->remove(info_key);
         // Remove sub txn index kvs
         std::vector<std::string> sub_txn_index_keys;
         for (auto sub_txn_id : txn_info.sub_txn_ids()) {
@@ -2631,8 +2633,6 @@ int InstanceRecycler::recycle_expired_txn_label() {
             }
             txn->atomic_set_ver_value(label_key, label_val);
         }
-        // Remove txn info kv
-        txn->remove(info_key);
         // Remove recycle txn kv
         txn->remove(k);
         err = txn->commit();

@@ -72,6 +72,7 @@ int main(int argc, char** argv) {
     config::recycler_sleep_before_scheduling_seconds = 0; // we dont have to wait in UT
 
     ::testing::InitGoogleTest(&argc, argv);
+    config::recycle_pool_parallelism=1;
     auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     s3_producer_pool->start();
     auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
