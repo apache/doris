@@ -70,6 +70,7 @@ bool StringFunctions::compile_regex(const StringRef& pattern, std::string* error
     // Return the leftmost longest match (rather than the first match).
     // options.set_longest_match(true);
     options.set_dot_nl(true);
+    options.set_ignore_replace_escape(true);
     if (match_parameter.size > 0 &&
         !StringFunctions::set_re2_options(match_parameter, error_str, &options)) {
         return false;
