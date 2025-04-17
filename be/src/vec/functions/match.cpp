@@ -102,6 +102,11 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     }
 
+    if (!inverted_index_ctx->custom_analyzer.empty()) {
+        return Status::NotSupported(
+                "Custom analyzer is not supported for unindexed MATCH operations.");
+    }
+
     const ColumnPtr source_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
