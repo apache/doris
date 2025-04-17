@@ -20,24 +20,15 @@
 #include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
 
-#include <algorithm>
 #include <atomic>
 #include <memory>
-#include <mutex>
 #include <ostream>
-#include <string>
 #include <utility>
 
 #include "cloud/cloud_rowset_writer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
-#include "io/fs/file_system.h"
-#include "io/fs/file_writer.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/rowset/rowset_writer_context.h"
 #include "util/slice.h"
-#include "util/spinlock.h"
 #include "vec/core/block.h"
 
 namespace doris {

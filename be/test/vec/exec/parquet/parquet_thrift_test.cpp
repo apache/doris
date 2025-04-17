@@ -49,7 +49,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/slice.h"
-#include "util/spinlock.h"
 #include "util/timezone_utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
