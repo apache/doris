@@ -29,6 +29,7 @@ import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowCreateLoadStmt;
 import org.apache.doris.analysis.ShowCreateMTMVStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
+import org.apache.doris.analysis.ShowIndexPolicyStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -121,6 +122,8 @@ public class ShowExecutor {
             handleShowColumnStats();
         } else if (stmt instanceof DiagnoseTabletStmt) {
             handleAdminDiagnoseTablet();
+        } else if (stmt instanceof ShowIndexPolicyStmt) {
+            handleShowIndexPolicy();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
         } else if (stmt instanceof AdminCopyTabletStmt) {
@@ -436,6 +439,12 @@ public class ShowExecutor {
         List<List<String>> resultRowSet = Diagnoser.diagnoseTablet(showStmt.getTabletId());
         ShowResultSetMetaData showMetaData = showStmt.getMetaData();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
+    }
+
+
+    public void handleShowIndexPolicy() throws AnalysisException {
+        ShowIndexPolicyStmt showStmt = (ShowIndexPolicyStmt) stmt;
+        resultSet = Env.getCurrentEnv().getIndexPolicyMgr().showIndexPolicy(showStmt);
     }
 
     private void handleShowAnalyze() {
