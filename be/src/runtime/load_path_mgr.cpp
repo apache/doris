@@ -97,20 +97,18 @@ Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label
     auto size = _path_vec.size();
     auto retry = size;
     auto path_vec_num = 0;
+    size_t disk_capacity_bytes = 0;
+    size_t available_bytes = 0;
     while (retry--) {
         {
-            size_t _disk_capacity_bytes = 0;
-            size_t disk_capacity_bytes = 0;
-            size_t available_bytes = 0;
-
-            RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path_vec[_idx], &_disk_capacity_bytes,
-                                                                          &_available_bytes));
-            int64_t remaining_bytes = _available_bytes - file_bytes;
-            double used_ratio = 1.0 - static_cast<double>(remaining_bytes) / _disk_capacity_bytes;
+            RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path_vec[_idx], &disk_capacity_bytes,
+                                                                          &available_bytes));
+            int64_t remaining_bytes = available_bytes - file_bytes;
+            double used_ratio = 1.0 - static_cast<double>(remaining_bytes) / disk_capacity_bytes;
             if (used_ratio >= config::storage_flood_stage_usage_percent / 100.0 &&
                 remaining_bytes <= config::storage_flood_stage_left_capacity_bytes) {
-                LOG(WARNING) << "Store path " << _path_vec[_idx]
-                             << " has less than 10% free space, skip it";
+                LOG(WARNING) << " exceed capacity limi. disk_capacity: " << disk_capacity_bytes
+                             << ", available: " << available_bytes << ", file_bytes" << file_bytes;
                 ++path_vec_num;
                 continue;
             }
