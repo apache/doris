@@ -539,6 +539,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitCaseWhen(CaseWhen caseWhen, ExpressionRewriteContext context) {
+        CaseWhen originCaseWhen = caseWhen;
         caseWhen = rewriteChildren(caseWhen, context);
         Expression newDefault = null;
         boolean foundNewDefault = false;
@@ -564,7 +565,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             defaultResult = newDefault;
         }
         if (whenClauses.isEmpty()) {
-            return defaultResult == null ? new NullLiteral(caseWhen.getDataType()) : defaultResult;
+            return ensureResultType(
+                    originCaseWhen, defaultResult == null ? new NullLiteral(caseWhen.getDataType()) : defaultResult
+            );
         }
         if (defaultResult == null) {
             if (caseWhen.getDataType().isNullType()) {
@@ -572,21 +575,22 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 // it's safe to return null literal here
                 return new NullLiteral();
             } else {
-                return new CaseWhen(whenClauses);
+                return ensureResultType(originCaseWhen, new CaseWhen(whenClauses));
             }
         }
-        return new CaseWhen(whenClauses, defaultResult);
+        return ensureResultType(originCaseWhen, new CaseWhen(whenClauses, defaultResult));
     }
 
     @Override
     public Expression visitIf(If ifExpr, ExpressionRewriteContext context) {
+        If originIf = ifExpr;
         ifExpr = rewriteChildren(ifExpr, context);
         if (ifExpr.child(0) instanceof NullLiteral || ifExpr.child(0).equals(BooleanLiteral.FALSE)) {
-            return ifExpr.child(2);
+            return ensureResultType(originIf, ifExpr.child(2));
         } else if (ifExpr.child(0).equals(BooleanLiteral.TRUE)) {
-            return ifExpr.child(1);
+            return ensureResultType(originIf, ifExpr.child(1));
         }
-        return ifExpr;
+        return ensureResultType(originIf, ifExpr);
     }
 
     @Override
@@ -684,17 +688,20 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitNvl(Nvl nvl, ExpressionRewriteContext context) {
+        Nvl originNvl = nvl;
+        nvl = rewriteChildren(nvl, context);
+
         for (Expression expr : nvl.children()) {
             if (expr.isLiteral()) {
                 if (!expr.isNullLiteral()) {
-                    return expr;
+                    return ensureResultType(originNvl, expr);
                 }
             } else {
-                return nvl;
+                return ensureResultType(originNvl, nvl);
             }
         }
         // all nulls
-        return nvl.child(0);
+        return ensureResultType(originNvl, nvl.child(0));
     }
 
     private <E extends Expression> E rewriteChildren(E expr, ExpressionRewriteContext context) {
@@ -779,5 +786,16 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 .whenCtx(NOT_UNDER_AGG_DISTINCT.as())
                 .thenApply(ctx -> visitMethod.apply(ctx.expr, ctx.rewriteContext))
                 .toRule(ExpressionRuleType.FOLD_CONSTANT_ON_FE);
+    }
+
+    private Expression ensureResultType(Expression originExpr, Expression result) {
+        if (originExpr.getDataType().equals(result.getDataType())) {
+            return result;
+        }
+        // backend can use direct use all string like type without cast
+        if (originExpr.getDataType().isStringLikeType() && result.getDataType().isStringLikeType()) {
+            return result;
+        }
+        return new Cast(result, originExpr.getDataType());
     }
 }

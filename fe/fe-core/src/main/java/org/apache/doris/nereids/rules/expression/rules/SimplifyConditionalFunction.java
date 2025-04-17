@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
@@ -53,33 +54,33 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
      * coalesce(null,null) => null
      * coalesce(expr1) => expr1
      * */
-    private static Expression rewriteCoalesce(Coalesce expression) {
-        if (1 == expression.arity()) {
-            return expression.child(0);
+    private static Expression rewriteCoalesce(Coalesce coalesce) {
+        if (1 == coalesce.arity()) {
+            return ensureResultType(coalesce, coalesce.child(0));
         }
-        if (!(expression.child(0) instanceof NullLiteral) && expression.child(0).nullable()) {
-            return expression;
+        if (!(coalesce.child(0) instanceof NullLiteral) && coalesce.child(0).nullable()) {
+            return ensureResultType(coalesce, coalesce);
         }
         ImmutableList.Builder<Expression> childBuilder = ImmutableList.builder();
-        for (int i = 0; i < expression.arity(); i++) {
-            Expression child = expression.children().get(i);
+        for (int i = 0; i < coalesce.arity(); i++) {
+            Expression child = coalesce.children().get(i);
             if (child instanceof NullLiteral) {
                 continue;
             }
             if (!child.nullable()) {
-                return child;
+                return ensureResultType(coalesce, child);
             } else {
-                for (int j = i; j < expression.arity(); j++) {
-                    childBuilder.add(expression.children().get(j));
+                for (int j = i; j < coalesce.arity(); j++) {
+                    childBuilder.add(coalesce.children().get(j));
                 }
                 break;
             }
         }
         List<Expression> newChildren = childBuilder.build();
         if (newChildren.isEmpty()) {
-            return new NullLiteral(expression.getDataType());
+            return ensureResultType(coalesce, new NullLiteral(coalesce.getDataType()));
         } else {
-            return expression.withChildren(newChildren);
+            return ensureResultType(coalesce, coalesce.withChildren(newChildren));
         }
     }
 
@@ -89,10 +90,10 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
     * */
     private static Expression rewriteNvl(Nvl nvl) {
         if (nvl.child(0) instanceof NullLiteral) {
-            return nvl.child(1);
+            return ensureResultType(nvl, nvl.child(1));
         }
         if (!nvl.child(0).nullable()) {
-            return nvl.child(0);
+            return ensureResultType(nvl, nvl.child(0));
         }
         return nvl;
     }
@@ -103,9 +104,20 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
      */
     private static Expression rewriteNullIf(NullIf nullIf) {
         if (nullIf.child(0) instanceof NullLiteral || nullIf.child(1) instanceof NullLiteral) {
-            return new Nullable(nullIf.child(0));
+            return ensureResultType(nullIf, new Nullable(nullIf.child(0)));
         } else {
             return nullIf;
         }
+    }
+
+    private static Expression ensureResultType(Expression originExpr, Expression result) {
+        if (originExpr.getDataType().equals(result.getDataType())) {
+            return result;
+        }
+        // backend can use direct use all string like type without cast
+        if (originExpr.getDataType().isStringLikeType() && result.getDataType().isStringLikeType()) {
+            return result;
+        }
+        return new Cast(result, originExpr.getDataType());
     }
 }
