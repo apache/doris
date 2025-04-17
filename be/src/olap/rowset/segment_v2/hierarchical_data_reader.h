@@ -51,6 +51,14 @@
 
 namespace doris::segment_v2 {
 
+struct PathWithColumnAndType {
+    vectorized::PathInData path;
+    vectorized::ColumnPtr column;
+    vectorized::DataTypePtr type;
+};
+
+using PathsWithColumnAndType = std::vector<PathWithColumnAndType>;
+
 // Reader for hierarchical data for variant, merge with root(sparse encoded columns)
 class HierarchicalDataReader : public ColumnIterator {
 public:
@@ -97,12 +105,11 @@ private:
     }
 
     Status _process_sub_columns(vectorized::ColumnObject& container_variant,
-                                const vectorized::PathsWithColumnAndType& non_nested_subcolumns);
+                                const PathsWithColumnAndType& non_nested_subcolumns);
 
     Status _process_nested_columns(
             vectorized::ColumnObject& container_variant,
-            const std::map<vectorized::PathInData, vectorized::PathsWithColumnAndType>&
-                    nested_subcolumns,
+            const std::map<vectorized::PathInData, PathsWithColumnAndType>& nested_subcolumns,
             size_t nrows);
 
     Status _process_sparse_column(vectorized::ColumnObject& container_variant, size_t nrows);
