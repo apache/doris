@@ -1693,6 +1693,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int table_name_length_limit = 64;
 
+    @ConfField(mutable = true, description = {
+            "用于限制列注释长度；如果存量的列注释超长，则显示时进行截断",
+            "Used to limit the length of column comment; "
+                    + "If the existing column comment is too long, it will be truncated when displayed."})
+    public static int column_comment_length_limit = -1;
+
     /*
      * The job scheduling interval of the schema change handler.
      * The user should not set this parameter.
