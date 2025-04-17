@@ -57,6 +57,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
 import org.apache.doris.cloud.analysis.UseCloudClusterStmt;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
+import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.policy.PolicyTypeEnum;
@@ -268,6 +269,7 @@ terminal String
     KW_ALTER,
     KW_ALWAYS,
     KW_ANALYZE,
+    KW_ANALYZER,
     KW_AND,
     KW_ANTI,
     KW_APPEND,
@@ -645,6 +647,8 @@ terminal String
     KW_TIMESTAMP,
     KW_TINYINT,
     KW_TO,
+    KW_TOKENIZER,
+    KW_TOKEN_FILTER,
     KW_TRANSACTION,
     KW_TRASH,
     KW_TREE,
@@ -2072,6 +2076,18 @@ create_stmt ::=
     {:
         RESULT = new CreatePolicyStmt(PolicyTypeEnum.STORAGE, ifNotExists, policyName, properties);
     :}
+    | KW_CREATE KW_INVERTED KW_INDEX KW_ANALYZER opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
+    {:
+        RESULT = new CreateIndexPolicyStmt(ifNotExists, policyName, IndexPolicyTypeEnum.ANALYZER, properties);
+    :}
+    | KW_CREATE KW_INVERTED KW_INDEX KW_TOKENIZER opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
+    {:
+        RESULT = new CreateIndexPolicyStmt(ifNotExists, policyName, IndexPolicyTypeEnum.TOKENIZER, properties);
+    :}
+    | KW_CREATE KW_INVERTED KW_INDEX KW_TOKEN_FILTER opt_if_not_exists:ifNotExists ident:policyName opt_properties:properties
+    {:
+        RESULT = new CreateIndexPolicyStmt(ifNotExists, policyName, IndexPolicyTypeEnum.TOKEN_FILTER, properties);
+    :}
     | KW_BUILD KW_INDEX ident:indexName KW_ON table_name:tableName opt_partition_names:partitionNames
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new BuildIndexClause(tableName, new IndexDef(indexName, partitionNames, true), false)));
@@ -3311,6 +3327,18 @@ drop_stmt ::=
     {:
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null, null);
     :}
+    | KW_DROP KW_INVERTED KW_INDEX KW_ANALYZER opt_if_exists:ifExists ident:policyName
+    {:
+        RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.ANALYZER, policyName);
+    :}
+    | KW_DROP KW_INVERTED KW_INDEX KW_TOKENIZER opt_if_exists:ifExists ident:policyName
+    {:
+        RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.TOKENIZER, policyName);
+    :}
+    | KW_DROP KW_INVERTED KW_INDEX KW_TOKEN_FILTER opt_if_exists:ifExists ident:policyName
+    {:
+        RESULT = new DropIndexPolicyStmt(ifExists, IndexPolicyTypeEnum.TOKEN_FILTER, policyName);
+    :}
     /* statistics */
     | KW_DROP KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
     {:
@@ -4235,6 +4263,18 @@ show_stmt ::=
     | KW_SHOW KW_STORAGE KW_POLICY
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null, null);
+    :}
+    | KW_SHOW KW_INVERTED KW_INDEX KW_ANALYZER
+    {:
+        RESULT = new ShowIndexPolicyStmt(IndexPolicyTypeEnum.ANALYZER);
+    :}
+    | KW_SHOW KW_INVERTED KW_INDEX KW_TOKENIZER
+    {:
+        RESULT = new ShowIndexPolicyStmt(IndexPolicyTypeEnum.TOKENIZER);
+    :}
+    | KW_SHOW KW_INVERTED KW_INDEX KW_TOKEN_FILTER
+    {:
+        RESULT = new ShowIndexPolicyStmt(IndexPolicyTypeEnum.TOKEN_FILTER);
     :}
     | KW_SHOW KW_STORAGE KW_POLICY KW_USING
     {:
@@ -8671,6 +8711,12 @@ keyword ::=
     | KW_UP:id
     {: RESULT = id; :}
     | KW_CONVERT_LSC:id
+    {: RESULT = id; :}
+    | KW_ANALYZER:id
+    {: RESULT = id; :}
+    | KW_TOKENIZER:id
+    {: RESULT = id; :}
+    | KW_TOKEN_FILTER:id
     {: RESULT = id; :}
     ;
 

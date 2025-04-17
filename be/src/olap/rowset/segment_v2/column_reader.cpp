@@ -1088,6 +1088,8 @@ Status ColumnReader::_load_inverted_index_index(
 
     InvertedIndexParserType parser_type = get_inverted_index_parser_type_from_string(
             get_parser_string_from_properties(index_meta->properties()));
+    std::string analyzer_str = get_custom_analyzer_string_from_properties(index_meta->properties());
+
     FieldType type;
     if (_meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         type = _meta_children_column_type;
@@ -1097,7 +1099,7 @@ Status ColumnReader::_load_inverted_index_index(
 
     std::shared_ptr<InvertedIndexReader> inverted_index;
     if (is_string_type(type)) {
-        if (parser_type != InvertedIndexParserType::PARSER_NONE) {
+        if (!analyzer_str.empty() || parser_type != InvertedIndexParserType::PARSER_NONE) {
             try {
                 inverted_index = FullTextIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {

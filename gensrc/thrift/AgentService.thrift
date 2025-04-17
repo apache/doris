@@ -116,6 +116,24 @@ struct TPushStoragePolicyReq {
     3: optional list<i64> dropped_storage_policy
 }
 
+enum TIndexPolicyType {
+    ANALYZER,
+    TOKENIZER,
+    TOKEN_FILTER
+}
+
+struct TIndexPolicy {
+    1: optional i64 id
+    2: optional string name
+    3: optional TIndexPolicyType type
+    4: optional map<string, string> properties
+}
+
+struct TPushIndexPolicyReq {
+    1: optional list<TIndexPolicy> index_policys
+    2: optional list<i64> dropped_index_policys
+}
+
 struct TCleanTrashReq {}
 
 struct TCleanUDFCacheReq {
@@ -552,6 +570,7 @@ struct TAgentTaskRequest {
     34: optional TCleanTrashReq clean_trash_req
     35: optional TVisibleVersionReq visible_version_req
     36: optional TCleanUDFCacheReq clean_udf_cache_req
+    37: optional TPushIndexPolicyReq push_index_policy_req
 
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req

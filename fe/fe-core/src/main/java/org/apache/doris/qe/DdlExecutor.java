@@ -68,6 +68,7 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
+import org.apache.doris.analysis.CreateIndexPolicyStmt;
 import org.apache.doris.analysis.CreateJobStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
@@ -93,6 +94,7 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropEncryptKeyStmt;
 import org.apache.doris.analysis.DropFileStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
+import org.apache.doris.analysis.DropIndexPolicyStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
@@ -378,6 +380,10 @@ public class DdlExecutor {
             env.getPolicyMgr().dropPolicy((DropPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterPolicyStmt) {
             env.getPolicyMgr().alterPolicy((AlterPolicyStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateIndexPolicyStmt) {
+            env.getIndexPolicyMgr().createIndexPolicy((CreateIndexPolicyStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropIndexPolicyStmt) {
+            env.getIndexPolicyMgr().dropIndexPolicy((DropIndexPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateCatalogStmt) {
             env.getCatalogMgr().createCatalog((CreateCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof DropCatalogStmt) {

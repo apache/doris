@@ -58,6 +58,8 @@ import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.indexpolicy.DropIndexPolicyLog;
+import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.Journal;
@@ -1264,6 +1266,16 @@ public class EditLog {
                     ((CloudEnv) env).replayUpdateCloudReplica(info);
                     break;
                 }
+                case OperationType.OP_CREATE_INDEX_POLICY: {
+                    IndexPolicy log = (IndexPolicy) journal.getData();
+                    env.getIndexPolicyMgr().replayCreateIndexPolicy(log);
+                    break;
+                }
+                case OperationType.OP_DROP_INDEX_POLICY: {
+                    DropIndexPolicyLog log = (DropIndexPolicyLog) journal.getData();
+                    env.getIndexPolicyMgr().replayDropIndexPolicy(log);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
@@ -2053,6 +2065,14 @@ public class EditLog {
 
     public void logDropPolicy(DropPolicyLog log) {
         logEdit(OperationType.OP_DROP_POLICY, log);
+    }
+
+    public void logCreateIndexPolicy(IndexPolicy policy) {
+        logEdit(OperationType.OP_CREATE_INDEX_POLICY, policy);
+    }
+
+    public void logDropIndexPolicy(DropIndexPolicyLog policy) {
+        logEdit(OperationType.OP_DROP_INDEX_POLICY, policy);
     }
 
     public void logCatalogLog(short id, CatalogLog log) {

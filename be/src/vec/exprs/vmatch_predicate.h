@@ -67,6 +67,6 @@ private:
     std::string _expr_name;
     std::string _function_name;
     InvertedIndexCtxSPtr _inverted_index_ctx;
-    std::unique_ptr<lucene::analysis::Analyzer> _analyzer;
+    std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
 };
 } // namespace doris::vectorized
