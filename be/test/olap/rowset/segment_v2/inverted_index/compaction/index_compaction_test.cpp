@@ -113,6 +113,35 @@ protected:
         EXPECT_TRUE(_tablet->init().ok());
     }
 
+    void _build_multi_index_tablet() {
+        // tablet_schema
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000,
+                                               "key_index", 0, "INT", "key");
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10001,
+                                               "v1_index", 1, "STRING", "v1");
+
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), 2, "STRING", "v2");
+        IndexCompactionUtils::construct_index(schema_pb.add_index(), 10002, "v2_keyword_index", 2,
+                                              true);
+        IndexCompactionUtils::construct_index(schema_pb.add_index(), 10003, "v2_text_index", 2,
+                                              false);
+
+        IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10004,
+                                               "v3_index", 3, "INT", "v3");
+        _tablet_schema = std::make_shared<TabletSchema>();
+        _tablet_schema->init_from_pb(schema_pb);
+
+        // tablet
+        TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+
+        _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+        EXPECT_TRUE(_tablet->init().ok());
+    }
+
     void _build_wiki_tablet(const KeysType& keys_type,
                             const InvertedIndexStorageFormatPB& storage_format) {
         // tablet_schema
@@ -876,6 +905,7 @@ TEST_F(IndexCompactionTest, test_col_unique_ids_empty) {
                 testing::HasSubstr("No index with id 10001 found"));
 }
 
+// Now it will support a column with 2 inverted indices
 TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
     _build_tablet();
     // replace unique id from 2 to 1 in tablet index 10002 and rebuild tablet_schema
@@ -896,7 +926,7 @@ TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
     data_files.push_back(data_file2);
 
     std::vector<RowsetSharedPtr> rowsets(data_files.size());
-    auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 3); };
+    auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 4); };
     IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
             _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
             custom_check_build_rowsets);
@@ -923,9 +953,7 @@ TEST_F(IndexCompactionTest, test_tablet_index_id_not_equal) {
     // check index file
     // index 10002 cannot be found in idx file
     auto dir_idx_compaction = inverted_index_file_reader_index->_open(10002, "");
-    EXPECT_TRUE(!dir_idx_compaction.has_value()) << dir_idx_compaction.error();
-    EXPECT_THAT(dir_idx_compaction.error().to_string(),
-                testing::HasSubstr("No index with id 10002 found"));
+    EXPECT_TRUE(dir_idx_compaction.has_value());
 }
 
 TEST_F(IndexCompactionTest, test_tablet_schema_tablet_index_is_null) {
@@ -1590,4 +1618,50 @@ TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_multiple_src_lucene_segments) {
     _build_wiki_tablet(KeysType::UNIQUE_KEYS, InvertedIndexStorageFormatPB::V2);
     _run_normal_wiki_test();
 }
+
+TEST_F(IndexCompactionTest, test_tablet_multi_index) {
+    _build_multi_index_tablet();
+
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+    std::string data_file1 =
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data1.csv";
+    std::string data_file2 =
+            _current_dir + "/be/test/olap/rowset/segment_v2/inverted_index/data/data2.csv";
+    std::vector<std::string> data_files;
+    data_files.push_back(data_file1);
+    data_files.push_back(data_file2);
+
+    std::vector<RowsetSharedPtr> rowsets(data_files.size());
+    auto custom_check_build_rowsets = [](const int32_t& size) { EXPECT_EQ(size, 5); };
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            custom_check_build_rowsets);
+
+    auto custom_check_index = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
+        EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(), 5);
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 2);
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
+        EXPECT_TRUE(compaction._output_rowset->num_segments() == 1);
+    };
+
+    RowsetSharedPtr output_rowset_index;
+    auto st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
+                                                  output_rowset_index, custom_check_index);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    const auto& seg_path = output_rowset_index->segment_path(0);
+    EXPECT_TRUE(seg_path.has_value()) << seg_path.error();
+    auto inverted_index_file_reader_index = IndexCompactionUtils::init_index_file_reader(
+            output_rowset_index, seg_path.value(),
+            _tablet_schema->get_inverted_index_storage_format());
+
+    auto dir_idx_compaction_2 = inverted_index_file_reader_index->_open(10002, "");
+    EXPECT_TRUE(dir_idx_compaction_2.has_value());
+
+    auto dir_idx_compaction_3 = inverted_index_file_reader_index->_open(10003, "");
+    EXPECT_TRUE(dir_idx_compaction_3.has_value());
+}
+
 } // namespace doris

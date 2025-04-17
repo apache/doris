@@ -221,11 +221,24 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         tablet_schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
+<<<<<<< HEAD
     if (const auto& index = tablet_schema->inverted_index(column);
         index != nullptr && !skip_inverted_index) {
         opts.inverted_index = index;
         opts.need_inverted_index = true;
         DCHECK(_inverted_index_file_writer != nullptr);
+=======
+    if (!skip_inverted_index) {
+        auto inverted_indexs = tablet_schema->inverted_indexs(column);
+        if (!inverted_indexs.empty()) {
+            for (const auto& index : inverted_indexs) {
+                opts.inverted_indexs.emplace_back(index);
+            }
+            opts.need_inverted_index = true;
+            DCHECK(_inverted_index_file_writer != nullptr);
+            opts.inverted_index_file_writer = _inverted_index_file_writer;
+        }
+>>>>>>> b10f185714 ([feture](inverted index) Add multi inverted index support for single column)
     }
     opts.inverted_index_file_writer = _inverted_index_file_writer;
 

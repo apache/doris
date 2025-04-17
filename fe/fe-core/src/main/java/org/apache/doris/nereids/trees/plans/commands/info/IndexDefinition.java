@@ -312,4 +312,49 @@ public class IndexDefinition {
     public Map<String, String> getProperties() {
         return properties;
     }
+
+    public boolean isAnalyzedInvertedIndex() {
+        return indexType == IndexDef.IndexType.INVERTED
+                && properties != null
+                        && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY);
+    }
+
+    public boolean isNonAnalyzedInvertedIndex() {
+        return indexType == IndexDef.IndexType.INVERTED
+                && (properties == null
+                        || !properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY));
+    }
+
+    /**
+     * Check whether all columns in this INVERTED index are of string type.
+     */
+    public boolean isAllStringInvertedIndex(List<ColumnDefinition> columns) throws AnalysisException {
+        if (indexType != IndexType.INVERTED) {
+            return false;
+        }
+
+        for (String indexColName : getColumnNames()) {
+            ColumnDefinition targetColumn = null;
+            for (ColumnDefinition column : columns) {
+                if (column.getName().equalsIgnoreCase(indexColName)) {
+                    targetColumn = column;
+                    break;
+                }
+            }
+
+            if (targetColumn == null) {
+                throw new AnalysisException(
+                        "Column does not exist in table. invalid column: " + indexColName);
+            }
+
+            boolean isString = targetColumn.getType().isCharType()
+                    || targetColumn.getType().isVarcharType()
+                    || targetColumn.getType().isStringType();
+
+            if (!isString) {
+                return false;
+            }
+        }
+        return true;
+    }
 }
