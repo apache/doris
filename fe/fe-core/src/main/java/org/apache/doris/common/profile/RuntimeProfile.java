@@ -267,12 +267,18 @@ public class RuntimeProfile {
                 // If different node has counter with the same name, it will lead to chaos.
                 Counter counter = this.counterMap.get(tcounter.name);
                 if (counter == null) {
-                    counterMap.put(tcounter.name, new Counter(tcounter.type, tcounter.value, tcounter.level));
+                    if (tcounter.isSetDescription()) {
+                        counterMap.put(tcounter.name, new Counter(tcounter.description));
+                    } else {
+                        counterMap.put(tcounter.name, new Counter(tcounter.type, tcounter.value, tcounter.level));
+                    }
                 } else {
                     counter.setLevel(tcounter.level);
                     if (counter.getType() != tcounter.type) {
                         LOG.error("Cannot update counters with the same name but different types"
                                 + " type=" + tcounter.type);
+                    } else if (tcounter.isSetDescription()) {
+                        continue;
                     } else {
                         counter.setValue(tcounter.type, tcounter.value);
                     }

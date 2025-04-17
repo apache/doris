@@ -164,11 +164,12 @@ suite("test_routine_load_abnormal_job_monitor","p0") {
 
             def count = 0
             def metricCount = 0
+            String masterHttpAddress = getMasterIp() + ":" + getMasterPort()
+            log.info("master host: ${masterHttpAddress}".toString())
             while (true) {
-                count = 0
                 metricCount = 0
                 httpTest {
-                    endpoint context.config.feHttpAddress
+                    endpoint masterHttpAddress
                     uri "/metrics?type=json"
                     op "get"
                     check { code, body ->

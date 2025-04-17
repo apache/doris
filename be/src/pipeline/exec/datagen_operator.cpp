@@ -96,8 +96,8 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     // TODO: use runtime filter to filte result block, maybe this node need derive from vscan_node.
     for (const auto& filter_desc : p._runtime_filter_descs) {
         std::shared_ptr<RuntimeFilterConsumer> filter;
-        RETURN_IF_ERROR(state->register_consumer_runtime_filter(
-                filter_desc, p.is_serial_operator(), p.node_id(), &filter, _runtime_profile.get()));
+        RETURN_IF_ERROR(state->register_consumer_runtime_filter(filter_desc, p.is_serial_operator(),
+                                                                p.node_id(), &filter));
     }
     return Status::OK();
 }

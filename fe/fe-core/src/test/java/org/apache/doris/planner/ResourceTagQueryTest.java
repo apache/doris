@@ -287,7 +287,7 @@ public class ResourceTagQueryTest {
         Assert.assertEquals(1000000, execMemLimit);
 
         List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(Auth.ROOT_USER);
-        Assert.assertEquals(13, userProps.size());
+        Assert.assertEquals(14, userProps.size());
 
         // now :
         // be1 be2 be3 ==>tag1;
