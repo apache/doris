@@ -27,10 +27,23 @@ CL_NS_USE(index)
 
 namespace doris::segment_v2 {
 
+struct CLuceneDeleter {
+    void operator()(TermDocs* p) const {
+        if (p) {
+            _CLDELETE(p);
+        }
+    }
+};
+
+class TermIterator;
+using TermIterPtr = std::shared_ptr<TermIterator>;
+
 class TermIterator {
 public:
+    using TermDocsPtr = std::unique_ptr<TermDocs, CLuceneDeleter>;
+
     TermIterator() = default;
-    TermIterator(TermDocs* term_docs) : term_docs_(term_docs, TermDocsDeleter {}) {}
+    TermIterator(TermDocsPtr term_docs) : term_docs_(std::move(term_docs)) {}
     virtual ~TermIterator() = default;
 
     bool is_empty() const { return term_docs_ == nullptr; }
@@ -60,31 +73,21 @@ public:
 
     bool read_range(DocRange* docRange) const { return term_docs_->readRange(docRange); }
 
-    static TermDocs* ensure_term_doc(IndexReader* reader, const std::wstring& field_name,
-                                     const std::string& term) {
-        std::wstring ws_term = StringUtil::string_to_wstring(term);
-        return ensure_term_doc(reader, field_name, ws_term);
+    static TermIterPtr create(IndexReader* reader, const std::wstring& field_name,
+                              const std::string& term) {
+        return create(reader, field_name, StringUtil::string_to_wstring(term));
     }
 
-    static TermDocs* ensure_term_doc(IndexReader* reader, const std::wstring& field_name,
-                                     const std::wstring& ws_term) {
+    static TermIterPtr create(IndexReader* reader, const std::wstring& field_name,
+                              const std::wstring& ws_term) {
         auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         auto* term_pos = reader->termDocs(t);
         _CLDECDELETE(t);
-        return term_pos;
+        return std::make_shared<TermIterator>(TermDocsPtr(term_pos, CLuceneDeleter {}));
     }
 
-private:
-    struct TermDocsDeleter {
-        void operator()(TermDocs* p) const {
-            if (p) {
-                _CLDELETE(p);
-            }
-        }
-    };
-
 protected:
-    std::shared_ptr<TermDocs> term_docs_;
+    TermDocsPtr term_docs_;
 };
 
 } // namespace doris::segment_v2
