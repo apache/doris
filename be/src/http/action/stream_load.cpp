@@ -153,7 +153,9 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // update statistics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
-    LoadPathMgr* load_path_mgr = _exec_env->load_path_mgr();
+    if (!ctx->data_saved_path.empty()) {
+         load_path_mgr->clean_tmp_files(ctx->data_saved_path);
+      }
     if (load_path_mgr != nullptr) {
         load_path_mgr->clean_tmp_files(ctx->data_saved_path);
     } else {
