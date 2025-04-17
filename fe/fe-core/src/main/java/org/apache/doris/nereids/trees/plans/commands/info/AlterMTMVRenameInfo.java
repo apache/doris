@@ -22,10 +22,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * rename
@@ -60,7 +62,9 @@ public class AlterMTMVRenameInfo extends AlterMTMVInfo {
     public void run() throws DdlException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
         Table table = db.getTableOrDdlException(mvName.getTbl());
+        BaseTableInfo oldTableInfo = new BaseTableInfo(table);
         Env.getCurrentEnv().renameTable(db, table, newName);
-        Env.getCurrentEnv().getMtmvService().alterTable(table, mvName.getTbl());
+        BaseTableInfo newTableInfo = new BaseTableInfo(table);
+        Env.getCurrentEnv().getMtmvService().alterTable(oldTableInfo, Optional.of(newTableInfo), false);
     }
 }
