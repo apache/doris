@@ -156,6 +156,7 @@ import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
+import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -530,6 +531,8 @@ public class Env {
 
     private PolicyMgr policyMgr;
 
+    private IndexPolicyMgr indexPolicyMgr;
+
     private AnalysisManager analysisManager;
 
     private ExternalMetaCacheMgr extMetaCacheMgr;
@@ -817,6 +820,7 @@ public class Env {
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
+        this.indexPolicyMgr = new IndexPolicyMgr();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr(isCheckpointCatalog);
         this.analysisManager = new AnalysisManager();
         this.statisticsCleaner = new StatisticsCleaner();
@@ -2485,6 +2489,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadIndexPolicy(DataInputStream in, long checksum) throws IOException {
+        indexPolicyMgr = IndexPolicyMgr.read(in);
+        LOG.info("finished replay index policy from image");
+        return checksum;
+    }
+
     /**
      * Load catalogs through file.
      **/
@@ -2772,6 +2782,11 @@ public class Env {
 
     public long savePolicy(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getPolicyMgr().write(out);
+        return checksum;
+    }
+
+    public long saveIndexPolicy(CountingDataOutputStream out, long checksum) throws IOException {
+        Env.getCurrentEnv().getIndexPolicyMgr().write(out);
         return checksum;
     }
 
@@ -4766,6 +4781,10 @@ public class Env {
 
     public PolicyMgr getPolicyMgr() {
         return this.policyMgr;
+    }
+
+    public IndexPolicyMgr getIndexPolicyMgr() {
+        return this.indexPolicyMgr;
     }
 
     public void setMaster(MasterInfo info) {

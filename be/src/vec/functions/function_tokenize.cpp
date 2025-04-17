@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <boost/regex.hpp>
+#include <memory>
 #include <utility>
 
 #include "CLucene/StdHeader.h"
@@ -140,6 +141,8 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             if (!st.ok()) {
                 return st;
             }
+            inverted_index_ctx.custom_analyzer =
+                    get_custom_analyzer_string_from_properties(properties);
             inverted_index_ctx.parser_type = get_inverted_index_parser_type_from_string(
                     get_parser_string_from_properties(properties));
             if (inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
@@ -154,7 +157,7 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             inverted_index_ctx.lower_case = get_parser_lowercase_from_properties(properties);
             inverted_index_ctx.stop_words = get_parser_stopwords_from_properties(properties);
 
-            std::unique_ptr<lucene::analysis::Analyzer> analyzer;
+            std::shared_ptr<lucene::analysis::Analyzer> analyzer;
             try {
                 analyzer =
                         doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_analyzer(
