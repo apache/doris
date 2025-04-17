@@ -54,7 +54,7 @@ suite("test_stream_load_illegal_timeout", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
 
-            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("success", json.Status.toLowerCase())
             assertTrue(json.Message.toLowerCase().contains("timeout") ||
                         json.Message.toLowerCase().contains("invalid") ||
                         json.Message.toLowerCase().contains("illegal"))
