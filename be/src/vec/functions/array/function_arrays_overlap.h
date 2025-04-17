@@ -175,8 +175,7 @@ public:
             return Status::OK();
         }
         auto data_type_with_name = data_type_with_names[0];
-        if (iter->get_inverted_index_reader_type() ==
-            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+        if (iter->get_reader(segment_v2::InvertedIndexReaderType::FULLTEXT)) {
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, FULLTEXT reader can not support "
                     "array_overlap");
@@ -223,7 +222,7 @@ public:
             RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                     nested_param_type, &nested_query_val, query_param));
             RETURN_IF_ERROR(iter->read_from_inverted_index(
-                    data_type_with_name.first, query_param->get_value(),
+                    data_type_with_name, query_param->get_value(),
                     segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, single_res));
             *roaring |= *single_res;
         }
