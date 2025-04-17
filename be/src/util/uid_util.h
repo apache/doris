@@ -154,12 +154,13 @@ std::size_t hash_value(const doris::TUniqueId& id);
 
 /// generates a 16 byte UUID
 inline std::string generate_uuid_string() {
-    return boost::uuids::to_string(boost::uuids::basic_random_generator<boost::mt19937>()());
+    auto uuid = UUIDGenerator::instance()->next_uuid();
+    return boost::uuids::to_string(uuid);
 }
 
 /// generates a 16 byte UUID
 inline TUniqueId generate_uuid() {
-    auto uuid = boost::uuids::basic_random_generator<boost::mt19937>()();
+    auto uuid = UUIDGenerator::instance()->next_uuid();
     TUniqueId uid;
     memcpy(&uid.hi, uuid.data, sizeof(int64_t));
     memcpy(&uid.lo, uuid.data + sizeof(int64_t), sizeof(int64_t));
