@@ -116,11 +116,7 @@ public:
         }
 
         // used for save column array outside null map
-        auto outside_null_map =
-                ColumnUInt8::create(block->get_by_position(arguments[0])
-                                            .column->convert_to_full_column_if_const()
-                                            ->size(),
-                                    0);
+        auto outside_null_map = ColumnUInt8::create(block->rows(), 0);
         // offset column
         MutableColumnPtr array_column_offset;
         size_t nested_array_column_rows = 0;
