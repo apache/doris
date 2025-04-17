@@ -20,15 +20,23 @@
 
 #pragma once
 
-#include "function_cast_base.h"
+#include "vec/functions/function.h"
 namespace doris::vectorized {
 
-struct NameToString {
-    static constexpr auto name = "to_string";
-};
-
-class FunctionToString : public FunctionConvertBase<DataTypeString, NameToString> {
+class FunctionToString : public IFunction {
 public:
+    static constexpr auto name = "to_string";
+
+    String get_name() const final { return name; }
+
+    bool is_variadic() const final { return true; }
+    size_t get_number_of_arguments() const final { return 0; }
+
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const final {
+        return std::make_shared<DataTypeString>();
+    }
+
+    ColumnNumbers get_arguments_that_are_always_constant() const final { return {1}; }
     static FunctionPtr create() { return std::make_shared<FunctionToString>(); }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
