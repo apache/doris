@@ -74,9 +74,9 @@ suite("test_predefine_insert_into_select", "p0"){
     qt_sql """ select variant_type(var) from toTable_with_define"""
 
     sql "DROP TABLE IF EXISTS toTable"
-    // sql """ create table toTable like fromTable"""
-    // qt_sql """ show create table toTable"""
-    // qt_sql """ insert into toTable select * from fromTable"""
-    // qt_sql """ select * from toTable"""
-    // qt_sql """ select variant_type(var) from toTable"""
+    sql """ create table toTable like fromTable"""
+    qt_sql """ show create table toTable"""
+    qt_sql """ insert into toTable select * from fromTable"""
+    qt_sql """ select * from toTable"""
+    qt_sql """ select variant_type(var) from toTable"""
 }
