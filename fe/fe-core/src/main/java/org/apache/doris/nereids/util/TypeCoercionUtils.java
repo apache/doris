@@ -160,15 +160,17 @@ public class TypeCoercionUtils {
      */
     public static Expression ensureSameResultType(
             Expression originExpr, Expression result, ExpressionRewriteContext context) {
-        if (originExpr.getDataType().equals(result.getDataType())) {
+        DataType originDataType = originExpr.getDataType();
+        DataType newDataType = result.getDataType();
+        if (originDataType.equals(newDataType)) {
             return result;
         }
         // backend can direct use all string like type without cast
-        if (originExpr.getDataType().isStringLikeType() && result.getDataType().isStringLikeType()) {
+        if (originDataType.isStringLikeType() && newDataType.isStringLikeType()) {
             return result;
         }
         return FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE.visitCast(
-                new Cast(result, originExpr.getDataType()), context
+                new Cast(result, originDataType), context
         );
     }
 
