@@ -2455,18 +2455,6 @@ public class Config extends ConfigBase {
     public static int hbo_plan_info_cache_num = 1000;
 
     /**
-     * Slow query threshold for hbo plan stats. info collection.
-     */
-    @ConfField(
-            mutable = true,
-            description = {
-                    "当前默认设置为 2000，用来控制控制hbo plan stats. collection的slow query的阈值。",
-                    "Now default is 2000, this config is used to control slow query threshold of hbo info collection"
-            }
-    )
-    public static int hbo_slow_query_threshold_ms = 2000;
-
-    /**
      * Maximum number of events to poll in each RPC.
      */
     @ConfField(mutable = true, masterOnly = true)

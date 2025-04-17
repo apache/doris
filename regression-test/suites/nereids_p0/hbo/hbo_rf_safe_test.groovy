@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("hbo_rf_safe_test") {
+suite("hbo_rf_safe_test", "nonConcurrent") {
     sql "create database if not exists hbo_test;"
     sql "use hbo_test;"
 
