@@ -61,7 +61,7 @@ public:
         ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
 
         // Initialize cache
-        int64_t inverted_index_cache_limit = 1024 * 1024 * 1024;
+        int64_t inverted_index_cache_limit = 0;
         _inverted_index_searcher_cache = std::unique_ptr<segment_v2::InvertedIndexSearcherCache>(
                 InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit, 1));
         _inverted_index_query_cache = std::unique_ptr<segment_v2::InvertedIndexQueryCache>(
@@ -301,7 +301,6 @@ public:
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions query_options;
-        query_options.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(query_options);
 
         auto reader = std::make_shared<InvertedIndexFileReader>(
@@ -399,7 +398,6 @@ public:
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions query_options;
-        query_options.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(query_options);
 
         auto reader = std::make_shared<InvertedIndexFileReader>(
@@ -455,132 +453,6 @@ public:
         EXPECT_TRUE(bitmap->contains(4)) << "Document 4 should have value greater than 100";
     }
 
-    // Test query cache
-    void test_query_cache() {
-        std::string_view rowset_id = "test_read_rowset_4";
-        int seg_id = 0;
-
-        // Prepare data
-        std::vector<Slice> values = {Slice("apple"), Slice("banana"), Slice("cherry")};
-
-        TabletIndex idx_meta;
-        // Create index metadata
-        auto index_meta_pb = std::make_unique<TabletIndexPB>();
-        index_meta_pb->set_index_type(IndexType::INVERTED);
-        index_meta_pb->set_index_id(1);
-        index_meta_pb->set_index_name("test");
-        index_meta_pb->clear_col_unique_id();
-        index_meta_pb->add_col_unique_id(1); // c2 column ID
-        idx_meta.init_from_pb(*index_meta_pb.get());
-        std::string index_path_prefix;
-        prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
-
-        // Create reader
-        OlapReaderStatistics stats;
-        RuntimeState runtime_state;
-        TQueryOptions query_options;
-        query_options.enable_inverted_index_query_cache = true;
-        query_options.enable_inverted_index_searcher_cache = true;
-        runtime_state.set_query_options(query_options);
-
-        auto reader = std::make_shared<InvertedIndexFileReader>(
-                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
-
-        auto status = reader->init();
-        EXPECT_EQ(status, Status::OK());
-
-        auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
-        EXPECT_NE(str_reader, nullptr);
-
-        io::IOContext io_ctx;
-        std::string field_name = "1"; // c2 column unique_id
-
-        // First query, should be cache miss
-        std::shared_ptr<roaring::Roaring> bitmap1 = std::make_shared<roaring::Roaring>();
-        StringRef str_ref(values[0].data, values[0].size); // "apple"
-
-        auto query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                              InvertedIndexQueryType::EQUAL_QUERY, bitmap1);
-
-        EXPECT_TRUE(query_status.ok()) << query_status;
-        EXPECT_EQ(stats.inverted_index_query_cache_miss, 1) << "First query should be cache miss";
-        EXPECT_EQ(bitmap1->cardinality(), 1) << "Should find 1 document matching 'apple'";
-
-        // Second query with same value, should be cache hit
-        std::shared_ptr<roaring::Roaring> bitmap2 = std::make_shared<roaring::Roaring>();
-
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                         InvertedIndexQueryType::EQUAL_QUERY, bitmap2);
-
-        EXPECT_TRUE(query_status.ok()) << query_status;
-        EXPECT_EQ(stats.inverted_index_query_cache_hit, 1) << "Second query should be cache hit";
-        EXPECT_EQ(bitmap2->cardinality(), 1) << "Should find 1 document matching 'apple'";
-    }
-
-    // Test searcher cache
-    void test_searcher_cache() {
-        std::string_view rowset_id = "test_read_rowset_5";
-        int seg_id = 0;
-
-        // Prepare data
-        std::vector<Slice> values = {Slice("apple"), Slice("banana"), Slice("cherry")};
-
-        TabletIndex idx_meta;
-        // Create index metadata
-        auto index_meta_pb = std::make_unique<TabletIndexPB>();
-        index_meta_pb->set_index_type(IndexType::INVERTED);
-        index_meta_pb->set_index_id(1);
-        index_meta_pb->set_index_name("test");
-        index_meta_pb->clear_col_unique_id();
-        index_meta_pb->add_col_unique_id(1); // c2 column ID
-        idx_meta.init_from_pb(*index_meta_pb.get());
-        std::string index_path_prefix;
-        prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix,
-                             InvertedIndexStorageFormatPB::V2);
-
-        // Create reader
-        OlapReaderStatistics stats;
-        RuntimeState runtime_state;
-        TQueryOptions query_options;
-        query_options.enable_inverted_index_query_cache = false;
-        query_options.enable_inverted_index_searcher_cache = true;
-        runtime_state.set_query_options(query_options);
-
-        auto reader = std::make_shared<InvertedIndexFileReader>(
-                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
-
-        auto status = reader->init();
-        EXPECT_EQ(status, Status::OK());
-
-        auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
-        EXPECT_NE(str_reader, nullptr);
-
-        io::IOContext io_ctx;
-        std::string field_name = "1"; // c2 column unique_id
-
-        // First query, should be searcher cache miss
-        std::shared_ptr<roaring::Roaring> bitmap1 = std::make_shared<roaring::Roaring>();
-        StringRef str_ref(values[0].data, values[0].size); // "apple"
-
-        auto query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                              InvertedIndexQueryType::EQUAL_QUERY, bitmap1);
-
-        EXPECT_TRUE(query_status.ok()) << query_status;
-        EXPECT_EQ(stats.inverted_index_searcher_cache_miss, 1)
-                << "First query should be searcher cache miss";
-
-        // Query with different value, should be searcher cache hit
-        std::shared_ptr<roaring::Roaring> bitmap2 = std::make_shared<roaring::Roaring>();
-        StringRef str_ref2(values[1].data, values[1].size); // "banana"
-
-        query_status = str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref2,
-                                         InvertedIndexQueryType::EQUAL_QUERY, bitmap2);
-
-        EXPECT_TRUE(query_status.ok()) << query_status;
-        EXPECT_EQ(stats.inverted_index_searcher_cache_hit, 1)
-                << "Second query should be searcher cache hit";
-    }
-
     // Test string index with large document set (>512 docs)
     void test_string_index_large_docset() {
         std::string_view rowset_id = "test_read_rowset_6";
@@ -625,7 +497,6 @@ public:
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions query_options;
-        query_options.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(query_options);
 
         auto reader = std::make_shared<InvertedIndexFileReader>(
@@ -669,193 +540,6 @@ public:
         EXPECT_TRUE(bitmap->contains(799)) << "Last document of apple should be at position 799";
     }
 
-    // Test string index with large document set using V3 format
-    void test_string_index_large_docset_v3() {
-        std::string_view rowset_id = "test_read_rowset_6_v3";
-        int seg_id = 0;
-
-        // Prepare data with 1000 documents
-        std::vector<Slice> values;
-        values.reserve(1000);
-
-        // Add 600 documents with term "common_term"
-        for (int i = 0; i < 600; i++) {
-            values.emplace_back("common_term");
-        }
-
-        // Add 200 documents with term "term_a"
-        for (int i = 0; i < 200; i++) {
-            values.emplace_back("term_a");
-        }
-
-        // Add 200 documents with term "term_b"
-        for (int i = 0; i < 200; i++) {
-            values.emplace_back("term_b");
-        }
-
-        {
-            TabletIndex idx_meta;
-            // Create index metadata
-            auto index_meta_pb = std::make_unique<TabletIndexPB>();
-            index_meta_pb->set_index_type(IndexType::INVERTED);
-            index_meta_pb->set_index_id(1);
-            index_meta_pb->set_index_name("test");
-            index_meta_pb->clear_col_unique_id();
-            index_meta_pb->add_col_unique_id(1); // c2 column ID
-            index_meta_pb->mutable_properties()->insert({"parser", "english"});
-            index_meta_pb->mutable_properties()->insert({"lower_case", "true"});
-            index_meta_pb->mutable_properties()->insert({"support_phrase", "true"});
-            idx_meta.init_from_pb(*index_meta_pb.get());
-            std::string index_path_prefix;
-            prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix,
-                                 InvertedIndexStorageFormatPB::V3);
-
-            // Create V3 format reader
-            OlapReaderStatistics stats;
-            RuntimeState runtime_state;
-            TQueryOptions query_options;
-            query_options.enable_inverted_index_searcher_cache = false;
-            runtime_state.set_query_options(query_options);
-
-            auto reader = std::make_shared<InvertedIndexFileReader>(
-                    io::global_local_filesystem(), index_path_prefix,
-                    InvertedIndexStorageFormatPB::V3);
-
-            auto status = reader->init();
-            EXPECT_EQ(status, Status::OK());
-
-            auto str_reader = FullTextIndexReader::create_shared(&idx_meta, reader);
-            EXPECT_NE(str_reader, nullptr);
-
-            io::IOContext io_ctx;
-            std::string field_name = "1"; // c2 column unique_id
-
-            // Test query for "common_term" which has >512 documents with V3 format
-            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            std::string query_term = "common_term";
-            StringRef str_ref(query_term.c_str(), query_term.length());
-
-            auto query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                      InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
-
-            EXPECT_TRUE(query_status.ok()) << query_status;
-            EXPECT_EQ(bitmap->cardinality(), 600)
-                    << "V3: Should find 600 documents matching 'common_term'";
-
-            // Verify first and last document IDs
-            EXPECT_TRUE(bitmap->contains(0)) << "V3: First document should match 'common_term'";
-            EXPECT_TRUE(bitmap->contains(599)) << "V3: Last document should match 'common_term'";
-
-            // Test query for "term_a" with V3 format
-            bitmap = std::make_shared<roaring::Roaring>();
-            query_term = "term_a";
-            StringRef str_ref_a(query_term.c_str(), query_term.length());
-
-            query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_a,
-                                      InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap);
-
-            EXPECT_TRUE(query_status.ok()) << query_status;
-            EXPECT_EQ(bitmap->cardinality(), 200)
-                    << "V3: Should find 200 documents matching 'term_a'";
-            EXPECT_TRUE(bitmap->contains(600))
-                    << "V3: First document of term_a should be at position 600";
-            EXPECT_TRUE(bitmap->contains(799))
-                    << "V3: Last document of term_a should be at position 799";
-
-            // Test query for "noexist" with V3 format
-            bitmap = std::make_shared<roaring::Roaring>();
-            query_term = "noexist";
-            StringRef str_ref_no_term(query_term.c_str(), query_term.length());
-
-            query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_no_term,
-                                      InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
-            EXPECT_TRUE(query_status.ok()) << query_status;
-            EXPECT_EQ(bitmap->cardinality(), 0) << "V3: Should find 0 documents matching 'noexist'";
-        }
-        {
-            TabletIndex idx_meta;
-            // Create index metadata
-            auto index_meta_pb = std::make_unique<TabletIndexPB>();
-            index_meta_pb->set_index_type(IndexType::INVERTED);
-            index_meta_pb->set_index_id(1);
-            index_meta_pb->set_index_name("test");
-            index_meta_pb->clear_col_unique_id();
-            index_meta_pb->add_col_unique_id(1); // c2 column ID
-            idx_meta.init_from_pb(*index_meta_pb.get());
-            std::string index_path_prefix;
-            prepare_string_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix,
-                                 InvertedIndexStorageFormatPB::V3);
-
-            // Create V3 format reader
-            OlapReaderStatistics stats;
-            RuntimeState runtime_state;
-            TQueryOptions query_options;
-            query_options.enable_inverted_index_searcher_cache = false;
-            runtime_state.set_query_options(query_options);
-
-            auto reader = std::make_shared<InvertedIndexFileReader>(
-                    io::global_local_filesystem(), index_path_prefix,
-                    InvertedIndexStorageFormatPB::V3);
-
-            auto status = reader->init();
-            EXPECT_EQ(status, Status::OK());
-
-            auto str_reader = StringTypeInvertedIndexReader::create_shared(&idx_meta, reader);
-            EXPECT_NE(str_reader, nullptr);
-
-            io::IOContext io_ctx;
-            std::string field_name = "1"; // c2 column unique_id
-
-            // Test query for "common_term" which has >512 documents with V3 format
-            std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            std::string query_term = "common_term";
-            StringRef str_ref(query_term.c_str(), query_term.length());
-
-            auto query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
-
-            EXPECT_TRUE(query_status.ok()) << query_status;
-            EXPECT_EQ(bitmap->cardinality(), 600)
-                    << "V3: Should find 600 documents matching 'common_term'";
-
-            // Verify first and last document IDs
-            EXPECT_TRUE(bitmap->contains(0)) << "V3: First document should match 'common_term'";
-            EXPECT_TRUE(bitmap->contains(599)) << "V3: Last document should match 'common_term'";
-
-            // Test query for "term_a" with V3 format
-            bitmap = std::make_shared<roaring::Roaring>();
-            query_term = "term_a";
-            StringRef str_ref_a(query_term.c_str(), query_term.length());
-
-            query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_a,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
-
-            EXPECT_TRUE(query_status.ok()) << query_status;
-            EXPECT_EQ(bitmap->cardinality(), 200)
-                    << "V3: Should find 200 documents matching 'term_a'";
-            EXPECT_TRUE(bitmap->contains(600))
-                    << "V3: First document of term_a should be at position 600";
-            EXPECT_TRUE(bitmap->contains(799))
-                    << "V3: Last document of term_a should be at position 799";
-
-            // Test query for "noexist" with V3 format
-            bitmap = std::make_shared<roaring::Roaring>();
-            query_term = "noexist";
-            StringRef str_ref_no_term(query_term.c_str(), query_term.length());
-
-            query_status =
-                    str_reader->query(&io_ctx, &stats, &runtime_state, field_name, &str_ref_no_term,
-                                      InvertedIndexQueryType::EQUAL_QUERY, bitmap);
-            EXPECT_TRUE(query_status.ok()) << query_status;
-            EXPECT_EQ(bitmap->cardinality(), 0) << "V3: Should find 0 documents matching 'noexist'";
-        }
-    }
-
     // Helper function to check CPU architecture
     bool is_arm_architecture() {
 #if defined(__aarch64__)
@@ -890,7 +574,6 @@ public:
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions query_options;
-        query_options.enable_inverted_index_searcher_cache = false;
         query_options.inverted_index_compatible_read = enable_compatible_read;
         runtime_state.set_query_options(query_options);
 
@@ -1868,24 +1551,9 @@ TEST_F(InvertedIndexReaderTest, BkdIndexRead) {
     test_bkd_index_read();
 }
 
-// Query cache test
-TEST_F(InvertedIndexReaderTest, QueryCache) {
-    test_query_cache();
-}
-
-// Searcher cache test
-TEST_F(InvertedIndexReaderTest, SearcherCache) {
-    test_searcher_cache();
-}
-
 // Test string index with large document set (>512 docs)
 TEST_F(InvertedIndexReaderTest, StringIndexLargeDocset) {
     test_string_index_large_docset();
-}
-
-// Test string index with large document set using V3 format
-TEST_F(InvertedIndexReaderTest, StringIndexLargeDocsetV3) {
-    test_string_index_large_docset_v3();
 }
 
 // Test reading existing large document set index file
