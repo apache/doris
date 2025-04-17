@@ -29,6 +29,17 @@
 namespace doris {
 
 // Format:
+// We use UUID v7 (RFC 4122) for generating UUIDs.
+// UUIDv7 was chosen for the following benefits:
+// 1. Time-ordered - Contains a timestamp component that makes UUIDs sortable by generation time,
+//    which is valuable for query tracking, debugging, and performance analysis
+// 2. High performance - Efficient generation with minimal overhead
+// 3. Global uniqueness - Combines timestamp with random data to ensure uniqueness across
+//    distributed systems without coordination
+// 4. Database friendly - The time-ordered nature makes it more efficient for database indexing
+//    and storage compared to purely random UUIDs (like v4)
+// 5. Future-proof - Follows the latest UUID standard with improvements over older versions
+
 // 0                   1                   2                   3
 // 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
