@@ -31,6 +31,9 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.sync.canal.CanalDestination;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
+import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ResumeDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -116,6 +119,100 @@ public class SyncJobManager implements Writable {
             map.put(syncJob.getJobName(), Lists.newArrayList());
         }
         map.get(syncJob.getJobName()).add(syncJob);
+    }
+
+    public void pauseSyncJob(PauseDataSyncJobCommand command) throws UserException {
+        String dbName = command.getDbFullName();
+        String jobName = command.getJobName();
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+        List<SyncJob> syncJobs = Lists.newArrayList();
+        readLock();
+        try {
+            List<SyncJob> matchJobs = getSyncJobsByDbAndJobName(db.getId(), jobName);
+            if (matchJobs.isEmpty()) {
+                throw new DdlException("Load job does not exist");
+            }
+
+            List<SyncJob> runningSyncJob = matchJobs.stream().filter(SyncJob::isRunning)
+                    .collect(Collectors.toList());
+            if (runningSyncJob.isEmpty()) {
+                throw new DdlException("There is no running job with jobName `"
+                    + command.getJobName() + "` to pause");
+            }
+
+            syncJobs.addAll(runningSyncJob);
+        } finally {
+            readUnlock();
+        }
+
+        for (SyncJob syncJob : syncJobs) {
+            syncJob.pause();
+        }
+    }
+
+    public void resumeSyncJob(ResumeDataSyncJobCommand command) throws UserException {
+        String dbName = command.getDbFullName();
+        String jobName = command.getJobName();
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+        List<SyncJob> syncJobs = Lists.newArrayList();
+        readLock();
+        try {
+            List<SyncJob> matchJobs = getSyncJobsByDbAndJobName(db.getId(), jobName);
+            if (matchJobs.isEmpty()) {
+                throw new DdlException("Load job does not exist");
+            }
+
+            List<SyncJob> pausedSyncJob = matchJobs.stream().filter(SyncJob::isPaused)
+                    .collect(Collectors.toList());
+            if (pausedSyncJob.isEmpty()) {
+                throw new DdlException("There is no paused job with jobName `"
+                    + command.getJobName() + "` to resume");
+            }
+
+            syncJobs.addAll(pausedSyncJob);
+        } finally {
+            readUnlock();
+        }
+
+        for (SyncJob syncJob : syncJobs) {
+            syncJob.resume();
+        }
+    }
+
+    public void stopSyncJob(StopDataSyncJobCommand command) throws UserException {
+        String dbName = command.getDbFullName();
+        String jobName = command.getJobName();
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+        // List of sync jobs waiting to be cancelled
+        List<SyncJob> syncJobs = Lists.newArrayList();
+        readLock();
+        try {
+            List<SyncJob> matchJobs = getSyncJobsByDbAndJobName(db.getId(), jobName);
+            if (matchJobs.isEmpty()) {
+                throw new DdlException("Load job does not exist");
+            }
+
+            List<SyncJob> uncompletedSyncJob = matchJobs.stream().filter(entity -> !entity.isCompleted())
+                    .collect(Collectors.toList());
+            if (uncompletedSyncJob.isEmpty()) {
+                throw new DdlException("There is no uncompleted job with jobName `"
+                    + command.getJobName() + "`");
+            }
+
+            syncJobs.addAll(uncompletedSyncJob);
+        } finally {
+            readUnlock();
+        }
+
+        for (SyncJob syncJob : syncJobs) {
+            syncJob.cancel(SyncFailMsg.MsgType.USER_CANCEL, "user cancel");
+        }
     }
 
     public void pauseSyncJob(PauseSyncJobStmt stmt) throws UserException {
