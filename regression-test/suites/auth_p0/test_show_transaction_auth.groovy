@@ -36,9 +36,7 @@ suite("test_show_transaction_auth", "p0,auth") {
             DUPLICATE KEY(user_id)
             DISTRIBUTED BY HASH(user_id) BUCKETS 10;
             """
-    sql """grant select_priv,load_priv on ${dbName}.* to ${user}"""
-    connect(user, "${pwd}", context.config.jdbcUrl) {
-        sql """ 
+    sql """ 
                 INSERT INTO ${dbName}.${tableName} with label ${label} (user_id, name, age)
                 VALUES (1, "Emily", 25),
                        (2, "Benjamin", 35),
@@ -46,6 +44,18 @@ suite("test_show_transaction_auth", "p0,auth") {
                        (4, "Alexander", 60),
                        (5, "Ava", 17);
             """
+    sql """grant select_priv on ${dbName}.* to ${user}"""
+    connect(user, "${pwd}", context.config.jdbcUrl) {
+        try {
+            sql """SHOW TRANSACTION FROM ${dbName} WHERE label='${dbName}';"""
+        } catch (Exception e) {
+            log.info(e.getMessage())
+            assertTrue(e.getMessage().contains("Load_priv"))
+        }
+    }
+    sql """grant load_priv on ${dbName}.* to ${user}"""
+    connect(user, "${pwd}", context.config.jdbcUrl) {
+
         sql """SHOW TRANSACTION FROM ${dbName} WHERE label='${dbName}';"""
 
     }
