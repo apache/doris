@@ -75,6 +75,10 @@ public:
         }
     }
 
+    int get_gap() const {
+        return _gap;
+    }
+
     std::string debug_string() const override {
         std::stringstream out;
         out << "VColumnRef(slot_id: " << _column_id << ",column_name: " << _column_name
