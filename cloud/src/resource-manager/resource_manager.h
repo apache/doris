@@ -114,7 +114,7 @@ public:
                                      const std::vector<NodeInfo>& to_del);
 
     bool check_cluster_params_valid(const ClusterPB& cluster, std::string* err,
-                                    bool check_master_num);
+                                    bool check_master_num, bool check_cluster_name = false);
 
     /**
      * Check cloud_unique_id is degraded format, and get instance_id from cloud_unique_id
