@@ -344,9 +344,7 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                 doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
         if (!olap_res) {
             LOG(FATAL) << "parse config file cache path failed, path="
-                       << doris::config::file_cache_path
-                       << " err: "
-                       << olap_res;
+                       << doris::config::file_cache_path << " err: " << olap_res;
             exit(-1);
         }
 
