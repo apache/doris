@@ -21,7 +21,6 @@
 #pragma once
 
 #include "common/status.h"
-#include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
 #include "vec/columns/column_nullable.h"
@@ -100,7 +99,7 @@ struct ToDateImpl {
     using T = typename DateTraits<ArgType>::T;
     static constexpr auto name = "to_date";
 
-    static inline auto execute(const ArgType& t) {
+    static auto execute(const ArgType& t) {
         auto dt = binary_cast<ArgType, T>(t);
         if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
             return binary_cast<T, ArgType>(dt);
@@ -129,7 +128,7 @@ struct TimeStampImpl {
     using OpArgType = ArgType;
     static constexpr auto name = "timestamp";
 
-    static inline auto execute(const OpArgType& t) { return t; }
+    static auto execute(const OpArgType& t) { return t; }
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<typename DateTraits<ArgType>::DateType>()};
@@ -142,8 +141,8 @@ struct DayNameImpl {
     static constexpr auto name = "dayname";
     static constexpr auto max_size = MAX_DAY_NAME_LEN;
 
-    static inline auto execute(const typename DateTraits<ArgType>::T& dt,
-                               ColumnString::Chars& res_data, size_t& offset) {
+    static auto execute(const typename DateTraits<ArgType>::T& dt, ColumnString::Chars& res_data,
+                        size_t& offset) {
         const auto* day_name = dt.day_name();
         if (day_name != nullptr) {
             auto len = strlen(day_name);
@@ -164,8 +163,8 @@ struct ToIso8601Impl {
     static constexpr auto name = "to_iso8601";
     static constexpr auto max_size = std::is_same_v<ArgType, UInt32> ? 10 : 26;
 
-    static inline auto execute(const typename DateTraits<ArgType>::T& dt,
-                               ColumnString::Chars& res_data, size_t& offset) {
+    static auto execute(const typename DateTraits<ArgType>::T& dt, ColumnString::Chars& res_data,
+                        size_t& offset) {
         auto length = dt.to_buffer((char*)res_data.data() + offset,
                                    std::is_same_v<ArgType, UInt32> ? -1 : 6);
         if (std::is_same_v<ArgType, UInt64>) {
@@ -187,8 +186,8 @@ struct MonthNameImpl {
     static constexpr auto name = "monthname";
     static constexpr auto max_size = MAX_MONTH_NAME_LEN;
 
-    static inline auto execute(const typename DateTraits<ArgType>::T& dt,
-                               ColumnString::Chars& res_data, size_t& offset) {
+    static auto execute(const typename DateTraits<ArgType>::T& dt, ColumnString::Chars& res_data,
+                        size_t& offset) {
         const auto* month_name = dt.month_name();
         if (month_name != nullptr) {
             auto len = strlen(month_name);
@@ -210,8 +209,8 @@ struct DateFormatImpl {
     static constexpr auto name = "date_format";
 
     template <typename Impl>
-    static inline bool execute(const FromType& t, StringRef format, ColumnString::Chars& res_data,
-                               size_t& offset, const cctz::time_zone& time_zone) {
+    static bool execute(const FromType& t, StringRef format, ColumnString::Chars& res_data,
+                        size_t& offset, const cctz::time_zone& time_zone) {
         if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
             // Handle non-special formats.
             const auto& dt = (DateType&)t;
@@ -247,7 +246,6 @@ struct DateFormatImpl {
     }
 };
 
-template <typename DateType>
 struct FromUnixTimeImpl {
     using FromType = Int64;
     // https://dev.mysql.com/doc/refman/8.0/en/date-and-time-functions.html#function_from-unixtime
@@ -256,10 +254,10 @@ struct FromUnixTimeImpl {
     static constexpr auto name = "from_unixtime";
 
     template <typename Impl>
-    static inline bool execute(const FromType& val, StringRef format, ColumnString::Chars& res_data,
-                               size_t& offset, const cctz::time_zone& time_zone) {
+    static bool execute(const FromType& val, StringRef format, ColumnString::Chars& res_data,
+                        size_t& offset, const cctz::time_zone& time_zone) {
         if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
-            DateType dt;
+            DateV2Value<DateV2ValueType> dt;
             if (val < 0 || val > TIMESTAMP_VALID_MAX) {
                 return true;
             }
@@ -277,7 +275,7 @@ struct FromUnixTimeImpl {
             return false;
 
         } else {
-            DateType dt;
+            DateV2Value<DateV2ValueType> dt;
             if (val < 0 || val > TIMESTAMP_VALID_MAX) {
                 return true;
             }
