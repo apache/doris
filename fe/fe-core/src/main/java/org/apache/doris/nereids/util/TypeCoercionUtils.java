@@ -156,7 +156,8 @@ public class TypeCoercionUtils {
     private static final Logger LOG = LogManager.getLogger(TypeCoercionUtils.class);
 
     /**
-     * ensure the result's data type equals to the originExpr's dataType
+     * ensure the result's data type equals to the originExpr's dataType,
+     * ATTN: this method usually used in fold constant rule
      */
     public static Expression ensureSameResultType(
             Expression originExpr, Expression result, ExpressionRewriteContext context) {
