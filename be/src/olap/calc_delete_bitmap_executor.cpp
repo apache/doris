@@ -58,6 +58,29 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_
     });
 }
 
+Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetId rowset_id,
+                                     const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                                     DeleteBitmapPtr delete_bitmap) {
+    {
+        std::shared_lock rlock(_lock);
+        RETURN_IF_ERROR(_status);
+        _query_thread_context.init_unlocked();
+    }
+    return _thread_token->submit_func([=, this]() {
+        SCOPED_ATTACH_TASK(_query_thread_context);
+        auto st = tablet->calc_delete_bitmap_between_segments(rowset_id, segments, delete_bitmap);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to calc delete bitmap between segments, tablet_id: "
+                         << tablet->tablet_id() << " rowset: " << rowset_id
+                         << " segments num: " << segments.size() << " error: " << st;
+            std::lock_guard wlock(_lock);
+            if (_status.ok()) {
+                _status = st;
+            }
+        }
+    });
+}
+
 Status CalcDeleteBitmapToken::wait() {
     _thread_token->wait();
     // all tasks complete here, don't need lock;
