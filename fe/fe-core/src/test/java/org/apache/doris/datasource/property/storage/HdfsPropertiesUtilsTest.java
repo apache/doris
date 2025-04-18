@@ -19,13 +19,13 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
 
-import  org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
 
-public class HDFSPropertiesUtilsTest {
+public class HdfsPropertiesUtilsTest {
 
     @Test
     public void testCheckLoadPropsAndReturnUri_success() throws Exception {

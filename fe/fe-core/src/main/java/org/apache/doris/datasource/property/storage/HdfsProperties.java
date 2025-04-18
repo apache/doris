@@ -28,7 +28,7 @@ import org.apache.hadoop.conf.Configuration;
 import java.util.HashMap;
 import java.util.Map;
 
-public class HDFSProperties extends StorageProperties {
+public class HdfsProperties extends StorageProperties {
 
     @ConnectorProperty(names = {"hdfs.authentication.type", "hadoop.security.authentication"},
             required = false,
@@ -77,7 +77,7 @@ public class HDFSProperties extends StorageProperties {
      */
     private Map<String, String> userOverriddenHdfsConfig;
 
-    public HDFSProperties(Map<String, String> origProps) {
+    public HdfsProperties(Map<String, String> origProps) {
         super(Type.HDFS, origProps);
     }
 

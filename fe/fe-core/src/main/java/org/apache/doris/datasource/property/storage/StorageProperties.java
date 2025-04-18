@@ -73,8 +73,8 @@ public abstract class StorageProperties extends ConnectionProperties {
                 result.add(p);
             }
         }
-        if (result.stream().noneMatch(HDFSProperties.class::isInstance)) {
-            result.add(new HDFSProperties(origProps));
+        if (result.stream().noneMatch(HdfsProperties.class::isInstance)) {
+            result.add(new HdfsProperties(origProps));
         }
 
         for (StorageProperties storageProperties : result) {
@@ -107,7 +107,7 @@ public abstract class StorageProperties extends ConnectionProperties {
     private static final List<Function<Map<String, String>, StorageProperties>> PROVIDERS =
             Arrays.asList(
                     props -> (isFsSupport(props, FS_HDFS_SUPPORT)
-                            || HDFSProperties.guessIsMe(props)) ? new HDFSProperties(props) : null,
+                            || HdfsProperties.guessIsMe(props)) ? new HdfsProperties(props) : null,
                     props -> (isFsSupport(props, FS_S3_SUPPORT)
                             || S3Properties.guessIsMe(props)) ? new S3Properties(props) : null,
                     props -> (isFsSupport(props, FS_OSS_SUPPORT)
