@@ -585,9 +585,14 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
             ConnectContext tmpCtx = new ConnectContext();
             tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
             tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
-            this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getWorkloadGroup(tmpCtx).get(0)
-                    .getId();
+            try {
+                this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
+                        .getWorkloadGroup(tmpCtx).get(0)
+                        .getId();
+            } catch (Throwable t) {
+                LOG.info("Get workload group failed when create routine load,", t);
+                throw  t;
+            }
         }
 
         if (ConnectContext.get() != null) {

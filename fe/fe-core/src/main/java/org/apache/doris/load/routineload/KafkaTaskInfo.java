@@ -37,6 +37,8 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
 import com.google.gson.Gson;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +47,8 @@ import java.util.UUID;
 
 public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
+
+    private static final Logger LOG = LogManager.getLogger(KafkaTaskInfo.class);
 
     // <partitionId, offset to be consumed>
     private Map<Integer, Long> partitionIdToOffset;
@@ -139,22 +143,29 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
 
         if (Config.enable_workload_group) {
-            long wgId = routineLoadJob.getWorkloadId();
-            List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
-            if (wgId > 0) {
-                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getTWorkloadGroupById(wgId);
-                if (tWgList.size() == 0) {
-                    throw new UserException("can not find workload group, id=" + wgId);
+            try {
+                long wgId = routineLoadJob.getWorkloadId();
+                List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
+                if (wgId > 0) {
+                    tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                            .getTWorkloadGroupById(wgId);
+                    if (tWgList.size() == 0) {
+                        throw new UserException("can not find workload group, id=" + wgId);
+                    }
+                } else {
+                    ConnectContext tmpCtx = new ConnectContext();
+                    tmpCtx.setCurrentUserIdentity(routineLoadJob.getUserIdentity());
+                    tmpCtx.setQualifiedUser(routineLoadJob.getUserIdentity().getQualifiedUser());
+                    tWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpCtx);
                 }
-            } else {
-                ConnectContext tmpCtx = new ConnectContext();
-                tmpCtx.setCurrentUserIdentity(routineLoadJob.getUserIdentity());
-                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpCtx);
+                if (tWgList.size() != 0) {
+                    tExecPlanFragmentParams.setWorkloadGroups(tWgList);
+                }
+            } catch (Throwable t) {
+                LOG.info("Get workload group failed when replan kafka, ", t);
+                throw t;
             }
-            if (tWgList.size() != 0) {
-                tExecPlanFragmentParams.setWorkloadGroups(tWgList);
-            }
+
         }
 
         return tExecPlanFragmentParams;

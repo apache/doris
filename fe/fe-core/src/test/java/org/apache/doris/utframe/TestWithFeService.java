@@ -163,8 +163,8 @@ public abstract class TestWithFeService {
         connectContext = createDefaultCtx();
         beforeCluster();
         createDorisCluster();
-        Env.getCurrentEnv().getWorkloadGroupMgr().tryCreateNormalWorkloadGroup();
         runBeforeAll();
+        Env.getCurrentEnv().getWorkloadGroupMgr().tryCreateNormalWorkloadGroup();
     }
 
     protected void beforeCluster() {
