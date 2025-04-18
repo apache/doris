@@ -1570,6 +1570,7 @@ functionCallExpression
     : functionIdentifier
               LEFT_PAREN (
                   (DISTINCT|ALL)?
+                  (LEFT_BRACKET identifier RIGHT_BRACKET)?
                   arguments+=expression (COMMA arguments+=expression)*
                   (ORDER BY sortItem (COMMA sortItem)*)?
               )? RIGHT_PAREN
