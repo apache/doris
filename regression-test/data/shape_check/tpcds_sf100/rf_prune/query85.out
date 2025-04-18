@@ -9,16 +9,18 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=()
+------------------hashJoin[INNER_JOIN broadcast] hashCondition=((reason.r_reason_sk = web_returns.wr_reason_sk)) otherCondition=()
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((reason.r_reason_sk = web_returns.wr_reason_sk)) otherCondition=()
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF6 ws_web_page_sk->[wp_web_page_sk]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_education_status = cd2.cd_education_status) and (cd1.cd_marital_status = cd2.cd_marital_status) and (cd2.cd_demo_sk = web_returns.wr_returning_cdemo_sk)) otherCondition=() build RFs:RF5 wr_returning_cdemo_sk->[cd_demo_sk];RF6 cd_marital_status->[cd_marital_status];RF7 cd_education_status->[cd_education_status]
+--------------------------PhysicalOlapScan[web_page] apply RFs: RF6
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((cd2.cd_demo_sk = web_returns.wr_returning_cdemo_sk)) otherCondition=(OR[AND[(cd1.cd_marital_status = 'M'),(cd1.cd_education_status = '4 yr Degree'),(web_sales.ws_sales_price >= 100.00),(web_sales.ws_sales_price <= 150.00),(cd2.cd_marital_status = 'M'),(cd2.cd_education_status = '4 yr Degree')],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'Secondary'),(web_sales.ws_sales_price <= 100.00),(cd2.cd_marital_status = 'S'),(cd2.cd_education_status = 'Secondary')],AND[(cd1.cd_marital_status = 'W'),(cd1.cd_education_status = 'Advanced Degree'),(web_sales.ws_sales_price >= 150.00),(cd2.cd_marital_status = 'W'),(cd2.cd_education_status = 'Advanced Degree')]]) build RFs:RF5 wr_returning_cdemo_sk->[cd_demo_sk]
 ----------------------------PhysicalProject
-------------------------------filter(cd_education_status IN ('4 yr Degree', 'Advanced Degree', 'Secondary') and cd_marital_status IN ('M', 'S', 'W'))
---------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF5 RF6 RF7
+------------------------------filter(OR[AND[(cd2.cd_marital_status = 'M'),(cd2.cd_education_status = '4 yr Degree')],AND[(cd2.cd_marital_status = 'S'),(cd2.cd_education_status = 'Secondary')],AND[(cd2.cd_marital_status = 'W'),(cd2.cd_education_status = 'Advanced Degree')]] and cd_education_status IN ('4 yr Degree', 'Advanced Degree', 'Secondary') and cd_marital_status IN ('M', 'S', 'W'))
+--------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF5
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_demo_sk = web_returns.wr_refunded_cdemo_sk)) otherCondition=(OR[AND[(cd1.cd_marital_status = 'M'),(cd1.cd_education_status = '4 yr Degree'),(web_sales.ws_sales_price >= 100.00),(web_sales.ws_sales_price <= 150.00)],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'Secondary'),(web_sales.ws_sales_price <= 100.00)],AND[(cd1.cd_marital_status = 'W'),(cd1.cd_education_status = 'Advanced Degree'),(web_sales.ws_sales_price >= 150.00)]]) build RFs:RF4 wr_refunded_cdemo_sk->[cd_demo_sk]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_demo_sk = web_returns.wr_refunded_cdemo_sk)) otherCondition=() build RFs:RF4 wr_refunded_cdemo_sk->[cd_demo_sk]
 --------------------------------PhysicalProject
 ----------------------------------filter(OR[AND[(cd1.cd_marital_status = 'M'),(cd1.cd_education_status = '4 yr Degree')],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'Secondary')],AND[(cd1.cd_marital_status = 'W'),(cd1.cd_education_status = 'Advanced Degree')]] and cd_education_status IN ('4 yr Degree', 'Advanced Degree', 'Secondary') and cd_marital_status IN ('M', 'S', 'W'))
 ------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF4
@@ -39,8 +41,6 @@ PhysicalResultSink
 --------------------------------------------PhysicalProject
 ----------------------------------------------filter((date_dim.d_year = 2000))
 ------------------------------------------------PhysicalOlapScan[date_dim]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[reason]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[web_page]
+----------------------PhysicalOlapScan[reason]
 

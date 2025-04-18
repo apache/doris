@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -52,6 +53,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Physical hash aggregation plan.
@@ -306,7 +308,19 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public String shapeInfo() {
         StringBuilder builder = new StringBuilder("hashAgg[");
-        builder.append(getAggPhase()).append("]");
+        builder.append(getAggPhase());
+        ConnectContext context = ConnectContext.get();
+        if (context != null
+                && context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName())) {
+            // sort the output to make it stable
+            builder.append(", groupByExpr=");
+            builder.append(groupByExpressions.stream().map(Expression::shapeInfo)
+                    .collect(Collectors.joining(", ", "(", ")")));
+            builder.append(", outputExpr=");
+            builder.append(outputExpressions.stream().map(Expression::shapeInfo).sorted()
+                    .collect(Collectors.joining(", ", "(", ")")));
+        }
+        builder.append(']');
         return builder.toString();
     }
 

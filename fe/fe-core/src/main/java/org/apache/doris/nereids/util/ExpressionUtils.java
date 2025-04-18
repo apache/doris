@@ -754,6 +754,12 @@ public class ExpressionUtils {
         return newPredicates.build();
     }
 
+    public static boolean isGeneratedNotNull(Expression expression) {
+        return expression instanceof Not
+                && ((Not) expression).isGeneratedIsNotNull()
+                && ((Not) expression).child() instanceof IsNull;
+    }
+
     /** flatExpressions */
     public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressionLists) {
         int num = 0;
@@ -1078,6 +1084,22 @@ public class ExpressionUtils {
             }
         }
         return true;
+    }
+
+    /** check constant value the expression */
+    public static Optional<Literal> checkConstantExpr(Expression expr, ExpressionRewriteContext context) {
+        if (expr instanceof Literal) {
+            return Optional.of((Literal) expr);
+        } else if (expr instanceof Alias) {
+            return checkConstantExpr(((Alias) expr).child(), context);
+        } else if (expr.isConstant()) {
+            Expression evalExpr = FoldConstantRule.evaluate(expr, context);
+            if (evalExpr instanceof Literal) {
+                return Optional.of((Literal) evalExpr);
+            }
+        }
+
+        return Optional.empty();
     }
 
     /** analyze the unbound expression and fold it to literal */
