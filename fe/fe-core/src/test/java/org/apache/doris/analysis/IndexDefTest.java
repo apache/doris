@@ -111,7 +111,7 @@ public class IndexDefTest {
                 ArrayType.create(ArrayType.create(ScalarType.createVarchar(10), false), false));
         def.checkColumn(nestedArray, KeysType.DUP_KEYS, true, TInvertedIndexFileStorageFormat.V1);
 
-	// Test array of unsupported types
+        // Test array of unsupported types
         try {
             Column arrayOfFloat = new Column("col1",
                     ArrayType.create(ScalarType.createType(PrimitiveType.FLOAT), false));

@@ -74,7 +74,7 @@ public class IndexDefinitionTest {
                     AggregateType.NONE, true, null, "comment"),
                     KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.V1);
 
-	// Test array of unsupported types
+        // Test array of unsupported types
         try {
             // Array<Float>
             def.checkColumn(new ColumnDefinition("col1",
