@@ -91,7 +91,7 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
 }
 
 Status JniConnector::init(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     // TODO: This logic need to be changed.
     // See the comment of "predicates" field in JniScanner.java
 
@@ -419,7 +419,7 @@ Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColum
 }
 
 void JniConnector::_generate_predicates(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     if (colname_to_value_range == nullptr) {
         return;
     }

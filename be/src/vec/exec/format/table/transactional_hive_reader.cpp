@@ -56,7 +56,7 @@ TransactionalHiveReader::TransactionalHiveReader(std::unique_ptr<GenericReader> 
 
 Status TransactionalHiveReader::init_reader(
         const std::vector<std::string>& column_names,
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
