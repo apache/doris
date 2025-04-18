@@ -64,7 +64,7 @@ limit 100"""
     qt_ds_shape_40 '''
     explain shape plan
     select  
-    /*+ leading(catalog_returns {catalog_sales item date_dim} warehouse) */
+    /*+ leading(catalog_returns (catalog_sales item date_dim) warehouse) */
    w_state
   ,i_item_id
   ,sum(case when (cast(d_date as date) < cast ('2001-05-02' as date)) 

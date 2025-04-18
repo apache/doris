@@ -40,7 +40,7 @@ sql 'set be_number_for_test=3'
     qt_select """
     explain shape plan
     select 
-    /*+ leading(lineitem shuffle {{customer shuffle orders} broadcast nation}) */
+    /*+ leading(lineitem [shuffle] ((customer [shuffle] orders) [broadcast] nation)) */
         c_custkey,
         c_name,
         sum(l_extendedprice * (1 - l_discount)) as revenue,
