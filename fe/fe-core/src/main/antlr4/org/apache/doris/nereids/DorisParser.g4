@@ -1160,7 +1160,8 @@ querySpecification
       aggClause?
       havingClause?
       qualifyClause?
-      {doris_legacy_SQL_syntax}? queryOrganization                         #regularQuerySpecification
+      ({doris_legacy_SQL_syntax}? queryOrganization
+        |{!doris_legacy_SQL_syntax}?)                       #regularQuerySpecification
     ;
 
 cte
