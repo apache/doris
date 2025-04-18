@@ -30,10 +30,9 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
-import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -76,19 +75,19 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
     // Merge percentile into percentile_array according to funcMap
     private List<AggregateFunction> getPercentileArrays(Map<DistinctAndExpr, List<AggregateFunction>> funcMap) {
         List<AggregateFunction> newPercentileArrays = Lists.newArrayList();
+
         for (Map.Entry<DistinctAndExpr, List<AggregateFunction>> entry : funcMap.entrySet()) {
-            List<Literal> literals = new ArrayList<>();
+            List<Expression> literals = new ArrayList<>();
             for (AggregateFunction aggFunc : entry.getValue()) {
-                List<Expression> literal = aggFunc.child(1).collectToList(expr -> expr instanceof Literal);
-                literals.add((Literal) literal.get(0));
+                literals.add(aggFunc.child(1));
             }
-            ArrayLiteral arrayLiteral = new ArrayLiteral(literals);
-            PercentileArray percentileArray = null;
+            Array array = new Array(literals.toArray(new Expression[0]));
+            PercentileArray percentileArray;
             if (entry.getKey().isDistinct) {
-                percentileArray = new PercentileArray(true, entry.getKey().getExpression(), new Cast(arrayLiteral,
+                percentileArray = new PercentileArray(true, entry.getKey().getExpression(), new Cast(array,
                         ArrayType.of(DoubleType.INSTANCE)));
             } else {
-                percentileArray = new PercentileArray(entry.getKey().getExpression(), new Cast(arrayLiteral,
+                percentileArray = new PercentileArray(entry.getKey().getExpression(), new Cast(array,
                         ArrayType.of(DoubleType.INSTANCE)));
             }
             newPercentileArrays.add(percentileArray);
