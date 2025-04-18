@@ -51,7 +51,7 @@ public class UUIDv7Generator {
     public UUID nextUUID() {
         long timestamp = Instant.now().toEpochMilli();
 
-        int counter = COUNTER.getAndIncrement() & 0xFF;
+        int counter = COUNTER.getAndIncrement() & 0xFFF;
 
         long random = RANDOM.nextLong();
 
