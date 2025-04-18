@@ -327,7 +327,7 @@ Status check_after_upload(ObjStorageClient* client, const ObjectStorageResponse&
     auto err_msg = [&]() {
         std::stringstream ss;
         ss << "failed to check object after upload=" << put_or_comp
-            << " file_path={}" << path_opt.path.native()
+            << " file_path=" << path_opt.path.native()
             << fmt::format(" {}_err=", put_or_comp) << upload_res.status.msg
             << fmt::format(" {}_code=", put_or_comp) << upload_res.status.code
             << fmt::format(" {}_http_code=", put_or_comp) << upload_res.http_code
