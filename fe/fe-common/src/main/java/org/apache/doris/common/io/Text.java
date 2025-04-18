@@ -25,12 +25,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.Charset;
-import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CharsetEncoder;
-import java.nio.charset.CodingErrorAction;
-import java.nio.charset.MalformedInputException;
+import java.nio.charset.*;
 import java.text.CharacterIterator;
 import java.text.StringCharacterIterator;
 
@@ -48,17 +43,17 @@ import java.text.StringCharacterIterator;
 public class Text implements Writable {
     private static final Logger LOG = LoggerFactory.getLogger(Text.class);
 
-    private static ThreadLocal<CharsetEncoder> ENCODER_FACTORY = new ThreadLocal<CharsetEncoder>() {
+    private static final ThreadLocal<CharsetEncoder> ENCODER_FACTORY = new ThreadLocal<CharsetEncoder>() {
         protected CharsetEncoder initialValue() {
-            return Charset.forName("UTF-8").newEncoder()
+            return StandardCharsets.UTF_8.newEncoder()
                     .onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT);
         }
     };
 
-    private static ThreadLocal<CharsetDecoder> DECODER_FACTORY = new ThreadLocal<CharsetDecoder>() {
+    private static final ThreadLocal<CharsetDecoder> DECODER_FACTORY = new ThreadLocal<CharsetDecoder>() {
         protected CharsetDecoder initialValue() {
-            return Charset.forName("UTF-8").newDecoder()
+            return StandardCharsets.UTF_8.newDecoder()
                     .onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT);
         }
@@ -413,8 +408,16 @@ public class Text implements Writable {
         int length = in.readInt();
         byte[] bytes = new byte[length];
         in.readFully(bytes, 0, length);
-        String res = decode(bytes);
-        return res;
+        //The maximum amount that can be read at one time is 16MB.
+        int stepLen = 1024 * 1024 * 16;
+        int offset = 0;
+        StringBuilder sb = new StringBuilder();
+        while (offset < length) {
+            int chunkSize = Math.min(stepLen, length - offset);
+            sb.append(decode(bytes, offset, chunkSize));
+            offset += chunkSize;
+        }
+        return sb.toString();
     }
 
     /**
