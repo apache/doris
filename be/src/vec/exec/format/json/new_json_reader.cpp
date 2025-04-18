@@ -401,6 +401,20 @@ Status NewJsonReader::_get_range_params() {
     if (_range.table_format_params.table_format_type == "hive") {
         _is_hive_table = true;
     }
+    if (_params.file_attributes.__isset.openx_json_ignore_malformed) {
+        _openx_json_ignore_malformed = _params.file_attributes.openx_json_ignore_malformed;
+    }
+    return Status::OK();
+}
+
+static Status ignore_malformed_json_append_null(Block& block) {
+    for (auto& column : block.get_columns()) {
+        if (!column->is_nullable()) [[unlikely]] {
+            return Status::DataQualityError("malformed json, but the column `{}` is not nullable.",
+                                            column->get_name());
+        }
+        static_cast<ColumnNullable*>(column->assume_mutable().get())->insert_default();
+    }
     return Status::OK();
 }
 
@@ -488,8 +502,13 @@ Status NewJsonReader::_vhandle_simple_json(RuntimeState* /*state*/, Block& block
         bool valid = false;
         if (_next_row >= _total_rows) { // parse json and generic document
             Status st = _parse_json(is_empty_row, eof);
-            if (_is_load && st.is<DATA_QUALITY_ERROR>()) {
-                continue; // continue to read next (for load, after this , already append error to file.)
+            if (st.is<DATA_QUALITY_ERROR>()) {
+                if (_is_load) {
+                    continue; // continue to read next (for load, after this , already append error to file.)
+                } else if (_openx_json_ignore_malformed) {
+                    RETURN_IF_ERROR(ignore_malformed_json_append_null(block));
+                    continue;
+                }
             }
             RETURN_IF_ERROR(st);
             if (*is_empty_row) {
@@ -1261,9 +1280,15 @@ Status NewJsonReader::_simdjson_handle_simple_json(RuntimeState* /*state*/, Bloc
 
         // step2: get json value by json doc
         Status st = _get_json_value(&size, eof, &error, is_empty_row);
-        if (_is_load && st.is<DATA_QUALITY_ERROR>()) {
-            return Status::OK();
+        if (st.is<DATA_QUALITY_ERROR>()) {
+            if (_is_load) {
+                return Status::OK();
+            } else if (_openx_json_ignore_malformed) {
+                RETURN_IF_ERROR(ignore_malformed_json_append_null(block));
+                return Status::OK();
+            }
         }
+
         RETURN_IF_ERROR(st);
         if (*is_empty_row || *eof) {
             return Status::OK();

@@ -286,6 +286,9 @@ struct TFileAttributes {
     11: optional i32 skip_lines;
     //For text type file reading, whether to enable utf8 encoding check.(Catalog && TVF)
     12: optional bool enable_text_validate_utf8 = true;
+    // org.openx.data.jsonserde.JsonSerDe
+    13: optional bool openx_json_ignore_malformed = false;
+
     // for cloud copy into
     1001: optional bool ignore_csv_redundant_col;
 }
