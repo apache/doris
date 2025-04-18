@@ -364,10 +364,12 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (checkExists && (!FeConstants.runningUnitTest || this instanceof TestExternalDatabase)) {
             try {
                 List<String> tblNames = Lists.newArrayList(getTableNamesWithLock());
+                LOG.info("yy debug get current table list: {}, localTableName: {}", tblNames, localTableName);
                 if (!tblNames.contains(localTableName)) {
                     tblNames = listTableNames().stream()
                             .map(Pair::value)
                             .collect(Collectors.toList());
+                    LOG.info("yy debug get new table list: {}, localTableName: {}", tblNames, localTableName);
                     if (!tblNames.contains(localTableName)) {
                         LOG.warn("Table {} does not exist in the remote system. Skipping initialization.",
                                 localTableName);
