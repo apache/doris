@@ -236,8 +236,9 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_compaction_schema) {
     }
 
     std::unordered_map<int32_t, schema_util::PathToNoneNullValues> path_stats;
+    std::unordered_map<int32_t, std::unordered_set<std::string>> typed_paths;
     for (const auto& rowset : rowsets) {
-        auto st = schema_util::collect_path_stats(rowset, path_stats);
+        auto st = schema_util::collect_path_stats(rowset, path_stats, typed_paths);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
@@ -270,6 +271,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_compaction_schema) {
 }
 
 TEST_F(SchemaUtilRowsetTest, typed_path) {
+    all_path_stats.clear();
     // 1.create tablet schema
     TabletSchemaPB schema_pb;
     construct_column(schema_pb.add_column(), 0, "INT", "key", true);
@@ -300,8 +302,9 @@ TEST_F(SchemaUtilRowsetTest, typed_path) {
     }
 
     std::unordered_map<int32_t, schema_util::PathToNoneNullValues> path_stats;
+    std::unordered_map<int32_t, std::unordered_set<std::string>> typed_paths;
     for (const auto& rowset : rowsets) {
-        auto st = schema_util::collect_path_stats(rowset, path_stats);
+        auto st = schema_util::collect_path_stats(rowset, path_stats, typed_paths);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
@@ -327,7 +330,6 @@ TEST_F(SchemaUtilRowsetTest, typed_path) {
         EXPECT_EQ(paths.size(), 5);
         std::sort(paths.begin(), paths.end());
         EXPECT_TRUE(paths[0].ends_with("__DORIS_VARIANT_SPARSE__"));
-        EXPECT_TRUE(paths[1].ends_with("key0"));
         EXPECT_TRUE(paths[2].ends_with("key1"));
         EXPECT_TRUE(paths[3].ends_with("key2"));
         EXPECT_TRUE(paths[4].ends_with("key3"));

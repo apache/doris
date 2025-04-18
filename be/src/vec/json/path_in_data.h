@@ -91,8 +91,6 @@ public:
     void to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_unique_id) const;
     void from_protobuf(const segment_v2::ColumnPathInfo& pb);
 
-    void set_is_typed(bool is_typed_) { is_typed = is_typed_; }
-
     bool get_is_typed() const { return is_typed; }
 
     bool operator<(const PathInData& rhs) const {

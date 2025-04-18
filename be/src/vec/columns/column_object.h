@@ -90,10 +90,6 @@ struct FieldInfo {
 #define ENABLE_CHECK_CONSISTENCY(this) (this)->check_consistency()
 #endif
 
-namespace schema_util {
-struct SubColumnInfo;
-}
-
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
  *  a trie-like structure. ColumnObject is not suitable for writing into tables
@@ -574,7 +570,7 @@ public:
                                                                       size_t row);
 
     Status pick_subcolumns_to_sparse_column(
-            const std::unordered_map<std::string, schema_util::SubColumnInfo>& typed_paths);
+            const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths);
 
     void set_max_subcolumns_count(int32_t max_subcolumns_count) {
         _max_subcolumns_count = max_subcolumns_count;

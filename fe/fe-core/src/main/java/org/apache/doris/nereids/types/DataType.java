@@ -789,19 +789,7 @@ public abstract class DataType {
             throw new AnalysisException("Unsupported data type: " + catalogType.toSql());
         }
 
-        if (catalogType.isVariantType()) {
-            ArrayList<org.apache.doris.catalog.VariantField> predefinedFields =
-                    ((org.apache.doris.catalog.VariantType) catalogType).getPredefinedFields();
-            Set<String> fieldPatterns = new HashSet<>();
-            for (org.apache.doris.catalog.VariantField field : predefinedFields) {
-                Type fieldType = field.getType();
-                validateNestedType(catalogType, fieldType);
-                if (!fieldPatterns.add(field.getPattern())) {
-                    throw new AnalysisException("Duplicate field name " + field.getPattern()
-                            + " in struct " + catalogType.toSql());
-                }
-            }
-        } else if (catalogType.isScalarType()) {
+        if (catalogType.isScalarType()) {
             validateScalarType((ScalarType) catalogType);
         } else if (catalogType.isComplexType()) {
             // now we not support array / map / struct nesting complex type
@@ -1016,6 +1004,20 @@ public abstract class DataType {
                 if (scale < 0 || scale > 6) {
                     throw new AnalysisException("Scale of Datetime/Time must between 0 and 6."
                             + " Scale was set to: " + scale + ".");
+                }
+                break;
+            }
+            case VARIANT: {
+                ArrayList<org.apache.doris.catalog.VariantField> predefinedFields =
+                        ((org.apache.doris.catalog.VariantType) scalarType).getPredefinedFields();
+                Set<String> fieldPatterns = new HashSet<>();
+                for (org.apache.doris.catalog.VariantField field : predefinedFields) {
+                    Type fieldType = field.getType();
+                    validateNestedType(scalarType, fieldType);
+                    if (!fieldPatterns.add(field.getPattern())) {
+                        throw new AnalysisException("Duplicate field name " + field.getPattern()
+                                + " in struct " + scalarType.toSql());
+                    }
                 }
                 break;
             }

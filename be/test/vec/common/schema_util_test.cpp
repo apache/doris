@@ -394,7 +394,7 @@ TEST_F(SchemaUtilTest, generate_sub_column_info_based) {
     TabletSchema schema;
     schema.append_column(variant);
 
-    schema_util::SubColumnInfo sub_column_info;
+    TabletSchema::SubColumnInfo sub_column_info;
     bool match =
             schema_util::generate_sub_column_info(schema, 10, "profile.id.name", &sub_column_info);
     EXPECT_TRUE(match);
@@ -453,7 +453,7 @@ TEST_F(SchemaUtilTest, generate_sub_column_info_advanced) {
     index2._col_unique_ids = {10};
     schema.append_index(std::move(index2));
 
-    schema_util::SubColumnInfo sub_column_info;
+    TabletSchema::SubColumnInfo sub_column_info;
     bool match =
             schema_util::generate_sub_column_info(schema, 10, "profile.id.name", &sub_column_info);
     EXPECT_TRUE(match);

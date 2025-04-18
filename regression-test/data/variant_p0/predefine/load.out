@@ -16,7 +16,7 @@
 -- !sql --
 id	bigint	No	true	\N	
 type	varchar(30)	Yes	false	\N	NONE
-v1	variant<MATCH_NAME_GLOB a.b.c:int,MATCH_NAME_GLOB ss:text,MATCH_NAME_GLOB dcm:decimalv3(38,9),MATCH_NAME_GLOB dt:datetimev2(0),MATCH_NAME_GLOB ip:ipv4,MATCH_NAME_GLOB a.b.d:double>	Yes	false	\N	NONE
+v1	variant<MATCH_NAME_GLOB 'a.b.c':int,MATCH_NAME_GLOB 'ss':text,MATCH_NAME_GLOB 'dcm':decimalv3(38,9),MATCH_NAME_GLOB 'dt':datetimev2(0),MATCH_NAME_GLOB 'ip':ipv4,MATCH_NAME_GLOB 'a.b.d':double>	Yes	false	\N	NONE
 v1.a.b.c	int	Yes	false	\N	NONE
 v1.a.b.d	double	Yes	false	\N	NONE
 v1.dcm	decimal(38,9)	Yes	false	\N	NONE
@@ -102,7 +102,7 @@ v1.predefine_col4	text	Yes	false	\N	NONE
 
 -- !sql --
 id	bigint	No	true	\N	
-v1	variant<MATCH_NAME_GLOB array_int:array<int>,MATCH_NAME_GLOB array_string:array<text>,MATCH_NAME_GLOB array_decimal:array<decimalv3(26,9)>,MATCH_NAME_GLOB array_datetime:array<datetimev2(0)>,MATCH_NAME_GLOB array_datetimev2:array<datetimev2(0)>,MATCH_NAME_GLOB array_date:array<datev2>,MATCH_NAME_GLOB array_datev2:array<datev2>,MATCH_NAME_GLOB array_ipv4:array<ipv4>,MATCH_NAME_GLOB array_ipv6:array<ipv6>,MATCH_NAME_GLOB array_float:array<float>,MATCH_NAME_GLOB array_boolean:array<boolean>,MATCH_NAME_GLOB int_:int,MATCH_NAME_GLOB string_:text,MATCH_NAME_GLOB decimal_:decimalv3(26,9),MATCH_NAME_GLOB datetime_:datetimev2(0),MATCH_NAME_GLOB datetimev2_:datetimev2(6),MATCH_NAME_GLOB date_:datev2,MATCH_NAME_GLOB datev2_:datev2,MATCH_NAME_GLOB ipv4_:ipv4,MATCH_NAME_GLOB ipv6_:ipv6,MATCH_NAME_GLOB float_:float,MATCH_NAME_GLOB boolean_:boolean,MATCH_NAME_GLOB varchar_:varchar(65533)>	Yes	false	\N	NONE
+v1	variant<MATCH_NAME_GLOB 'array_int':array<int>,MATCH_NAME_GLOB 'array_string':array<text>,MATCH_NAME_GLOB 'array_decimal':array<decimalv3(26,9)>,MATCH_NAME_GLOB 'array_datetime':array<datetimev2(0)>,MATCH_NAME_GLOB 'array_datetimev2':array<datetimev2(0)>,MATCH_NAME_GLOB 'array_date':array<datev2>,MATCH_NAME_GLOB 'array_datev2':array<datev2>,MATCH_NAME_GLOB 'array_ipv4':array<ipv4>,MATCH_NAME_GLOB 'array_ipv6':array<ipv6>,MATCH_NAME_GLOB 'array_float':array<float>,MATCH_NAME_GLOB 'array_boolean':array<boolean>,MATCH_NAME_GLOB 'int_':int,MATCH_NAME_GLOB 'string_':text,MATCH_NAME_GLOB 'decimal_':decimalv3(26,9),MATCH_NAME_GLOB 'datetime_':datetimev2(0),MATCH_NAME_GLOB 'datetimev2_':datetimev2(6),MATCH_NAME_GLOB 'date_':datev2,MATCH_NAME_GLOB 'datev2_':datev2,MATCH_NAME_GLOB 'ipv4_':ipv4,MATCH_NAME_GLOB 'ipv6_':ipv6,MATCH_NAME_GLOB 'float_':float,MATCH_NAME_GLOB 'boolean_':boolean,MATCH_NAME_GLOB 'varchar_':varchar(65533)>	Yes	false	\N	NONE
 v1.array_boolean	array<boolean>	Yes	false	\N	NONE
 v1.array_date	array<date>	Yes	false	\N	NONE
 v1.array_datetime	array<datetime>	Yes	false	\N	NONE
@@ -138,8 +138,8 @@ v1.varchar_	varchar(65533)	Yes	false	\N	NONE
 -- !sql --
 id	bigint	No	true	\N	
 v1	variant	Yes	false	\N	NONE
-v2	variant<MATCH_NAME_GLOB dcm:decimalv3(38,9),MATCH_NAME_GLOB dt:datetimev2(0)>	Yes	false	\N	NONE
-v3	variant<MATCH_NAME_GLOB dcm:decimalv3(38,9),MATCH_NAME_GLOB dt:datetimev2(0),MATCH_NAME_GLOB ip:ipv6>	Yes	false	\N	NONE
+v2	variant<MATCH_NAME_GLOB 'dcm':decimalv3(38,9),MATCH_NAME_GLOB 'dt':datetimev2(0)>	Yes	false	\N	NONE
+v3	variant<MATCH_NAME_GLOB 'dcm':decimalv3(38,9),MATCH_NAME_GLOB 'dt':datetimev2(0),MATCH_NAME_GLOB 'ip':ipv6>	Yes	false	\N	NONE
 v1.PREDEFINE_COL1	smallint	Yes	false	\N	NONE
 v1.PREDEFINE_COL2	double	Yes	false	\N	NONE
 v1.PREDEFINE_COL3	text	Yes	false	\N	NONE
@@ -176,7 +176,7 @@ v3.dt	datetime	Yes	false	\N	NONE
 
 -- !sql --
 id	bigint	No	true	\N	
-v	variant<MATCH_NAME_GLOB nested.a:text>	Yes	false	\N	NONE
+v	variant<MATCH_NAME_GLOB 'nested.a':text>	Yes	false	\N	NONE
 v.auto_type	json	Yes	false	\N	NONE
 
 -- !sql_arr_null_1 --

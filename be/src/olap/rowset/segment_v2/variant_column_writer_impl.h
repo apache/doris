@@ -97,7 +97,7 @@ private:
     std::vector<std::unique_ptr<TabletIndex>> _subcolumns_indexes;
 
     // hold the references of subcolumns info
-    std::unordered_map<std::string, vectorized::schema_util::SubColumnInfo> _subcolumns_info;
+    std::unordered_map<std::string, TabletSchema::SubColumnInfo> _subcolumns_info;
 };
 
 void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,

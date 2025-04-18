@@ -136,8 +136,10 @@ void get_subpaths(const TabletSchema& schema, int32_t col_unique_id,
                   std::unordered_map<int32_t, TabletSchema::PathsSetInfo>& uid_to_paths_set_info);
 
 // collect path stats from the rowset
-Status collect_path_stats(const RowsetSharedPtr& rs,
-                          std::unordered_map<int32_t, PathToNoneNullValues>& uid_to_path_stats);
+Status collect_path_stats(
+        const RowsetSharedPtr& rs,
+        std::unordered_map<int32_t, PathToNoneNullValues>& uid_to_path_stats,
+        std::unordered_map<int32_t, std::unordered_set<std::string>>& uid_to_typed_paths);
 
 // Build the temporary schema for compaction, this will reduce the memory usage of compacting variant columns
 Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target);
@@ -156,12 +158,9 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
                              size_t num_rows);
 
 void get_field_info(const Field& field, FieldInfo* info);
-struct SubColumnInfo {
-    TabletColumn column;
-    TabletIndexPtr index;
-};
 
 bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
-                              const std::string& path, SubColumnInfo* sub_column_info);
+                              const std::string& path,
+                              TabletSchema::SubColumnInfo* sub_column_info);
 
 } // namespace  doris::vectorized::schema_util

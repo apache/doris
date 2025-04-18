@@ -32,7 +32,7 @@ suite("test_variant_predefine_index_type", "p0"){
         INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="path.int", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_a_c (var) USING INVERTED PROPERTIES("field_pattern"="path.decimal") COMMENT '',
         INDEX idx_a_d (var) USING INVERTED PROPERTIES("field_pattern"="path.string", "parser"="unicode", "support_phrase" = "true") COMMENT ''
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "10")"""
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "10")"""
 
     sql """insert into ${tableName} values(1, '{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}'),
                                           (2, '{"path" : {"int" : 456, "decimal" : 456.456789123456, "string" : "world"}}'),
@@ -46,6 +46,18 @@ suite("test_variant_predefine_index_type", "p0"){
     sql """ set inverted_index_skip_threshold = 0 """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set enable_match_without_inverted_index = false """
+    qt_sql """ select count() from ${tableName} where cast(var['path']['int'] as int) = 789 """
+    qt_sql """ select count() from ${tableName} where cast(var['path']['decimal'] as DECIMAL(15, 12)) = 789.789123456789 """
+    qt_sql """ select count() from ${tableName} where var['path']['string'] match 'hello' """
+
+    for (int i = 0; i < 10; i++) {
+        sql """ insert into ${tableName} values(1, '{"path" : {"int" : 123, "decimal" : 123.123456789012, "string" : "hello"}}') """
+    }
+
+    trigger_and_wait_compaction(tableName, "cumulative")
+
+    qt_sql """ select variant_type(var) from ${tableName} order by id """
+    qt_sql """select * from ${tableName} order by id"""
     qt_sql """ select count() from ${tableName} where cast(var['path']['int'] as int) = 789 """
     qt_sql """ select count() from ${tableName} where cast(var['path']['decimal'] as DECIMAL(15, 12)) = 789.789123456789 """
     qt_sql """ select count() from ${tableName} where var['path']['string'] match 'hello' """

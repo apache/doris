@@ -30,7 +30,7 @@ suite("test_variant_predefine_base", "p0"){
             MATCH_NAME 'b?b' : string,
             MATCH_NAME_GLOB 'bb*' : string,
             MATCH_NAME_GLOB 'bx?' : string
-        > NOT NULL,
+        > NULL,
         INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_bb (var) USING INVERTED PROPERTIES("field_pattern"="*cc", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_b_b (var) USING INVERTED PROPERTIES("field_pattern"="b?b", "parser"="unicode", "support_phrase" = "true") COMMENT '',

@@ -78,8 +78,11 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                              std::unique_ptr<TabletIndex>& subcolumn_index,
                              ColumnWriterOptions* opt, int64_t none_null_value_size) {
     _init_column_meta(opt->meta, cid, column, opt->compression_type);
-    // record none null value size for statistics
-    opt->meta->set_none_null_size(none_null_value_size);
+    // no need to record none null value size for typed column
+    if (!column.path_info_ptr()->get_is_typed()) {
+        // record none null value size for statistics
+        opt->meta->set_none_null_size(none_null_value_size);
+    }
     opt->need_zone_map = tablet_schema->keys_type() != KeysType::AGG_KEYS;
     opt->need_bloom_filter = column.is_bf_column();
     opt->need_bitmap_index = column.has_bitmap_index();
@@ -361,10 +364,8 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
                 RETURN_IF_ERROR(vectorized::schema_util::cast_column(
                         {current_column, finalized_type, ""}, storage_type, &current_column));
             }
-            if (auto index = _subcolumns_info[current_path].index; index) {
+            if (auto index = _subcolumns_info[current_path].index; index != nullptr) {
                 _subcolumns_indexes[current_column_id] = std::make_unique<TabletIndex>(*index);
-                _subcolumns_indexes[current_column_id]->set_escaped_escaped_index_suffix_path(
-                        tablet_column.path_info_ptr()->get_path());
             }
             const auto& null_data = assert_cast<const vectorized::ColumnNullable&>(*current_column)
                                             .get_null_map_data();
@@ -501,7 +502,7 @@ Status VariantColumnWriterImpl::finalize() {
             // already handled
             continue;
         }
-        vectorized::schema_util::SubColumnInfo sub_column_info;
+        TabletSchema::SubColumnInfo sub_column_info;
         if (vectorized::schema_util::generate_sub_column_info(
                     *_opts.rowset_ctx->tablet_schema, _tablet_column->unique_id(),
                     entry->path.get_path(), &sub_column_info)) {
@@ -699,44 +700,19 @@ Status VariantSubcolumnWriter::finalize() {
     const auto& parent_column =
             _opts.rowset_ctx->tablet_schema->column_by_uid(_tablet_column->parent_unique_id());
 
-    TabletColumn flush_column;
-    vectorized::schema_util::SubColumnInfo sub_column_info;
-    if (auto current_path = _tablet_column->path_info_ptr()->copy_pop_front();
-        vectorized::schema_util::generate_sub_column_info(
-                *_opts.rowset_ctx->tablet_schema, _tablet_column->parent_unique_id(),
-                current_path.get_path(), &sub_column_info)) {
-        flush_column = sub_column_info.column;
-        if (sub_column_info.index) {
-            _index = std::make_unique<TabletIndex>(*sub_column_info.index);
-            _index->set_escaped_escaped_index_suffix_path(flush_column.path_info_ptr()->get_path());
-        }
-        const auto& flush_type = vectorized::DataTypeFactory::instance().create_data_type(
-                flush_column, true /* is_nullable */);
-        if (ptr->get_subcolumns().get_root()->data.get_least_common_base_type_id() ==
-            vectorized::TypeIndex::Nothing) {
-            ptr->ensure_root_node_type(flush_type);
-        } else if (!ptr->get_subcolumns().get_root()->data.get_least_common_type()->equals(
-                           *flush_type)) {
-            return Status::InternalError(
-                    "Variant column writer subcolumn type mismatch, expected: {}, actual: {}",
-                    flush_type->get_name(),
-                    ptr->get_subcolumns().get_root()->data.get_least_common_type()->get_name());
-        }
-    } else {
-        if (ptr->get_subcolumns().get_root()->data.get_least_common_base_type_id() ==
-            vectorized::TypeIndex::Nothing) {
-            auto flush_type = vectorized::DataTypeFactory::instance().create_data_type(
-                    vectorized::TypeIndex::Int8, true /* is_nullable */);
-            ptr->ensure_root_node_type(flush_type);
-        }
-
-        flush_column = vectorized::schema_util::get_column_by_type(
-                ptr->get_root_type(), _tablet_column->name(),
-                vectorized::schema_util::ExtraInfo {
-                        .unique_id = -1,
-                        .parent_unique_id = _tablet_column->parent_unique_id(),
-                        .path_info = *_tablet_column->path_info_ptr()});
+    if (ptr->get_subcolumns().get_root()->data.get_least_common_base_type_id() ==
+        vectorized::TypeIndex::Nothing) {
+        auto flush_type = vectorized::DataTypeFactory::instance().create_data_type(
+                vectorized::TypeIndex::Int8, true /* is_nullable */);
+        ptr->ensure_root_node_type(flush_type);
     }
+
+    TabletColumn flush_column = vectorized::schema_util::get_column_by_type(
+            ptr->get_root_type(), _tablet_column->name(),
+            vectorized::schema_util::ExtraInfo {
+                    .unique_id = -1,
+                    .parent_unique_id = _tablet_column->parent_unique_id(),
+                    .path_info = *_tablet_column->path_info_ptr()});
     int64_t none_null_value_size = ptr->get_subcolumns().get_root()->data.get_non_null_value_size();
     ColumnWriterOptions opts = _opts;
 

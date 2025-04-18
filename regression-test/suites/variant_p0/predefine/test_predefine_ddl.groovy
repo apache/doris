@@ -202,7 +202,7 @@ suite("test_predefine_ddl", "p0"){
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Duplicate field name ab in struct variant<MATCH_NAME ab:int,MATCH_NAME ab:text>"))
+        assertTrue(e.getMessage().contains("Duplicate field name ab in struct variant<MATCH_NAME 'ab':int,MATCH_NAME 'ab':text>"))
         findException = true
     }
     assertTrue(findException)

@@ -589,19 +589,26 @@ public:
 
     using PathSet = phmap::flat_hash_set<std::string>;
 
+    struct SubColumnInfo {
+        TabletColumn column;
+        TabletIndexPtr index;
+    };
+
     struct PathsSetInfo {
-        PathSet typed_path_set;  // typed columns
-        PathSet sub_path_set;    // extracted columns
-        PathSet sparse_path_set; // sparse columns
+        std::unordered_map<std::string, SubColumnInfo> typed_path_set; // typed columns
+        PathSet sub_path_set;                                          // extracted columns
+        PathSet sparse_path_set;                                       // sparse columns
     };
 
     const PathsSetInfo& path_set_info(int32_t unique_id) const {
         return _path_set_info_map.at(unique_id);
     }
 
-    void set_path_set_info(std::unordered_map<int32_t, PathsSetInfo>& path_set_info_map) {
-        _path_set_info_map = path_set_info_map;
+    void set_path_set_info(std::unordered_map<int32_t, PathsSetInfo>&& path_set_info_map) {
+        _path_set_info_map = std::move(path_set_info_map);
     }
+
+    void clear_path_set_info() { _path_set_info_map.clear(); }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -667,7 +674,7 @@ private:
     // key: field_pattern
     // value: index
     using PatternToIndex = std::unordered_map<std::string, TabletIndexPtr>;
-    std::unordered_map<int32_t, PatternToIndex> _index_by_unique_id;
+    std::unordered_map<int32_t, PatternToIndex> _index_by_unique_id_with_pattern;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

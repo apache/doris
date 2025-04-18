@@ -34,9 +34,8 @@ suite("test_predefine_typed_sparse", "p0"){
         sql """insert into ${tableName} values(1, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09::09::09Z", "d": "2025-04-18", "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
         sql """insert into ${tableName} values(2, '{"a": "2025-04-16", "b": 123.123456789012, "c": "2025-04-17T09::09::09Z", "d": "2025-04-18", "e": "2025-04-19", "f": "2025-04-20", "g": "2025-04-21", "h": "2025-04-22", "i": "2025-04-23", "j": "2025-04-24", "k": "2025-04-25", "l": "2025-04-26", "m": "2025-04-27", "n": "2025-04-28", "o": "2025-04-29", "p": "2025-04-30"}');"""
     }
-    
 
-     qt_sql """ select variant_type(var) from ${tableName} order by id """
+    qt_sql """ select variant_type(var) from ${tableName} order by id """
     qt_sql """ select * from ${tableName} order by id """
     trigger_and_wait_compaction(tableName, "cumulative")
     qt_sql """ select * from ${tableName} order by id """

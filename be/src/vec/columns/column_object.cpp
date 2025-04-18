@@ -1882,7 +1882,7 @@ Status ColumnObject::finalize(FinalizeMode mode) {
 }
 
 Status ColumnObject::pick_subcolumns_to_sparse_column(
-        const std::unordered_map<std::string, schema_util::SubColumnInfo>& typed_paths) {
+        const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths) {
     DCHECK(_max_subcolumns_count >= 0) << "max subcolumns count is: " << _max_subcolumns_count;
 
     // root column must be exsit in subcolumns
@@ -1931,9 +1931,9 @@ Status ColumnObject::pick_subcolumns_to_sparse_column(
     // 3. pick config::variant_max_subcolumns_count selected subcolumns
     for (size_t i = 0; i < std::min(size_t(_max_subcolumns_count), sorted_by_size.size()); ++i) {
         // if too many null values, then consider it as sparse column
-        // if ((double)sorted_by_size[i].second < (double)num_rows * 0.95) {
-        //     continue;
-        // }
+        if ((double)sorted_by_size[i].second < (double)num_rows * 0.95) {
+            continue;
+        }
         selected_path.insert(sorted_by_size[i].first);
     }
     std::map<std::string_view, Subcolumn> remaing_subcolumns;

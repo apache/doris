@@ -658,8 +658,10 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     return res;
 }
 
-Status collect_path_stats(const RowsetSharedPtr& rs,
-                          std::unordered_map<int32_t, PathToNoneNullValues>& uid_to_path_stats) {
+Status collect_path_stats(
+        const RowsetSharedPtr& rs,
+        std::unordered_map<int32_t, PathToNoneNullValues>& uid_to_path_stats,
+        std::unordered_map<int32_t, std::unordered_set<std::string>>& uid_to_typed_paths) {
     SegmentCacheHandle segment_cache;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
             std::static_pointer_cast<BetaRowset>(rs), &segment_cache));
@@ -680,19 +682,23 @@ Status collect_path_stats(const RowsetSharedPtr& rs,
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-            const auto* source_stats =
-                    static_cast<const segment_v2::VariantColumnReader*>(column_reader)->get_stats();
+            const auto* variant_column_reader =
+                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader);
+            const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
-            // 合并子列统计信息
             for (const auto& [path, size] : source_stats->subcolumns_non_null_size) {
                 uid_to_path_stats[column->unique_id()][path] += size;
             }
 
-            // 合并稀疏列统计信息
             for (const auto& [path, size] : source_stats->sparse_column_non_null_size) {
                 CHECK(!path.empty());
                 uid_to_path_stats[column->unique_id()][path] += size;
+            }
+
+            const auto& typed_paths = variant_column_reader->get_typed_paths();
+            for (const auto& path : typed_paths) {
+                uid_to_typed_paths[column->unique_id()].insert(path);
             }
         }
     }
@@ -715,12 +721,7 @@ void get_subpaths(const TabletSchema& schema, int32_t col_unique_id,
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
         paths_with_sizes.reserve(stats.size());
         for (const auto& [path, size] : stats) {
-            SubColumnInfo sub_column_info;
-            if (generate_sub_column_info(schema, col_unique_id, path, &sub_column_info)) {
-                uid_to_paths_set_info[uid].typed_path_set.emplace(path);
-            } else {
-                paths_with_sizes.emplace_back(size, path);
-            }
+            paths_with_sizes.emplace_back(size, path);
         }
         std::sort(paths_with_sizes.begin(), paths_with_sizes.end(), std::greater());
 
@@ -758,11 +759,15 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
         }
     }
     std::unordered_map<int32_t, PathToNoneNullValues> original_uid_to_path_stats;
+    std::unordered_map<int32_t, std::unordered_set<std::string>> original_uid_to_typed_paths;
     for (const auto& rs : intputs) {
-        RETURN_IF_ERROR(collect_path_stats(rs, original_uid_to_path_stats));
+        RETURN_IF_ERROR(
+                collect_path_stats(rs, original_uid_to_path_stats, original_uid_to_typed_paths));
     }
     std::unordered_map<int32_t, PathToNoneNullValues> output_uid_to_path_stats;
-    RETURN_IF_ERROR(collect_path_stats(output, output_uid_to_path_stats));
+    std::unordered_map<int32_t, std::unordered_set<std::string>> output_uid_to_typed_paths;
+    RETURN_IF_ERROR(
+            collect_path_stats(output, output_uid_to_path_stats, output_uid_to_typed_paths));
     for (const auto& [uid, stats] : output_uid_to_path_stats) {
         if (original_uid_to_path_stats.find(uid) == original_uid_to_path_stats.end()) {
             return Status::InternalError("Path stats not found for uid {}, tablet_id {}", uid,
@@ -779,7 +784,7 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
                         original_uid_to_path_stats.at(uid).end()) {
                         continue;
                     }
-                    if (size > 0 && original_uid_to_path_stats.at(uid).at(path) > size) {
+                    if (original_uid_to_path_stats.at(uid).at(path) > size) {
                         return Status::InternalError(
                                 "Path stats not smaller for uid {} with path `{}`, input size {}, "
                                 "output "
@@ -793,15 +798,8 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
         }
         // in this case, input stats is accurate, so we check the stats size and stats value
         else {
-            if (stats.size() != original_uid_to_path_stats.at(uid).size()) {
-                return Status::InternalError(
-                        "Path stats size not match for uid {}, tablet_id {}, input size {}, output "
-                        "size {}",
-                        uid, tablet->tablet_id(), original_uid_to_path_stats.at(uid).size(),
-                        stats.size());
-            }
             for (const auto& [path, size] : stats) {
-                if (size > 0 && original_uid_to_path_stats.at(uid).at(path) != size) {
+                if (original_uid_to_path_stats.at(uid).at(path) != size) {
                     return Status::InternalError(
                             "Path stats not match for uid {} with path `{}`, input size {}, output "
                             "size {}, "
@@ -825,10 +823,10 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
 Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
                              TabletSchemaSPtr& target) {
     std::unordered_map<int32_t, PathToNoneNullValues> uid_to_path_stats;
-
+    std::unordered_map<int32_t, std::unordered_set<std::string>> uid_to_typed_paths;
     // collect path stats from all rowsets and segments
     for (const auto& rs : rowsets) {
-        RETURN_IF_ERROR(collect_path_stats(rs, uid_to_path_stats));
+        RETURN_IF_ERROR(collect_path_stats(rs, uid_to_path_stats, uid_to_typed_paths));
     }
 
     // build the output schema
@@ -842,9 +840,21 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
         }
         VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
 
+        // append typed columns
+        for (const auto& path : uid_to_typed_paths[column->unique_id()]) {
+            TabletSchema::SubColumnInfo sub_column_info;
+            if (generate_sub_column_info(*target, column->unique_id(), path, &sub_column_info)) {
+                output_schema->append_column(sub_column_info.column);
+                uid_to_paths_set_info[column->unique_id()].typed_path_set.insert(
+                        {path, std::move(sub_column_info)});
+                VLOG_DEBUG << "append typed column " << path;
+            }
+        }
+
         // get the subpaths
         get_subpaths(*target, column->unique_id(), uid_to_path_stats, uid_to_paths_set_info);
 
+        // append subcolumns
         auto append_subcolumn = [&](phmap::flat_hash_set<std::string>& path_set) {
             std::vector<StringRef> sorted_subpaths(path_set.begin(), path_set.end());
             std::sort(sorted_subpaths.begin(), sorted_subpaths.end());
@@ -863,7 +873,6 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
             }
         };
 
-        append_subcolumn(uid_to_paths_set_info[column->unique_id()].typed_path_set);
         append_subcolumn(uid_to_paths_set_info[column->unique_id()].sub_path_set);
 
         // append sparse column
@@ -873,7 +882,7 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
 
     target = output_schema;
     // used to merge & filter path to sparse column during reading in compaction
-    target->set_path_set_info(uid_to_paths_set_info);
+    target->set_path_set_info(std::move(uid_to_paths_set_info));
     VLOG_DEBUG << "dump schema " << target->dump_full_schema();
     return Status::OK();
 }
@@ -1147,7 +1156,8 @@ void get_field_info(const Field& field, FieldInfo* info) {
 }
 
 bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
-                              const std::string& path, SubColumnInfo* sub_column_info) {
+                              const std::string& path,
+                              TabletSchema::SubColumnInfo* sub_column_info) {
     const auto& parent_column = schema.column_by_uid(col_unique_id);
     std::function<void(const TabletColumn&, TabletColumn*)> generate_result_column =
             [&](const TabletColumn& from_column, TabletColumn* to_column) {
@@ -1170,6 +1180,25 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                 }
             };
 
+    auto generate_index = [&](const std::string& pattern) {
+        // 1. find subcolumn's index
+        if (const auto& index = schema.inverted_index_by_field_pattern(col_unique_id, pattern);
+            index != nullptr) {
+            sub_column_info->index = std::make_shared<TabletIndex>(*index);
+            sub_column_info->index->set_escaped_escaped_index_suffix_path(
+                    sub_column_info->column.path_info_ptr()->get_path());
+        }
+        // 2. find parent column's index
+        else if (const auto* parent_index = schema.inverted_index(col_unique_id);
+                 parent_index != nullptr) {
+            sub_column_info->index = std::make_shared<TabletIndex>(*parent_index);
+            sub_column_info->index->set_escaped_escaped_index_suffix_path(
+                    sub_column_info->column.path_info_ptr()->get_path());
+        } else {
+            sub_column_info->index = nullptr;
+        }
+    };
+
     const auto& sub_columns = parent_column.get_sub_columns();
     for (const auto& sub_column : sub_columns) {
         const char* pattern = sub_column->name().c_str();
@@ -1177,8 +1206,7 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
         case PatternTypePB::MATCH_NAME: {
             if (strcmp(pattern, path.c_str()) == 0) {
                 generate_result_column(*sub_column, &sub_column_info->column);
-                sub_column_info->index =
-                        schema.inverted_index_by_field_pattern(col_unique_id, std::string(pattern));
+                generate_index(sub_column->name());
                 return true;
             }
             break;
@@ -1187,8 +1215,7 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
             int result = fnmatch(pattern, path.c_str(), FNM_PATHNAME);
             if (result == 0) {
                 generate_result_column(*sub_column, &sub_column_info->column);
-                sub_column_info->index =
-                        schema.inverted_index_by_field_pattern(col_unique_id, std::string(pattern));
+                generate_index(sub_column->name());
                 return true;
             }
             break;

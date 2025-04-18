@@ -335,6 +335,8 @@ public:
 
     const SubcolumnColumnReaders* get_subcolumn_readers() const { return _subcolumn_readers.get(); }
 
+    std::vector<std::string> get_typed_paths() const;
+
 private:
     // init for compaction read
     Status _new_default_iter_with_same_nested(ColumnIterator** iterator, const TabletColumn& col);
