@@ -960,6 +960,15 @@ public class TypeCoercionUtils {
     }
 
     /**
+     * check if the right literal can be converted to the type of the left expression.
+     */
+    private static boolean isRightLiteralConvertible(Expression left, Expression right) {
+        return !(left instanceof Literal)
+                && (right instanceof Literal)
+                && canCastTo(right.getDataType(), left.getDataType());
+    }
+
+    /**
      * process comparison predicate type coercion.
      */
     public static Expression processComparisonPredicate(ComparisonPredicate comparisonPredicate) {
@@ -975,6 +984,16 @@ public class TypeCoercionUtils {
                 throw new AnalysisException("data type " + left.getDataType()
                         + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
             }
+            return comparisonPredicate.withChildren(left, right);
+        }
+            
+        // try to convert the right literal to left type.
+        if (isRightLiteralConvertible(left, right)) {
+            if (!supportCompare(left.getDataType())) {
+                throw new AnalysisException("data type " + left.getDataType()
+                        + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
+            }
+            right = castIfNotSameType(right, left.getDataType());
             return comparisonPredicate.withChildren(left, right);
         }
 
