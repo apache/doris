@@ -79,6 +79,7 @@
 #endif
 #endif
 
+namespace doris {
 static constexpr size_t MMAP_MIN_ALIGNMENT = 4096;
 static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
 
@@ -87,9 +88,7 @@ static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
 // is always a multiple of sixteen. (https://www.gnu.org/software/libc/manual/html_node/Aligned-Memory-Blocks.html)
 static constexpr int ALLOCATOR_ALIGNMENT_16 = 16;
 
-namespace doris {
 class MemTrackerLimiter;
-}
 
 class DefaultMemoryAllocator {
 public:
@@ -456,3 +455,4 @@ public:
 protected:
     static constexpr size_t get_stack_threshold() { return N; }
 };
+} // namespace doris

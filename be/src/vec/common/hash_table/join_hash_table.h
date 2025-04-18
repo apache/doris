@@ -26,7 +26,6 @@
 #include "vec/columns/column_filter_helper.h"
 #include "vec/common/custom_allocator.h"
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_table_allocator.h"
 
 namespace doris {
 template <typename Key, typename Hash = DefaultHash<Key>>
