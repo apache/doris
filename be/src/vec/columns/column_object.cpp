@@ -1473,28 +1473,26 @@ void ColumnObject::Subcolumn::wrapp_array_nullable() {
     }
 }
 
-Status ColumnObject::serialize_one_row_to_string(size_t row, std::string* output) const {
+void ColumnObject::serialize_one_row_to_string(size_t row, std::string* output) const {
     auto tmp_col = ColumnString::create();
     VectorBufferWriter write_buffer(*tmp_col.get());
     if (is_scalar_variant()) {
         subcolumns.get_root()->data.serialize_text_json(row, write_buffer);
     } else {
         // TODO preallocate memory
-        RETURN_IF_ERROR(serialize_one_row_to_json_format(row, write_buffer, nullptr));
+        serialize_one_row_to_json_format(row, write_buffer, nullptr);
     }
     write_buffer.commit();
     auto str_ref = tmp_col->get_data_at(0);
     *output = std::string(str_ref.data, str_ref.size);
-    return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_string(size_t row, BufferWritable& output) const {
+void ColumnObject::serialize_one_row_to_string(size_t row, BufferWritable& output) const {
     if (is_scalar_variant()) {
         subcolumns.get_root()->data.serialize_text_json(row, output);
-        return Status::OK();
+        return;
     }
-    RETURN_IF_ERROR(serialize_one_row_to_json_format(row, output, nullptr));
-    return Status::OK();
+    serialize_one_row_to_json_format(row, output, nullptr);
 }
 
 /// Struct that represents elements of the JSON path.
@@ -1622,12 +1620,12 @@ bool ColumnObject::is_visible_root_value(size_t nrow) const {
                            nrow);
 }
 
-Status ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWritable& output,
+void ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWritable& output,
                                                       bool* is_null) const {
     // root is not eighther null or empty, we should only process root value
     if (is_visible_root_value(row_num)) {
         subcolumns.get_root()->data.serialize_text_json(row_num, output);
-        return Status::OK();
+        return;
     }
     const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
     const auto& sparse_data_offsets = column_map.get_offsets();
@@ -1743,7 +1741,6 @@ Status ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWri
 #ifndef NDEBUG
     // check if it is a valid json
 #endif
-    return Status::OK();
 }
 
 size_t ColumnObject::Subcolumn::get_non_null_value_size() const {
