@@ -1895,8 +1895,8 @@ public:
                 int32_t num = 0;
                 auto substr = str_str;
 
-                std::string delimiter_str(reinterpret_cast<const char*>(delimiter.data),
-                                          delimiter.size);
+                StringRef delimiter_str(reinterpret_cast<const char*>(delimiter.data),
+                                        delimiter.size);
                 while (num <= neg_part_number && offset >= 0) {
                     offset = (int)substr.rfind(delimiter_str, offset);
                     if (offset != -1) {
