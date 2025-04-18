@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
@@ -53,6 +54,7 @@ public class OSSProperties extends AbstractObjectStorageProperties {
             description = "The region of OSS.")
     protected String region;
 
+    private static Pattern ENDPOINT_PATTERN = Pattern.compile("^oss-[a-z0-9-]+\\.aliyuncs\\.com(\\.internal)?$");
 
     protected OSSProperties(Map<String, String> origProps) {
         super(Type.OSS, origProps);
@@ -74,9 +76,14 @@ public class OSSProperties extends AbstractObjectStorageProperties {
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    protected void initNormalizeAndCheckProps() throws UserException {
         super.initNormalizeAndCheckProps();
         initRegionIfNecessary();
+    }
+
+    @Override
+    protected Pattern endpointPattern() {
+        return ENDPOINT_PATTERN;
     }
 
     /**
@@ -101,6 +108,7 @@ public class OSSProperties extends AbstractObjectStorageProperties {
             Matcher matcher = ossPattern.matcher(endpoint);
             if (matcher.find()) {
                 this.region = matcher.group(1);
+                return;
             }
         }
         // Check for internal endpoint and extract region

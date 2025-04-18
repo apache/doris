@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.UserException;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -38,15 +40,19 @@ public class OBSPropertyTest {
         origProps.put("obs.endpoint", "https://obs.example.com");
         origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
 
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.create(origProps), "Property obs.access_key is required.");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Property obs.access_key is required.");
         origProps.put("obs.access_key", "myOBSAccessKey");
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.create(origProps), "Property obs.secret_key is required.");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Property obs.secret_key is required.");
         origProps.put("obs.secret_key", "myOBSSecretKey");
-        StorageProperties.create(origProps);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Invalid endpoint format: https://obs.example.com");
+        origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createAll(origProps));
+        origProps.put("obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createAll(origProps));
     }
 
     @Test
-    public void testToNativeS3Configuration() {
+    public void testToNativeS3Configuration() throws UserException {
         origProps.put("obs.access_key", "myOBSAccessKey");
         origProps.put("obs.secret_key", "myOBSSecretKey");
         origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
@@ -56,7 +62,7 @@ public class OBSPropertyTest {
         origProps.put("use_path_style", "true");
         origProps.put("test_non_storage_param", "test_non_storage_value");
         origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
-        OBSProperties obsProperties = (OBSProperties) StorageProperties.create(origProps).get(1);
+        OBSProperties obsProperties = (OBSProperties) StorageProperties.createAll(origProps).get(0);
         Map<String, String> s3Props = new HashMap<>();
         Map<String, String> obsConfig = obsProperties.getMatchedProperties();
         Assertions.assertTrue(!obsConfig.containsKey("test_non_storage_param"));
@@ -77,18 +83,18 @@ public class OBSPropertyTest {
         Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         origProps.remove("use_path_style");
-        obsProperties = (OBSProperties) StorageProperties.create(origProps).get(1);
+        obsProperties = (OBSProperties) StorageProperties.createAll(origProps).get(0);
         s3Props = obsProperties.getBackendConfigProperties();
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
     }
 
 
     @Test
-    public void testGetRegion() {
+    public void testGetRegion() throws UserException {
         origProps.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
         origProps.put("obs.access_key", "myCOSAccessKey");
         origProps.put("obs.secret_key", "myCOSSecretKey");
-        OBSProperties obsProperties = (OBSProperties) StorageProperties.createStorageProperties(origProps);
+        OBSProperties obsProperties = (OBSProperties) StorageProperties.createAll(origProps).get(0);
         Assertions.assertEquals("cn-north-4", obsProperties.getRegion());
         Assertions.assertEquals("myCOSAccessKey", obsProperties.getAccessKey());
         Assertions.assertEquals("myCOSSecretKey", obsProperties.getSecretKey());
@@ -96,11 +102,11 @@ public class OBSPropertyTest {
     }
 
     @Test
-    public void testGetRegionWithDefault() {
+    public void testGetRegionWithDefault() throws UserException {
         origProps.put("uri", "https://examplebucket-1250000000.obs.cn-north-4.myhuaweicloud.com/test/file.txt");
         origProps.put("obs.access_key", "myCOSAccessKey");
         origProps.put("obs.secret_key", "myCOSSecretKey");
-        OBSProperties obsProperties = (OBSProperties) StorageProperties.createStorageProperties(origProps);
+        OBSProperties obsProperties = (OBSProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("cn-north-4", obsProperties.getRegion());
         Assertions.assertEquals("myCOSAccessKey", obsProperties.getAccessKey());
         Assertions.assertEquals("myCOSSecretKey", obsProperties.getSecretKey());
@@ -109,9 +115,9 @@ public class OBSPropertyTest {
         cosNoEndpointProps.put("obs.access_key", "myCOSAccessKey");
         cosNoEndpointProps.put("obs.secret_key", "myCOSSecretKey");
         cosNoEndpointProps.put("obs.region", "ap-beijing");
-        origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
+        cosNoEndpointProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
         //not support
-        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createStorageProperties(cosNoEndpointProps), "Property cos.endpoint is required.");
+        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createAll(cosNoEndpointProps), "Property cos.endpoint is required.");
     }
 
     private static String obsAccessKey = "";

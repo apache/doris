@@ -43,19 +43,15 @@ public class S3PropertyUtils {
      */
     public static String constructEndpointFromUrl(Map<String, String> props,
                                                   String stringUsePathStyle,
-                                                  String stringForceParsingByStandardUri) {
+                                                  String stringForceParsingByStandardUri) throws UserException {
         String uri = props.get(URI_KEY);
         if (uri == null || uri.isEmpty()) {
             return null;
         }
         boolean usePathStyle = Boolean.parseBoolean(stringUsePathStyle);
         boolean forceParsingByStandardUri = Boolean.parseBoolean(stringForceParsingByStandardUri);
-        try {
-            S3URI s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
-            return s3uri.getEndpoint().orElse(null);
-        } catch (UserException e) {
-            return null;
-        }
+        S3URI s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
+        return s3uri.getEndpoint().orElse(null);
     }
 
     /**
@@ -72,20 +68,16 @@ public class S3PropertyUtils {
      */
     public static String constructRegionFromUrl(Map<String, String> props,
                                                 String stringUsePathStyle,
-                                                String stringForceParsingByStandardUri) {
+                                                String stringForceParsingByStandardUri) throws UserException {
         String uri = props.get(URI_KEY);
         if (uri == null || uri.isEmpty()) {
             return null;
         }
         boolean usePathStyle = Boolean.parseBoolean(stringUsePathStyle);
         boolean forceParsingByStandardUri = Boolean.parseBoolean(stringForceParsingByStandardUri);
+        S3URI s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
+        return s3uri.getRegion().orElse(null);
 
-        try {
-            S3URI s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
-            return s3uri.getRegion().orElse(null);
-        } catch (UserException e) {
-            return null;
-        }
     }
 
     /**

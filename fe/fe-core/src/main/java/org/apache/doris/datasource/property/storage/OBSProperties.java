@@ -53,6 +53,9 @@ public class OBSProperties extends AbstractObjectStorageProperties {
             description = "The region of OBS.")
     protected String region;
 
+    private static Pattern ENDPOINT_PATTERN = Pattern
+            .compile("^obs\\.[a-z0-9-]+\\.myhuaweicloud\\.com(\\.internal)?$");
+
     public OBSProperties(Map<String, String> origProps) {
         super(Type.OBS, origProps);
         // Initialize fields from origProps
@@ -75,6 +78,11 @@ public class OBSProperties extends AbstractObjectStorageProperties {
         return origProps.get("uri").contains("myhuaweicloud.com");
     }
 
+    @Override
+    protected Pattern endpointPattern() {
+        return ENDPOINT_PATTERN;
+    }
+
     /**
      * Initializes the region field based on the OBS endpoint if it's not already set.
      * <p>
@@ -86,7 +94,7 @@ public class OBSProperties extends AbstractObjectStorageProperties {
      */
     @Override
     protected void initRegionIfNecessary() {
-        if (Strings.isNullOrEmpty(this.region) && this.endpoint.contains("myhuaweicloud.com")) {
+        if (Strings.isNullOrEmpty(this.region)) {
             Pattern obsPattern = Pattern.compile("obs\\.([a-z0-9-]+)\\.myhuaweicloud\\.com");
             Matcher matcher = obsPattern.matcher(endpoint);
             if (matcher.find()) {

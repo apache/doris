@@ -19,7 +19,7 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
 
-import  org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
@@ -50,7 +50,7 @@ class S3PropertyUtilsTest {
     }
 
     @Test
-    void testConstructEndpointFromUrl_success() {
+    void testConstructEndpointFromUrl_success() throws UserException {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "https://my-bucket.s3.us-east-1.amazonaws.com/some/file.txt");
         String endpoint = S3PropertyUtils.constructEndpointFromUrl(props, "false", "false");
@@ -58,7 +58,7 @@ class S3PropertyUtilsTest {
     }
 
     @Test
-    void testConstructEndpointFromUrl_nullOrBlank() {
+    void testConstructEndpointFromUrl_nullOrBlank() throws UserException {
         Map<String, String> props = new HashMap<>();
         Assertions.assertNull(S3PropertyUtils.constructEndpointFromUrl(props, "true", "false"));
 
@@ -66,11 +66,11 @@ class S3PropertyUtilsTest {
         Assertions.assertNull(S3PropertyUtils.constructEndpointFromUrl(props, "false", "true"));
 
         props.put("uri", "invalid uri without scheme");
-        Assertions.assertNull(S3PropertyUtils.constructEndpointFromUrl(props, "true", "true"));
+        Assertions.assertThrowsExactly(UserException.class, () -> S3PropertyUtils.constructEndpointFromUrl(props, "true", "true"));
     }
 
     @Test
-    void testConstructRegionFromUrl_success() {
+    void testConstructRegionFromUrl_success() throws UserException {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "https://my-bucket.s3.us-west-1.amazonaws.com/test.txt");
         String region = S3PropertyUtils.constructRegionFromUrl(props, "false", "false");
@@ -78,7 +78,7 @@ class S3PropertyUtilsTest {
     }
 
     @Test
-    void testConstructRegionFromUrl_nullOrInvalid() {
+    void testConstructRegionFromUrl_nullOrInvalid() throws UserException {
         Map<String, String> props = new HashMap<>();
         Assertions.assertNull(S3PropertyUtils.constructRegionFromUrl(props, "false", "false"));
 
@@ -86,7 +86,9 @@ class S3PropertyUtilsTest {
         Assertions.assertNull(S3PropertyUtils.constructRegionFromUrl(props, "false", "true"));
 
         props.put("uri", "not a uri");
-        Assertions.assertNull(S3PropertyUtils.constructRegionFromUrl(props, "false", "true"));
+        Assertions.assertThrowsExactly(UserException.class, () -> S3PropertyUtils.constructRegionFromUrl(props, "false", "true"));
+        props.put("uri", "https://my-bucket.s3.us-west-1.amazonaws.com/test.txt");
+        Assertions.assertEquals("us-west-1", S3PropertyUtils.constructRegionFromUrl(props, "false", "true"));
     }
 
     @Test

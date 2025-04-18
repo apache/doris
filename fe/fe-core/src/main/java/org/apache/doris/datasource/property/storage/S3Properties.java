@@ -99,6 +99,9 @@ public class S3Properties extends AbstractObjectStorageProperties {
             "s3[.-](?:dualstack[.-])?([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?"
     );
 
+
+    private static Pattern ENDPOINT_PATTERN = Pattern.compile("^s3(\\.[a-z0-9-]+)?\\.amazonaws\\.com$");
+
     public S3Properties(Map<String, String> origProps) {
         super(Type.S3, origProps);
     }
@@ -126,6 +129,11 @@ public class S3Properties extends AbstractObjectStorageProperties {
         return uri.contains("amazonaws.com");
 
 
+    }
+
+    @Override
+    protected Pattern endpointPattern() {
+        return ENDPOINT_PATTERN;
     }
 
     private static List<Field> getIdentifyFields() {

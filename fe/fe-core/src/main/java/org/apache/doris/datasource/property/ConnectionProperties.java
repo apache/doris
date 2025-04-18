@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property;
 
 import org.apache.doris.common.CatalogConfigFileUtils;
+import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -54,22 +55,17 @@ public abstract class ConnectionProperties {
         this.origProps = origProps;
     }
 
-    protected void initNormalizeAndCheckProps() {
-        // 1. prepare phase
-        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
-        // 2. overwrite result properties with original properties
-        allProps.putAll(origProps);
-        // 3. set fields from resultProps
+    protected void initNormalizeAndCheckProps() throws UserException {
         List<Field> supportedProps = PropertyUtils.getConnectorProperties(this.getClass());
         for (Field field : supportedProps) {
             field.setAccessible(true);
             ConnectorProperty anno = field.getAnnotation(ConnectorProperty.class);
             String[] names = anno.names();
             for (String name : names) {
-                if (allProps.containsKey(name)) {
+                if (origProps.containsKey(name)) {
                     try {
-                        field.set(this, allProps.get(name));
-                        matchedProperties.put(name, allProps.get(name));
+                        field.set(this, origProps.get(name));
+                        matchedProperties.put(name, origProps.get(name));
                     } catch (IllegalAccessException e) {
                         throw new RuntimeException("Failed to set property " + name + ", " + e.getMessage(), e);
                     }

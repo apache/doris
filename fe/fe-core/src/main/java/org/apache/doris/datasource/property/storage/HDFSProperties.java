@@ -93,7 +93,7 @@ public class HDFSProperties extends StorageProperties {
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    protected void initNormalizeAndCheckProps() throws UserException {
         super.initNormalizeAndCheckProps();
         extractUserOverriddenHdfsConfig(origProps);
         initHadoopConfiguration();

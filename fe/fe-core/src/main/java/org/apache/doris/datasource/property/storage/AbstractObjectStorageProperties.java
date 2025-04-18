@@ -24,8 +24,10 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 
+import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Abstract base class for object storage system properties. This class provides common configuration
@@ -143,16 +145,47 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
 
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    protected void initNormalizeAndCheckProps() throws UserException {
         super.initNormalizeAndCheckProps();
         setEndpointIfNotSet();
+        if (!isValidEndpoint(getEndpoint())) {
+            throw new IllegalArgumentException("Invalid endpoint format: " + getEndpoint());
+        }
         checkRequiredProperties();
         initRegionIfNecessary();
+        if (StringUtils.isBlank(getRegion())) {
+            throw new IllegalArgumentException("region is required");
+        }
+    }
+
+    protected abstract Pattern endpointPattern();
+
+    private boolean isValidEndpoint(String endpoint) {
+        if (endpoint == null || endpoint.isEmpty()) {
+            return false;
+        }
+
+        String host = extractHost(endpoint);
+        if (host == null || host.isEmpty()) {
+            return false;
+        }
+        host = host.replaceFirst("\\.internal$", "");
+        return endpointPattern().matcher(host).matches();
+    }
+
+    private String extractHost(String endpoint) {
+        try {
+            String url = endpoint.matches("^[a-zA-Z][a-zA-Z0-9+.-]*://.*") ? endpoint : "http://" + endpoint;
+            URI uri = new URI(url);
+            return uri.getHost();
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid endpoint format: " + endpoint, e);
+        }
     }
 
     protected abstract void initRegionIfNecessary();
 
-    private void setEndpointIfNotSet() {
+    private void setEndpointIfNotSet() throws UserException {
         if (StringUtils.isNotBlank(getEndpoint())) {
             return;
         }

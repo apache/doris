@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.UserException;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -36,14 +38,21 @@ public class OSSPropertiesTest {
         origProps.put("oss.access_key", "myOSSAccessKey");
         origProps.put("oss.secret_key", "myOSSSecretKey");
         origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
+        Map<String, String> finalOrigProps = origProps;
+        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createPrimary(finalOrigProps), "Property oss.endpoint is required.");
+        origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        Map<String, String> finalOrigProps1 = origProps;
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(finalOrigProps1));
         origProps = new HashMap<>();
         origProps.put("oss.endpoint", "https://oss.aliyuncs.com");
-        StorageProperties.create(origProps);
+        Map<String, String> finalOrigProps2 = origProps;
+        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createPrimary(finalOrigProps2));
+
     }
 
 
     @Test
-    public void testToNativeS3Configuration() {
+    public void testToNativeS3Configuration() throws UserException {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("oss.access_key", "myOSSAccessKey");
         origProps.put("oss.secret_key", "myOSSSecretKey");
@@ -54,7 +63,7 @@ public class OSSPropertiesTest {
         origProps.put("connection.timeout", "1000");
         origProps.put("use_path_style", "true");
         origProps.put("test_non_storage_param", "6000");
-        OSSProperties ossProperties = (OSSProperties) StorageProperties.create(origProps).get(1);
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(0);
         Map<String, String> s3Props;
 
         Map<String, String> ossConfig = ossProperties.getMatchedProperties();
@@ -77,18 +86,18 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         origProps.remove("use_path_style");
-        ossProperties = (OSSProperties) StorageProperties.create(origProps).get(1);
+        ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(0);
         s3Props = ossProperties.generateBackendS3Configuration();
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
     }
 
     @Test
-    public void testGetRegion() {
+    public void testGetRegion() throws UserException {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         origProps.put("oss.access_key", "myCOSAccessKey");
         origProps.put("oss.secret_key", "myCOSSecretKey");
-        OSSProperties ossProperties = (OSSProperties) StorageProperties.createStorageProperties(origProps);
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("cn-hangzhou", ossProperties.getRegion());
         Assertions.assertEquals("myCOSAccessKey", ossProperties.getAccessKey());
         Assertions.assertEquals("myCOSSecretKey", ossProperties.getSecretKey());
@@ -96,12 +105,12 @@ public class OSSPropertiesTest {
     }
 
     @Test
-    public void testGetRegionWithDefault() {
+    public void testGetRegionWithDefault() throws UserException {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("uri", "https://examplebucket-1250000000.oss-cn-hangzhou.aliyuncs.com/test/file.txt");
         origProps.put("oss.access_key", "myCOSAccessKey");
         origProps.put("oss.secret_key", "myCOSSecretKey");
-        OSSProperties ossProperties = (OSSProperties) StorageProperties.createStorageProperties(origProps);
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("cn-hangzhou", ossProperties.getRegion());
         Assertions.assertEquals("myCOSAccessKey", ossProperties.getAccessKey());
         Assertions.assertEquals("myCOSSecretKey", ossProperties.getSecretKey());
@@ -112,6 +121,6 @@ public class OSSPropertiesTest {
         cosNoEndpointProps.put("oss.region", "cn-hangzhou");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
         // not support
-        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createStorageProperties(cosNoEndpointProps), "Property cos.endpoint is required.");
+        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createPrimary(cosNoEndpointProps), "Property cos.endpoint is required.");
     }
 }

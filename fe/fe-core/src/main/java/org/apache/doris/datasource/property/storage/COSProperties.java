@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import lombok.Getter;
 import lombok.Setter;
 
 import java.util.Map;
@@ -31,24 +32,30 @@ import java.util.stream.Stream;
 public class COSProperties extends AbstractObjectStorageProperties {
 
     @Setter
+    @Getter
     @ConnectorProperty(names = {"cos.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
             required = false,
             description = "The endpoint of COS.")
-    protected String cosEndpoint = "";
+    protected String endpoint = "";
 
+    @Getter
     @ConnectorProperty(names = {"cos.region", "s3.region", "AWS_REGION", "region", "REGION"},
             required = false,
             description = "The region of COS.")
-    protected String cosRegion = "";
+    protected String region = "";
 
+    @Getter
     @ConnectorProperty(names = {"cos.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
             description = "The access key of COS.")
-    protected String cosAccessKey = "";
+    protected String accessKey = "";
 
+    @Getter
     @ConnectorProperty(names = {"cos.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
             description = "The secret key of COS.")
-    protected String cosSecretKey = "";
+    protected String secretKey = "";
 
+    private static final Pattern COS_ENDPOINT_PATTERN = Pattern
+            .compile("^cos\\.[a-z0-9-]+\\.myqcloud\\.com(\\.internal)?$");
 
     protected COSProperties(Map<String, String> origProps) {
         super(Type.COS, origProps);
@@ -69,6 +76,11 @@ public class COSProperties extends AbstractObjectStorageProperties {
         return origProps.get("uri").contains("myqcloud.com");
     }
 
+    @Override
+    protected Pattern endpointPattern() {
+        return COS_ENDPOINT_PATTERN;
+    }
+
     /**
      * Initializes the cosRegion field based on the COS endpoint if it's not already set.
      * <p>
@@ -80,43 +92,13 @@ public class COSProperties extends AbstractObjectStorageProperties {
      */
     @Override
     protected void initRegionIfNecessary() {
-        if (Strings.isNullOrEmpty(this.cosRegion) && cosEndpoint.contains("myqcloud.com")) {
+        if (Strings.isNullOrEmpty(this.region)) {
             Pattern cosPattern = Pattern.compile("cos\\.([a-z0-9-]+)\\.myqcloud\\.com");
-            Matcher matcher = cosPattern.matcher(cosEndpoint);
+            Matcher matcher = cosPattern.matcher(endpoint);
             if (matcher.find()) {
-                this.cosRegion = matcher.group(1);
+                this.region = matcher.group(1);
             }
         }
     }
 
-    public String getRegion() {
-        if (Strings.isNullOrEmpty(this.cosRegion) && cosEndpoint.contains("myqcloud.com")) {
-            Pattern cosPattern = Pattern.compile("cos\\.([a-z0-9-]+)\\.myqcloud\\.com");
-            Matcher matcher = cosPattern.matcher(cosEndpoint);
-            if (matcher.find()) {
-                this.cosRegion = matcher.group(1);
-            }
-        }
-        return this.cosRegion;
-    }
-
-    @Override
-    public String getEndpoint() {
-        return cosEndpoint;
-    }
-
-    @Override
-    public String getAccessKey() {
-        return cosAccessKey;
-    }
-
-    @Override
-    public String getSecretKey() {
-        return cosSecretKey;
-    }
-
-    @Override
-    public void setEndpoint(String endpoint) {
-        this.cosEndpoint = endpoint;
-    }
 }

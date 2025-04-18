@@ -34,10 +34,10 @@ public class HDFSPropertiesTest {
 
 
     @Test
-    public void testBasicHdfsCreate() {
+    public void testBasicHdfsCreate() throws UserException {
         // Test 1: Check default authentication type (should be "simple")
         Map<String, String> origProps = createBaseHdfsProperties();
-        List<StorageProperties> storageProperties = StorageProperties.create(origProps);
+        List<StorageProperties> storageProperties = StorageProperties.createAll(origProps);
         HDFSProperties hdfsProperties = (HDFSProperties) storageProperties.get(0);
         Configuration conf = hdfsProperties.getHadoopConfiguration();
         Assertions.assertEquals("simple", conf.get("hadoop.security.authentication"));
@@ -52,7 +52,7 @@ public class HDFSPropertiesTest {
 
         // Test 4: Kerberos with complete config (should succeed)
         origProps.put("hdfs.authentication.kerberos.keytab", "keytab");
-        HDFSProperties properties = (HDFSProperties) StorageProperties.create(origProps).get(0);  // No exception expected
+        HDFSProperties properties = (HDFSProperties) StorageProperties.createAll(origProps).get(0);  // No exception expected
         Configuration configuration = properties.getHadoopConfiguration();
         Assertions.assertEquals("kerberos", configuration.get("hdfs.security.authentication"));
         Assertions.assertEquals("hadoop", configuration.get("hadoop.kerberos.principal"));
@@ -60,7 +60,7 @@ public class HDFSPropertiesTest {
     }
 
     @Test
-    public void testBasicHdfsPropertiesCreateByConfigFile() {
+    public void testBasicHdfsPropertiesCreateByConfigFile() throws UserException {
         // Test 1: Check loading of config resources
         Map<String, String> origProps = createBaseHdfsProperties();
         URL hiveFileUrl = HDFSPropertiesTest.class.getClassLoader().getResource("plugins");
@@ -72,7 +72,7 @@ public class HDFSPropertiesTest {
 
         // Test 3: Valid config resources (should succeed)
         origProps.put("hadoop.config.resources", "hadoop1/core-site.xml,hadoop1/hdfs-site.xml");
-        List<StorageProperties> storageProperties = StorageProperties.create(origProps);
+        List<StorageProperties> storageProperties = StorageProperties.createAll(origProps);
         HDFSProperties hdfsProperties = (HDFSProperties) storageProperties.get(0);
         Configuration conf = hdfsProperties.getHadoopConfiguration();
         Assertions.assertEquals("hdfs://localhost:9000", conf.get("fs.defaultFS"));
@@ -88,7 +88,7 @@ public class HDFSPropertiesTest {
 
         // Test 6: Kerberos with complete config (should succeed)
         origProps.put("hdfs.authentication.kerberos.keytab", "keytab");
-        hdfsProperties = (HDFSProperties) StorageProperties.create(origProps).get(0);  // No exception expected
+        hdfsProperties = (HDFSProperties) StorageProperties.createAll(origProps).get(0);  // No exception expected
         Configuration configuration = hdfsProperties.getHadoopConfiguration();
         Assertions.assertEquals("kerberos", configuration.get("hdfs.security.authentication"));
         Assertions.assertEquals("hadoop", configuration.get("hadoop.kerberos.principal"));
@@ -98,35 +98,35 @@ public class HDFSPropertiesTest {
     }
 
     @Test
-    public void testNonParamsException() {
+    public void testNonParamsException() throws UserException {
         Map<String, String> origProps = new HashMap<>();
-        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createStorageProperties(origProps));
+        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createPrimary(origProps));
         origProps.put("nonhdfs", "hdfs://localhost:9000");
         Assertions.assertThrowsExactly(RuntimeException.class, () -> {
-            StorageProperties.createStorageProperties(origProps);
+            StorageProperties.createPrimary(origProps);
         });
         origProps.put(StorageProperties.FS_HDFS_SUPPORT, "true");
-        HDFSProperties hdfsProperties = (HDFSProperties) StorageProperties.createStorageProperties(origProps);
+        HDFSProperties hdfsProperties = (HDFSProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("HDFS", hdfsProperties.getStorageName());
         Assertions.assertNotEquals(null, hdfsProperties.getHadoopConfiguration());
         Assertions.assertNotEquals(null, hdfsProperties.getBackendConfigProperties());
         Map<String, String> resourceNullVal = new HashMap<>();
         resourceNullVal.put(StorageProperties.FS_HDFS_SUPPORT, "true");
-        StorageProperties.createStorageProperties(resourceNullVal).getBackendConfigProperties();
+        StorageProperties.createPrimary(resourceNullVal).getBackendConfigProperties();
     }
 
     @Test
-    public void testBasicCreateByOldProperties() {
+    public void testBasicCreateByOldProperties() throws UserException {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("hdfs.authentication.type", "simple");
         origProps.put("fs.defaultFS", "hdfs://localhost:9000");
-        StorageProperties properties = StorageProperties.create(origProps).get(0);
+        StorageProperties properties = StorageProperties.createAll(origProps).get(0);
         Assertions.assertEquals(properties.getClass(), HDFSProperties.class);
         origProps.put("dfs.nameservices", "ns1");
         origProps.put("dfs.ha.namenodes.ns1", "nn1,nn2");
         origProps.put("dfs.namenode.rpc-address.ns1.nn1", "localhost:9000");
         origProps.put("hadoop.async.threads.max", "10");
-        properties = StorageProperties.create(origProps).get(0);
+        properties = StorageProperties.createAll(origProps).get(0);
         Assertions.assertEquals(properties.getClass(), HDFSProperties.class);
         Map<String, String> beProperties = properties.getBackendConfigProperties();
         Assertions.assertEquals("hdfs://localhost:9000", beProperties.get("fs.defaultFS"));
@@ -145,11 +145,11 @@ public class HDFSPropertiesTest {
     }
 
     private void assertKerberosConfigException(Map<String, String> origProps, String expectedMessage) {
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.create(origProps), expectedMessage);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), expectedMessage);
     }
 
     private void assertConfigResourceException(Map<String, String> origProps, String expectedMessage) {
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.create(origProps), expectedMessage);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), expectedMessage);
     }
 
     @Test
@@ -157,20 +157,20 @@ public class HDFSPropertiesTest {
         Map<String, String> origProps = createBaseHdfsProperties();
         origProps.put("fs.defaultFS", "hdfs://localhost:9000");
         origProps.put("uri", "s3://region/bucket/");
-        HDFSProperties hdfsProperties = (HDFSProperties) StorageProperties.create(origProps).get(0);
-        HDFSProperties finalHdfsProperties = hdfsProperties;
+        HDFSProperties hdfsProperties = (HDFSProperties) StorageProperties.createAll(origProps).get(0);
+        HDFSProperties finalHDFSProperties = hdfsProperties;
         Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> {
-            finalHdfsProperties.validateAndGetUri(origProps);
+            finalHDFSProperties.validateAndGetUri(origProps);
         });
 
         origProps.put("uri", "hdfs://localhost:9000/test");
         origProps.put("hadoop.username", "test");
-        hdfsProperties = (HDFSProperties) StorageProperties.create(origProps).get(0);
+        hdfsProperties = (HDFSProperties) StorageProperties.createAll(origProps).get(0);
         Assertions.assertEquals("test", hdfsProperties.getBackendConfigProperties().get("hadoop.username"));
         Assertions.assertEquals("hdfs://localhost:9000/test", hdfsProperties.validateAndGetUri(origProps));
-        HDFSProperties finalHdfsProperties1 = hdfsProperties;
+        HDFSProperties finalHDFSProperties1 = hdfsProperties;
         Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> {
-            finalHdfsProperties1.validateAndNormalizeUri("");
+            finalHDFSProperties1.validateAndNormalizeUri("");
         });
         Assertions.assertEquals("hdfs://localhost:9000/test", hdfsProperties.validateAndNormalizeUri("hdfs://localhost:9000/test"));
 
