@@ -326,12 +326,12 @@ public:
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
     }
 
-    Status serialize_one_row_to_string(size_t row, std::string* output) const;
+    void serialize_one_row_to_string(size_t row, std::string* output) const;
 
-    Status serialize_one_row_to_string(size_t row, BufferWritable& output) const;
+    void serialize_one_row_to_string(size_t row, BufferWritable& output) const;
 
     // serialize one row to json format
-    Status serialize_one_row_to_json_format(int64_t row, BufferWritable& output,
+    void serialize_one_row_to_json_format(int64_t row, BufferWritable& output,
                                             bool* is_null) const;
 
     // Fill the `serialized_sparse_column`

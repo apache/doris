@@ -181,7 +181,8 @@ TEST_F(DataTypeObjectSerDeTest, DeserializeJsonVectorTest) {
     // Verify the deserialized data by serializing it back
     for (size_t i = 0; i < test_column->size(); ++i) {
         std::string serialized;
-        EXPECT_TRUE(test_column->serialize_one_row_to_string(i, &serialized));
+        serialized.clear();
+        test_column->serialize_one_row_to_string(i, &serialized);
         // Remove whitespace and newlines for comparison
         serialized.erase(std::remove_if(serialized.begin(), serialized.end(),
                                         [](unsigned char x) { return std::isspace(x); }),

@@ -52,9 +52,7 @@ Status DataTypeObjectSerDe::_write_column_to_mysql(const IColumn& column,
     const auto& variant = assert_cast<const ColumnObject&>(column);
     // Serialize hierarchy types to json format
     std::string buffer;
-    if (!variant.serialize_one_row_to_string(row_idx, &buffer)) {
-        return Status::InternalError("Invalid json format");
-    }
+    variant.serialize_one_row_to_string(row_idx, &buffer);
     row_buffer.push_string(buffer.data(), buffer.size());
     return Status::OK();
 }
@@ -79,10 +77,7 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     const auto& variant = assert_cast<const ColumnObject&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     std::string value_str;
-    if (!variant.serialize_one_row_to_string(row_num, &value_str)) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
-                               variant.dump_structure());
-    }
+    variant.serialize_one_row_to_string(row_num, &value_str);
     JsonbParser json_parser;
     // encode as jsonb
     bool succ = json_parser.parse(value_str.data(), value_str.size());
@@ -120,9 +115,7 @@ Status DataTypeObjectSerDe::serialize_one_cell_to_json(const IColumn& column, in
                                                        BufferWritable& bw,
                                                        FormatOptions& options) const {
     const auto* var = check_and_get_column<ColumnObject>(column);
-    if (!var->serialize_one_row_to_string(row_num, bw)) {
-        return Status::InternalError("Failed to serialize variant {}", var->dump_structure());
-    }
+    var->serialize_one_row_to_string(row_num, bw);
     return Status::OK();
 }
 
@@ -153,10 +146,7 @@ void DataTypeObjectSerDe::write_column_to_arrow(const IColumn& column, const Nul
                              array_builder->type()->name());
         } else {
             std::string serialized_value;
-            if (!var->serialize_one_row_to_string(i, &serialized_value)) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
-                                       var->dump_structure());
-            }
+            var->serialize_one_row_to_string(i, &serialized_value);
             checkArrowStatus(builder.Append(serialized_value.data(),
                                             static_cast<int>(serialized_value.size())),
                              column.get_name(), array_builder->type()->name());
@@ -177,10 +167,7 @@ Status DataTypeObjectSerDe::write_column_to_orc(const std::string& timezone, con
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
             auto serialized_value = std::make_unique<std::string>();
-            if (!var->serialize_one_row_to_string(row_id, serialized_value.get())) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
-                                       var->dump_structure());
-            }
+            var->serialize_one_row_to_string(row_id, serialized_value.get());
             auto len = serialized_value->length();
 
             REALLOC_MEMORY_FOR_ORC_WRITER()

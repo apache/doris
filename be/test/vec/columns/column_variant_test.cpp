@@ -247,16 +247,14 @@ TEST_F(ColumnObjectTest, serialize_one_row_to_string) {
         // Serialize hierarchy types to json format
         std::string buffer;
         for (size_t row_idx = 2000; row_idx < variant->size(); ++row_idx) {
-            Status st = variant->serialize_one_row_to_string(row_idx, &buffer);
-            EXPECT_TRUE(st.ok());
+            variant->serialize_one_row_to_string(row_idx, &buffer);
         }
         {
             // TEST buffer
             auto tmp_col = ColumnString::create();
             VectorBufferWriter write_buffer(*tmp_col.get());
             for (size_t row_idx = 2000; row_idx < variant->size(); ++row_idx) {
-                Status st = variant->serialize_one_row_to_string(row_idx, write_buffer);
-                EXPECT_TRUE(st.ok());
+                variant->serialize_one_row_to_string(row_idx, write_buffer);
             }
         }
     }
@@ -275,14 +273,12 @@ TEST_F(ColumnObjectTest, serialize_one_row_to_string) {
         // 3. serialize
         std::string buf2;
         for (size_t row_idx = 0; row_idx < v->size(); ++row_idx) {
-            Status st = v->serialize_one_row_to_string(row_idx, &buf2);
-            EXPECT_TRUE(st.ok());
+            v->serialize_one_row_to_string(row_idx, &buf2);
         }
         auto tmp_col = ColumnString::create();
         VectorBufferWriter write_buffer(*tmp_col.get());
         for (size_t row_idx = 0; row_idx < v->size(); ++row_idx) {
-            Status st = v->serialize_one_row_to_string(row_idx, write_buffer);
-            EXPECT_TRUE(st.ok());
+            v->serialize_one_row_to_string(row_idx, write_buffer);
         }
     }
 }
@@ -1869,8 +1865,8 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
     // Test VariantMap
     {
         VariantMap variant_map;
-        variant_map["key1"] = Int64(1);
-        variant_map["key2"] = String("value");
+        variant_map[PathInData("key1")] = Int64(1);
+        variant_map[PathInData("key2")] = String("value");
         Field field(variant_map);
         FieldInfo info;
         schema_util::get_field_info(field, &info);

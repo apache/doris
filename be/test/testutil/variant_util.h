@@ -60,7 +60,7 @@ public:
         doris::vectorized::Field res = VariantMap();
         auto& object = res.get<VariantMap&>();
         for (const auto& [k, v] : key_and_values) {
-            object.try_emplace(k, v);
+            object.try_emplace(PathInData(k), v);
         }
         return res;
     }

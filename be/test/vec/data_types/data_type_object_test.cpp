@@ -324,7 +324,7 @@ TEST_F(DataTypeObjectTest, GetTypeFieldTest) {
             Field type_field = dt_obj_1.get_type_field(*basic_variant, i);
             VariantMap expected_map;
             for (const auto& [key, value] : first_batch) {
-                expected_map[key] = value;
+                expected_map[PathInData(key)] = value;
             }
             EXPECT_EQ(type_field, Field(expected_map));
         }
@@ -334,7 +334,7 @@ TEST_F(DataTypeObjectTest, GetTypeFieldTest) {
             Field type_field = dt_obj_1.get_type_field(*basic_variant, i);
             VariantMap expected_map;
             for (const auto& [key, value] : second_batch) {
-                expected_map[key] = value;
+                expected_map[PathInData(key)] = value;
             }
             EXPECT_EQ(type_field, Field(expected_map));
         }
@@ -362,7 +362,7 @@ TEST_F(DataTypeObjectTest, GetTypeFieldTest) {
             Field type_field = dt_obj_1.get_type_field(*advanced_variant, i);
             VariantMap expected_map;
             for (const auto& [key, value] : first_batch) {
-                expected_map[key] = value;
+                expected_map[PathInData(key)] = value;
             }
             EXPECT_EQ(type_field, Field(expected_map));
         }
@@ -372,7 +372,7 @@ TEST_F(DataTypeObjectTest, GetTypeFieldTest) {
             Field type_field = dt_obj_1.get_type_field(*advanced_variant, i);
             VariantMap expected_map;
             for (const auto& [key, value] : second_batch) {
-                expected_map[key] = value;
+                expected_map[PathInData(key)] = value;
             }
             EXPECT_EQ(type_field, Field(expected_map));
         }
@@ -393,7 +393,7 @@ TEST_F(DataTypeObjectTest, GetTypeFieldTest) {
             Field type_field = dt_obj_1.get_type_field(*subcolumns_variant, i);
             VariantMap expected_map;
             for (const auto& [key, value] : fields) {
-                expected_map[key] = value;
+                expected_map[PathInData(key)] = value;
             }
             EXPECT_EQ(type_field, Field(expected_map));
         }
@@ -414,7 +414,7 @@ TEST_F(DataTypeObjectTest, GetTypeFieldTest) {
             Field type_field = dt_obj_1.get_type_field(*more_subcolumns_variant, i);
             VariantMap expected_map;
             for (const auto& [key, value] : fields) {
-                expected_map[key] = value;
+                expected_map[PathInData(key)] = value;
             }
             EXPECT_EQ(type_field, Field(expected_map));
         }
