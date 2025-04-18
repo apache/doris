@@ -19,6 +19,10 @@ suite("regression_test_variant_desc", "nonConcurrent"){
     // if (isCloudMode()) {
     //     return
     // }
+    def count = "0"
+    if (new Random().nextInt(100) < 50) {
+        count = "1000"
+    }
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -57,7 +61,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
-            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "0");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "${count}");
         """
     }
 
@@ -76,7 +80,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
                 PARTITION p3 VALUES LESS THAN (100000)
             )
             DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
-            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "0");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "${count}");
         """
     }
 
@@ -168,7 +172,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
-            properties("replication_num" = "1", "disable_auto_compaction" = "false");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "${count}");
         """
         sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}', '{"a": 11245, "xxxx" : "kaana"}', '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}')"""
          sql "select * from ${table_name} limit 1"
@@ -185,7 +189,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
-            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "0");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "${count}");
         """
         sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}')"""
          sql "select * from ${table_name} limit 1"
@@ -228,7 +232,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
-            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "0");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "${count}");
         """
         sql """ insert into ${table_name} values (0, '{"名字" : "jack", "!@#^&*()": "11111", "金额" : 200, "画像" : {"地址" : "北京", "\\\u4E2C\\\u6587": "unicode"}}')"""
         sql """set describe_extend_variant_column = true"""
@@ -244,7 +248,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 5
-            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "0");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "${count}");
         """
         sql """ insert into ${table_name} values (0, '{}')"""
         sql """ insert into ${table_name} values (0, '100')"""

@@ -387,7 +387,7 @@ std::string convert_field_to_string(doris::vectorized::Field array) {
     doc.SetObject();
     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
     rapidjson::Value json_value;
-    convert_field_to_rapidjson(array, json_value, allocator);
+    // DataTypeSerDe::convert_field_to_rapidjson(array, json_value, allocator);
     doc.AddMember("value", json_value, allocator);
     rapidjson::StringBuffer buffer;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);

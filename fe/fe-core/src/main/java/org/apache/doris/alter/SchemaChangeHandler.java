@@ -29,6 +29,7 @@ import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
@@ -685,6 +686,9 @@ public class SchemaChangeHandler extends AlterHandler {
 
         Type type = modColumn.getType();
         if (type.isVariantType()) {
+            if (modColumn.getChildren().size() > 0 || oriColumn.getChildren().size() > 0) {
+                throw new DdlException("Can not modify variant column with children");
+            }
             VariantType scType = (VariantType) type;
             scType.setVariantMaxSubcolumnsCount(olapTable.getVariantMaxSubcolumnsCount());
         }
@@ -2739,6 +2743,9 @@ public class SchemaChangeHandler extends AlterHandler {
                         olapTable.getTableProperty().getEnableUniqueKeyMergeOnWrite(),
                         olapTable.getInvertedIndexFileStorageFormat(),
                         disableInvertedIndexV1ForVariant);
+                if (!InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()).isEmpty()) {
+                    throw new DdlException("Can not create index with field pattern");
+                }
                 indexDef.getColumnUniqueIds().add(column.getUniqueId());
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
@@ -2799,6 +2806,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 return true;
             }
             throw new DdlException("index " + indexName + " does not exist");
+        }
+
+        if (!InvertedIndexUtil.getInvertedIndexFieldPattern(found.getProperties()).isEmpty()) {
+            throw new DdlException("Can not drop index with field pattern");
         }
 
         Iterator<Index> itr = indexes.iterator();

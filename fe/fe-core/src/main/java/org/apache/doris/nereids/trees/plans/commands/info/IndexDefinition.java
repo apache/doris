@@ -295,4 +295,8 @@ public class IndexDefinition {
         }
         return sb.toString();
     }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
 }

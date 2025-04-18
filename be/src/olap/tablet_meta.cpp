@@ -456,6 +456,15 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.column_type.__isset.variant_max_subcolumns_count) {
         column->set_variant_max_subcolumns_count(tcolumn.column_type.variant_max_subcolumns_count);
     }
+    if (tcolumn.__isset.pattern_type) {
+        switch (tcolumn.pattern_type) {
+        case TPatternType::MATCH_NAME:
+            column->set_pattern_type(PatternTypePB::MATCH_NAME);
+            break;
+        case TPatternType::MATCH_NAME_GLOB:
+            column->set_pattern_type(PatternTypePB::MATCH_NAME_GLOB);
+        }
+    }
 }
 
 Status TabletMeta::create_from_file(const string& file_path) {

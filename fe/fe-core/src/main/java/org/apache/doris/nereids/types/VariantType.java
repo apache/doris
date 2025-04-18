@@ -18,20 +18,14 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -51,13 +45,11 @@ public class VariantType extends PrimitiveType {
     private int variantMaxSubcolumnsCount = 0;
 
     private final List<VariantField> predefinedFields;
-    private final Supplier<Map<String, VariantField>> patternToFields;
 
     // No predefined fields
     public VariantType(int variantMaxSubcolumnsCount) {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         predefinedFields = Lists.newArrayList();
-        patternToFields = Suppliers.memoize(Maps::newTreeMap);
     }
 
     /**
@@ -65,12 +57,17 @@ public class VariantType extends PrimitiveType {
      */
     public VariantType(List<VariantField> fields) {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
-        this.patternToFields = Suppliers.memoize(
-                () -> this.predefinedFields.stream().collect(ImmutableMap.toImmutableMap(
-                VariantField::getPattern, f -> f, (f1, f2) -> {
-                    throw new AnalysisException("The name of the struct field cannot be repeated."
-                            + " same name fields are " + f1 + " and " + f2);
-                })));
+    }
+
+    public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount) {
+        this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
+        this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
+    }
+
+    @Override
+    public DataType conversion() {
+        return new VariantType(predefinedFields.stream().map(VariantField::conversion)
+                                            .collect(Collectors.toList()), variantMaxSubcolumnsCount);
     }
 
     @Override
@@ -121,5 +118,9 @@ public class VariantType extends PrimitiveType {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    public List<VariantField> getPredefinedFields() {
+        return predefinedFields;
     }
 }

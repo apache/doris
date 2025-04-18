@@ -125,7 +125,6 @@ public abstract class Type {
     public static final ScalarType VARIANT = new ScalarType(PrimitiveType.VARIANT);
     public static final AnyType ANY_STRUCT_TYPE = new AnyStructType();
     public static final AnyType ANY_ELEMENT_TYPE = new AnyElementType();
-    private static final Map<String, Type> typeMap = new HashMap<>();
 
     private static final Logger LOG = LogManager.getLogger(Type.class);
     private static final ArrayList<ScalarType> integerTypes;
@@ -139,44 +138,6 @@ public abstract class Type {
 
     private static final ArrayList<Type> variantSubTypes;
     private static final ArrayList<ScalarType> trivialTypes;
-
-    static {
-        typeMap.put("TINYINT", Type.TINYINT);
-        typeMap.put("SMALLINT", Type.SMALLINT);
-        typeMap.put("INT", Type.INT);
-        typeMap.put("BIGINT", Type.BIGINT);
-        typeMap.put("LARGEINT", Type.LARGEINT);
-        typeMap.put("UNSIGNED_TINYINT", Type.UNSUPPORTED);
-        typeMap.put("UNSIGNED_SMALLINT", Type.UNSUPPORTED);
-        typeMap.put("UNSIGNED_INT", Type.UNSUPPORTED);
-        typeMap.put("UNSIGNED_BIGINT", Type.UNSUPPORTED);
-        typeMap.put("FLOAT", Type.FLOAT);
-        typeMap.put("DISCRETE_DOUBLE", Type.DOUBLE);
-        typeMap.put("DOUBLE", Type.DOUBLE);
-        typeMap.put("CHAR", Type.CHAR);
-        typeMap.put("DATE", Type.DATE);
-        typeMap.put("DATEV2", Type.DATEV2);
-        typeMap.put("DATETIMEV2", Type.DATETIMEV2);
-        typeMap.put("DATETIME", Type.DATETIME);
-        typeMap.put("DECIMAL32", Type.DECIMAL32);
-        typeMap.put("DECIMAL64", Type.DECIMAL64);
-        typeMap.put("DECIMAL128I", Type.DECIMAL128);
-        typeMap.put("DECIMAL", Type.DECIMALV2);
-        typeMap.put("VARCHAR", Type.VARCHAR);
-        typeMap.put("STRING", Type.STRING);
-        typeMap.put("JSONB", Type.JSONB);
-        typeMap.put("VARIANT", Type.VARIANT);
-        typeMap.put("BOOLEAN", Type.BOOLEAN);
-        typeMap.put("HLL", Type.HLL);
-        typeMap.put("STRUCT", Type.STRUCT);
-        typeMap.put("LIST", Type.UNSUPPORTED);
-        typeMap.put("MAP", Type.MAP);
-        typeMap.put("OBJECT", Type.UNSUPPORTED);
-        typeMap.put("ARRAY", Type.ARRAY);
-        typeMap.put("IPV4", Type.IPV4);
-        typeMap.put("IPV6", Type.IPV6);
-        typeMap.put("QUANTILE_STATE", Type.QUANTILE_STATE);
-    }
 
     static {
         integerTypes = Lists.newArrayList();
@@ -321,8 +282,6 @@ public abstract class Type {
         variantSubTypes.add(DECIMAL64);
         variantSubTypes.add(DECIMAL128);
         variantSubTypes.add(DECIMAL256);
-        variantSubTypes.add(DATE);
-        variantSubTypes.add(DATETIME);
         variantSubTypes.add(DATEV2);
         variantSubTypes.add(DATETIMEV2);
         variantSubTypes.add(IPV4);
@@ -880,8 +839,11 @@ public abstract class Type {
         if (targetType.isJsonbType() && sourceType.isComplexType()) {
             return true;
         }
+        if (sourceType.isVariantType() && targetType.isVariantType()) {
+            return sourceType.equals(targetType);
+        }
         if (sourceType.isVariantType() && (targetType.isScalarType() || targetType.isArrayType())) {
-            // variant could cast to scalar types and array
+            // variant could cast to other scalar types and array
             return true;
         } else if (sourceType.isScalarType() && targetType.isScalarType()) {
             return ScalarType.canCastTo((ScalarType) sourceType, (ScalarType) targetType);
@@ -2329,9 +2291,5 @@ public abstract class Type {
             return true;
         }
         return false;
-    }
-
-    public static Type getTypeFromTypeName(String typeName) {
-        return typeMap.getOrDefault(typeName, Type.UNSUPPORTED);
     }
 }

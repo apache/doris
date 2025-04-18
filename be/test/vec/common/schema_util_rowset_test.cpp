@@ -87,7 +87,7 @@ private:
 
 static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
                              const std::string& column_type, const std::string& column_name,
-                             bool is_key = false) {
+                             bool is_key = false, bool add_children = false) {
     column_pb->set_unique_id(col_unique_id);
     column_pb->set_name(column_name);
     column_pb->set_type(column_type);
@@ -95,6 +95,11 @@ static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
     column_pb->set_is_nullable(false);
     if (column_type == "VARIANT") {
         column_pb->set_variant_max_subcolumns_count(3);
+        if (add_children) {
+            ColumnPB* child = column_pb->add_children_columns();
+            child->set_name("key0");
+            child->set_type("STRING");
+        }
     }
 }
 
@@ -113,7 +118,7 @@ static void fill_string_column_with_test_data(auto& column_string, int size, int
         int num_pairs = std::rand() % 10 + 1;
         for (int j = 0; j < num_pairs; j++) {
             std::string key = "key" + std::to_string(j);
-            if (std::rand() % 2 == 0) {
+            if (j % 2 == 0) {
                 int value = std::rand() % 100;
                 json_str += "\"" + key + "\" : " + std::to_string(value);
             } else {
@@ -231,8 +236,9 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_compaction_schema) {
     }
 
     std::unordered_map<int32_t, schema_util::PathToNoneNullValues> path_stats;
+    std::unordered_map<int32_t, std::unordered_set<std::string>> typed_paths;
     for (const auto& rowset : rowsets) {
-        auto st = schema_util::collect_path_stats(rowset, path_stats);
+        auto st = schema_util::collect_path_stats(rowset, path_stats, typed_paths);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
@@ -261,5 +267,71 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_compaction_schema) {
         EXPECT_TRUE(paths[1].ends_with("key0"));
         EXPECT_TRUE(paths[2].ends_with("key1"));
         EXPECT_TRUE(paths[3].ends_with("key2"));
+    }
+}
+
+TEST_F(SchemaUtilRowsetTest, typed_path) {
+    all_path_stats.clear();
+    // 1.create tablet schema
+    TabletSchemaPB schema_pb;
+    construct_column(schema_pb.add_column(), 0, "INT", "key", true);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v1", false, true);
+    construct_column(schema_pb.add_column(), 2, "STRING", "v2");
+    construct_column(schema_pb.add_column(), 3, "VARIANT", "v3", false, true);
+    construct_column(schema_pb.add_column(), 4, "INT", "v4");
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    // 2. create tablet
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(tablet_schema));
+    _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    EXPECT_TRUE(_tablet->init().ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    // 3. create rowset
+    std::vector<RowsetSharedPtr> rowsets;
+    for (int i = 0; i < 1; i++) {
+        const auto& res = RowsetFactory::create_rowset_writer(
+                *_engine_ref,
+                rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path()), false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        const auto& rowset_writer = res.value();
+        auto rowset = create_rowset(rowset_writer, tablet_schema);
+        EXPECT_TRUE(_tablet->add_rowset(rowset).ok());
+        rowsets.push_back(rowset);
+    }
+
+    std::unordered_map<int32_t, schema_util::PathToNoneNullValues> path_stats;
+    std::unordered_map<int32_t, std::unordered_set<std::string>> typed_paths;
+    for (const auto& rowset : rowsets) {
+        auto st = schema_util::collect_path_stats(rowset, path_stats, typed_paths);
+        EXPECT_TRUE(st.ok()) << st.msg();
+    }
+
+    for (const auto& [uid, path_stats] : path_stats) {
+        for (const auto& [path, size] : path_stats) {
+            EXPECT_EQ(all_path_stats[uid][path], size);
+        }
+    }
+
+    // 4. get compaction schema
+    TabletSchemaSPtr compaction_schema = tablet_schema;
+    auto st = schema_util::get_compaction_schema(rowsets, compaction_schema);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    // 5. check compaction schema
+    std::unordered_map<int32_t, std::vector<std::string>> compaction_schema_map;
+    for (const auto& column : compaction_schema->columns()) {
+        if (column->parent_unique_id() > 0) {
+            compaction_schema_map[column->parent_unique_id()].push_back(column->name());
+        }
+    }
+    for (auto& [uid, paths] : compaction_schema_map) {
+        EXPECT_EQ(paths.size(), 5);
+        std::sort(paths.begin(), paths.end());
+        EXPECT_TRUE(paths[0].ends_with("__DORIS_VARIANT_SPARSE__"));
+        EXPECT_TRUE(paths[2].ends_with("key1"));
+        EXPECT_TRUE(paths[3].ends_with("key2"));
+        EXPECT_TRUE(paths[4].ends_with("key3"));
     }
 }

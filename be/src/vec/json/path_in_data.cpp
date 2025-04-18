@@ -27,7 +27,7 @@
 #include "vec/common/sip_hash.h"
 
 namespace doris::vectorized {
-PathInData::PathInData(std::string_view path_) : path(path_) {
+PathInData::PathInData(std::string_view path_, bool is_typed_) : path(path_), is_typed(is_typed_) {
     const char* begin = path.data();
     const char* end = path.data() + path.size();
     for (const char* it = path.data(); it != end; ++it) {
@@ -44,7 +44,7 @@ PathInData::PathInData(const Parts& parts_) {
     build_path(parts_);
     build_parts(parts_);
 }
-PathInData::PathInData(const PathInData& other) : path(other.path) {
+PathInData::PathInData(const PathInData& other) : path(other.path), is_typed(other.is_typed) {
     build_parts(other.get_parts());
 }
 
@@ -70,6 +70,7 @@ PathInData::PathInData(const std::vector<std::string>& paths) {
 PathInData& PathInData::operator=(const PathInData& other) {
     if (this != &other) {
         path = other.path;
+        is_typed = other.is_typed;
         build_parts(other.parts);
     }
     return *this;
@@ -126,6 +127,7 @@ void PathInData::from_protobuf(const segment_v2::ColumnPathInfo& pb) {
     parts.clear();
     path = pb.path();
     has_nested = false;
+    is_typed = pb.is_typed();
     parts.reserve(pb.path_part_infos().size());
     const char* begin = path.data();
     for (const segment_v2::ColumnPathPartInfo& part_info : pb.path_part_infos()) {
@@ -159,6 +161,7 @@ void PathInData::to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_
     pb->set_path(path);
     pb->set_has_nested(has_nested);
     pb->set_parrent_column_unique_id(parent_col_unique_id);
+    pb->set_is_typed(is_typed);
 
     // set parts info
     for (const Part& part : parts) {
@@ -190,6 +193,7 @@ PathInData PathInData::get_nested_prefix_path() const {
     }
     new_path.build_path(new_parts);
     new_path.build_parts(new_parts);
+    new_path.is_typed = is_typed;
     return new_path;
 }
 
@@ -202,6 +206,7 @@ PathInData PathInData::copy_pop_back() const {
     new_parts.pop_back();
     new_path.build_path(new_parts);
     new_path.build_parts(new_parts);
+    new_path.is_typed = is_typed;
     return new_path;
 }
 
@@ -216,6 +221,7 @@ PathInData PathInData::copy_pop_nfront(size_t n) const {
     }
     new_path.build_path(new_parts);
     new_path.build_parts(new_parts);
+    new_path.is_typed = is_typed;
     return new_path;
 }
 

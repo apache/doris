@@ -73,9 +73,9 @@ public class VariantField {
         } else {
             typeSql = "...";
         }
-        StringBuilder sb = new StringBuilder(patternType.toString() + " ");
+        StringBuilder sb = new StringBuilder(patternType.toString() + " '");
         if (type != null) {
-            sb.append(pattern).append(":").append(typeSql);
+            sb.append(pattern).append("':").append(typeSql);
         }
         return sb.toString();
     }

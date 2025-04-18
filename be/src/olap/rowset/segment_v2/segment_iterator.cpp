@@ -1084,22 +1084,20 @@ Status SegmentIterator::_init_inverted_index_iterators() {
             const auto& column = _opts.tablet_schema->column(cid);
             const TabletIndex* index_meta = nullptr;
             if (column.is_extracted_column()) {
-                const TabletIndex* parent_index_meta =
-                        _segment->_tablet_schema->inverted_index(column.parent_unique_id());
-
-                // variant column has no inverted index
-                if (parent_index_meta == nullptr) {
+                if (_segment->_column_readers.find(column.parent_unique_id()) ==
+                    _segment->_column_readers.end()) {
                     continue;
                 }
-
                 auto* column_reader = _segment->_column_readers.at(column.parent_unique_id()).get();
                 index_meta = assert_cast<VariantColumnReader*>(column_reader)
                                      ->find_subcolumn_tablet_index(column.suffix_path());
             } else {
                 index_meta = _segment->_tablet_schema->inverted_index(column.unique_id());
             }
-            RETURN_IF_ERROR(_segment->new_inverted_index_iterator(column, index_meta, _opts,
-                                                                  &_inverted_index_iterators[cid]));
+            if (index_meta) {
+                RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
+                        column, index_meta, _opts, &_inverted_index_iterators[cid]));
+            }
         }
     }
     return Status::OK();
