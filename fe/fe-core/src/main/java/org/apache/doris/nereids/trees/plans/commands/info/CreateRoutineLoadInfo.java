@@ -93,6 +93,11 @@ public class CreateRoutineLoadInfo {
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
+
+    public static final String STRICT_MODE = "strict_mode";
+    public static final String TIMEZONE = "timezone";
+    public static final String KEY_ENCLOSE = "enclose";
+    public static final String KEY_ESCAPE = "escape";
     public static final java.util.function.Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
     public static final java.util.function.Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
     public static final java.util.function.Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0 && v <= 1;
@@ -118,15 +123,15 @@ public class CreateRoutineLoadInfo {
             .add(NUM_AS_STRING)
             .add(FUZZY_PARSE)
             .add(JSONROOT)
-            .add(LoadStmt.STRICT_MODE)
-            .add(LoadStmt.TIMEZONE)
+            .add(STRICT_MODE)
+            .add(TIMEZONE)
             .add(EXEC_MEM_LIMIT_PROPERTY)
             .add(SEND_BATCH_PARALLELISM)
             .add(LOAD_TO_SINGLE_TABLET)
             .add(PARTIAL_COLUMNS)
             .add(WORKLOAD_GROUP)
-            .add(LoadStmt.KEY_ENCLOSE)
-            .add(LoadStmt.KEY_ESCAPE)
+            .add(KEY_ENCLOSE)
+            .add(KEY_ESCAPE)
             .build();
 
     private final LabelNameInfo labelNameInfo;
@@ -372,9 +377,9 @@ public class CreateRoutineLoadInfo {
             RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
             MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 10GB");
 
-        strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
+        strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(STRICT_MODE),
             RoutineLoadJob.DEFAULT_STRICT_MODE,
-            LoadStmt.STRICT_MODE + " should be a boolean");
+            STRICT_MODE + " should be a boolean");
         execMemLimit = Util.getLongPropertyOrDefault(jobProperties.get(EXEC_MEM_LIMIT_PROPERTY),
             RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED,
             EXEC_MEM_LIMIT_PROPERTY + " must be greater than 0");
@@ -386,7 +391,7 @@ public class CreateRoutineLoadInfo {
             RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
             LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
 
-        String encloseStr = jobProperties.get(LoadStmt.KEY_ENCLOSE);
+        String encloseStr = jobProperties.get(KEY_ENCLOSE);
         if (encloseStr != null) {
             if (encloseStr.length() != 1) {
                 throw new AnalysisException("enclose must be single-char");
@@ -394,7 +399,7 @@ public class CreateRoutineLoadInfo {
                 enclose = encloseStr.getBytes()[0];
             }
         }
-        String escapeStr = jobProperties.get(LoadStmt.KEY_ESCAPE);
+        String escapeStr = jobProperties.get(KEY_ESCAPE);
         if (escapeStr != null) {
             if (escapeStr.length() != 1) {
                 throw new AnalysisException("enclose must be single-char");
@@ -412,7 +417,7 @@ public class CreateRoutineLoadInfo {
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
-        timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone));
+        timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(TIMEZONE, timezone));
 
         format = jobProperties.get(FORMAT);
         if (format != null) {
