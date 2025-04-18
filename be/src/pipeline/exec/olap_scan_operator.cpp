@@ -504,7 +504,8 @@ Status OlapScanLocalState::hold_tablets() {
                             ->sync_rowsets(options, stats);
                 });
             }
-            RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
+            RETURN_IF_ERROR(
+                    cloud::bthread_fork_join(tasks, config::init_scanner_sync_rowsets_parallelism));
         }
         COUNTER_UPDATE(_sync_rowset_timer, duration_ns);
         for (const auto& sync_stats : sync_statistics) {
