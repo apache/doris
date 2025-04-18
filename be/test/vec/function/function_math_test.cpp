@@ -21,7 +21,9 @@
 #include <string>
 
 #include "function_test_util.h"
+#include "testutil/any_type.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -46,13 +48,13 @@ TEST(MathFunctionTest, acos_test) {
 TEST(MathFunctionTest, acosh_test) {
     std::string func_name = "acosh"; // acosh(x) = ln(x + sqrt(x^2 - 1)), x ∈ [1, +∞)
 
-    std::vector input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{1.0}, 0.0},
-                        {{2.0}, 1.3169578969248168},
+                        {{2.0}, 1.3169578969248166},
                         {{3.0}, 1.7627471740390861},
                         {{10.0}, 2.9932228461263808},
-                        {{100.0}, 5.2982923656104850}};
+                        {{100.0}, 5.298292365610484}};
 
     static_cast<void>(
             check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
@@ -72,7 +74,7 @@ TEST(MathFunctionTest, asin_test) {
 TEST(MathFunctionTest, asinh_test) {
     std::string func_name = "asinh"; // asinh(x) = ln(x + sqrt(x^2 + 1)), x ∈ (-∞, +∞)
 
-    std::vector input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{0.0}, 0.0},
                         {{1.0}, 0.8813735870195430},
@@ -100,11 +102,11 @@ TEST(MathFunctionTest, atan_test) {
 TEST(MathFunctionTest, atanh_test) {
     std::string func_name = "atanh"; // atanh(x) = 0.5 * ln((1 + x) / (1 - x)), x ∈ (-1, 1)
 
-    std::vector input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{0.0}, 0.0},
-                        {{0.5}, 0.5493061443340549},
-                        {{-0.5}, -0.5493061443340549},
+                        {{0.5}, 0.5493061443340548},
+                        {{-0.5}, -0.5493061443340548},
                         {{0.9}, 1.4722194895832204},
                         {{-0.9}, -1.4722194895832204}};
 
@@ -143,13 +145,13 @@ TEST(MathFunctionTest, sin_test) {
 TEST(MathFunctionTest, sinh_test) {
     std::string func_name = "sinh"; // sinh(x) = (e^x - e^(-x)) / 2, x ∈ (-∞, +∞)
 
-    std::vector input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {TypeIndex::Float64};
 
     DataSet data_set = {{{0.0}, 0.0},
                         {{1.0}, 1.1752011936438014},
                         {{-1.0}, -1.1752011936438014},
-                        {{2.0}, 3.6268604078470186},
-                        {{-2.0}, -3.6268604078470186}};
+                        {{2.0}, 3.626860407847019},
+                        {{-2.0}, -3.626860407847019}};
 
     static_cast<void>(
             check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
@@ -370,6 +372,41 @@ TEST(MathFunctionTest, positive_test) {
 
         static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
+
+    {
+        InputTypeSet input_types = {AnyType {Notnull {TypeIndex::Decimal64}, 5, 11}};
+
+        DataSet data_set = {
+                {{DECIMAL64(12345, 123, 5)}, {DECIMAL64(12345, 123, 5)}},
+                {{DECIMAL64(12345, 12345, 5)}, {DECIMAL64(12345, 12345, 5)}},
+        };
+
+        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, false, 5, 11>(
+                func_name, input_types, data_set));
+    }
+    // negative case
+    {
+        InputTypeSet input_types = {AnyType {Notnull {TypeIndex::Decimal64}, 5, 11}};
+
+        DataSet data_set = {
+                // column's data should keep all the same scale. will be reinterpreted as the same scale.
+                {{DECIMAL64(12345, 123, 3)}, {DECIMAL64(12345, 12300, 5)}},
+        };
+
+        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, false, 5, 11>(
+                func_name, input_types, data_set, false, true));
+    }
+    // negative case
+    {
+        InputTypeSet input_types = {AnyType {Notnull {TypeIndex::Decimal64}, 5, 11}};
+
+        DataSet data_set = {
+                {{DECIMAL64(12345, 12345, 5)}, {DECIMAL64(12345, 12345, 5)}},
+        };
+
+        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, false, 6, 12>(
+                func_name, input_types, data_set, false, true));
+    }
 }
 
 TEST(MathFunctionTest, negative_test) {
@@ -576,10 +613,10 @@ TEST(MathFunctionTest, money_format_test) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
-        BaseInputTypeSet input_types = {TypeIndex::Decimal64};
+        InputTypeSet input_types = {TypeIndex::Decimal64};
         DataSet data_set = {{{Null()}, Null()},
-                            {{DECIMAL64(17014116, 670000000)}, VARCHAR("17,014,116.67")},
-                            {{DECIMAL64(-17014116, -670000000)}, VARCHAR("-17,014,116.67")}};
+                            {{DECIMAL64(17014116, 670000000, 9)}, VARCHAR("17,014,116.67")},
+                            {{DECIMAL64(-17014116, -670000000, 9)}, VARCHAR("-17,014,116.67")}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -634,13 +671,25 @@ TEST(MathFunctionTest, format_round_test) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
-        BaseInputTypeSet input_types = {TypeIndex::Decimal64, TypeIndex::Int32};
-        DataSet data_set = {
-                {{Null(), INT(2)}, Null()},
-                {{DECIMAL64(17014116, 670000000), INT(2)}, VARCHAR("17,014,116.67")},
-                {{DECIMAL64(-17014116, -670000000), INT(2)}, VARCHAR("-17,014,116.67")}};
+        InputTypeSet input_types = {{TypeIndex::Decimal64, 5, 18}, TypeIndex::Int32};
+        DataSet data_set = {{{Null(), INT(2)}, Null()},
+                            {{DECIMAL64(17014116, 67000, 5), INT(2)}, VARCHAR("17,014,116.67")},
+                            {{DECIMAL64(-17014116, -67000, 5), INT(2)}, VARCHAR("-17,014,116.67")}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+    // negative case
+    {
+        InputTypeSet input_types = {{TypeIndex::Decimal64, 5, 18}, TypeIndex::Int32};
+        DataSet data_set = {
+                // oob of 9e19(int64)
+                {{DECIMAL64(123456789012345, 67000, 5), INT(2)}, VARCHAR("12,345,678,901,234.67")},
+                // different scale
+                {{DECIMAL64(-17014116, -671, 3), INT(2)}, VARCHAR("-17,014,116.67")},
+        };
+
+        static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set,
+                                                               false, true));
     }
 }
 

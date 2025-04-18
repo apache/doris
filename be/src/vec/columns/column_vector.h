@@ -21,13 +21,13 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stdint.h>
-#include <string.h>
 #include <sys/types.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <initializer_list>
 #include <string>
 #include <type_traits>
@@ -39,12 +39,10 @@
 #include "olap/uint24.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_impl.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
-#include "vec/common/uint128.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -52,12 +50,10 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 class ColumnSorter;
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"

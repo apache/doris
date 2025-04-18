@@ -68,10 +68,10 @@ TEST(IfNullTest, String_Test) {
 TEST(IfNullTest, String_Int_Test) {
     std::string func_name = "ifnull";
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::DateTime};
-    DataSet data_set = {{{std::string("2021-10-24 12:32:31"), std::string("2021-10-24 13:00:01")},
-                         str_to_date_time("2021-10-24 12:32:31")},
-                        {{Null(), std::string("2021-10-24 13:00:01")},
-                         str_to_date_time("2021-10-24 13:00:01")}};
+    DataSet data_set = {
+            {{std::string("2021-10-24 12:32:31"), std::string("2021-10-24 13:00:01")},
+             std::string("2021-10-24 12:32:31")},
+            {{Null(), std::string("2021-10-24 13:00:01")}, std::string("2021-10-24 13:00:01")}};
 
     static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
 }
