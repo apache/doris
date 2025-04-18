@@ -321,10 +321,44 @@ private:
             const AlterInstanceRequest* request,
             std::function<std::pair<MetaServiceCode, std::string>(InstanceInfoPB*)> action);
 
+    void get_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
+                                          const GetDeleteBitmapUpdateLockRequest* request,
+                                          GetDeleteBitmapUpdateLockResponse* response,
+                                          ::google::protobuf::Closure* done,
+                                          std::string& instance_id, MetaServiceCode& code,
+                                          std::string& msg, std::stringstream& ss);
+
+    void get_delete_bitmap_update_lock_v1(google::protobuf::RpcController* controller,
+                                          const GetDeleteBitmapUpdateLockRequest* request,
+                                          GetDeleteBitmapUpdateLockResponse* response,
+                                          ::google::protobuf::Closure* done,
+                                          std::string& instance_id, MetaServiceCode& code,
+                                          std::string& msg, std::stringstream& ss);
+
+    void remove_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
+                                             const RemoveDeleteBitmapUpdateLockRequest* request,
+                                             RemoveDeleteBitmapUpdateLockResponse* response,
+                                             ::google::protobuf::Closure* done,
+                                             std::string& instance_id, MetaServiceCode& code,
+                                             std::string& msg, std::stringstream& ss);
+
+    void remove_delete_bitmap_update_lock_v1(google::protobuf::RpcController* controller,
+                                             const RemoveDeleteBitmapUpdateLockRequest* request,
+                                             RemoveDeleteBitmapUpdateLockResponse* response,
+                                             ::google::protobuf::Closure* done,
+                                             std::string& instance_id, MetaServiceCode& code,
+                                             std::string& msg, std::stringstream& ss);
+
+    bool use_new_version_random();
+    void check_version(std::string& use_version, std::string& instance_id,
+                       std::unordered_map<std::string, std::string>& lock_version_white_list);
+    void init_delete_bitmap_update_lock_version_white_list();
+
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
+    std::unordered_map<std::string, std::string> lock_version_white_list;
 };
 
 class MetaServiceProxy final : public MetaService {
