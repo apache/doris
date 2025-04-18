@@ -421,7 +421,7 @@ Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColum
 }
 
 void JniConnector::_generate_predicates(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     if (colname_to_value_range == nullptr) {
         return;
     }
