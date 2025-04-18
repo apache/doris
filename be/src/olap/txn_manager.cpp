@@ -696,6 +696,7 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
     if (it == txn_tablet_map.end()) {
         return Status::Error<TRANSACTION_NOT_EXIST>("key not founded from txn_tablet_map");
     }
+    Status st = Status::OK();
     auto load_itr = it->second.find(tablet_info);
     if (load_itr != it->second.end()) {
         // found load for txn,tablet
@@ -704,7 +705,7 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
         auto& rowset = load_info->rowset;
         if (rowset != nullptr && meta != nullptr) {
             if (!rowset->is_pending()) {
-                return Status::Error<TRANSACTION_ALREADY_COMMITTED>(
+                st = Status::Error<TRANSACTION_ALREADY_COMMITTED>(
                         "could not delete transaction from engine, just remove it from memory not "
                         "delete from disk, because related rowset already published. partition_id: "
                         "{}, transaction_id: {}, tablet: {}, rowset id: {}, version: {}, state: {}",
@@ -729,7 +730,7 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
         g_tablet_txn_info_txn_partitions_count << -1;
         _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     }
-    return Status::OK();
+    return st;
 }
 
 void TxnManager::get_tablet_related_txns(TTabletId tablet_id, TabletUid tablet_uid,
