@@ -33,8 +33,7 @@ class MemTrackerLimiter;
 
 class CloudTabletCalcDeleteBitmapTask {
 public:
-    CloudTabletCalcDeleteBitmapTask(CloudStorageEngine& engine,
-                                    CloudEngineCalcDeleteBitmapTask* engine_task, int64_t tablet_id,
+    CloudTabletCalcDeleteBitmapTask(CloudStorageEngine& engine, int64_t tablet_id,
                                     int64_t transaction_id, int64_t version);
     ~CloudTabletCalcDeleteBitmapTask() = default;
 
@@ -46,7 +45,6 @@ public:
 
 private:
     CloudStorageEngine& _engine;
-    CloudEngineCalcDeleteBitmapTask* _engine_calc_delete_bitmap_task;
 
     int64_t _tablet_id;
     int64_t _transaction_id;
