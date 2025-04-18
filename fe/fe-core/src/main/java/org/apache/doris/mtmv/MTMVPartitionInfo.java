@@ -25,7 +25,10 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * MTMVPartitionInfo
@@ -48,6 +51,8 @@ public class MTMVPartitionInfo {
     private String partitionCol;
     @SerializedName("expr")
     private Expr expr;
+    @SerializedName("up")
+    private Map<BaseTableInfo, Set<String>> usedBaseTablePartitions;
 
     public MTMVPartitionInfo() {
     }
@@ -104,6 +109,20 @@ public class MTMVPartitionInfo {
 
     public void setExpr(Expr expr) {
         this.expr = expr;
+    }
+
+    public Set<String> getUsedBaseTablePartitions() {
+        if (relatedTable == null || usedBaseTablePartitions == null) {
+            return Collections.emptySet();
+        }
+        if (usedBaseTablePartitions.containsKey(relatedTable)) {
+            return usedBaseTablePartitions.get(relatedTable);
+        }
+        return Collections.emptySet();
+    }
+
+    public void setUsedBaseTablePartitions(Map<BaseTableInfo, Set<String>> usedBaseTablePartitions) {
+        this.usedBaseTablePartitions = usedBaseTablePartitions;
     }
 
     /**
