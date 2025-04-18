@@ -66,6 +66,7 @@ namespace doris {
 using namespace std::literals;
 
 bvar::Adder<uint64_t> g_base_compaction_running_task_count("base_compaction_running_task_count");
+bvar::Adder<uint64_t> g_full_compaction_running_task_count("full_compaction_running_task_count");
 bvar::Adder<uint64_t> g_cumu_compaction_running_task_count(
         "cumulative_compaction_running_task_count");
 
@@ -630,7 +631,7 @@ Status CloudStorageEngine::_request_tablet_global_compaction_lock(
     } else if (compaction_type == ReaderType::READER_FULL_COMPACTION) {
         auto full_compaction = static_pointer_cast<CloudFullCompaction>(compaction);
         if (auto st = full_compaction->request_global_lock(); !st.ok()) {
-            LOG_WARNING("failed to request base compactoin global lock")
+            LOG_WARNING("failed to request full compactoin global lock")
                     .tag("tablet id", tablet->tablet_id())
                     .tag("msg", st.to_string());
             tablet->set_last_full_compaction_failure_time(now);
@@ -874,7 +875,9 @@ Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& t
         _submitted_full_compactions[tablet->tablet_id()] = compaction;
     }
     st = _base_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
+        g_full_compaction_running_task_count << 1;
         signal::tablet_id = tablet->tablet_id();
+        Defer defer {[&]() { g_full_compaction_running_task_count << -1; }};
         auto st = _request_tablet_global_compaction_lock(ReaderType::READER_FULL_COMPACTION, tablet,
                                                          compaction);
         if (!st.ok()) return;
