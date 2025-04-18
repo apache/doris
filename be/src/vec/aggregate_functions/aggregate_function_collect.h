@@ -27,7 +27,6 @@
 #include <new>
 #include <string>
 
-#include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -91,6 +90,25 @@ struct AggregateFunctionCollectSetData {
         }
     }
 
+    void write(BufferWritable& buf) const {
+        write_var_uint(data_set.size(), buf);
+        for (const auto& value : data_set) {
+            write_binary(value, buf);
+        }
+        write_var_int(max_size, buf);
+    }
+
+    void read(BufferReadable& buf) {
+        uint64_t new_size = 0;
+        read_var_uint(new_size, buf);
+        ElementNativeType x;
+        for (size_t i = 0; i < new_size; ++i) {
+            read_binary(x, buf);
+            data_set.insert(x);
+        }
+        read_var_int(max_size, buf);
+    }
+
     void insert_result_into(IColumn& to) const {
         auto& vec = assert_cast<ColVecType&>(to).get_data();
         vec.reserve(size());
@@ -136,6 +154,25 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
             key.data = arena->insert(key.data, key.size);
             data_set.insert(key);
         }
+    }
+
+    void write(BufferWritable& buf) const {
+        write_var_uint(size(), buf);
+        for (const auto& elem : data_set) {
+            write_string_binary(elem, buf);
+        }
+        write_var_int(max_size, buf);
+    }
+
+    void read(BufferReadable& buf) {
+        UInt64 size;
+        read_var_uint(size, buf);
+        StringRef ref;
+        for (size_t i = 0; i < size; ++i) {
+            read_string_binary(ref, buf);
+            data_set.insert(ref);
+        }
+        read_var_int(max_size, buf);
     }
 
     void insert_result_into(IColumn& to) const {
@@ -185,6 +222,20 @@ struct AggregateFunctionCollectListData {
         }
     }
 
+    void write(BufferWritable& buf) const {
+        write_var_uint(size(), buf);
+        buf.write(data.raw_data(), size() * sizeof(ElementType));
+        write_var_int(max_size, buf);
+    }
+
+    void read(BufferReadable& buf) {
+        UInt64 rows = 0;
+        read_var_uint(rows, buf);
+        data.resize(rows);
+        buf.read(reinterpret_cast<char*>(data.data()), rows * sizeof(ElementType));
+        read_var_int(max_size, buf);
+    }
+
     void reset() { data.clear(); }
 
     void insert_result_into(IColumn& to) const {
@@ -222,6 +273,32 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
         } else {
             data->insert_range_from(*rhs.data, 0, rhs.size());
         }
+    }
+
+    void write(BufferWritable& buf) const {
+        auto& col = assert_cast<ColVecType&>(*data);
+
+        write_var_uint(col.size(), buf);
+        buf.write(col.get_offsets().raw_data(), col.size() * sizeof(IColumn::Offset));
+
+        write_var_uint(col.get_chars().size(), buf);
+        buf.write(col.get_chars().raw_data(), col.get_chars().size());
+        write_var_int(max_size, buf);
+    }
+
+    void read(BufferReadable& buf) {
+        auto& col = assert_cast<ColVecType&>(*data);
+        UInt64 offs_size = 0;
+        read_var_uint(offs_size, buf);
+        col.get_offsets().resize(offs_size);
+        buf.read(reinterpret_cast<char*>(col.get_offsets().data()),
+                 offs_size * sizeof(IColumn::Offset));
+
+        UInt64 chars_size = 0;
+        read_var_uint(chars_size, buf);
+        col.get_chars().resize(chars_size);
+        buf.read(reinterpret_cast<char*>(col.get_chars().data()), chars_size);
+        read_var_int(max_size, buf);
     }
 
     void reset() { data->clear(); }
@@ -266,6 +343,48 @@ struct AggregateFunctionCollectListData<void, HasLimit> {
         } else {
             column_data->insert_range_from(*rhs.column_data, 0, rhs.size());
         }
+    }
+
+    void write(BufferWritable& buf) const {
+        const size_t size = column_data->size();
+        write_binary(size, buf);
+
+        DataTypeSerDe::FormatOptions opt;
+        auto tmp_str = ColumnString::create();
+        VectorBufferWriter tmp_buf(*tmp_str.get());
+
+        for (size_t i = 0; i < size; i++) {
+            tmp_str->clear();
+            if (Status st = serde->serialize_one_cell_to_json(*column_data, i, tmp_buf, opt); !st) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "Failed to serialize data for " + column_data->get_name() +
+                                               " error: " + st.to_string());
+            }
+            tmp_buf.commit();
+            write_string_binary(tmp_str->get_data_at(0), buf);
+        }
+
+        write_var_int(max_size, buf);
+    }
+
+    void read(BufferReadable& buf) {
+        size_t size = 0;
+        read_binary(size, buf);
+        column_data->clear();
+        column_data->reserve(size);
+
+        StringRef s;
+        DataTypeSerDe::FormatOptions opt;
+        for (size_t i = 0; i < size; i++) {
+            read_string_binary(s, buf);
+            Slice slice(s.data, s.size);
+            if (Status st = serde->deserialize_one_cell_from_json(*column_data, slice, opt); !st) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                       "Failed to deserialize data for " + column_data->get_name() +
+                                               " error: " + st.to_string());
+            }
+        }
+        read_var_int(max_size, buf);
     }
 
     void reset() { column_data->clear(); }
@@ -343,6 +462,14 @@ struct AggregateFunctionArrayAggData {
         to_arr.get_offsets().push_back(to_nested_col.size());
     }
 
+    void write(BufferWritable& buf) const {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support write");
+    }
+
+    void read(BufferReadable& buf) {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support read");
+    }
+
     void merge(const Self& rhs) {
         const auto size = rhs.null_map->size();
         null_map->resize(size);
@@ -412,6 +539,14 @@ struct AggregateFunctionArrayAggData<StringRef> {
         to_arr.get_offsets().push_back(to_nested_col.size());
     }
 
+    void write(BufferWritable& buf) const {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support write");
+    }
+
+    void read(BufferReadable& buf) {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support read");
+    }
+
     void merge(const Self& rhs) {
         const auto size = rhs.null_map->size();
         null_map->resize(size);
@@ -460,6 +595,14 @@ struct AggregateFunctionArrayAggData<void> {
             to_nested_col.insert_from(*column_data, i);
         }
         to_arr.get_offsets().push_back(to_nested_col.size());
+    }
+
+    void write(BufferWritable& buf) const {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support write");
+    }
+
+    void read(BufferReadable& buf) {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support read");
     }
 
     void merge(const Self& rhs) {
@@ -556,12 +699,12 @@ public:
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "collect not support serialize");
+        this->data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "collect not support deserialize");
+        this->data(place).read(buf);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
