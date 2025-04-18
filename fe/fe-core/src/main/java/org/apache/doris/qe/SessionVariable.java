@@ -528,6 +528,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
 
     public static final String INVERTED_INDEX_SKIP_THRESHOLD = "inverted_index_skip_threshold";
+    // compatible read for inverted index between x86 and arm,
+    // used for cross-platform (x86/arm) inverted index compatibility
+    // may removed in the future
+    public static final String INVERTED_INDEX_COMPATIBLE_READ = "inverted_index_compatible_read";
 
     public static final String AUTO_ANALYZE_START_TIME = "auto_analyze_start_time";
 
@@ -1896,6 +1900,13 @@ public class SessionVariable implements Serializable, Writable {
                             + " if the estimated hit ratio exceeds the percentage threshold of the total amount, "
                             + " then skip the index and proceed directly to matching."})
     public int invertedIndexSkipThreshold = 50;
+
+    @VariableMgr.VarAttr(name = INVERTED_INDEX_COMPATIBLE_READ,
+            description = {"兼容读取倒排索引，用于在x86和arm集群之间读取旧版本索引文件。",
+                    "Compatible read for inverted index between x86 and arm, "
+                            + "used to read old version index file from x86 in arm cluster"
+                            + "or read old version index file from arm in x86 cluster"})
+    public boolean invertedIndexCompatibleRead = false;
 
     @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
             description = {"解析sql使用的方言", "The dialect used to parse sql."})
@@ -3993,6 +4004,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipMissingVersion(skipMissingVersion);
 
         tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
+
+        tResult.setInvertedIndexCompatibleRead(invertedIndexCompatibleRead);
 
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
