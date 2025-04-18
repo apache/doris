@@ -23,6 +23,7 @@ import org.apache.doris.common.Pair;
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -88,8 +89,13 @@ public class MetaCache<T> {
 
     public Optional<T> getMetaObj(String name, long id) {
         Optional<T> val = metaObjCache.getIfPresent(name);
-        if (val == null) {
+        if (val == null || !val.isPresent()) {
             synchronized (metaObjCache) {
+                val = metaObjCache.getIfPresent(name);
+                if (val != null && val.isPresent()) {
+                    return val;
+                }
+                metaObjCache.invalidate(name);
                 val = metaObjCache.get(name);
                 idToName.put(id, name);
             }
@@ -132,5 +138,10 @@ public class MetaCache<T> {
         namesCache.invalidateAll();
         metaObjCache.invalidateAll();
         idToName.clear();
+    }
+
+    @VisibleForTesting
+    public LoadingCache<String, Optional<T>> getMetaObjCache() {
+        return metaObjCache;
     }
 }
