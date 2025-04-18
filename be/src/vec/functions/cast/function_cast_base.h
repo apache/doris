@@ -17,12 +17,29 @@
 // This file is copied from
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionsConversion.h
 // and modified by Doris
-#include "vec/functions/function_cast.h"
 
-#include "vec/functions/simple_function_factory.h"
+#pragma once
 
+#include "vec/functions/function.h"
 namespace doris::vectorized {
-void register_function_cast(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionBuilderCast>();
-}
+
+template <typename ToDataType, typename Name>
+class FunctionConvertBase : public IFunction {
+public:
+    static constexpr auto name = Name::name;
+
+    String get_name() const final { return name; }
+
+    bool is_variadic() const final { return true; }
+    size_t get_number_of_arguments() const final { return 0; }
+
+    // This function should not be called for get DateType Ptr
+    // using the FunctionCast::get_return_type_impl
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const final {
+        return std::make_shared<ToDataType>();
+    }
+
+    ColumnNumbers get_arguments_that_are_always_constant() const final { return {1}; }
+};
+
 } // namespace doris::vectorized
