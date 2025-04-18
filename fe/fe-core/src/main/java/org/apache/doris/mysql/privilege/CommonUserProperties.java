@@ -19,6 +19,7 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
@@ -65,6 +66,9 @@ public class CommonUserProperties implements Writable, GsonPostProcessable {
 
     @SerializedName(value = "it", alternate = {"insertTimeout"})
     private int insertTimeout = -1;
+
+    @SerializedName(value = "ic")
+    private String initCatalog = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     @SerializedName(value = "wg", alternate = {"workloadGroup"})
     private String workloadGroup = WorkloadGroupMgr.DEFAULT_GROUP_NAME;
@@ -154,6 +158,14 @@ public class CommonUserProperties implements Writable, GsonPostProcessable {
 
     public void setInsertTimeout(int insertTimeout) {
         this.insertTimeout = insertTimeout;
+    }
+
+    public String getInitCatalog() {
+        return initCatalog;
+    }
+
+    public void setInitCatalog(String initCatalog) {
+        this.initCatalog = initCatalog;
     }
 
     public String getWorkloadGroup() {
