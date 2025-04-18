@@ -256,6 +256,7 @@ struct WhichDataType {
     bool is_date_time_v2() const { return idx == TypeIndex::DateTimeV2; }
     bool is_date_or_datetime() const { return is_date() || is_date_time(); }
     bool is_date_v2_or_datetime_v2() const { return is_date_v2() || is_date_time_v2(); }
+    bool is_time_v2() const { return idx == TypeIndex::TimeV2; }
 
     bool is_ipv4() const { return idx == TypeIndex::IPv4; }
     bool is_ipv6() const { return idx == TypeIndex::IPv6; }
@@ -266,6 +267,8 @@ struct WhichDataType {
     bool is_string_or_fixed_string() const { return is_string() || is_fixed_string(); }
 
     bool is_json() const { return idx == TypeIndex::JSONB; }
+    bool is_bitmap() const { return idx == TypeIndex::BitMap; }
+    bool is_hll() const { return idx == TypeIndex::HLL; }
 
     bool is_array() const { return idx == TypeIndex::Array; }
     bool is_tuple() const { return idx == TypeIndex::Tuple; }
