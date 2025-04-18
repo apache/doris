@@ -266,11 +266,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
         // If table row count is less than the target sample row count, simple scan the full table.
         if (tableRowCount <= targetSampleRows) {
-            params.put("scaleFactor", "1");
-            params.put("sampleHints", "");
-            params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
             scanFullTable = true;
-            return;
         }
         Pair<List<Long>, Long> sampleTabletsInfo = getSampleTablets();
         String tabletStr = sampleTabletsInfo.first.stream()
@@ -514,7 +510,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      * @return True for single unique key column and single distribution column.
      */
     protected boolean useLinearAnalyzeTemplate() {
-        if (partitionColumnSampleTooManyRows || scanFullTable) {
+        if (partitionColumnSampleTooManyRows) {
             return true;
         }
         if (isSingleUniqueKey()) {
