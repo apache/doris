@@ -2129,8 +2129,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         AggregateParam localParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER, couldBanned);
         PhysicalHashAggregate<Plan> localAgg = new PhysicalHashAggregate<>(
                 Utils.fastToImmutableList(localAggGroupBy), localAggOutput,
-                Optional.empty(), localParam,
-                maybeUsingStreamAgg, Optional.empty(), null,
+                Optional.empty(), localParam, maybeUsingStreamAgg, Optional.empty(), null,
                 requireAny, logicalAgg.child());
         // add shuffle expr in project
         List<NamedExpression> projections = new ArrayList<>(localAgg.getOutputs());
@@ -2139,7 +2138,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalProject<Plan> physicalProject = new PhysicalProject<>(Utils.fastToImmutableList(projections),
                 null, localAgg);
 
-        // 2.second phase agg group by a,h, multi_distinct求count(distinct b)。
+        // 2.second phase agg group by a,h, multi_distinct_count(b)。
         List<Expression> secondPhaseAggGroupBy = new ArrayList<>(logicalAgg.getGroupByExpressions());
         secondPhaseAggGroupBy.add(modAlias.toSlot());
         List<NamedExpression> secondPhaseAggOutput = new ArrayList<>((List) secondPhaseAggGroupBy);
@@ -2165,8 +2164,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 PhysicalProperties.createHash(shuffleIds, ShuffleType.REQUIRE));
         PhysicalHashAggregate<Plan> secondPhaseAgg = new PhysicalHashAggregate<>(
                 secondPhaseAggGroupBy, Utils.fastToImmutableList(secondPhaseAggOutput),
-                Optional.empty(), secondParam,
-                false, Optional.empty(), logicalAgg.getLogicalProperties(),
+                Optional.empty(), secondParam, false, Optional.empty(), null,
                 secondRequireProperties, physicalProject);
 
         // 3. third phase agg
@@ -2178,13 +2176,13 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         thirdPhaseAggOutput.add(thirdCountAlias);
         PhysicalHashAggregate<Plan> thirdPhaseAgg = new PhysicalHashAggregate<>(
                 thirdPhaseAggGroupBy, Utils.fastToImmutableList(thirdPhaseAggOutput),
-                Optional.empty(), thirdParam,
-                false, Optional.empty(), logicalAgg.getLogicalProperties(),
+                Optional.empty(), thirdParam, false, Optional.empty(), null,
                 secondRequireProperties, secondPhaseAgg);
 
         // 4. fourth phase agg
         List<NamedExpression> fourthPhaseAggOutput = new ArrayList<>((List) thirdPhaseAggGroupBy);
-        AggregateParam fourthParam = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT, couldBanned);
+        AggregateParam fourthParam = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT,
+                couldBanned);
         Alias sumAliasFour = new Alias(aliasTarget.getExprId(),
                 new AggregateExpression(thirdCount, fourthParam, thirdCountAlias.toSlot()),
                 aliasTarget.getName());
@@ -2205,12 +2203,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
     private Alias getShuffleExpr(Count count, CascadesContext cascadesContext) {
         int bucketNum = cascadesContext.getConnectContext().getSessionVariable().aggDistinctSkewBucketNum;
-        Preconditions.checkState(bucketNum > 0 && bucketNum <= 65536);
         DataType type = bucketNum <= 256 ? TinyIntType.INSTANCE : SmallIntType.INSTANCE;
         int bucket = bucketNum / 2;
         Mod mod = new Mod(new XxHash32(TypeCoercionUtils.castIfNotSameType(
-                count.child(0),
-                StringType.INSTANCE)), new SmallIntLiteral((short) bucket));
+                count.child(0), StringType.INSTANCE)), new SmallIntLiteral((short) bucket));
         Cast cast = new Cast(mod, type);
         return new Alias(cast);
     }

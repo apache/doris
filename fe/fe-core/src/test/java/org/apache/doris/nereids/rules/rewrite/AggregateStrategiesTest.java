@@ -45,6 +45,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -489,6 +490,50 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
                         .when(agg -> agg.getGroupByExpressions().get(0).equals(age))
                 );
     }
+
+    @Test
+    public void skewCountDistinctRewriteVariable() {
+        Slot id = rStudent.getOutput().get(0).toSlot();
+        Slot age = rStudent.getOutput().get(3).toSlot();
+        List<Expression> groupExpressionList = Lists.newArrayList();
+        groupExpressionList.add(age);
+        List<NamedExpression> outputExpressionList = Lists.newArrayList(
+                age, new Alias(new Count(true, true, id), "count_id"));
+        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
+                true, Optional.empty(), rStudent);
+
+        // select count(distinct id) group by age;
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        ctx.getSessionVariable().setAggDistinctSkewBucketNum(65536);
+        PlanChecker.from(ctx, root)
+                .applyImplementation(skewRewriteRule())
+                .matches(
+                        logicalAggregate()
+                );
+    }
+
+    @Test
+    public void skewCountMultiColumnDistinctNotRewrite() {
+        Slot id = rStudent.getOutput().get(0).toSlot();
+        Slot gender = rStudent.getOutput().get(1).toSlot();
+        Slot age = rStudent.getOutput().get(3).toSlot();
+        List<Expression> groupExpressionList = Lists.newArrayList();
+        groupExpressionList.add(age);
+        List<NamedExpression> outputExpressionList = Lists.newArrayList(
+                age, new Alias(new Count(true, true, id, gender), "count_id"));
+        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
+                true, Optional.empty(), rStudent);
+
+        // select count(distinct id) group by age;
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        ctx.getSessionVariable().setAggDistinctSkewBucketNum(65536);
+        PlanChecker.from(ctx, root)
+                .applyImplementation(skewRewriteRule())
+                .matches(
+                        logicalAggregate()
+                );
+    }
+
 
     private Rule skewRewriteRule() {
         return new AggregateStrategies().buildRules()

@@ -24,4 +24,16 @@ suite("test_agg_skew_hint") {
     qt_hint_other_agg_func_expr "select a , count(distinct [skew] b+1) from test_skew_hint group by a order by 1,2"
     qt_hint_same_column_with_group_by "select b , count(distinct [skew] b) from test_skew_hint group by b order by 1,2"
     qt_hint_same_column_with_group_by_expr "select b , count(distinct [skew] b+1) from test_skew_hint group by b order by 1,2"
+    qt_hint_grouping "select a , count(distinct [skew] b)from test_skew_hint group by grouping sets((a),(c),()) order by 1,2"
+    qt_hint_other_agg_func_grouping "select a , count(distinct [skew] b), count(a) from test_skew_hint group by grouping sets((a),(c),()) order by 1,2"
+    qt_hint_other_agg_func_expr_grouping "select a , count(distinct [skew] b+1) from test_skew_hint group by grouping sets((a),(c),()) order by 1,2"
+    qt_hint_same_column_with_group_by_grouping "select b , count(distinct [skew] b) from test_skew_hint group by grouping sets((a),(b),()) order by 1,2"
+    qt_hint_same_column_with_group_by_expr_grouping "select b , count(distinct [skew] b+1) from test_skew_hint group by grouping sets((a),(b),()) order by 1,2"
+    qt_hint_multi_column "select a , count(distinct [skew] b,c)from test_skew_hint group by a order by 1,2"
+    sql "set agg_distinct_skew_bucket_num = 65536"
+    qt_hint_variable "select a , count(distinct [skew] b)from test_skew_hint group by a order by 1,2"
+
+    qt_hint_agg_join "select t1.a , count(distinct [skew] t2.b) from test_skew_hint t1 left join test_skew_hint t2 on t1.a=t2.a group by t1.a order by 1,2"
+    qt_hint_agg_agg "select a , count(distinct [skew] b)from (select a, count(distinct [skew] b) as b from test_skew_hint group by a) t group by a order by 1,2"
+    qt_hint_multi_count_distinct "select a, count(distinct [skew] b), count(distinct [skew] c) as b from test_skew_hint group by a order by 1,2"
 }

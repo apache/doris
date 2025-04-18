@@ -2198,6 +2198,10 @@ public class SessionVariable implements Serializable, Writable {
             description = {"agg distinct 倾斜场景的聚合分桶数"})
     public int aggDistinctSkewBucketNum = 1024;
 
+    public void setAggDistinctSkewBucketNum(int num) {
+        this.aggDistinctSkewBucketNum = num;
+    }
+
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
         if (ignoreRuntimeFilterIds.isEmpty()) {
