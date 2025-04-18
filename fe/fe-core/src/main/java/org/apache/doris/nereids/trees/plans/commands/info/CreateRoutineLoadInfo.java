@@ -17,14 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportDeleteOnStmt;
 import org.apache.doris.analysis.ImportSequenceStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Database;
@@ -208,6 +206,138 @@ public class CreateRoutineLoadInfo {
         }
     }
 
+    public String getName() {
+        return name;
+    }
+
+    public String getTableName() {
+        return tableName;
+    }
+
+    public String getDBName() {
+        return dbName;
+    }
+
+    public LabelNameInfo getLabelNameInfo() {
+        return labelNameInfo;
+    }
+
+    public Map<String, LoadProperty> getLoadPropertyMap() {
+        return loadPropertyMap;
+    }
+
+    public Map<String, String> getJobProperties() {
+        return jobProperties;
+    }
+
+    public String getTypeName() {
+        return typeName;
+    }
+
+    public RoutineLoadDesc getRoutineLoadDesc() {
+        return routineLoadDesc;
+    }
+
+    public int getDesiredConcurrentNum() {
+        return desiredConcurrentNum;
+    }
+
+    public long getMaxErrorNum() {
+        return maxErrorNum;
+    }
+
+    public double getMaxFilterRatio() {
+        return maxFilterRatio;
+    }
+
+    public long getMaxBatchIntervalS() {
+        return maxBatchIntervalS;
+    }
+
+    public long getMaxBatchRows() {
+        return maxBatchRows;
+    }
+
+    public long getMaxBatchSizeBytes() {
+        return maxBatchSizeBytes;
+    }
+
+    public boolean isStrictMode() {
+        return strictMode;
+    }
+
+    public long getExecMemLimit() {
+        return execMemLimit;
+    }
+
+    public String getTimezone() {
+        return timezone;
+    }
+
+    public int getSendBatchParallelism() {
+        return sendBatchParallelism;
+    }
+
+    public boolean isLoadToSingleTablet() {
+        return loadToSingleTablet;
+    }
+
+    public String getFormat() {
+        return format;
+    }
+
+    public String getJsonPaths() {
+        return jsonPaths;
+    }
+
+    public String getJsonRoot() {
+        return jsonRoot;
+    }
+
+    public boolean isStripOuterArray() {
+        return stripOuterArray;
+    }
+
+    public boolean isNumAsString() {
+        return numAsString;
+    }
+
+    public boolean isFuzzyParse() {
+        return fuzzyParse;
+    }
+
+    public byte getEnclose() {
+        return enclose;
+    }
+
+    public byte getEscape() {
+        return escape;
+    }
+
+    public long getWorkloadGroupId() {
+        return workloadGroupId;
+    }
+
+    public boolean isPartialUpdate() {
+        return isPartialUpdate;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public LoadTask.MergeType getMergeType() {
+        return mergeType;
+    }
+
+    public boolean isMultiTable() {
+        return isMultiTable;
+    }
+
+    public AbstractDataSourceProperties getDataSourceProperties() {
+        return dataSourceProperties;
+    }
+
     /**
      * analyze create table info
      */
@@ -382,9 +512,9 @@ public class CreateRoutineLoadInfo {
         sendBatchParallelism = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(SEND_BATCH_PARALLELISM),
             ConnectContext.get().getSessionVariable().getSendBatchParallelism(), SEND_BATCH_PARALLELISM_PRED,
             SEND_BATCH_PARALLELISM + " must be greater than 0")).intValue();
-        loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET),
+        loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LOAD_TO_SINGLE_TABLET),
             RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
-            LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
+            LOAD_TO_SINGLE_TABLET + " should be a boolean");
 
         String encloseStr = jobProperties.get(LoadStmt.KEY_ENCLOSE);
         if (encloseStr != null) {
@@ -436,20 +566,5 @@ public class CreateRoutineLoadInfo {
     private void checkDataSourceProperties() throws UserException {
         this.dataSourceProperties.setTimezone(this.timezone);
         this.dataSourceProperties.analyze();
-    }
-
-    /**
-     * make legacy create routine load statement after validate by nereids
-     * @return legacy create routine load statement
-     */
-    public CreateRoutineLoadStmt translateToLegacyStmt(ConnectContext ctx) {
-        return new CreateRoutineLoadStmt(labelNameInfo.transferToLabelName(), dbName, name, tableName, null,
-            ctx.getStatementContext().getOriginStatement(), ctx.getUserIdentity(),
-            jobProperties, typeName, routineLoadDesc,
-            desiredConcurrentNum, maxErrorNum, maxFilterRatio, maxBatchIntervalS, maxBatchRows, maxBatchSizeBytes,
-            execMemLimit, sendBatchParallelism, timezone, format, jsonPaths, jsonRoot, enclose, escape, workloadGroupId,
-            loadToSingleTablet, strictMode, isPartialUpdate, stripOuterArray, numAsString, fuzzyParse,
-            dataSourceProperties
-        );
     }
 }
