@@ -1,0 +1,11 @@
+{"id"  3   "name"  "Bob",
+"numbers": [
+    4 5
+],
+"scores": {
+"math": 80
+},
+"details"
+: {
+"a": 200  , "b"  } "test2", "c": 9876543210
+}}

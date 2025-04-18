@@ -20,6 +20,15 @@ set -e -x
 
 parallel=$(getconf _NPROCESSORS_ONLN)
 
+AUX_LIB="/mnt/scripts/auxlib"
+for file in "${AUX_LIB}"/*.tar.gz; do
+    [ -e "$file" ] || continue
+    tar -xzvf "$file" -C "$AUX_LIB"
+    echo "file = ${file}"
+done
+ls "${AUX_LIB}/"
+cp -r "${AUX_LIB}"/ /opt/hive
+
 nohup /opt/hive/bin/hive --service metastore &
 
 # wait lockfile
