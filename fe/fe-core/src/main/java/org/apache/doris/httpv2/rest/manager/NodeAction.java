@@ -108,7 +108,7 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/frontends", method = RequestMethod.GET)
     public Object frontends_info(HttpServletRequest request, HttpServletResponse response) throws Exception {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         return fetchNodeInfo(request, response, "/frontends");
     }
@@ -117,7 +117,7 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/backends", method = RequestMethod.GET)
     public Object backends_info(HttpServletRequest request, HttpServletResponse response) throws Exception {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         return fetchNodeInfo(request, response, "/backends");
     }
@@ -126,7 +126,7 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/brokers", method = RequestMethod.GET)
     public Object brokers_info(HttpServletRequest request, HttpServletResponse response) throws Exception {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         return fetchNodeInfo(request, response, "/brokers");
     }
@@ -224,7 +224,7 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/node_list", method = RequestMethod.GET)
     public Object nodeList(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         Map<String, List<String>> result = Maps.newHashMap();
         result.put("frontend", getFeList());
@@ -251,7 +251,7 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/config", method = RequestMethod.GET)
     public Object config(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         List<List<String>> configs = ConfigBase.getConfigInfo(null);
         // Sort all configs by config key.
@@ -312,7 +312,7 @@ public class NodeAction extends RestBaseController {
             @RequestParam(value = "type") String type,
             @RequestBody(required = false) ConfigInfoRequestBody requestBody) {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
 
         initHttpExecutor();
 
