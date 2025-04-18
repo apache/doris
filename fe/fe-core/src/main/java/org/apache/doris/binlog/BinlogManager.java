@@ -33,6 +33,7 @@ import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
+import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
@@ -430,6 +431,22 @@ public class BinlogManager {
         tableIds.add(info.getOrigTblId());
         long timestamp = System.currentTimeMillis();
         TBinlogType type = TBinlogType.REPLACE_TABLE;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addModifyDistributionNum(ModifyTableDefaultDistributionBucketNumOperationLog info, long commitSeq) {
+        if (info.getBucketNum() <= 0 || info.getType() == null) {
+            LOG.warn("skip modify distribution num binlog, because bucket num is invalid. info: {}", info);
+            return;
+        }
+
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = System.currentTimeMillis();
+        TBinlogType type = TBinlogType.MODIFY_DISTRIBUTION_BUCKET_NUM;
         String data = info.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
