@@ -281,4 +281,6 @@ CONF_Strings(recycler_storage_vault_white_list, "");
 //    Trace = 6
 CONF_Int32(aws_log_level, "2");
 
+CONF_mString(delete_bitmap_lock_version_white_list, "");
+
 } // namespace doris::cloud::config
