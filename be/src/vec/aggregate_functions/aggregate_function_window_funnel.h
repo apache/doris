@@ -78,32 +78,15 @@ struct DataValue {
     using TimestampEvent = std::vector<ColumnVector<UInt8>::Container>;
     std::vector<UInt64> dt;
     TimestampEvent event_columns_data;
-
-    DataValue() = default;
-    DataValue(DataValue&& other) noexcept
-            : dt(std::move(other.dt)), event_columns_data(std::move(other.event_columns_data)) {}
-
-    DataValue& operator=(DataValue&& other) noexcept {
-        if (this != &other) {
-            dt = std::move(other.dt);
-            event_columns_data = std::move(other.event_columns_data);
-        }
-        return *this;
-    }
-
     bool operator<(const DataValue& other) const { return dt < other.dt; }
     void clear() {
         dt.clear();
         for (auto& data : event_columns_data) {
             data.clear();
         }
-        event_columns_data.clear();
     }
-
     auto size() const { return dt.size(); }
-
     bool empty() const { return dt.empty(); }
-
     std::string debug_string() const {
         std::string result = "\n" + std::to_string(dt.size()) + " " +
                              std::to_string(event_columns_data[0].size()) + "\n";
