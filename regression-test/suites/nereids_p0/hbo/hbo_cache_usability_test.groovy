@@ -142,6 +142,7 @@ suite("hbo_cache_usability_test", "nonConcurrent") {
     sql "set hbo_rfsafe_threshold=1.0;"
     sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
     sql "set enable_hbo_optimization=false;"
+    sql "set global enable_hbo_info_collection=true;"
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                                                                        |

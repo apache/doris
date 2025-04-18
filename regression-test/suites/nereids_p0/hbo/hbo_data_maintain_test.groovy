@@ -31,6 +31,7 @@ suite("hbo_data_maintain_test", "nonConcurrent") {
     sql """analyze table hbo_data_maintain_test2 with full with sync;"""
     sql "set hbo_rfsafe_threshold=1.0;"
     sql "set enable_hbo_optimization=false;"
+    sql "set global enable_hbo_info_collection=true;"
     sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
     sleep(3000)
     /**
