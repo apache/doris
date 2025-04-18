@@ -1847,7 +1847,6 @@ Status ColumnObject::finalize(FinalizeMode mode) {
     bool need_pick_subcolumn_to_sparse_column =
             mode == FinalizeMode::WRITE_MODE &&
             (_max_subcolumns_count && subcolumns.size() > _max_subcolumns_count + 1);
-
     // finalize all subcolumns
     for (auto&& entry : subcolumns) {
         if (entry->data.is_root) {
@@ -2163,23 +2162,20 @@ std::string ColumnObject::debug_string() const {
 }
 
 Status ColumnObject::sanitize() const {
-#ifndef NDEBUG
     RETURN_IF_CATCH_EXCEPTION(check_consistency());
+    std::unordered_set<std::string> subcolumn_set;
+    // deduplicate subcolumns, example {"a.b" : 123, "a" : {"b" : 123}}
     for (const auto& subcolumn : subcolumns) {
-        if (subcolumn->data.is_finalized()) {
-            auto column = subcolumn->data.get_least_common_type()->create_column();
-            std::string original =
-                    remove_nullable(subcolumn->data.get_finalized_column().get_ptr())->get_name();
-            std::string expected = remove_nullable(column->get_ptr())->get_name();
-            if (original != expected) {
-                return Status::InternalError("Incompatible type between {} and {}, debug_info:",
-                                             original, expected, debug_string());
-            }
+        if (subcolumn->data.is_root) {
+            continue;
         }
+        if (subcolumn_set.contains(subcolumn->path.get_path())) {
+            return Status::InvalidJsonPath("may contains duplicated entry : {}",
+                                           subcolumn->path.get_path());
+        }
+        subcolumn_set.insert(subcolumn->path.get_path());
     }
-
     VLOG_DEBUG << "sanitized " << debug_string();
-#endif
     return Status::OK();
 }
 

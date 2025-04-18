@@ -234,7 +234,15 @@ bool ColumnReader::is_compaction_reader_type(ReaderType type) {
 
 const SubcolumnColumnReaders::Node* VariantColumnReader::get_reader_by_path(
         const vectorized::PathInData& relative_path) const {
-    return _subcolumn_readers->find_leaf(relative_path);
+    const auto* node = _subcolumn_readers->find_leaf(relative_path);
+    if (node) {
+        return node;
+    }
+    // try rebuild path with hierarchical
+    // example path(['a.b']) -> path(['a', 'b'])
+    auto path = vectorized::PathInData(relative_path.get_path());
+    node = _subcolumn_readers->find_leaf(path);
+    return node;
 }
 
 bool VariantColumnReader::exist_in_sparse_column(
@@ -424,6 +432,13 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
     const auto* root = _subcolumn_readers->get_root();
     const auto* node =
             target_col.has_path_info() ? _subcolumn_readers->find_exact(relative_path) : nullptr;
+
+    // try rebuild path with hierarchical
+    // example path(['a.b']) -> path(['a', 'b'])
+    if (node == nullptr) {
+        relative_path = vectorized::PathInData(relative_path.get_path());
+        node = _subcolumn_readers->find_exact(relative_path);
+    }
 
     // Check if path exist in sparse column
     bool existed_in_sparse_column =

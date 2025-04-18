@@ -308,10 +308,8 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* pt
                 _tablet_column->name_lower_case() + "." + entry->path.get_path();
         const vectorized::DataTypePtr& final_data_type_from_object =
                 entry->data.get_least_common_type();
-        vectorized::PathInDataBuilder full_path_builder;
-        auto full_path = full_path_builder.append(_tablet_column->name_lower_case(), false)
-                                 .append(entry->path.get_parts(), false)
-                                 .build();
+        auto full_path = vectorized::PathInData(_tablet_column->name_lower_case() + "." +
+                                                entry->path.get_path());
         // set unique_id and parent_unique_id, will use unique_id to get iterator correct
         auto column = vectorized::schema_util::get_column_by_type(
                 final_data_type_from_object, column_name,
@@ -453,20 +451,10 @@ void VariantStatistics::from_pb(const VariantStatisticsPB& stats) {
 Status VariantColumnWriterImpl::finalize() {
     auto* ptr = assert_cast<vectorized::ColumnObject*>(_column.get());
     RETURN_IF_ERROR(ptr->finalize(vectorized::ColumnObject::FinalizeMode::WRITE_MODE));
-
     // convert each subcolumns to storage format and add data to sub columns writers buffer
     auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
 
     DCHECK(ptr->is_finalized());
-
-    // if (ptr->is_null_root()) {
-    //     CHECK(false);
-    //     // auto root_type = vectorized::make_nullable(
-    //     //         std::make_shared<vectorized::ColumnObject::MostCommonType>());
-    //     // auto root_col = root_type->create_column();
-    //     // root_col->insert_many_defaults(ptr->rows());
-    //     // ptr->create_root(root_type, std::move(root_col));
-    // }
 
 #ifndef NDEBUG
     ptr->check_consistency();
@@ -500,6 +488,7 @@ Status VariantColumnWriterImpl::append_data(const uint8_t** ptr, size_t num_rows
     DCHECK(!is_finalized());
     const auto* column = reinterpret_cast<const vectorized::VariantColumnData*>(*ptr);
     const auto& src = *reinterpret_cast<const vectorized::ColumnObject*>(column->column_data);
+    RETURN_IF_ERROR(src.sanitize());
     auto* dst_ptr = assert_cast<vectorized::ColumnObject*>(_column.get());
     // TODO: if direct write we could avoid copy
     dst_ptr->insert_range_from(src, column->row_pos, num_rows);
