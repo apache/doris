@@ -23,8 +23,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 
-import com.google.common.collect.Maps;
-
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -38,13 +37,13 @@ public class AddBackendOp extends BackendOp {
 
     public AddBackendOp(List<String> hostPorts, Map<String, String> properties) {
         super(hostPorts);
-        this.properties = properties;
+        this.properties = new HashMap<>(properties);
     }
 
     @Override
     public void validate(ConnectContext ctx) throws AnalysisException {
         super.validate(ctx);
-        tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(Maps.newHashMap(properties), Tag.DEFAULT_BACKEND_TAG);
+        tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, Tag.DEFAULT_BACKEND_TAG);
         if (!tagMap.containsKey(Tag.TYPE_LOCATION)) {
             throw new AnalysisException(NEED_LOCATION_TAG_MSG);
         }

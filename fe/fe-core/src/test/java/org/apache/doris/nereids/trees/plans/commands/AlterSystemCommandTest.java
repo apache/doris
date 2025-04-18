@@ -90,7 +90,7 @@ public class AlterSystemCommandTest {
         Map<String, String> properties = ImmutableMap.of("tag.compute_group_name", "another_compute_group",
                 "tag.location", "location");
         AlterSystemCommand addBackend3 = new AlterSystemCommand(
-            new AddBackendOp(hostPorts, properties), PlanType.ALTER_SYSTEM_ADD_BACKEND);
+                new AddBackendOp(hostPorts, properties), PlanType.ALTER_SYSTEM_ADD_BACKEND);
         Assertions.assertDoesNotThrow(() -> addBackend3.validate(connectContext));
 
         // test dropBackend
