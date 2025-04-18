@@ -39,8 +39,8 @@ public class UUIDv7Generator {
     private static final UUIDv7Generator INSTANCE = new UUIDv7Generator();
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final AtomicInteger COUNTER = new AtomicInteger(0);
-    private static final int VERSION = 7;
-    private static final int VARIANT = 2;
+    private static final long VERSION = 7 << 12;
+    private static final long VARIANT = 2 << 62;
 
     private UUIDv7Generator() {}
 
@@ -55,9 +55,9 @@ public class UUIDv7Generator {
 
         long random = RANDOM.nextLong();
 
-        long msb = (timestamp << 16) | (VERSION << 12) | counter;
+        long msb = (timestamp << 16) | VERSION | counter;
 
-        long lsb = ((long) VARIANT << 62) | (random & 0x3FFFFFFFFFFFFFFFL);
+        long lsb = VARIANT | (random & 0x3FFFFFFFFFFFFFFFL);
 
         return new UUID(msb, lsb);
     }
