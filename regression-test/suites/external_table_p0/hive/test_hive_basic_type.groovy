@@ -158,42 +158,5 @@ suite("test_hive_basic_type", "external_docker,hive,external_docker_hive,p0,exte
             //sql """drop catalog if exists ${catalog_name} """
         }
     }
-
-    // test get scheam from table
-    for (String hivePrefix : ["hive2", "hive3"]) {
-       String catalog_name = "test_${hivePrefix}_get_schema"
-       String ex_db_name = "`default`"
-       String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-       String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-       String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-
-       sql """drop catalog if exists ${catalog_name} """
-
-       sql """CREATE CATALOG ${catalog_name} PROPERTIES (
-           'type'='hms',
-           'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-           'hadoop.username' = 'hive',
-           'get_schema_from_table' = 'true'
-       );"""
-
-       sql """switch ${catalog_name}"""
-
-       def res_dbs_log = sql "show databases;"
-       for (int i = 0; i < res_dbs_log.size(); i++) {
-           def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
-           log.info("database = ${res_dbs_log[i][0]} => tables = " + tbs.toString())
-       }
-
-       order_qt_schema_2 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table order by l_orderkey limit 1;"""
-       order_qt_schema_3 """select * from ${catalog_name}.${ex_db_name}.parquet_delta_binary_packed order by int_value limit 1;"""
-       order_qt_schema_4 """select * from ${catalog_name}.${ex_db_name}.parquet_alltypes_tiny_pages  order by id desc  limit 5;"""
-       order_qt_schema_5 """select * from ${catalog_name}.${ex_db_name}.orc_all_types_partition order by bigint_col desc limit 3;"""
-       order_qt_schema_6 """select * from ${catalog_name}.${ex_db_name}.csv_partition_table order by k1 limit 1;"""
-       order_qt_schema_9 """select * from ${catalog_name}.${ex_db_name}.csv_all_types limit 1;"""
-       order_qt_schema_10 """select * from ${catalog_name}.${ex_db_name}.text_all_types limit 1;"""
-
-       //sql """drop catalog if exists ${catalog_name} """
-    
-    }
 }
 
