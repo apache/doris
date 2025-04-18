@@ -62,20 +62,11 @@ class FileScanner : public Scanner {
 public:
     static constexpr const char* NAME = "FileScanner";
 
-<<<<<<< HEAD:be/src/vec/exec/scan/file_scanner.h
     FileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
                 RuntimeProfile* profile, ShardedKVCache* kv_cache,
-                std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+                const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
                 const std::unordered_map<std::string, int>* colname_to_slot_id);
-=======
-    VFileScanner(
-            RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
-            std::shared_ptr<vectorized::SplitSourceConnector> split_source, RuntimeProfile* profile,
-            ShardedKVCache* kv_cache,
-            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            const std::unordered_map<std::string, int>* colname_to_slot_id);
->>>>>>> cb77d49e91b ([fix](parquet)Fixed the problem that when Parquert reader uses index to read files, there will be multiple threads modify same object):be/src/vec/exec/scan/vfile_scanner.h
 
     Status open(RuntimeState* state) override;
 
