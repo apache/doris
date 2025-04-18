@@ -138,21 +138,19 @@ struct WindowFunnelState {
     }
 
     void sort() {
-        std::vector<size_t> indices(events_list.size());
+        auto num = events_list.size();
+        std::vector<size_t> indices(num);
         std::iota(indices.begin(), indices.end(), 0);
         std::sort(indices.begin(), indices.end(),
                   [this](size_t i1, size_t i2) { return events_list.dt[i1] < events_list.dt[i2]; });
 
-        auto reorder = [&indices](auto& vec) {
-            std::vector<typename std::decay_t<decltype(vec)>::value_type> temp;
-            temp.reserve(indices.size());
-            for (auto idx : indices) {
-                temp.push_back(std::move(vec[idx]));
+        auto reorder = [&indices, &num](auto& vec) {
+            std::decay_t<decltype(vec)> temp;
+            temp.resize(num);
+            for (auto i = 0; i < num; i++) {
+                temp[i] = vec[indices[i]];
             }
-            vec.clear();
-            for (auto val : temp) {
-                vec.push_back(val);
-            }
+            std::swap(vec, temp);
         };
 
         reorder(events_list.dt);
