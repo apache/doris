@@ -211,6 +211,8 @@ private:
             _executing_cumu_compactions;
     // tablet_id -> executing base compactions, guarded by `_compaction_mtx`
     std::unordered_map<int64_t, std::shared_ptr<CloudBaseCompaction>> _executing_base_compactions;
+    // tablet_id -> executing full compactions, guarded by `_compaction_mtx`
+    std::unordered_map<int64_t, std::shared_ptr<CloudFullCompaction>> _executing_full_compactions;
 
     using CumuPolices =
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;
