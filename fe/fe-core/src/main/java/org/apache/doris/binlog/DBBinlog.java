@@ -20,6 +20,7 @@ package org.apache.doris.binlog;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.BarrierLog;
@@ -515,10 +516,11 @@ public class DBBinlog {
             }
 
             // Speed up gc by recycling binlogs that are not locked by syncer.
-            // To keep compatible with the old version, if no binlog is locked here, fallthrough to the
-            // previous behavior (keep the entire binlogs until it is expired).
             if (minLockedCommitSeq.isPresent() && expiredCommitSeq + 1L < minLockedCommitSeq.get()) {
                 expiredCommitSeq = minLockedCommitSeq.get() - 1L;
+            } else if (Config.enable_recycle_binlog_immediately && !minLockedCommitSeq.isPresent()) {
+                // When the config enabled, recycle all binlogs immediately if no locking binlogs.
+                expiredCommitSeq = allBinlogs.last().getCommitSeq();
             }
 
             final long lastExpiredCommitSeq = expiredCommitSeq;
