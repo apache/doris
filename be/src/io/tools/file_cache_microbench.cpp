@@ -284,9 +284,9 @@ private:
 // Create a global S3FileRecords instance
 S3FileRecords s3_file_records;
 
-class MircobenchS3FileWriter {
+class MicrobenchS3FileWriter {
 public:
-    MircobenchS3FileWriter(std::shared_ptr<doris::io::ObjClientHolder> client,
+    MicrobenchS3FileWriter(std::shared_ptr<doris::io::ObjClientHolder> client,
                            const std::string& bucket, const std::string& key,
                            const doris::io::FileWriterOptions* options,
                            std::shared_ptr<doris::S3RateLimiterHolder> rate_limiter)
@@ -299,7 +299,7 @@ public:
         }
         using namespace doris;
         if (write_bvar) {
-            SCOPED_BVAR_LATENCY(*write_bvar)
+            SCOPED_BVAR_LATENCY(*write_bvar);
         }
         SCOPED_BVAR_LATENCY(microbench_write_latency);
         return _writer.appendv(slices, slices_size);
@@ -326,7 +326,7 @@ public:
         }
         using namespace doris;
         if (read_bvar) {
-            SCOPED_BVAR_LATENCY(*read_bvar)
+            SCOPED_BVAR_LATENCY(*read_bvar);
         }
         SCOPED_BVAR_LATENCY(microbench_write_latency);
         return _base_reader->read_at(offset, result, bytes_read, io_ctx);
@@ -399,14 +399,13 @@ public:
         return res;
     }
 
-    ~ThreadPool() {
+    void stop_and_wait() {
         {
             std::unique_lock<std::mutex> lock(queue_mutex);
             stop = true;
         }
         condition.notify_all();
 
-        // Safely wait for all threads to complete
         for (auto& worker : workers) {
             try {
                 if (worker.joinable()) {
@@ -414,6 +413,16 @@ public:
                 }
             } catch (const std::system_error& e) {
                 LOG(WARNING) << "Failed to join thread: " << e.what();
+            }
+        }
+    }
+
+    ~ThreadPool() {
+        if (!stop) {
+            try {
+                stop_and_wait();
+            } catch (const std::exception& e) {
+                LOG(WARNING) << "Error stopping thread pool: " << e.what();
             }
         }
     }
@@ -793,7 +802,6 @@ private:
     void init_limiters(const JobConfig& cfg) {
         if (cfg.write_iops > 0) {
             write_limiter = std::make_shared<doris::S3RateLimiterHolder>(
-                    doris::S3RateLimitType::PUT,
                     cfg.write_iops, // max_speed (IOPS)
                     cfg.write_iops, // max_burst
                     0,              // no limit
@@ -806,7 +814,6 @@ private:
 
         if (cfg.read_iops > 0) {
             read_limiter = std::make_shared<doris::S3RateLimiterHolder>(
-                    doris::S3RateLimitType::GET,
                     cfg.read_iops, // max_speed (IOPS)
                     cfg.read_iops, // max_burst
                     0,             // no limit
@@ -892,7 +899,7 @@ public:
 
     void stop() {
         LOG(INFO) << "Stopping JobManager and waiting for all jobs to complete";
-        _job_executor_pool.~ThreadPool();
+        _job_executor_pool.stop_and_wait();
         LOG(INFO) << "JobManager stopped";
     }
 
@@ -1061,7 +1068,7 @@ private:
                         options.file_cache_expiration = config.expiration;
                     }
                     options.write_file_cache = config.write_file_cache;
-                    auto writer = std::make_unique<MircobenchS3FileWriter>(
+                    auto writer = std::make_unique<MicrobenchS3FileWriter>(
                             client, doris::config::test_s3_bucket, key, &options,
                             job.write_limiter);
                     doris::Defer defer {[&]() {

@@ -35,7 +35,6 @@
 #include "cloud/config.h"
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
@@ -404,7 +403,9 @@ Status PointQueryExecutor::_lookup_row_key() {
     Status st;
     if (_version >= 0) {
         CHECK(config::is_cloud_mode()) << "Only cloud mode support snapshot read at present";
-        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(_version));
+        SyncOptions options;
+        options.query_version = _version;
+        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(options));
     }
     std::vector<RowsetSharedPtr> specified_rowsets;
     {

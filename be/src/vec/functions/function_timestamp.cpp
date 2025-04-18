@@ -398,7 +398,7 @@ struct DateTruncState {
     Callback_function callback_function;
 };
 
-template <typename DateType>
+template <typename DateType, bool DateArgIsFirst>
 struct DateTrunc {
     static constexpr auto name = "date_trunc";
 
@@ -411,7 +411,11 @@ struct DateTrunc {
     static size_t get_number_of_arguments() { return 2; }
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DateType>(), std::make_shared<DataTypeString>()};
+        if constexpr (DateArgIsFirst) {
+            return {std::make_shared<DateType>(), std::make_shared<DataTypeString>()};
+        } else {
+            return {std::make_shared<DataTypeString>(), std::make_shared<DateType>()};
+        }
     }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
@@ -422,11 +426,12 @@ struct DateTrunc {
         if (scope != FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }
-        if (!context->is_col_constant(1)) {
+        if (!context->is_col_constant(DateArgIsFirst ? 1 : 0)) {
             return Status::InvalidArgument(
                     "date_trunc function of time unit argument must be constant.");
         }
-        const auto& data_str = context->get_constant_col(1)->column_ptr->get_data_at(0);
+        const auto& data_str =
+                context->get_constant_col(DateArgIsFirst ? 1 : 0)->column_ptr->get_data_at(0);
         std::string lower_str(data_str.data, data_str.size);
         std::transform(lower_str.begin(), lower_str.end(), lower_str.begin(),
                        [](unsigned char c) { return std::tolower(c); });
@@ -462,8 +467,8 @@ struct DateTrunc {
         DCHECK_EQ(arguments.size(), 2);
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        const auto& datetime_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto& datetime_column = block.get_by_position(arguments[DateArgIsFirst ? 0 : 1])
+                                              .column->convert_to_full_column_if_const();
         ColumnPtr res = ColumnType::create(input_rows_count);
         auto* state = reinterpret_cast<DateTruncState*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
@@ -1137,10 +1142,14 @@ public:
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if constexpr (std::is_same_v<Impl, DateTrunc<DataTypeDate>> ||
-                      std::is_same_v<Impl, DateTrunc<DataTypeDateV2>> ||
-                      std::is_same_v<Impl, DateTrunc<DataTypeDateTime>> ||
-                      std::is_same_v<Impl, DateTrunc<DataTypeDateTimeV2>>) {
+        if constexpr (std::is_same_v<Impl, DateTrunc<DataTypeDate, true>> ||
+                      std::is_same_v<Impl, DateTrunc<DataTypeDateV2, true>> ||
+                      std::is_same_v<Impl, DateTrunc<DataTypeDateTime, true>> ||
+                      std::is_same_v<Impl, DateTrunc<DataTypeDateTimeV2, true>> ||
+                      std::is_same_v<Impl, DateTrunc<DataTypeDate, false>> ||
+                      std::is_same_v<Impl, DateTrunc<DataTypeDateV2, false>> ||
+                      std::is_same_v<Impl, DateTrunc<DataTypeDateTime, false>> ||
+                      std::is_same_v<Impl, DateTrunc<DataTypeDateTimeV2, false>>) {
             return Impl::open(context, scope);
         } else {
             return Status::OK();
@@ -1395,10 +1404,20 @@ using FunctionStrToDatetime = FunctionOtherTypesToDateType<StrToDate<DataTypeDat
 using FunctionStrToDateV2 = FunctionOtherTypesToDateType<StrToDate<DataTypeDateV2>>;
 using FunctionStrToDatetimeV2 = FunctionOtherTypesToDateType<StrToDate<DataTypeDateTimeV2>>;
 using FunctionMakeDate = FunctionOtherTypesToDateType<MakeDateImpl>;
-using FunctionDateTruncDate = FunctionOtherTypesToDateType<DateTrunc<DataTypeDate>>;
-using FunctionDateTruncDateV2 = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateV2>>;
-using FunctionDateTruncDatetime = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateTime>>;
-using FunctionDateTruncDatetimeV2 = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateTimeV2>>;
+using FunctionDateTruncDate = FunctionOtherTypesToDateType<DateTrunc<DataTypeDate, true>>;
+using FunctionDateTruncDateV2 = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateV2, true>>;
+using FunctionDateTruncDatetime = FunctionOtherTypesToDateType<DateTrunc<DataTypeDateTime, true>>;
+using FunctionDateTruncDatetimeV2 =
+        FunctionOtherTypesToDateType<DateTrunc<DataTypeDateTimeV2, true>>;
+
+using FunctionDateTruncDateWithCommonOrder =
+        FunctionOtherTypesToDateType<DateTrunc<DataTypeDate, false>>;
+using FunctionDateTruncDateV2WithCommonOrder =
+        FunctionOtherTypesToDateType<DateTrunc<DataTypeDateV2, false>>;
+using FunctionDateTruncDatetimeWithCommonOrder =
+        FunctionOtherTypesToDateType<DateTrunc<DataTypeDateTime, false>>;
+using FunctionDateTruncDatetimeV2WithCommonOrder =
+        FunctionOtherTypesToDateType<DateTrunc<DataTypeDateTimeV2, false>>;
 using FunctionFromIso8601DateV2 = FunctionOtherTypesToDateType<FromIso8601DateV2>;
 
 void register_function_timestamp(SimpleFunctionFactory& factory) {
@@ -1412,6 +1431,10 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTruncDateV2>();
     factory.register_function<FunctionDateTruncDatetime>();
     factory.register_function<FunctionDateTruncDatetimeV2>();
+    factory.register_function<FunctionDateTruncDateWithCommonOrder>();
+    factory.register_function<FunctionDateTruncDateV2WithCommonOrder>();
+    factory.register_function<FunctionDateTruncDatetimeWithCommonOrder>();
+    factory.register_function<FunctionDateTruncDatetimeV2WithCommonOrder>();
     factory.register_function<FunctionFromIso8601DateV2>();
 
     factory.register_function<FunctionUnixTimestamp<UnixTimeStampImpl>>();

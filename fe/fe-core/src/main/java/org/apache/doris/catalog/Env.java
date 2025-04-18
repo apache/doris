@@ -5487,7 +5487,7 @@ public class Env {
             Map<String, String> origDynamicProperties = tableProperty.getOriginDynamicPartitionProperty();
             origDynamicProperties.putAll(properties);
             Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(
-                    origDynamicProperties, table, db);
+                    origDynamicProperties, table, db, false);
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
             tableProperty.buildDynamicProperty();
         }
@@ -5752,8 +5752,9 @@ public class Env {
                 defaultDistributionInfo.setBucketNum(bucketNum);
 
                 ModifyTableDefaultDistributionBucketNumOperationLog info
-                        = new ModifyTableDefaultDistributionBucketNumOperationLog(
-                        db.getId(), olapTable.getId(), bucketNum);
+                        = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), olapTable.getId(),
+                                distributionInfo.getType(), distributionInfo.getAutoBucket(), bucketNum,
+                                defaultDistributionInfo.getColumnsName());
                 editLog.logModifyDefaultDistributionBucketNum(info);
                 LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), bucketNum);
             }

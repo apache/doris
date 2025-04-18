@@ -425,12 +425,12 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                         _output_buf_size - _output_buf_limit,               /* output_max_len */
                         &decompressed_len, &stream_end, &_more_input_bytes, &_more_output_bytes));
 
-                // LOG(INFO) << "after decompress:"
-                //           << " stream_end: " << stream_end
-                //           << " input_read_bytes: " << input_read_bytes
-                //           << " decompressed_len: " << decompressed_len
-                //           << " more_input_bytes: " << _more_input_bytes
-                //           << " more_output_bytes: " << _more_output_bytes;
+                VLOG_DEBUG << "after decompress:"
+                           << " stream_end: " << stream_end
+                           << " input_read_bytes: " << input_read_bytes
+                           << " decompressed_len: " << decompressed_len
+                           << " more_input_bytes: " << _more_input_bytes
+                           << " more_output_bytes: " << _more_output_bytes;
 
                 // update pos and limit
                 _input_buf_pos += input_read_bytes;
