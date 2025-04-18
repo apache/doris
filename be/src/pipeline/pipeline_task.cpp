@@ -450,7 +450,7 @@ Status PipelineTask::execute(bool* done) {
             break;
         }
 
-        if (time_spent > THREAD_TIME_SLICE) {
+        if (time_spent > _exec_time_slice) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }

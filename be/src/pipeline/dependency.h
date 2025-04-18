@@ -113,7 +113,7 @@ public:
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
     [[nodiscard]] Dependency* is_blocked_by(std::shared_ptr<PipelineTask> task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
-    virtual void set_ready();
+    void set_ready();
     void set_ready_to_read(int channel_id = 0) {
         DCHECK_LT(channel_id, _shared_state->source_deps.size()) << debug_string();
         _shared_state->source_deps[channel_id]->set_ready();
