@@ -631,10 +631,13 @@ void Daemon::start() {
             [this]() { this->report_runtime_query_statistics_thread(); }, &_threads.emplace_back());
     CHECK(st.ok()) << st;
 
-    st = Thread::create(
-            "Daemon", "delete_bitmap_metrics_thread",
-            [this]() { this->report_delete_bitmap_metrics_thread(); }, &_threads.emplace_back());
-    CHECK(st.ok()) << st;
+    if (!config::is_cloud_mode()) {
+        st = Thread::create(
+                "Daemon", "delete_bitmap_metrics_thread",
+                [this]() { this->report_delete_bitmap_metrics_thread(); },
+                &_threads.emplace_back());
+        CHECK(st.ok()) << st;
+    }
 
     if (config::enable_be_proc_monitor) {
         st = Thread::create(
