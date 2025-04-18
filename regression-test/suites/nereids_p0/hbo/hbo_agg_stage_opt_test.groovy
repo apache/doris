@@ -29,6 +29,7 @@ suite("hbo_agg_stage_opt_test", "nonConcurrent") {
     sql """alter table hbo_agg_stage_opt_test modify column d set stats('row_count'='10000000', 'ndv'='10000000', 'num_nulls'='0', 'min_value'='1', 'max_value'='10000000', 'data_size'='2.3043232E7');"""
     sql "set hbo_rfsafe_threshold=1.0;"
     sql "set enable_hbo_optimization=false;";
+    sql "set global enable_hbo_info_collection=true;";
     sql """ ADMIN SET ALL FRONTENDS CONFIG ("hbo_slow_query_threshold_ms" = "10"); """
     /**
      +-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+

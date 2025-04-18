@@ -34,6 +34,7 @@ suite("hbo_join_side_opt_test", "nonConcurrent") {
     sleep(3000)
     
     sql "set enable_hbo_optimization=false;"
+    sql "set global enable_hbo_info_collection=true;"
     /**
      +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
      | Explain String(Nereids Planner)                                                                                                                                                                                                                              |
