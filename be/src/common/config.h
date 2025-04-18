@@ -207,6 +207,7 @@ DECLARE_mBool(disable_memory_gc);
 
 // if false, turn off all stacktrace
 DECLARE_mBool(enable_stacktrace);
+DECLARE_mBool(enable_streaming_analytic);
 
 // when alloc memory larger than stacktrace_in_alloc_large_memory_bytes, default 2G,
 // if alloc successful, will print a warning with stacktrace, but not prevent memory alloc.

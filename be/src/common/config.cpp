@@ -168,6 +168,7 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 DEFINE_mBool(disable_memory_gc, "false");
 
 DEFINE_mBool(enable_stacktrace, "true");
+DEFINE_mBool(enable_streaming_analytic, "true");
 
 DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
