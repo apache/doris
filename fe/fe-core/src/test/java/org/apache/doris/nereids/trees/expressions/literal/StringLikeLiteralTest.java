@@ -31,4 +31,11 @@ public class StringLikeLiteralTest {
         double d2 = StringLikeLiteral.getDouble(maxStr);
         Assertions.assertTrue(d1 < d2);
     }
+
+    @Test
+    public void testUtf8() {
+        System.setProperty("file.encoding", "ANSI_X3.4-1968");
+        double d1 = StringLikeLiteral.getDouble("一般风险准备");
+        Assertions.assertEquals(d1, 6.4379158486625512E16);
+    }
 }
