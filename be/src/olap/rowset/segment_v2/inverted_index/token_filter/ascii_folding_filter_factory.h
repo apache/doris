@@ -17,31 +17,26 @@
 
 #pragma once
 
-#include <unicode/utext.h>
+#include "ascii_folding_filter.h"
+#include "token_filter_factory.h"
 
-#include "CLucene.h" // IWYU pragma: keep
-#include "CLucene/analysis/AnalysisHeader.h"
+namespace doris::segment_v2::inverted_index {
 
-using namespace lucene::analysis;
-
-namespace doris::segment_v2 {
-
-class BasicTokenizer : public Tokenizer {
+class ASCIIFoldingFilterFactory : public TokenFilterFactory {
 public:
-    BasicTokenizer();
-    BasicTokenizer(bool lowercase, bool ownReader);
-    ~BasicTokenizer() override = default;
+    ASCIIFoldingFilterFactory() = default;
+    ~ASCIIFoldingFilterFactory() override = default;
 
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
+    void initialize(const Settings& settings) override {
+        _preserve_original = settings.get_bool("preserve_original", false);
+    }
 
-    void cut();
+    TokenFilterPtr create(const TokenStreamPtr& in) override {
+        return std::make_shared<ASCIIFoldingFilter>(in, _preserve_original);
+    }
 
 private:
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
+    bool _preserve_original = false;
 };
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index
