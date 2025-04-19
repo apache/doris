@@ -183,6 +183,12 @@ public:
         }
         return IColumn::convert_column_if_overflow();
     }
+
+    void remove_first_n_values(size_t count) override {
+        for (auto& col : columns) {
+            col->remove_first_n_values(count);
+        }
+    }
 };
 
 } // namespace doris::vectorized

@@ -276,6 +276,11 @@ public:
     }
 
     void finalize() override { data->finalize(); }
+
+    void remove_first_n_values(size_t count) override {
+        DCHECK_GE(s, count);
+        s = s - count;
+    }
 };
 } // namespace doris::vectorized
 #include "common/compile_check_end.h"

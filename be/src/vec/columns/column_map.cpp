@@ -545,4 +545,17 @@ ColumnPtr ColumnMap::convert_to_full_column_if_const() const {
                              offsets_column->convert_to_full_column_if_const());
 }
 
+void ColumnMap::remove_first_n_values(size_t count) {
+    if (count >= size()) {
+        count = size() - 1;
+    }
+    auto offset = get_offsets()[count];
+    keys_column->remove_first_n_values(offset);
+    values_column->remove_first_n_values(offset);
+    offsets_column->remove_first_n_values(count);
+    for (size_t i = 0; i < offsets_column->size(); ++i) {
+        get_offsets()[count] -= offset;
+    }
+}
+
 } // namespace doris::vectorized
