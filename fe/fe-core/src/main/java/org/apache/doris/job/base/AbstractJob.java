@@ -313,10 +313,12 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     }
 
     public void logDeleteOperation() {
+
         Env.getCurrentEnv().getEditLog().logDeleteJob(this);
     }
 
     public void logUpdateOperation() {
+
         Env.getCurrentEnv().getEditLog().logUpdateJob(this);
     }
 
@@ -460,5 +462,9 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public void onReplayEnd(AbstractJob<?, C> replayJob) throws JobException {
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay delete scheduler job").build());
+    }
+
+    public boolean needPersist() {
+        return true;
     }
 }

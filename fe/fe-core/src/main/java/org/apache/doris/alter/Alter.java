@@ -830,7 +830,7 @@ public class Alter {
             }
 
             if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
-                Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) origTable);
+                Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) origTable, isReplay);
             }
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(origTable.getId());
         }
@@ -1300,9 +1300,9 @@ public class Alter {
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
             }
+            Env.getCurrentEnv().getMtmvService().alterMTMV(mtmv, alterMTMV, isReplay);
             // 4. log it and replay it in the follower
             if (!isReplay) {
-                Env.getCurrentEnv().getMtmvService().alterMTMV(mtmv, alterMTMV);
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
             }
         } catch (UserException e) {

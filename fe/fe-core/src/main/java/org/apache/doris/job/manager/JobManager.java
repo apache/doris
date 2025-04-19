@@ -113,7 +113,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                 throw new JobException("job id exist, jobId:" + job.getJobId());
             }
             jobMap.put(job.getJobId(), job);
-            job.logCreateOperation();
+            if (job.needPersist()) {
+                job.logCreateOperation();
+            }
         } finally {
             writeUnlock();
         }
@@ -181,7 +183,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         writeLock();
         try {
             // write delete log
-            dropJob.logDeleteOperation();
+            if (dropJob.needPersist()) {
+                dropJob.logDeleteOperation();
+            }
             jobMap.remove(dropJob.getJobId());
         } finally {
             writeUnlock();
@@ -320,12 +324,14 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(jobMap.size());
-        jobMap.forEach((jobId, job) -> {
+        List<T> needPersistJobs = jobMap.values().stream().filter(job -> job.needPersist())
+                .collect(Collectors.toList());
+        out.writeInt(needPersistJobs.size());
+        needPersistJobs.forEach((job) -> {
             try {
                 job.write(out);
             } catch (IOException e) {
-                log.error("write job error, jobId:" + jobId, e);
+                log.error("write job error, jobId:" + job.getJobId(), e);
             }
         });
     }
