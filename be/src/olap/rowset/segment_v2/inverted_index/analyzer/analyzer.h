@@ -37,7 +37,7 @@ class InvertedIndexAnalyzer {
 public:
     static std::unique_ptr<lucene::util::Reader> create_reader(CharFilterMap& char_filter_map);
 
-    static std::unique_ptr<lucene::analysis::Analyzer> create_analyzer(
+    static std::shared_ptr<lucene::analysis::Analyzer> create_analyzer(
             const InvertedIndexCtx* inverted_index_ctx);
 
     static std::vector<std::string> get_analyse_result(lucene::util::Reader* reader,

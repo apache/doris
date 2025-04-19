@@ -119,6 +119,7 @@ class ProcessProfile;
 class HeapProfiler;
 class WalManager;
 class DNSCache;
+class IndexPolicyMgr;
 struct SyncRowsetStats;
 
 inline bool k_doris_exit = false;
@@ -273,6 +274,7 @@ public:
 
     kerberos::KerberosTicketMgr* kerberos_ticket_mgr() { return _kerberos_ticket_mgr; }
     io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
+    IndexPolicyMgr* index_policy_mgr() { return _index_policy_mgr; }
 
 #ifdef BE_TEST
     void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
@@ -492,6 +494,7 @@ private:
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
+    IndexPolicyMgr* _index_policy_mgr = nullptr;
 
     RuntimeQueryStatisticsMgr* _runtime_query_statistics_mgr = nullptr;
 
