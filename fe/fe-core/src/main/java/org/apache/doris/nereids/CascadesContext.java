@@ -24,6 +24,7 @@ import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
 import org.apache.doris.nereids.jobs.executor.TableCollectAndHookInitializer;
+import org.apache.doris.nereids.jobs.executor.TablePartitionCollector;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob.RootRewriteJobContext;
@@ -226,6 +227,10 @@ public class CascadesContext implements ScheduleContext {
 
     public TableCollectAndHookInitializer newTableCollector() {
         return new TableCollectAndHookInitializer(this);
+    }
+
+    public TablePartitionCollector newTablePartitionCollector() {
+        return new TablePartitionCollector(this);
     }
 
     public Analyzer newAnalyzer() {
