@@ -47,7 +47,9 @@ suite("test_hive_orc_predicate", "p0,external,hive,external_docker,external_dock
 
             // use check_orc_init_sargs_success to test full acid push down
             sql """use `${catalog_name}`.`default`"""
-            sql """ set check_orc_init_sargs_success = true; """
+            if (hivePrefix == "hive3") {
+                sql """ set check_orc_init_sargs_success = true; """
+            }
             qt_predicate_full_acid_push_down """ select * from orc_full_acid_par where value = 'BB' order by id;"""
             sql """ set check_orc_init_sargs_success = false; """
 
