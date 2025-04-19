@@ -153,9 +153,6 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // update statistics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
-    if (!ctx->data_saved_path.empty()) {
-        _exec_env->load_path_mgr()->clean_tmp_files(ctx->data_saved_path);
-      }
     if (_exec_env->load_path_mgr() != nullptr) {
         _exec_env->load_path_mgr()->clean_tmp_files(ctx->data_saved_path);
     } else {
@@ -437,8 +434,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         ctx->pipe = pipe;
         RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx));
     } else {
-
-
         RETURN_IF_ERROR(_data_saved_path(http_req, &request.path, ctx->body_bytes));
         auto file_sink = std::make_shared<MessageBodyFileSink>(request.path);
         RETURN_IF_ERROR(file_sink->open());
