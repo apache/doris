@@ -122,18 +122,14 @@ struct MethodBaseInner {
 
     template <typename State>
     ALWAYS_INLINE auto find(State& state, size_t i) {
-        if constexpr (!is_string_hash_map()) {
-            prefetch<true>(i);
-        }
+        prefetch<true>(i);
         return state.find_key_with_hash(*hash_table, i, keys[i], hash_values[i]);
     }
 
     template <typename State, typename F, typename FF>
     ALWAYS_INLINE auto lazy_emplace(State& state, size_t i, F&& creator,
                                     FF&& creator_for_null_key) {
-        if constexpr (!is_string_hash_map()) {
-            prefetch<false>(i);
-        }
+        prefetch<false>(i);
         return state.lazy_emplace_key(*hash_table, i, keys[i], hash_values[i], creator,
                                       creator_for_null_key);
     }
