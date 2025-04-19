@@ -3445,4 +3445,88 @@ TEST(function_string_test, function_xpath_string_test) {
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
 
+TEST(function_string_test, function_printf_test) {
+    std::string func_name = "printf";
+    // Test basic format specifiers
+    {
+        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
+        DataSet data_set = {
+                {{std::string("%d"), std::int32_t(123)}, std::string("123")},
+                {{std::string("%5d"), std::int32_t(123)}, std::string("  123")},
+                {{std::string("%-5d"), std::int32_t(123)}, std::string("123  ")},
+                {{std::string("%05d"), std::int32_t(123)}, std::string("00123")},
+        };
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // Test different integer types
+    {
+        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int8, TypeIndex::Int16,
+                                        TypeIndex::Int32, TypeIndex::Int64};
+        DataSet data_set = {{{std::string("%d %d %d %ld"), std::int8_t(-8), std::int16_t(-16),
+                              std::int32_t(-32), std::int64_t(-64)},
+                             std::string("-8 -16 -32 -64")}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // Test different integer formats
+    {
+        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32, TypeIndex::Int32,
+                                        TypeIndex::Int32, TypeIndex::Int32};
+        DataSet data_set = {{{std::string("%d %o %x %X"), std::int32_t(123), std::int32_t(123),
+                              std::int32_t(123), std::int32_t(123)},
+                             std::string("123 173 7b 7B")}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // Test same argument multiple times
+    {
+        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
+        DataSet data_set = {
+                {{std::string("%1$d %1$d %1$d"), std::int32_t(123)}, std::string("123 123 123")}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // Test floating point types and precision
+    {
+        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Float32, TypeIndex::Float64};
+        DataSet data_set = {{{std::string("%f %f"), std::float_t(1.23), std::double_t(4.56)},
+                             std::string("1.230000 4.560000")},
+                            {{std::string("%.2f %.2f"), std::float_t(1.23), std::double_t(4.56)},
+                             std::string("1.23 4.56")},
+                            {{std::string("%e %E"), std::float_t(1.23), std::double_t(4.56)},
+                             std::string("1.230000e+00 4.560000E+00")}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // Test string formatting
+    {
+        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        DataSet data_set = {
+                {{std::string("%s"), std::string("hello")}, std::string("hello")},
+                {{std::string("%10s"), std::string("hello")}, std::string("     hello")},
+                {{std::string("%-10s"), std::string("hello")}, std::string("hello     ")},
+        };
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // Test mixed types
+    {
+        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32, TypeIndex::Float64,
+                                        TypeIndex::String, TypeIndex::Int64};
+        DataSet data_set = {{{std::string("int:%d float:%.1f str:%s int:%ld"), std::int32_t(-123),
+                              std::double_t(45.67), std::string("hello"), std::int64_t(89)},
+                             std::string("int:-123 float:45.7 str:hello int:89")}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+
+    // Test NULL handling
+    {
+        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
+        DataSet data_set = {{{Null(), std::int32_t(123)}, Null()},
+                            {{std::string("%d"), Null()}, Null()}};
+        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    }
+}
+
 } // namespace doris::vectorized
