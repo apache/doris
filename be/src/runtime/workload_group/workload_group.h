@@ -156,8 +156,7 @@ public:
         return _memory_limit > 0 ? _total_mem_used > _memory_limit : false;
     }
 
-    Status add_task_resource_ctx(TUniqueId query_id,
-                                 std::shared_ptr<ResourceContext> resource_ctx) {
+    Status add_resource_ctx(TUniqueId query_id, std::shared_ptr<ResourceContext> resource_ctx) {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
         if (_is_shutdown) {
             // If the workload group is set shutdown, then should not run any more,

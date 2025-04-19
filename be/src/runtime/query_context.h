@@ -260,8 +260,9 @@ public:
         return _using_brpc_stubs;
     }
 
-    void set_low_memory_mode(bool low_memory_mode = true) {
-        _resource_ctx->task_controller()->set_low_memory_mode(low_memory_mode);
+    void set_low_memory_mode() {
+        // will not return from low memory mode to non-low memory mode.
+        _resource_ctx->task_controller()->set_low_memory_mode(true);
     }
     bool low_memory_mode() { return _resource_ctx->task_controller()->low_memory_mode(); }
 
