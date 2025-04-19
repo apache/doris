@@ -329,6 +329,7 @@ if [[ "${ARROW_SOURCE}" == "apache-arrow-7.0.0" ]]; then
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
         patch -p1 <"${TP_PATCH_DIR}/apache-arrow-7.0.0.patch"
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-7.0.0-exception-handling.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
