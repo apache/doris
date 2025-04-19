@@ -26,14 +26,9 @@
 #include "vec/io/io_helper.h"
 #include "vec/io/var_int.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class BufferReadable;
 class BufferWritable;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 void read_binary(Array& x, BufferReadable& buf) {
     size_t size;
@@ -90,36 +85,38 @@ void read_binary(Array& x, BufferReadable& buf) {
 void write_binary(const Array& x, BufferWritable& buf) {
     UInt8 type = Field::Types::Null;
     size_t size = x.size();
-    if (size) type = x.front().get_type();
+    if (size) {
+        type = x.front().get_type();
+    }
     doris::vectorized::write_binary(type, buf);
     doris::vectorized::write_binary(size, buf);
 
-    for (Array::const_iterator it = x.begin(); it != x.end(); ++it) {
+    for (const auto& it : x) {
         switch (type) {
         case Field::Types::Null:
             break;
         case Field::Types::UInt64: {
-            doris::vectorized::write_var_uint(get<UInt64>(*it), buf);
+            doris::vectorized::write_var_uint(get<UInt64>(it), buf);
             break;
         }
         case Field::Types::UInt128: {
-            doris::vectorized::write_binary(get<UInt128>(*it), buf);
+            doris::vectorized::write_binary(get<UInt128>(it), buf);
             break;
         }
         case Field::Types::Int64: {
-            doris::vectorized::write_var_int(get<Int64>(*it), buf);
+            doris::vectorized::write_var_int(get<Int64>(it), buf);
             break;
         }
         case Field::Types::Float64: {
-            doris::vectorized::write_float_binary(get<Float64>(*it), buf);
+            doris::vectorized::write_float_binary(get<Float64>(it), buf);
             break;
         }
         case Field::Types::String: {
-            doris::vectorized::write_string_binary(get<std::string>(*it), buf);
+            doris::vectorized::write_string_binary(get<std::string>(it), buf);
             break;
         }
         case Field::Types::JSONB: {
-            doris::vectorized::write_json_binary(get<JsonbField>(*it), buf);
+            doris::vectorized::write_json_binary(get<JsonbField>(it), buf);
             break;
         }
         }
