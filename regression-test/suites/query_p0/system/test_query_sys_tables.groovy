@@ -258,6 +258,10 @@ suite("test_query_sys_tables", "query,p0") {
     String[][] systabs = sql "USE information_schema;show tables"
     System.out.println(systabs)
     for (String[] tab : systabs) {
+        if (isCloudMode() && "backend_tablets".equalsIgnoreCase(tab[0])) {
+            // Current not support in cloud mode
+            continue
+        }
         sql "select * from ${tab[0]} limit 10"
     }
 }
