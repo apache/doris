@@ -190,6 +190,7 @@ import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
+import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
@@ -983,5 +984,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateUserCommand(CreateUserCommand createUserCommand, C context) {
         return visitCommand(createUserCommand, context);
+    }
+
+    default R visitTruncateTableCommand(TruncateTableCommand truncateTableCommand, C context) {
+        return visitCommand(truncateTableCommand, context);
     }
 }

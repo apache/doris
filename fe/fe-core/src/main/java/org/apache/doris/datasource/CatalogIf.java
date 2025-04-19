@@ -34,6 +34,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -207,6 +208,8 @@ public interface CatalogIf<T extends DatabaseIf> {
                    boolean force) throws DdlException;
 
     void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException;
+
+    void truncateTable(TruncateTableCommand truncateTableCommand) throws DdlException;
 
     /**
      * Try to parse meta table name from table name.
