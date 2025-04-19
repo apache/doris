@@ -21,6 +21,7 @@
 #include "runtime/workload_management/task_controller.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class QueryContext;
 
@@ -44,10 +45,11 @@ public:
     Status revoke_memory() override;
     std::vector<pipeline::PipelineTask*> get_revocable_tasks() override;
 
-private:
+protected:
     QueryTaskController(const std::shared_ptr<QueryContext>& query_ctx) : query_ctx_(query_ctx) {}
 
     const std::weak_ptr<QueryContext> query_ctx_;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

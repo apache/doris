@@ -130,10 +130,10 @@ TEST_F(WorkloadGroupManagerTest, query_exceed) {
     auto wg = _wg_manager->get_or_create_workload_group({});
     auto query_context = _generate_on_query(wg);
 
-    query_context->set_mem_limit(1024 * 1024);
+    query_context->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
     query_context->query_mem_tracker()->consume(1024 * 4);
 
-    _wg_manager->add_paused_query(query_context, 1024L * 1024 * 1024,
+    _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L * 1024 * 1024,
                                   Status::Error(ErrorCode::QUERY_MEMORY_EXCEEDED, "test"));
     {
         std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
@@ -147,7 +147,7 @@ TEST_F(WorkloadGroupManagerTest, query_exceed) {
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
     ASSERT_EQ(query_context->is_cancelled(), false) << "query should be not canceled";
-    ASSERT_EQ(query_context->_enable_reserve_memory, false)
+    ASSERT_EQ(query_context->resource_ctx()->task_controller()->is_enable_reserve_memory(), false)
             << "query should disable reserve memory";
 }
 
@@ -158,7 +158,7 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed1) {
     auto query_context = _generate_on_query(wg);
 
     query_context->query_mem_tracker()->consume(1024L * 1024 * 1024 * 4);
-    _wg_manager->add_paused_query(query_context, 1024L,
+    _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L,
                                   Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test"));
     {
         std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
@@ -169,7 +169,7 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed1) {
     _run_checking_loop(wg);
 
     query_context->query_mem_tracker()->consume(-1024 * 4);
-    ASSERT_TRUE(query_context->paused_reason().ok());
+    ASSERT_TRUE(query_context->resource_ctx()->task_controller()->paused_reason().ok());
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
@@ -184,7 +184,7 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed2) {
 
     query_context->query_mem_tracker()->consume(1024L * 4);
 
-    _wg_manager->add_paused_query(query_context, 1024L,
+    _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L,
                                   Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test"));
     {
         std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
@@ -194,7 +194,7 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed2) {
 
     _run_checking_loop(wg);
     query_context->query_mem_tracker()->consume(-1024 * 4);
-    ASSERT_TRUE(query_context->paused_reason().ok());
+    ASSERT_TRUE(query_context->resource_ctx()->task_controller()->paused_reason().ok());
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
     ASSERT_EQ(query_context->is_cancelled(), false) << "query should be canceled";
@@ -210,7 +210,7 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
 
     query_context->query_mem_tracker()->consume(1024L * 1024 * 4);
 
-    _wg_manager->add_paused_query(query_context, 1024L,
+    _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L,
                                   Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test"));
     {
         std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
@@ -225,7 +225,7 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed3) {
 
     // Query was not cancelled, because the query's limit is bigger than the wg's limit and the wg's policy is NONE.
     ASSERT_FALSE(query_context->is_cancelled());
-    ASSERT_GT(query_context->get_mem_limit(), wg->memory_limit());
+    ASSERT_GT(query_context->resource_ctx()->memory_context()->mem_limit(), wg->memory_limit());
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
@@ -244,7 +244,7 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed4) {
 
     query_context->query_mem_tracker()->consume(1024L * 1024 * 4);
 
-    _wg_manager->add_paused_query(query_context, 1024L,
+    _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L,
                                   Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test"));
     {
         std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
@@ -257,9 +257,10 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed4) {
     _run_checking_loop(wg);
 
     query_context->query_mem_tracker()->consume(-1024L * 1024 * 4);
-    ASSERT_TRUE(query_context->paused_reason().ok());
-    LOG(INFO) << "***** query_context->get_mem_limit(): " << query_context->get_mem_limit();
-    const auto delta = std::abs(query_context->get_mem_limit() -
+    ASSERT_TRUE(query_context->resource_ctx()->task_controller()->paused_reason().ok());
+    LOG(INFO) << "***** query_context->get_mem_limit(): "
+              << query_context->resource_ctx()->memory_context()->mem_limit();
+    const auto delta = std::abs(query_context->resource_ctx()->memory_context()->mem_limit() -
                                 ((1024L * 1024 * 100 * 95) / 100 - 10 * 1024 * 1024) / 5);
     ASSERT_LE(delta, 1);
 
@@ -280,7 +281,7 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed5) {
 
     query_context->query_mem_tracker()->consume(1024L * 1024 * 4);
 
-    _wg_manager->add_paused_query(query_context, 1024L,
+    _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L,
                                   Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test"));
     {
         std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
@@ -293,9 +294,11 @@ TEST_F(WorkloadGroupManagerTest, wg_exceed5) {
     _run_checking_loop(wg);
 
     query_context->query_mem_tracker()->consume(-1024L * 1024 * 4);
-    ASSERT_TRUE(query_context->paused_reason().ok());
-    LOG(INFO) << "***** query_context->get_mem_limit(): " << query_context->get_mem_limit();
-    ASSERT_LE(query_context->get_mem_limit(), (1024L * 1024 * 100 * 95) / 100);
+    ASSERT_TRUE(query_context->resource_ctx()->task_controller()->paused_reason().ok());
+    LOG(INFO) << "***** query_context->get_mem_limit(): "
+              << query_context->resource_ctx()->memory_context()->mem_limit();
+    ASSERT_LE(query_context->resource_ctx()->memory_context()->mem_limit(),
+              (1024L * 1024 * 100 * 95) / 100);
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
@@ -309,7 +312,7 @@ TEST_F(WorkloadGroupManagerTest, overcommit) {
 
     auto query_context = _generate_on_query(wg);
 
-    _wg_manager->add_paused_query(query_context, 1024L * 1024 * 1024,
+    _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L * 1024 * 1024,
                                   Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test"));
     {
         std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
@@ -337,7 +340,7 @@ TEST_F(WorkloadGroupManagerTest, slot_memory_policy_disabled) {
 
     auto query_context = _generate_on_query(wg);
 
-    _wg_manager->add_paused_query(query_context, 1024L,
+    _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L,
                                   Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test"));
     {
         std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
@@ -349,7 +352,7 @@ TEST_F(WorkloadGroupManagerTest, slot_memory_policy_disabled) {
 
     query_context->query_mem_tracker()->consume(-1024 * 4);
 
-    ASSERT_TRUE(query_context->paused_reason().ok());
+    ASSERT_TRUE(query_context->resource_ctx()->task_controller()->paused_reason().ok());
 
     std::unique_lock<std::mutex> lock(_wg_manager->_paused_queries_lock);
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
@@ -360,14 +363,14 @@ TEST_F(WorkloadGroupManagerTest, query_released) {
     auto wg = _wg_manager->get_or_create_workload_group({});
     auto query_context = _generate_on_query(wg);
 
-    query_context->set_mem_limit(1024 * 1024);
+    query_context->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
 
     auto canceled_query = _generate_on_query(wg);
 
-    _wg_manager->add_paused_query(query_context, 1024L * 1024 * 1024,
+    _wg_manager->add_paused_query(query_context->resource_ctx(), 1024L * 1024 * 1024,
                                   Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test"));
     _wg_manager->add_paused_query(
-            canceled_query, 1024L * 1024 * 1024,
+            canceled_query->resource_ctx(), 1024L * 1024 * 1024,
             Status::Error(ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED, "test for canceled"));
     canceled_query->cancel(Status::InternalError("for test"));
 

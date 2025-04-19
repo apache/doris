@@ -744,13 +744,13 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
     {
         // set low memory mode and do not pause.
         read_dep->set_ready();
-        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         bool done = false;
         EXPECT_TRUE(task->execute(&done).ok());
-        EXPECT_TRUE(_query_ctx->_low_memory_mode);
+        EXPECT_TRUE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_FALSE(task->_eos);
@@ -763,11 +763,11 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
     {
         // set low memory mode and do not pause.
         task->_operators.front()->cast<DummyOperator>()._eos = true;
-        _query_ctx->_low_memory_mode = false;
+        _query_ctx->resource_ctx()->task_controller()->set_low_memory_mode(false);
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         bool done = false;
         EXPECT_TRUE(task->execute(&done).ok());
-        EXPECT_TRUE(_query_ctx->_low_memory_mode);
+        EXPECT_TRUE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_TRUE(task->_eos);
@@ -878,14 +878,14 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
     {
         // Reserve failed and paused.
         read_dep->set_ready();
-        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_FALSE(task->_spilling);
         bool done = false;
         EXPECT_TRUE(task->execute(&done).ok());
-        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_FALSE(task->_eos);
@@ -906,7 +906,7 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         bool done = false;
         EXPECT_TRUE(task->execute(&done).ok());
-        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_TRUE(task->_eos);
@@ -926,7 +926,7 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         bool done = false;
         EXPECT_TRUE(task->execute(&done).ok());
-        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_TRUE(task->_eos);

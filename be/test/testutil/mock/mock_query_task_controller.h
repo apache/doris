@@ -15,20 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/workload_management/memory_context.h"
-
-#include "runtime/workload_management/resource_context.h"
+#pragma once
+#include "runtime/workload_management/query_task_controller.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
-std::string MemoryContext::debug_string() {
-    return fmt::format("TaskId={}, Memory(Used={}, Limit={}, Peak={})",
-                       print_id(resource_ctx_->task_controller()->task_id()),
-                       MemCounter::print_bytes(current_memory_bytes()),
-                       MemCounter::print_bytes(mem_limit()),
-                       MemCounter::print_bytes(peak_memory_bytes()));
-}
+struct MockQueryTaskController : public QueryTaskController {
+    ENABLE_FACTORY_CREATOR(MockQueryTaskController);
 
-#include "common/compile_check_end.h"
+    MockQueryTaskController(const std::shared_ptr<QueryContext>& query_ctx)
+            : QueryTaskController(query_ctx) {}
+
+    static std::unique_ptr<MockQueryTaskController> create(QueryTaskController* controller) {
+        controller->set_is_finished();
+        auto ctx = MockQueryTaskController::create_unique(controller->query_ctx_.lock());
+        ctx->set_task_id(controller->task_id());
+        ctx->set_fe_addr(controller->fe_addr());
+        ctx->set_query_type(controller->query_type());
+        return ctx;
+    }
+
+    void set_cancelled_time(int64_t ctime) { cancelled_time_ = ctime; }
+};
+
 } // namespace doris

@@ -40,6 +40,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class RuntimeProfile;
 class MemTrackerLimiter;
@@ -323,4 +324,5 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

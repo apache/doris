@@ -31,6 +31,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // Every task should have its own resource context. And BE may adjust the resource
 // context during running.
@@ -112,4 +113,5 @@ private:
     MultiVersion<RuntimeProfile> resource_profile_;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris
