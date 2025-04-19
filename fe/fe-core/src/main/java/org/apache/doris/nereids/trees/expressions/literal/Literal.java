@@ -440,6 +440,11 @@ public abstract class Literal extends Expression implements LeafExpression {
         return String.valueOf(getValue());
     }
 
+    @Override
+    public String getFingerprint() {
+        return "?";
+    }
+
     public abstract LiteralExpr toLegacyLiteral();
 
     public boolean isStringLikeLiteral() {
