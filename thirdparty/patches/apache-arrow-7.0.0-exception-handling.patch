@@ -1,0 +1,24 @@
+diff --git a/cpp/src/parquet/file_writer.cc b/cpp/src/parquet/file_writer.cc
+index deac9586e..572e8bde7 100644
+--- a/cpp/src/parquet/file_writer.cc
++++ b/cpp/src/parquet/file_writer.cc
+@@ -181,15 +181,13 @@ class RowGroupSerializer : public RowGroupWriter::Contents {
+       closed_ = true;
+       CheckRowsWritten();
+ 
+-      for (size_t i = 0; i < column_writers_.size(); i++) {
+-        if (column_writers_[i]) {
+-          total_bytes_written_ += column_writers_[i]->Close();
+-          column_writers_[i].reset();
++      auto column_writers = std::move(column_writers_);
++      for (size_t i = 0; i < column_writers.size(); i++) {
++        if (column_writers[i]) {
++          total_bytes_written_ += column_writers[i]->Close();
+         }
+       }
+ 
+-      column_writers_.clear();
+-
+       // Ensures all columns have been written
+       metadata_->set_num_rows(num_rows_);
+       metadata_->Finish(total_bytes_written_, row_group_ordinal_);
