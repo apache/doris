@@ -102,7 +102,7 @@ enum class TypeIndex {
     Decimal256 = 45,
     IPv4 = 46,
     IPv6 = 47,
-    Int256
+    Int256 = 48
 };
 
 struct Consted {
