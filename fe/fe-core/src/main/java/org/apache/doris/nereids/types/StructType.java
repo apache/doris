@@ -57,7 +57,7 @@ public class StructType extends DataType implements ComplexDataType {
     public StructType(List<StructField> fields) {
         this.fields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
         this.nameToFields = Suppliers.memoize(() -> this.fields.stream().collect(ImmutableMap.toImmutableMap(
-                StructField::getName, f -> f, (f1, f2) -> {
+                f -> f.getName().toLowerCase(), f -> f, (f1, f2) -> {
                     throw new AnalysisException("The name of the struct field cannot be repeated."
                             + " same name fields are " + f1 + " and " + f2);
                 })));

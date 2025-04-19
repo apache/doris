@@ -296,11 +296,12 @@ bool DataTypeStruct::equals(const IDataType& rhs) const {
 
 size_t DataTypeStruct::get_position_by_name(const String& name) const {
     size_t size = elems.size();
-    for (size_t i = 0; i < size; ++i) {
-        if (names[i] == name) {
-            return i;
+    for (size_t i = 0; i < size; ++i)
+        if (case_insensitive_equals(names[i], name)) {
+            {
+                return i;
+            }
         }
-    }
     throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                            "Struct doesn't have element with name  " + name);
     __builtin_unreachable();
@@ -309,7 +310,7 @@ size_t DataTypeStruct::get_position_by_name(const String& name) const {
 std::optional<size_t> DataTypeStruct::try_get_position_by_name(const String& name) const {
     size_t size = elems.size();
     for (size_t i = 0; i < size; ++i) {
-        if (names[i] == name) {
+        if (case_insensitive_equals(names[i], name)) {
             return std::optional<size_t>(i);
         }
     }
