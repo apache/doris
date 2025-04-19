@@ -474,6 +474,12 @@ public class MTMV extends OlapTable {
         this.refreshSnapshot = refreshSnapshot;
     }
 
+    public boolean canBeCandidate() {
+        // MTMVRefreshState.FAIL also can be candidate, because may have some sync partitions
+        return getStatus().getState() == MTMVState.NORMAL
+                && getStatus().getRefreshState() != MTMVRefreshState.INIT;
+    }
+
     public void readMvLock() {
         this.mvRwLock.readLock().lock();
     }
@@ -518,6 +524,12 @@ public class MTMV extends OlapTable {
         if (refreshSnapshot == null) {
             refreshSnapshot = new MTMVRefreshSnapshot();
         }
+        try {
+            compatibleInternal(Env.getCurrentEnv().getCatalogMgr());
+        } catch (Throwable t) {
+            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getQualifiedDbName(), name,
+                    t.getMessage());
+        }
     }
 
     // toString() is not easy to find where to call the method
@@ -551,6 +563,18 @@ public class MTMV extends OlapTable {
      * The logic here is to be compatible with older versions by converting ID to name
      */
     public void compatible(CatalogMgr catalogMgr) {
+        try {
+            compatibleInternal(catalogMgr);
+            Env.getCurrentEnv().getMtmvService().deregisterMTMV(this);
+            Env.getCurrentEnv().getMtmvService().registerMTMV(this, this.getDatabase().getId());
+        } catch (Exception e) {
+            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getDBName(), name, e.getMessage());
+            status.setState(MTMVState.SCHEMA_CHANGE);
+            status.setSchemaChangeDetail("compatible failed, please refresh or recreate it, reason: " + e.getMessage());
+        }
+    }
+
+    private void compatibleInternal(CatalogMgr catalogMgr) throws Exception {
         if (mvPartitionInfo != null) {
             mvPartitionInfo.compatible(catalogMgr);
         }
