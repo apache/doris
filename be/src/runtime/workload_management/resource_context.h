@@ -51,6 +51,7 @@ public:
         cpu_context_->set_resource_ctx(this);
         memory_context_->set_resource_ctx(this);
         io_context_->set_resource_ctx(this);
+        task_controller_->set_resource_ctx(this);
     }
     ~ResourceContext() = default;
 

@@ -92,9 +92,9 @@ private:
         TNetworkAddress fe_address;
         fe_address.hostname = "127.0.0.1";
         fe_address.port = 8060;
-        auto query_context = QueryContext::create_shared(
-                generate_uuid(), ExecEnv::GetInstance(), query_options, TNetworkAddress {}, true,
-                fe_address, QuerySource::INTERNAL_FRONTEND);
+        auto query_context = QueryContext::create(generate_uuid(), ExecEnv::GetInstance(),
+                                                  query_options, TNetworkAddress {}, true,
+                                                  fe_address, QuerySource::INTERNAL_FRONTEND);
 
         auto st =
                 wg->add_task_resource_ctx(query_context->query_id(), query_context->resource_ctx());
