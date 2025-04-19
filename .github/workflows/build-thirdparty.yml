@@ -170,7 +170,7 @@ jobs:
           # Install packages except cmake
           brew install "${packages[@]}" || true
 
-		  # Install specific version of cmake
+          # Install specific version of cmake
           brew unlink cmake || true
           wget https://github.com/Kitware/CMake/releases/download/v3.22.1/cmake-3.22.1-macos-universal.tar.gz
           tar -xzf cmake-3.22.1-macos-universal.tar.gz
@@ -228,7 +228,7 @@ jobs:
           # Install packages except cmake
           brew install "${packages[@]}" || true
 
-		  # Install specific version of cmake
+          # Install specific version of cmake
           brew unlink cmake || true
           wget https://github.com/Kitware/CMake/releases/download/v3.22.1/cmake-3.22.1-macos-universal.tar.gz
           tar -xzf cmake-3.22.1-macos-universal.tar.gz
