@@ -774,8 +774,8 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
     // UNTOKENIZED strings exceed ignore_above, they are written as null, causing range query errors
     if (PredicateTypeTraits::is_range(pred->type()) &&
         _inverted_index_iterators[pred_column_id] != nullptr &&
-        _inverted_index_iterators[pred_column_id]->get_inverted_index_reader_type() ==
-                InvertedIndexReaderType::STRING_TYPE) {
+        _inverted_index_iterators[pred_column_id]->get_reader(
+                InvertedIndexReaderType::STRING_TYPE)) {
         return false;
     }
 
@@ -852,9 +852,9 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
 }
 
 bool SegmentIterator::_column_has_fulltext_index(int32_t cid) {
-    bool has_fulltext_index = _inverted_index_iterators[cid] != nullptr &&
-                              _inverted_index_iterators[cid]->get_inverted_index_reader_type() ==
-                                      InvertedIndexReaderType::FULLTEXT;
+    bool has_fulltext_index =
+            _inverted_index_iterators[cid] != nullptr &&
+            _inverted_index_iterators[cid]->get_reader(InvertedIndexReaderType::FULLTEXT);
 
     return has_fulltext_index;
 }
@@ -944,18 +944,13 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
 
 Status SegmentIterator::_apply_inverted_index() {
     std::vector<ColumnPredicate*> remaining_predicates;
-    std::set<const ColumnPredicate*> no_need_to_pass_column_predicate_set;
 
-    for (auto pred : _col_predicates) {
-        if (no_need_to_pass_column_predicate_set.count(pred) > 0) {
-            continue;
-        } else {
-            bool continue_apply = true;
-            RETURN_IF_ERROR(_apply_inverted_index_on_column_predicate(pred, remaining_predicates,
-                                                                      &continue_apply));
-            if (!continue_apply) {
-                break;
-            }
+    for (auto* pred : _col_predicates) {
+        bool continue_apply = true;
+        RETURN_IF_ERROR(_apply_inverted_index_on_column_predicate(pred, remaining_predicates,
+                                                                  &continue_apply));
+        if (!continue_apply) {
+            break;
         }
     }
 
@@ -1082,10 +1077,12 @@ Status SegmentIterator::_init_inverted_index_iterators() {
             const auto& column = _opts.tablet_schema->column(cid);
             int32_t col_unique_id =
                     column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
-            RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
-                    column,
-                    _segment->_tablet_schema->inverted_index(col_unique_id, column.suffix_path()),
-                    _opts, &_inverted_index_iterators[cid]));
+            auto inverted_indexs =
+                    _segment->_tablet_schema->inverted_indexs(col_unique_id, column.suffix_path());
+            for (const auto& inverted_index : inverted_indexs) {
+                RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
+                        column, inverted_index, _opts, &_inverted_index_iterators[cid]));
+            }
         }
     }
     return Status::OK();

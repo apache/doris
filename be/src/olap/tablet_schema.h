@@ -324,7 +324,8 @@ public:
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
     void append_index(TabletIndex&& index);
-    void update_index(const TabletColumn& column, const IndexType& index_type, TabletIndex&& index);
+    void update_index(const TabletColumn& column, const IndexType& index_type,
+                      std::vector<TabletIndex>&& indexs);
     void remove_index(int64_t index_id);
     void clear_index();
     // Must make sure the row column is always the last column
@@ -427,12 +428,12 @@ public:
     bool has_inverted_index_with_index_id(int64_t index_id) const;
     // Check whether this column supports inverted index
     // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
-    const TabletIndex* inverted_index(const TabletColumn& col) const;
+    std::vector<const TabletIndex*> inverted_indexs(const TabletColumn& col) const;
 
     // Regardless of whether this column supports inverted index
     // TabletIndex information will be returned as long as it exists.
-    const TabletIndex* inverted_index(int32_t col_unique_id,
-                                      const std::string& suffix_path = "") const;
+    std::vector<const TabletIndex*> inverted_indexs(int32_t col_unique_id,
+                                                    const std::string& suffix_path = "") const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
@@ -561,7 +562,7 @@ private:
     std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
             _field_path_to_index;
 
-    // index_type/col_unique_id/suffix -> idx in _indexes
+    // index_type/col_unique_id/suffix -> idxs in _indexes
     using IndexKey = std::tuple<IndexType, int32_t, std::string>;
     struct IndexKeyHash {
         size_t operator()(const IndexKey& t) const {
@@ -575,7 +576,7 @@ private:
             return seed;
         }
     };
-    std::unordered_map<IndexKey, int32_t, IndexKeyHash> _col_id_suffix_to_index;
+    std::unordered_map<IndexKey, std::vector<int32_t>, IndexKeyHash> _col_id_suffix_to_index;
 
     size_t _num_columns = 0;
     size_t _num_variant_columns = 0;

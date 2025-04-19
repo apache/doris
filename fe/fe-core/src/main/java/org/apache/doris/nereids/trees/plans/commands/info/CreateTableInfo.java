@@ -674,7 +674,10 @@ public class CreateTableInfo {
         // validate index
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
+
+            Set<Pair<IndexDef.IndexType, List<String>>> nonInvertedIndexes = new HashSet<>();
+            Map<List<String>, Set<Boolean>> invertedIndexes = new HashMap<>();
+
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
             try {
                 invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
@@ -705,15 +708,26 @@ public class CreateTableInfo {
                     }
                 }
                 distinct.add(indexDef.getIndexName());
-                distinctCol.add(Pair.of(indexDef.getIndexType(), indexDef.getColumnNames().stream()
-                        .map(String::toUpperCase).collect(Collectors.toList())));
+
+                List<String> colNames = indexDef.getColumnNames().stream()
+                        .map(String::toUpperCase)
+                        .collect(Collectors.toList());
+                if (indexDef.isAllStringInvertedIndex(columns)) {
+                    boolean isAnalyzed = indexDef.isAnalyzedInvertedIndex();
+                    Set<Boolean> analyzedSet = invertedIndexes.computeIfAbsent(colNames, k -> new HashSet<>());
+                    if (!analyzedSet.add(isAnalyzed)) {
+                        throw new AnalysisException(
+                                "Duplicate inverted index with same analyzed property on columns: " + colNames);
+                    }
+                } else {
+                    Pair<IndexDef.IndexType, List<String>> pair = Pair.of(indexDef.getIndexType(), colNames);
+                    if (!nonInvertedIndexes.add(pair)) {
+                        throw new AnalysisException("Duplicate index type and columns: " + pair);
+                    }
+                }
             }
             if (distinct.size() != indexes.size()) {
                 throw new AnalysisException("index name must be unique.");
-            }
-            if (distinctCol.size() != indexes.size()) {
-                throw new AnalysisException(
-                        "same index columns have multiple same type index is not allowed.");
             }
         }
         generatedColumnCheck(ctx);
