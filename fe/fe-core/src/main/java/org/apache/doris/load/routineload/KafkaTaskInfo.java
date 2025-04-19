@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -36,6 +37,7 @@ import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -150,19 +152,30 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
                     tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
                             .getTWorkloadGroupById(wgId);
                     if (tWgList.size() == 0) {
-                        throw new UserException("can not find workload group, id=" + wgId);
+                        throw new UserException("Can not find workload group, id=" + wgId);
                     }
                 } else {
-                    ConnectContext tmpCtx = new ConnectContext();
-                    tmpCtx.setCurrentUserIdentity(routineLoadJob.getUserIdentity());
-                    tmpCtx.setQualifiedUser(routineLoadJob.getUserIdentity().getQualifiedUser());
-                    tWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpCtx);
+                    ConnectContext tmpContext = new ConnectContext();
+                    if (Config.isCloudMode()) {
+                        String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                                .getClusterNameByClusterId(routineLoadJob.getCloudClusterId());
+                        if (Strings.isNullOrEmpty(clusterName)) {
+                            String err = String.format("cluster name is empty, cluster id is %s",
+                                    routineLoadJob.getCloudClusterId());
+                            LOG.warn(err);
+                            throw new UserException(err);
+                        }
+                        tmpContext.setCloudCluster(clusterName);
+                    }
+                    tmpContext.setCurrentUserIdentity(routineLoadJob.getUserIdentity());
+                    tmpContext.setQualifiedUser(routineLoadJob.getUserIdentity().getQualifiedUser());
+                    tWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpContext);
                 }
                 if (tWgList.size() != 0) {
                     tExecPlanFragmentParams.setWorkloadGroups(tWgList);
                 }
             } catch (Throwable t) {
-                LOG.info("Get workload group failed when replan kafka, ", t);
+                LOG.info("Get workload group failed when replan kafka, job id:{} , ", routineLoadJob.getTxnId(), t);
                 throw t;
             }
 
