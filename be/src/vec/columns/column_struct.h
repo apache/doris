@@ -100,16 +100,6 @@ public:
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
 
-    [[noreturn]] StringRef get_data_at(size_t n) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method get_data_at is not supported for " + get_name());
-        __builtin_unreachable();
-    }
-    [[noreturn]] void insert_data(const char* pos, size_t length) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method insert_data is not supported for " + get_name());
-        __builtin_unreachable();
-    }
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;
     void insert_default() override;

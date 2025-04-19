@@ -463,34 +463,11 @@ struct AggregateFunctionArrayAggData {
     }
 
     void write(BufferWritable& buf) const {
-        const size_t size = null_map->size();
-        write_binary(size, buf);
-
-        for (size_t i = 0; i < size; i++) {
-            write_binary(null_map->data()[i], buf);
-        }
-
-        for (size_t i = 0; i < size; i++) {
-            write_binary(nested_column->get_data()[i], buf);
-        }
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support write");
     }
 
     void read(BufferReadable& buf) {
-        DCHECK(null_map);
-        DCHECK(null_map->empty());
-        size_t size = 0;
-        read_binary(size, buf);
-        null_map->resize(size);
-        nested_column->reserve(size);
-        for (size_t i = 0; i < size; i++) {
-            read_binary(null_map->data()[i], buf);
-        }
-
-        ElementType data_value;
-        for (size_t i = 0; i < size; i++) {
-            read_binary(data_value, buf);
-            nested_column->get_data().push_back(data_value);
-        }
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support read");
     }
 
     void merge(const Self& rhs) {
@@ -563,31 +540,11 @@ struct AggregateFunctionArrayAggData<StringRef> {
     }
 
     void write(BufferWritable& buf) const {
-        const size_t size = null_map->size();
-        write_binary(size, buf);
-        for (size_t i = 0; i < size; i++) {
-            write_binary(null_map->data()[i], buf);
-        }
-        for (size_t i = 0; i < size; i++) {
-            write_string_binary(nested_column->get_data_at(i), buf);
-        }
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support write");
     }
-    void read(BufferReadable& buf) {
-        DCHECK(null_map);
-        DCHECK(null_map->empty());
-        size_t size = 0;
-        read_binary(size, buf);
-        null_map->resize(size);
-        nested_column->reserve(size);
-        for (size_t i = 0; i < size; i++) {
-            read_binary(null_map->data()[i], buf);
-        }
 
-        StringRef s;
-        for (size_t i = 0; i < size; i++) {
-            read_string_binary(s, buf);
-            nested_column->insert_data(s.data, s.size);
-        }
+    void read(BufferReadable& buf) {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support read");
     }
 
     void merge(const Self& rhs) {
@@ -641,22 +598,11 @@ struct AggregateFunctionArrayAggData<void> {
     }
 
     void write(BufferWritable& buf) const {
-        const size_t size = column_data->size();
-        write_binary(size, buf);
-        for (size_t i = 0; i < size; i++) {
-            write_string_binary(column_data->get_data_at(i), buf);
-        }
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support write");
     }
 
     void read(BufferReadable& buf) {
-        size_t size = 0;
-        read_binary(size, buf);
-        column_data->reserve(size);
-        StringRef s;
-        for (size_t i = 0; i < size; i++) {
-            read_string_binary(s, buf);
-            column_data->insert_data(s.data, s.size);
-        }
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support read");
     }
 
     void merge(const Self& rhs) {
