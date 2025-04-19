@@ -257,7 +257,7 @@ struct FromUnixTimeImpl {
     static bool execute(const FromType& val, StringRef format, ColumnString::Chars& res_data,
                         size_t& offset, const cctz::time_zone& time_zone) {
         if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
-            DateV2Value<DateV2ValueType> dt;
+            DateV2Value<DateTimeV2ValueType> dt;
             if (val < 0 || val > TIMESTAMP_VALID_MAX) {
                 return true;
             }
