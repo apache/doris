@@ -2084,4 +2084,112 @@ TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
+
+TEST(FunctionJsonSearchTest, NormalJsonSearchTest) {
+    // json_search json_doc  one/all search_str
+    // json_search(json_doc, one/all, search_str)
+    std::string func_name = "json_search";
+    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+
+    DataSet data_set = {
+            {{STRING(R"({"k1":"v1", "k2": "300"})"), STRING("one"), STRING("v1")},
+             STRING("\"$.k1\"")},
+            {{STRING(R"({"k1":"v1", "k2": "300"})"), STRING("one"), STRING("v2")}, Null()},
+            {{STRING(R"({"k1":"v1", "k2": "300"})"), STRING("one"), STRING("300")},
+             STRING("\"$.k2\"")},
+            {{STRING(R"({"k1":"v1", "k2": 300})"), STRING("one"), STRING("300")}, Null()},
+
+            // Array test cases
+            {{STRING(R"(["a", "b", "c"])"), STRING("one"), STRING("b")}, STRING("\"$[1]\"")},
+            {{STRING(R"([1, 2, [3, 4]])"), STRING("one"), STRING("[3,4]")}, Null()},
+            {{STRING(R"([1, 2, [3, 4]])"), STRING("one"), STRING("4")}, Null()},
+    };
+
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
+}
+
+TEST(FunctionJsonSearchTest, EscapeJsonSearchTest) {
+    // json_search json_doc one/all search_str escape_char
+    // json_search(json_doc, one/all, search_str, escape_char)
+    std::string func_name = "json_search";
+    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
+                                TypeIndex::String};
+
+    DataSet data_set = {
+            {{STRING(R"({"k1":"v1%", "k2": "100%"})"), STRING("one"), STRING("v1%"), STRING("\\")},
+             STRING("\"$.k1\"")},
+
+            {{STRING(R"({"k1":"v1|%", "k2": "100%"})"), STRING("one"), STRING("v1%"), STRING("|")},
+             STRING("\"$.k1\"")},
+
+            {{STRING(R"({"k1":"v1%", "k2": "100%"})"), STRING("one"), STRING("v1"), STRING("\\")},
+             Null()},
+
+            {{STRING(R"({"k1":"v1\\", "k2": "100\\"})"), STRING("one"), STRING("v1\\\\"),
+              STRING("\\")},
+             STRING("\"$.k1\"")},
+
+            // Array test cases with escape characters
+            {{STRING(R"(["v1%", "v2%"])"), STRING("one"), STRING("v1%"), STRING("\\")},
+             STRING("\"$[0]\"")},
+
+            {{STRING(R"(["v1|%", "v2%"])"), STRING("one"), STRING("v1%"), STRING("|")},
+             STRING("\"$[0]\"")},
+
+            {{STRING(R"(["v1\\", "v2\\"])"), STRING("one"), STRING("v1\\\\"), STRING("\\")},
+             STRING("\"$[0]\"")},
+    };
+
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
+}
+
+TEST(FunctionJsonSearchTest, StartJsonSearchTest) {
+    // json_search json_doc one/all search_str escape_char start_path
+    // json_search(json_doc, one/all, search_str, escape_char, start_path)
+    std::string func_name = "json_search";
+    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
+                                TypeIndex::String, TypeIndex::String};
+
+    DataSet data_set = {
+            {{STRING(R"({"k1":{"k2":"v1"}, "k3": "v1"})"), STRING("one"), STRING("v1"),
+              STRING("\\"), STRING("$.k1")},
+             STRING("\"$.k1.k2\"")},
+
+            {{STRING(R"({"k1":{"k2":"v1"}, "k3": "v1"})"), STRING("one"), STRING("v1"),
+              STRING("\\"), STRING("$.k3")},
+             STRING("\"$.k3\"")},
+
+            {{STRING(R"({"k1":["a","b","c"], "k2": ["a","d"]})"), STRING("one"), STRING("a"),
+              STRING("\\"), STRING("$.k1")},
+             STRING("\"$.k1[0]\"")},
+
+            {{STRING(R"({"a":{"b":{"c":"value"}}})"), STRING("one"), STRING("value"), STRING("\\"),
+              STRING("$.a.b")},
+             STRING("\"$.a.b.c\"")},
+
+            // Array test cases with start path
+            {{STRING(R"({"arr1": [1, 2, 3], "arr2": [4, 5, 6]})"), STRING("one"), STRING("5"),
+              STRING("\\"), STRING("$.arr2")},
+             Null()},
+
+            {{STRING(R"({"arr1": ["1", "2", "3"], "arr2": ["4", "5", "6"]})"), STRING("one"),
+              STRING("5"), STRING("\\"), STRING("$.arr2")},
+             STRING("\"$.arr2[1]\"")},
+
+            {{STRING(R"({"nested": {"arr": [7, 8, 9]}})"), STRING("one"), STRING("8"), STRING("\\"),
+              STRING("$.nested.arr")},
+             Null()},
+
+            {{STRING(R"({"nested": {"arr": ["7", "8", "9"]}})"), STRING("one"), STRING("8"),
+              STRING("\\"), STRING("$.nested.arr")},
+             STRING("\"$.nested.arr[1]\"")},
+
+            {{STRING(R"([["a", "b"], ["c", "d"]])"), STRING("one"), STRING("d"), STRING("\\"),
+              STRING("$[1]")},
+             STRING("\"$[1][1]\"")},
+    };
+
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
+}
+
 } // namespace doris::vectorized
