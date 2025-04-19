@@ -21,6 +21,7 @@
 #include "util/mem_info.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class GlobalMemoryArbitrator {
 public:
@@ -137,8 +138,8 @@ public:
 
     static std::string process_mem_log_str() {
         return fmt::format(
-                "os physical memory {}. {}, limit {}, soft limit {}. {}, low water mark {}, "
-                "warning water mark {}.",
+                "sys physical memory {}. {}, limit {}, soft limit {}. {}, low water mark {}, "
+                "warning water mark {}",
                 PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES),
                 process_memory_used_details_str(), MemInfo::mem_limit_str(),
                 MemInfo::soft_mem_limit_str(), sys_mem_available_details_str(),
@@ -183,4 +184,5 @@ private:
     static std::atomic<int64_t> _process_reserved_memory;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

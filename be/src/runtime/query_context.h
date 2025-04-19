@@ -271,8 +271,6 @@ public:
                _query_source == QuerySource::GROUP_COMMIT_LOAD;
     }
 
-    std::string debug_string() { return _resource_ctx->task_controller()->debug_string(); }
-
     void set_load_error_url(std::string error_url);
     std::string get_load_error_url();
 

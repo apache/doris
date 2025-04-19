@@ -26,6 +26,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class MemTrackerLimiter;
 class ResourceContext;
@@ -105,19 +106,6 @@ public:
     int64_t revoke_wait_time_ms() const { return stats_.revoke_wait_time_ms_counter_->value(); }
     int64_t revoked_bytes() const { return stats_.revoked_bytes_counter_->value(); }
 
-    // Following method is related with spill disk.
-    // Compute the number of bytes could be released.
-    virtual int64_t revokable_bytes() { return 0; }
-
-    virtual bool ready_do_revoke() { return true; }
-
-    // Begin to do revoke memory task.
-    virtual Status revoke(int64_t bytes) { return Status::OK(); }
-
-    virtual Status enter_arbitration(Status reason) { return Status::OK(); }
-
-    virtual Status leave_arbitration(Status reason) { return Status::OK(); }
-
     std::string debug_string();
 
 protected:
@@ -134,4 +122,5 @@ protected:
     std::atomic<int64_t> _adjusted_mem_limit = 0;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

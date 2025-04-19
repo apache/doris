@@ -36,6 +36,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static bvar::Adder<int64_t> memory_memtrackerlimiter_cnt("memory_memtrackerlimiter_cnt");
 
@@ -375,4 +376,5 @@ std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
     return err_msg;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

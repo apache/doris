@@ -25,6 +25,7 @@
 #include "util/mem_info.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static bvar::PassiveStatus<int64_t> memory_process_memory_usage(
         "meminfo_process_memory_usage",
@@ -128,4 +129,5 @@ int64_t GlobalMemoryArbitrator::sub_thread_reserve_memory(int64_t bytes) {
     return bytes;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

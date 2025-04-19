@@ -22,6 +22,7 @@
 #include "runtime/workload_management/task_controller.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 std::unique_ptr<TaskController> QueryTaskController::create(QueryContext* query_ctx) {
     return QueryTaskController::create_unique(query_ctx->shared_from_this());
@@ -136,8 +137,8 @@ Status QueryTaskController::revoke_memory() {
     // Do not use memlimit, use current memory usage.
     // For example, if current limit is 1.6G, but current used is 1G, if reserve failed
     // should free 200MB memory, not 300MB
-    const auto target_revoking_size =
-            (int64_t)(query_ctx->query_mem_tracker()->consumption() * 0.2);
+    const auto target_revoking_size = static_cast<int64_t>(
+            static_cast<double>(query_ctx->query_mem_tracker()->consumption()) * 0.2);
     size_t revoked_size = 0;
     size_t total_revokable_size = 0;
 
@@ -155,22 +156,21 @@ Status QueryTaskController::revoke_memory() {
     std::weak_ptr<QueryContext> this_ctx = query_ctx;
     auto spill_context = std::make_shared<pipeline::SpillContext>(
             chosen_tasks.size(), query_ctx->query_id(),
-            [this_ctx](pipeline::SpillContext* context) {
+            [this_ctx, this](pipeline::SpillContext* context) {
                 auto query_context = this_ctx.lock();
                 if (!query_context) {
                     return;
                 }
 
-                LOG(INFO) << query_context->debug_string() << ", context: " << ((void*)context)
+                LOG(INFO) << debug_string() << ", context: " << ((void*)context)
                           << " all spill tasks done, resume it.";
                 query_context->set_memory_sufficient(true);
             });
 
-    LOG(INFO) << fmt::format("{}, spill context: {}, revokable mem: {}/{}, tasks count: {}/{}",
-                             query_ctx->debug_string(), ((void*)spill_context.get()),
-                             PrettyPrinter::print_bytes(revoked_size),
-                             PrettyPrinter::print_bytes(total_revokable_size), chosen_tasks.size(),
-                             tasks.size());
+    LOG(INFO) << fmt::format(
+            "{}, spill context: {}, revokable mem: {}/{}, tasks count: {}/{}", debug_string(),
+            ((void*)spill_context.get()), PrettyPrinter::print_bytes(revoked_size),
+            PrettyPrinter::print_bytes(total_revokable_size), chosen_tasks.size(), tasks.size());
 
     for (auto* task : chosen_tasks) {
         RETURN_IF_ERROR(task->revoke_memory(spill_context));
@@ -196,4 +196,5 @@ std::vector<pipeline::PipelineTask*> QueryTaskController::get_revocable_tasks() 
     return tasks;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

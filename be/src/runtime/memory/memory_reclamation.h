@@ -24,6 +24,7 @@
 #include "runtime/workload_management/task_controller.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 constexpr size_t SMALL_MEMORY_TASK = 32 * 1024 * 1024; // 32M
 
@@ -42,10 +43,14 @@ public:
                      }},
                     {PriorityCmpFunc::TOP_OVERCOMMITED_MEMORY,
                      [](ResourceContext* resource_ctx) {
-                         return int64_t(
+                         int64_t mem_limit = resource_ctx->memory_context()->mem_limit();
+                         if (mem_limit <= 0) {
+                             mem_limit = INT64_MAX;
+                         }
+                         return static_cast<int64_t>(
                                  (static_cast<double>(
                                           resource_ctx->memory_context()->current_memory_bytes()) /
-                                  resource_ctx->memory_context()->mem_limit()) *
+                                  static_cast<double>(mem_limit)) *
                                  10000);
                      }},
     };
@@ -85,12 +90,16 @@ public:
             switch (it) {
             case FilterFunc::EXCLUDE_IS_SMALL:
                 func_strs.emplace_back("Exclude Is Small");
+                break;
             case FilterFunc::IS_QUERY:
                 func_strs.emplace_back("Is Query");
+                break;
             case FilterFunc::IS_LOAD:
                 func_strs.emplace_back("Is Load");
+                break;
             case FilterFunc::IS_COMPACTION:
                 func_strs.emplace_back("Is Compaction");
+                break;
             default:
                 func_strs.emplace_back("Error");
             }
@@ -130,4 +139,5 @@ public:
 private:
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

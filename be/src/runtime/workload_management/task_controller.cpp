@@ -20,6 +20,7 @@
 #include "runtime/workload_management/resource_context.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 void TaskController::update_paused_reason(const Status& st) {
     std::lock_guard l(paused_mutex_);
@@ -40,8 +41,8 @@ void TaskController::update_paused_reason(const Status& st) {
 std::string TaskController::debug_string() {
     std::lock_guard l(paused_mutex_);
     return fmt::format(
-            "TaskId={}, Memory [Used={}, Limit={}, Peak={}], Spill[RunningSpillTaskCnt={}, "
-            "TotalPausedPeriodSecs={}, LatestPausedReason={}]",
+            "TaskId={}, Memory(Used={}, Limit={}, Peak={}), Spill(RunningSpillTaskCnt={}, "
+            "TotalPausedPeriodSecs={}, LatestPausedReason={})",
             print_id(task_id_),
             MemCounter::print_bytes(resource_ctx_->memory_context()->current_memory_bytes()),
             MemCounter::print_bytes(resource_ctx_->memory_context()->mem_limit()),
@@ -50,4 +51,5 @@ std::string TaskController::debug_string() {
             paused_reason_.to_string());
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

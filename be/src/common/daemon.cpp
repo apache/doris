@@ -317,10 +317,10 @@ void memory_gc() {
 
         if (doris::GlobalMemoryArbitrator::sys_mem_available() <
             doris::MemInfo::sys_mem_available_low_water_mark()) {
-            gc_func("process memory used exceed limit");
+            gc_func("sys available memory less than low water mark");
         } else if (doris::GlobalMemoryArbitrator::process_memory_usage() >
                    doris::MemInfo::mem_limit()) {
-            gc_func("sys available memory less than low water mark");
+            gc_func("process memory used exceed limit");
         }
         memory_gc_sleep_time = config::memory_gc_sleep_time_ms;
     }

@@ -29,6 +29,7 @@
 #include "util/time.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // Base of lru cache, allow prune stale entry and prune all entry.
 class LRUCachePolicy : public CachePolicy {
@@ -242,7 +243,8 @@ public:
 
     int64_t adjust_capacity_weighted(double adjust_weighted) override {
         std::lock_guard<std::mutex> l(_lock);
-        auto capacity = static_cast<size_t>(_initial_capacity * adjust_weighted);
+        auto capacity =
+                static_cast<size_t>(static_cast<double>(_initial_capacity) * adjust_weighted);
         COUNTER_SET(_freed_entrys_counter, (int64_t)0);
         COUNTER_SET(_freed_memory_counter, (int64_t)0);
         COUNTER_SET(_cost_timer, (int64_t)0);
@@ -297,4 +299,5 @@ protected:
     std::shared_ptr<MemTracker> _value_mem_tracker;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

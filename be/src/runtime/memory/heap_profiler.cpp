@@ -25,6 +25,7 @@
 #include "io/fs/local_file_system.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 void HeapProfiler::set_prof_active(bool prof) {
 #ifdef USE_JEMALLOC
@@ -129,4 +130,5 @@ std::string HeapProfiler::dump_heap_profile_to_dot() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

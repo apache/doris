@@ -25,7 +25,7 @@
 #include "util/time.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 namespace pipeline {
 class PipelineTask;
 } // namespace pipeline
@@ -35,17 +35,17 @@ class TaskController {
     ENABLE_FACTORY_CREATOR(TaskController);
 
 public:
-    TaskController() {
-        task_id_ = TUniqueId();
-        start_time_ = MonotonicMillis();
-    };
-    virtual ~TaskController() { DCHECK(is_finished_); };
+    TaskController() { task_id_ = TUniqueId(); };
+    virtual ~TaskController() = default;
 
     /* common action
     */
-    bool is_attach_task() { return task_id_ != TUniqueId(); }
+    bool is_attach_task() const { return task_id_ != TUniqueId(); }
     const TUniqueId& task_id() const { return task_id_; }
-    void set_task_id(TUniqueId task_id) { task_id_ = task_id; }
+    void set_task_id(TUniqueId task_id) {
+        task_id_ = task_id;
+        start_time_ = MonotonicMillis();
+    }
     TQueryType::type query_type() { return query_type_; }
     void set_query_type(TQueryType::type query_type) { query_type_ = query_type; }
     TNetworkAddress fe_addr() { return fe_addr_; }
@@ -56,20 +56,24 @@ public:
     */
     bool is_finished() const { return is_finished_; }
     void set_is_finished() {
+        DCHECK(is_attach_task() && !is_finished_);
         is_finished_ = true;
         finish_time_ = MonotonicMillis();
     }
     virtual void finish() { set_is_finished(); }
     int64_t start_time() const { return start_time_; }
     int64_t finish_time() const { return finish_time_; }
-    int64_t running_time() const { return finish_time_ - start_time_; }
+    int64_t running_time() const { return finish_time() - start_time(); }
 
     /* cancel action
     */
     bool is_cancelled() const { return is_cancelled_; }
     void set_is_cancelled() {
-        is_cancelled_ = true;
-        cancelled_time_ = MonotonicMillis();
+        DCHECK(is_attach_task());
+        if (!is_cancelled_) {
+            is_cancelled_ = true;
+            cancelled_time_ = MonotonicMillis();
+        }
     }
     virtual bool cancel(const Status& reason) {
         set_is_cancelled();
@@ -151,4 +155,5 @@ protected:
     std::atomic<int> revoking_tasks_count_ = 0;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

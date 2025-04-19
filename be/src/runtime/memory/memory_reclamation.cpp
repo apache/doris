@@ -30,6 +30,7 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 int64_t MemoryReclamation::revoke_tasks_memory(
         int64_t need_free_mem, const std::vector<std::shared_ptr<ResourceContext>>& resource_ctxs,
@@ -68,26 +69,25 @@ int64_t MemoryReclamation::revoke_tasks_memory(
 
     auto config_str = fmt::format(
             "need free memory: {}, request revoke tasks: {}, revoke reason: {}, priority compare "
-            "func: {}, filter func: {}, action func: {}. {}.",
+            "function: {}, filter function: {}, action function: {}. {}",
             need_free_mem, resource_ctxs.size(), revoke_reason,
             priority_cmp_func_string(priority_cmp), filter_func_string(filters),
             action_func_string(action), process_mem_stat);
-    LOG(INFO) << fmt::format("[MemoryGC] start MemoryReclamation::revoke_tasks_memory, {}.",
-                             config_str);
+    LOG(INFO) << fmt::format("[MemoryGC] start revoke_tasks_memory, {}.", config_str);
     Defer defer {[&]() {
         LOG(INFO) << fmt::format(
-                "[MemoryGC] end MemoryReclamation::revoke_tasks_memory, {}. freed memory: {}, "
+                "[MemoryGC] end revoke_tasks_memory, {}. freed memory: {}, "
                 "revocable tasks: {}, this time revoked tasks: {}, consist of: [{}], call revoke "
                 "func cost(us): {}."
                 " some tasks is being canceled and has not been completed yet, among them, skip "
-                "canceling tasks(cancel cost too long, not counted in freed memory): {}, consist "
-                "of: [{}], keep wait canceling tasks(counted in freed memory): {}, consist of: "
+                "canceling tasks: {}(cancel cost too long, not counted in freed memory), consist "
+                "of: [{}], keep wait canceling tasks: {}(counted in freed memory), consist of: "
                 "[{}], filter cost(us): {}.",
                 config_str, freed_memory_counter->value(), revocable_tasks_counter->value(),
-                this_time_revoked_tasks_counter->value(), join(this_time_revoked_tasks, ","),
+                this_time_revoked_tasks_counter->value(), join(this_time_revoked_tasks, " | "),
                 revoke_cost_time->value(), skip_cancelling_tasks_counter->value(),
-                join(skip_cancelling_tasks, ","), keep_wait_cancelling_tasks_counter->value(),
-                join(keep_wait_cancelling_tasks, ","), filter_cost_time->value());
+                join(skip_cancelling_tasks, " | "), keep_wait_cancelling_tasks_counter->value(),
+                join(keep_wait_cancelling_tasks, " | "), filter_cost_time->value());
     }};
 
     {
@@ -111,7 +111,7 @@ int64_t MemoryReclamation::revoke_tasks_memory(
                 // and the query memory is expected to be released soon.
                 // if > 3s, the query memory will not be counted in `freed_memory`,
                 // and the query may be blocked during the cancel process. skip this query and continue to cancel other queries.
-                if (resource_ctx->task_controller()->cancelled_time() - MonotonicMillis() >
+                if (MonotonicMillis() - resource_ctx->task_controller()->cancelled_time() >
                     config::revoke_memory_max_tolerance_ms) {
                     skip_cancelling_tasks.push_back(
                             resource_ctx->task_controller()->debug_string());
@@ -140,7 +140,7 @@ int64_t MemoryReclamation::revoke_tasks_memory(
     COUNTER_UPDATE(keep_wait_cancelling_tasks_counter, keep_wait_cancelling_tasks.size());
 
     if (revocable_resource_ctxs.empty()) {
-        return 0;
+        return freed_memory_counter->value();
     }
 
     {
@@ -148,17 +148,16 @@ int64_t MemoryReclamation::revoke_tasks_memory(
         while (!revocable_resource_ctxs.empty()) {
             auto resource_ctx = revocable_resource_ctxs.top().second;
             std::string task_revoke_reason = fmt::format(
-                    "{} {} Task: {}, because {}, backend {}, {}. Execute again after enough "
+                    "{} {} task: {}. because {}. in backend {}, {} execute again after enough "
                     "memory, details see be.INFO.",
-                    revoke_reason, action_func_string(action),
-                    priority_cmp_func_string(priority_cmp),
-                    resource_ctx->memory_context()->debug_string(), BackendOptions::get_localhost(),
-                    process_mem_stat_to_client);
+                    action_func_string(action), priority_cmp_func_string(priority_cmp),
+                    resource_ctx->memory_context()->debug_string(), revoke_reason,
+                    BackendOptions::get_localhost(), process_mem_stat_to_client);
             if (ActionFuncImpl[action](resource_ctx.get(),
                                        Status::MemoryLimitExceeded(task_revoke_reason))) {
                 this_time_revoked_tasks.push_back(resource_ctx->task_controller()->debug_string());
                 COUNTER_UPDATE(freed_memory_counter,
-                               resource_ctx->memory_context()->mem_tracker()->consumption());
+                               resource_ctx->memory_context()->current_memory_bytes());
                 COUNTER_UPDATE(this_time_revoked_tasks_counter, 1);
                 if (freed_memory_counter->value() > need_free_mem) {
                     break;
@@ -247,4 +246,5 @@ void MemoryReclamation::je_purge_dirty_pages() {
 #endif
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris
