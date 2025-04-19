@@ -306,6 +306,11 @@ public class NereidsStreamLoadPlanner {
         queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         queryGlobals.setTimestampMs(System.currentTimeMillis());
         queryGlobals.setTimeZone(taskInfo.getTimezone());
+        if (taskInfo instanceof NereidsRoutineLoadTaskInfo) {
+            queryGlobals.setLoadZeroTolerance(false);
+        } else {
+            queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);
+        }
         queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);
         queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
 
