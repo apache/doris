@@ -260,7 +260,7 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<ResourceContext>& 
                                         int64_t reserve_size, const Status& status) {
     DCHECK(resource_ctx != nullptr);
     resource_ctx->task_controller()->update_paused_reason(status);
-    resource_ctx->task_controller()->set_low_memory_mode(true);
+    resource_ctx->task_controller()->set_low_memory_mode();
     resource_ctx->task_controller()->set_memory_sufficient(false);
     std::lock_guard<std::mutex> lock(_paused_queries_lock);
     auto wg = resource_ctx->workload_group();
@@ -939,7 +939,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
             continue;
         }
         if (is_low_watermark) {
-            resource_ctx->task_controller()->set_low_memory_mode(true);
+            resource_ctx->task_controller()->set_low_memory_mode();
         }
         int64_t query_weighted_mem_limit = 0;
         int64_t expected_query_weighted_mem_limit = 0;

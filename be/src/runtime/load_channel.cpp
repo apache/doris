@@ -107,7 +107,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
                 params.txn_expiration());
     }
     if (_resource_ctx->workload_group() != nullptr) {
-        RETURN_IF_ERROR(_resource_ctx->workload_group()->add_task_resource_ctx(
+        RETURN_IF_ERROR(_resource_ctx->workload_group()->add_resource_ctx(
                 _resource_ctx->task_controller()->task_id(), _resource_ctx));
     }
     SCOPED_ATTACH_TASK(_resource_ctx);

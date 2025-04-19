@@ -216,7 +216,7 @@ int64_t WorkloadGroup::memory_used() {
 }
 
 void WorkloadGroup::do_sweep() {
-    // Clear resource context that is registered during add_task_resource_ctx
+    // Clear resource context that is registered during add_resource_ctx
     std::unique_lock<std::shared_mutex> wlock(_mutex);
     for (auto iter = _resource_ctxs.begin(); iter != _resource_ctxs.end();) {
         if (iter->second.lock() == nullptr) {
