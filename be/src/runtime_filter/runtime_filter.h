@@ -46,11 +46,13 @@ public:
 
     template <class T>
     Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         return _wrapper->assign(request, data);
     }
 
     template <class T>
     Status serialize(T* request, void** data, int* len) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         auto real_runtime_filter_type = _wrapper->get_real_type();
 
         request->set_filter_type(get_type(real_runtime_filter_type));
@@ -81,7 +83,7 @@ public:
         return Status::OK();
     }
 
-    virtual std::string debug_string() const = 0;
+    virtual std::string debug_string() = 0;
 
 protected:
     RuntimeFilter(const TRuntimeFilterDesc* desc)
@@ -118,6 +120,8 @@ protected:
     friend class RuntimeFilterProducer;
     friend class RuntimeFilterConsumer;
     friend class RuntimeFilterMerger;
+
+    std::recursive_mutex _rmtx; // lock all member function of runtime filter producer/consumer
 };
 #include "common/compile_check_end.h"
 } // namespace doris

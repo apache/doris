@@ -45,6 +45,7 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
 }
 
 Status RuntimeFilterConsumer::acquire_expr(std::vector<vectorized::VRuntimeFilterPtr>& push_exprs) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
     if (_rf_state == State::READY) {
         RETURN_IF_ERROR(_apply_ready_expr(push_exprs));
     }
@@ -55,6 +56,7 @@ Status RuntimeFilterConsumer::acquire_expr(std::vector<vectorized::VRuntimeFilte
 }
 
 void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
     COUNTER_SET(_wait_timer, int64_t((MonotonicMillis() - _registration_time) * NANOS_PER_MILLIS));
     _set_state(State::READY, other->_wrapper);
     if (!_filter_timer.empty()) {
@@ -66,6 +68,7 @@ void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
 
 std::shared_ptr<pipeline::RuntimeFilterTimer> RuntimeFilterConsumer::create_filter_timer(
         std::shared_ptr<pipeline::Dependency> dependencies) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
     auto timer = std::make_shared<pipeline::RuntimeFilterTimer>(_registration_time,
                                                                 _rf_wait_time_ms, dependencies);
     _filter_timer.push_back(timer);
@@ -211,13 +214,13 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
 }
 
 void RuntimeFilterConsumer::collect_realtime_profile(RuntimeProfile* parent_operator_profile) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
     DCHECK(parent_operator_profile != nullptr);
     int filter_id = -1;
     {
         // since debug_string will read from  RuntimeFilter::_wrapper
         // and it is a shared_ptr, instead of a atomic_shared_ptr
         // so it is not thread safe
-        std::unique_lock<std::mutex> l(_mtx);
         filter_id = _wrapper->filter_id();
         parent_operator_profile->add_description(fmt::format("RF{} Info", filter_id),
                                                  debug_string(), "RuntimeFilterInfo");
