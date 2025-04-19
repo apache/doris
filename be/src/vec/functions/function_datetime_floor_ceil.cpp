@@ -490,7 +490,7 @@ private:
                 trivial_part_ts_res = ts_res.second();
             }
             if constexpr (Flag::Unit == SECOND) {
-                diff = ts_arg.second_diff(ts_res);
+                diff = ts_arg.datetime_diff_in_seconds(ts_res);
                 trivial_part_ts_res = 0;
                 trivial_part_ts_arg = 0;
             }
@@ -529,7 +529,7 @@ private:
                 trivial_part_ts_res = ts_res.second();
             }
             if constexpr (Flag::Unit == SECOND) {
-                diff = ts_arg.second_diff(ts_res);
+                diff = ts_arg.datetime_diff_in_seconds(ts_res);
                 trivial_part_ts_res = 0;
                 trivial_part_ts_arg = 0;
             }
@@ -572,7 +572,7 @@ private:
                         ts_res.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2;
             }
             if constexpr (Flag::Unit == SECOND) {
-                diff = ts_arg.second_diff(ts_res);
+                diff = ts_arg.datetime_diff_in_seconds(ts_res);
                 trivial_part_ts_arg = ts_arg.microsecond();
                 trivial_part_ts_res = ts_res.microsecond();
             }
