@@ -53,8 +53,8 @@ public class MergedComputeGroup extends ComputeGroup {
         throw new RuntimeException("MergedComputeGroup not implements getName.");
     }
 
-    // current main for UT
-    public Set<String> getComputeGroupNameSet() {
+    @Override
+    public Set<String> getIdentifiers() {
         return computeGroupSet;
     }
 

@@ -34,14 +34,6 @@ suite("test_crud_wlg") {
     sql "drop table if exists ${table_name2}"
     sql "drop table if exists ${table_name3}"
 
-    sql "drop workload group if exists tag1_wg1;"
-    sql "drop workload group if exists tag1_wg2;"
-    sql "drop workload group if exists tag2_wg1;"
-    sql "drop workload group if exists tag1_wg3;"
-    sql "drop workload group if exists tag1_mem_wg1;"
-    sql "drop workload group if exists tag1_mem_wg2;"
-    sql "drop workload group if exists tag1_mem_wg3;"
-    sql "drop workload group if exists tag1_mem_wg4;"
     sql "drop workload group if exists bypass_group;"
 
     sql """
@@ -84,7 +76,6 @@ suite("test_crud_wlg") {
     """
 
     sql "ADMIN SET FRONTEND CONFIG ('enable_workload_group' = 'true');"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_alter_queue_prop_sync' = 'true');"
     sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '100');"
 
     sql "create workload group if not exists normal " +
@@ -140,19 +131,19 @@ suite("test_crud_wlg") {
             ");"
     sql "set workload_group=test_group;"
 
-    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
+    qt_show_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,compute_group,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name in ('normal','test_group') order by name;"
 
     // test drop workload group
     sql "create workload group if not exists test_drop_wg properties ('cpu_share'='10')"
-    qt_show_del_wg_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
+    qt_show_del_wg_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,compute_group from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
     sql "drop workload group test_drop_wg"
-    qt_show_del_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
+    qt_show_del_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,compute_group from information_schema.workload_groups where name in ('normal','test_group','test_drop_wg') order by name;"
 
     // test memory_limit
     test {
         sql "alter workload group test_group properties ( 'memory_limit'='100%' );"
 
-        exception "cannot be greater than"
+        exception "can not be greater than"
     }
 
     sql "alter workload group test_group properties ( 'memory_limit'='11%' );"
@@ -258,7 +249,7 @@ suite("test_crud_wlg") {
                 "    'enable_memory_overcommit'='true' " +
                 ");"
 
-        exception "cannot be greater than"
+        exception "can not be greater than"
     }
 
     test {
@@ -269,7 +260,7 @@ suite("test_crud_wlg") {
                 "    'enable_memory_overcommit'='true' " +
                 ");"
 
-        exception "cannot be greater than"
+        exception "can not be greater than"
     }
 
 
@@ -499,85 +490,6 @@ suite("test_crud_wlg") {
     sql "drop workload group spill_group_test;"
 
 
-    // test workload group's tag property, cpu_hard_limit
-    test {
-        sql "create workload group tag_test properties('tag'=' a, b , c ');"
-        exception "tag format is illegal"
-    }
-
-    test {
-        sql "create workload group if not exists tag1_wg1 properties (  'cpu_hard_limit'='101%', 'tag'='tag1')"
-        exception "a positive integer between 1 and 100"
-    }
-
-    test {
-        sql "create workload group if not exists tag1_wg1 properties (  'cpu_hard_limit'='-2%', 'tag'='tag1')"
-        exception "a positive integer between 1 and 100"
-    }
-
-    test {
-        sql "create workload group if not exists tag1_wg1 properties (  'cpu_hard_limit'='-1%', 'tag'='tag1')"
-        exception "a positive integer between 1 and 100"
-    }
-
-    sql "create workload group if not exists tag1_wg1 properties (  'cpu_hard_limit'='10%', 'tag'='tag1');"
-
-    test {
-        sql "create workload group if not exists tag1_wg2 properties (  'cpu_hard_limit'='91%', 'tag'='tag1');"
-        exception "can not be greater than 100%"
-    }
-
-    sql "create workload group if not exists tag1_wg2 properties (  'cpu_hard_limit'='10%', 'tag'='tag1');"
-
-    sql "create workload group if not exists tag2_wg1 properties (  'cpu_hard_limit'='91%', 'tag'='tag2');"
-
-    test {
-        sql "alter workload group tag2_wg1 properties ( 'tag'='tag1' );"
-        exception "can not be greater than 100% "
-    }
-
-    sql "alter workload group tag2_wg1 properties ( 'cpu_hard_limit'='10%' );"
-    sql "alter workload group tag2_wg1 properties ( 'tag'='tag1' );"
-
-    test {
-        sql "create workload group if not exists tag1_wg3 properties (  'cpu_hard_limit'='80%', 'tag'='tag1');"
-        exception "can not be greater than 100% "
-    }
-
-    sql "drop workload group tag2_wg1;"
-    sql "create workload group if not exists tag1_wg3 properties (  'cpu_hard_limit'='80%', 'tag'='tag1');"
-
-    // test workload group's tag property, memory_limit
-    sql "create workload group if not exists tag1_mem_wg1 properties (  'memory_limit'='50%', 'tag'='mem_tag1');"
-
-    test {
-        sql "create workload group if not exists tag1_mem_wg2 properties (  'memory_limit'='60%', 'tag'='mem_tag1');"
-        exception "cannot be greater than 100.0%"
-    }
-
-    sql "create workload group if not exists tag1_mem_wg2 properties ('memory_limit'='49%', 'tag'='mem_tag1');"
-
-    sql "create workload group if not exists tag1_mem_wg3 properties (  'memory_limit'='2%');"
-
-    test {
-        sql "alter workload group tag1_mem_wg3 properties ( 'tag'='mem_tag1' );"
-        exception "cannot be greater than 100.0%"
-    }
-
-    sql "alter workload group tag1_mem_wg3 properties ( 'memory_limit'='1%' );"
-
-    sql "alter workload group tag1_mem_wg3 properties ( 'tag'='mem_tag1' );"
-
-    sql "create workload group tag1_mem_wg4 properties('memory_limit'='-1','tag'='mem_tag1');"
-
-    test {
-        sql "alter workload group tag1_mem_wg4 properties ( 'memory_limit'='1%' );"
-        exception "cannot be greater than 100.0%"
-    }
-
-
-    qt_show_wg_tag "select name,MEMORY_LIMIT,CPU_HARD_LIMIT,TAG from information_schema.workload_groups where name in('tag1_wg1','tag1_wg2','tag2_wg1','tag1_wg3','tag1_mem_wg1','tag1_mem_wg2','tag1_mem_wg3') order by tag,name;"
-
     // test bypass
     sql "create workload group if not exists bypass_group properties (  'max_concurrency'='0','max_queue_size'='0','queue_timeout'='0');"
     sql "set workload_group=bypass_group;"
@@ -653,14 +565,6 @@ suite("test_crud_wlg") {
     qt_select_remote_scan_num_8 "select MAX_REMOTE_SCAN_THREAD_NUM,MIN_REMOTE_SCAN_THREAD_NUM from information_schema.workload_groups where name='test_remote_scan_wg';"
     sql "drop workload group test_remote_scan_wg"
 
-    sql "drop workload group tag1_wg1;"
-    sql "drop workload group tag1_wg2;"
-    sql "drop workload group if exists tag2_wg1;"
-    sql "drop workload group tag1_wg3;"
-    sql "drop workload group tag1_mem_wg1;"
-    sql "drop workload group tag1_mem_wg2;"
-    sql "drop workload group tag1_mem_wg3;"
-    sql "drop workload group tag1_mem_wg4;"
     sql "drop workload group bypass_group;"
 
     // test workload group privilege table
@@ -730,7 +634,7 @@ suite("test_crud_wlg") {
     // test default value
     sql "drop workload group if exists default_val_wg"
     sql "create workload group default_val_wg properties('enable_memory_overcommit'='true');"
-    qt_select_default_val_wg_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+    qt_select_default_val_wg_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,compute_group,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
 
     sql """
             alter workload group default_val_wg properties(
@@ -744,12 +648,11 @@ suite("test_crud_wlg") {
                 'scan_thread_num'='1',
                 'max_remote_scan_thread_num'='12',
                 'min_remote_scan_thread_num'='10',
-                'tag'='abc',
                 'read_bytes_per_second'='123',
                 'remote_read_bytes_per_second'='10');
     """
 
-    qt_select_default_val_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+    qt_select_default_val_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,compute_group,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
 
     sql """
        alter workload group default_val_wg properties(
@@ -763,13 +666,12 @@ suite("test_crud_wlg") {
         'scan_thread_num'='-1',
         'max_remote_scan_thread_num'='-1',
         'min_remote_scan_thread_num'='-1',
-        'tag'='',
         'read_bytes_per_second'='-1',
         'remote_read_bytes_per_second'='-1'
         );
     """
 
-    qt_select_default_val_wg_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+    qt_select_default_val_wg_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,compute_group,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
 
     sql "drop workload group if exists default_val_wg"
 
@@ -791,12 +693,12 @@ suite("test_crud_wlg") {
                 "    'enable_memory_overcommit'='true' " +
                 ");"
         sql "set workload_group=test_wg_metrics;"
-        wg = sql("select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'test_wg_metrics' order by name;");
+        wg = sql("select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,compute_group,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'test_wg_metrics' order by name;");
         logger.info("wg: " + wg);
 
         // 3. EXECUTE A QUERY SO THAT THE WORKLOAD GROUP IS USED
         sql "select count(*) from numbers(\"number\"=\"100\");"
-        
+
         // curl backend http port to get metrics
         // get first backendId
         backendId = backendId_to_backendIP.keySet().iterator().next();

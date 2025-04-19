@@ -85,6 +85,8 @@ exit_flag=0
     # fi
     if ! check_doris_ready; then exit 1; fi
 
+    create_normal_workload_group
+
     echo "#### 5. set session variables"
     if ! reset_doris_session_variables; then exit 1; fi
     session_variables_file="${teamcity_build_checkoutDir}/regression-test/pipeline/vault_p0/conf/session_variables.sql"

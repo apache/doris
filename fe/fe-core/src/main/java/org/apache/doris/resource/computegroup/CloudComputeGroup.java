@@ -20,12 +20,20 @@ package org.apache.doris.resource.computegroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.system.Backend;
 
+import com.google.common.collect.Sets;
+
 import java.util.List;
+import java.util.Set;
 
 public class CloudComputeGroup extends ComputeGroup {
 
     public CloudComputeGroup(String id, String name, CloudSystemInfoService systemInfoService) {
         super(id, name, systemInfoService);
+    }
+
+    @Override
+    public Set<String> getIdentifiers() {
+        return Sets.newHashSet(id);
     }
 
     @Override
