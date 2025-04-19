@@ -1219,6 +1219,7 @@ DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
 DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
 // get agg correctness check for mow table
 DEFINE_mBool(enable_mow_get_agg_correctness_check_core, "false");
+DEFINE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap, "true");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
