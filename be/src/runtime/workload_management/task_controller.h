@@ -40,9 +40,10 @@ public:
 
     /* common action
     */
-    bool is_attach_task() const { return task_id_ != TUniqueId(); }
+    bool is_attach_task() const { return is_attached_; }
     const TUniqueId& task_id() const { return task_id_; }
     void set_task_id(TUniqueId task_id) {
+        is_attached_ = true;
         task_id_ = task_id;
         start_time_ = MonotonicMillis();
     }
@@ -56,9 +57,10 @@ public:
     */
     bool is_finished() const { return is_finished_; }
     void set_is_finished() {
-        DCHECK(is_attach_task() && !is_finished_);
-        is_finished_ = true;
-        finish_time_ = MonotonicMillis();
+        if (!is_finished_) {
+            is_finished_ = true;
+            finish_time_ = MonotonicMillis();
+        }
     }
     virtual void finish() { set_is_finished(); }
     int64_t start_time() const { return start_time_; }
@@ -124,6 +126,7 @@ protected:
 
     /* common property
     */
+    bool is_attached_ = false;
     TUniqueId task_id_;
     TNetworkAddress fe_addr_;
     TQueryType::type query_type_;

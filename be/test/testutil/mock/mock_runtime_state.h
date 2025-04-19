@@ -53,7 +53,7 @@ public:
     bool _enable_shared_exchange_sink_buffer = true;
     bool _enable_share_hash_table_for_broadcast_join = true;
     std::shared_ptr<MockContext> _mock_context = std::make_shared<MockContext>();
-    std::shared_ptr<MockQueryContext> _query_ctx_uptr = std::make_shared<MockQueryContext>();
+    std::shared_ptr<MockQueryContext> _query_ctx_uptr = MockQueryContext::create();
     WorkloadGroupPtr _workload_group = nullptr;
 };
 
