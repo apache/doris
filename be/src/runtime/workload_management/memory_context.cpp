@@ -15,21 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-#include "runtime/workload_group/workload_group_manager.h"
+#include "runtime/workload_management/memory_context.h"
+
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
-class MockWorkloadGroupMgr : public WorkloadGroupMgr {
-public:
-    MockWorkloadGroupMgr() : WorkloadGroupMgr() {}
-    void add_paused_query(const std::shared_ptr<ResourceContext>& resource_ctx,
-                          int64_t reserve_size, const Status& status) override {
-        _paused = true;
-    }
+std::string MemoryContext::debug_string() {
+    return fmt::format("TaskId={}, Memory(Used={}, Limit={}, Peak={})",
+                       print_id(resource_ctx_->task_controller()->task_id()),
+                       MemCounter::print_bytes(current_memory_bytes()),
+                       MemCounter::print_bytes(mem_limit()),
+                       MemCounter::print_bytes(peak_memory_bytes()));
+}
 
-private:
-    bool _paused = false;
-};
-
+#include "common/compile_check_end.h"
 } // namespace doris
