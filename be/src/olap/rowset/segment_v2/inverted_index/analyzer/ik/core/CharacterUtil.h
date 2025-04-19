@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <unicode/uchar.h>
+
 #include <functional>
 #include <memory>
 #include <vector>
@@ -81,6 +83,8 @@ public:
     static void regularizeCharInfo(TypedRune& type_rune, bool use_lowercase);
 
     static size_t adjustToCompleteChar(const char* buffer, size_t buffer_length);
+
+    static void regularizeString(std::string& input, bool use_lowercase = true);
 };
 
 } // namespace doris::segment_v2
