@@ -33,7 +33,8 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
     for (options in clusterOptions) {
         options.feConfigs += [
             'cloud_cluster_check_interval_second=1',
-            'cloud_tablet_rebalancer_interval_second=1'
+            'cloud_tablet_rebalancer_interval_second=1',
+            'cloud_pre_heating_time_limit_sec=5'
         ]
         options.cloudMode = true
         options.sqlModeNodeMgr = true
@@ -379,9 +380,10 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             currentFrontends = sql_return_maparray("SHOW FRONTENDS")
 
             int obServerCount = currentFrontends.count { it['Role'] == 'OBSERVER' } 
+            int followerServerCount = currentFrontends.count { it['Role'] == 'FOLLOWER' } 
             String fuzzyDropRole
             if (obServerCount != 0) {
-                fuzzyDropRole = (getRandomBoolean() == "true") ? "FOLLOWER" : "OBSERVER"
+                fuzzyDropRole = (getRandomBoolean() == "true" && followerServerCount != 1) ? "FOLLOWER" : "OBSERVER"
             } else {
                 fuzzyDropRole = "FOLLOWER"
             }
@@ -392,8 +394,8 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
 
             def role = frontendToDrop.Role
             // Drop the frontend
-            sql """ ALTER SYSTEM DROP $role "${frontendToDrop.Host}:${frontendToDrop.EditLogPort}"; """
             dropFeInx = cluster.getFrontends().find { it.host == frontendToDrop.Host }.index 
+            sql """ ALTER SYSTEM DROP $role "${frontendToDrop.Host}:${frontendToDrop.EditLogPort}"; """
             // After drop frontendToDrop.Host container will exit
             sleep(3 * 1000)
             cluster.dropFrontends(true, dropFeInx)
