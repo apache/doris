@@ -123,7 +123,7 @@ TEST_F(MemoryReclamationTest, TestRevokeTasksMemoryOneQuery) {
     auto* mock_controller =
             static_cast<MockQueryTaskController*>(resource_ctxs[0]->task_controller());
     mock_controller->set_cancelled_time(mock_controller->cancelled_time() -
-                                        config::revoke_memory_max_tolerance_ms - 100);
+                                        config::revoke_memory_max_tolerance_ms - 100000000);
     profile = std::make_unique<RuntimeProfile>("MemoryReclamationTest");
     EXPECT_EQ(MemoryReclamation::revoke_tasks_memory(1024, resource_ctxs, "MemoryReclamationTest",
                                                      profile.get(),
@@ -317,10 +317,10 @@ TEST_F(MemoryReclamationTest, TestRevokeTasksMemoryMixTaskNoFilter) {
     auto* mock_controller =
             static_cast<MockQueryTaskController*>(resource_ctxs[0]->task_controller());
     mock_controller->set_cancelled_time(mock_controller->cancelled_time() -
-                                        config::revoke_memory_max_tolerance_ms - 100);
+                                        config::revoke_memory_max_tolerance_ms - 100000000);
     mock_controller = static_cast<MockQueryTaskController*>(resource_ctxs[1]->task_controller());
     mock_controller->set_cancelled_time(mock_controller->cancelled_time() -
-                                        config::revoke_memory_max_tolerance_ms - 100);
+                                        config::revoke_memory_max_tolerance_ms - 100000000);
     profile = std::make_unique<RuntimeProfile>("MemoryReclamationTest");
     EXPECT_EQ(MemoryReclamation::revoke_tasks_memory(
                       1, resource_ctxs, "MemoryReclamationTest", profile.get(),

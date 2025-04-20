@@ -139,8 +139,8 @@ protected:
     /* finish property
     */
     std::atomic<bool> is_finished_ = false;
-    int64_t start_time_;
-    std::atomic<int64_t> finish_time_;
+    int64_t start_time_ = 0;
+    std::atomic<int64_t> finish_time_ = 0;
 
     /* pause property
     */
