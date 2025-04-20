@@ -151,12 +151,24 @@ public class ShowColumnsCommand extends ShowCommand {
             TableNameInfo info = new TableNameInfo(tableNameInfo.getCtl(), "information_schema", "columns");
 
             List<AliasInfo> selectList = new ArrayList<>();
-            selectList.add(AliasInfo.of("COLUMN_NAME", "Field"));
-            selectList.add(AliasInfo.of("COLUMN_TYPE", "Type"));
-            selectList.add(AliasInfo.of("IS_NULLABLE", "Null"));
-            selectList.add(AliasInfo.of("COLUMN_KEY", "Key"));
-            selectList.add(AliasInfo.of("COLUMN_DEFAULT", "Default"));
-            selectList.add(AliasInfo.of("EXTRA", "Extra"));
+            if (isFull) {
+                selectList.add(AliasInfo.of("COLUMN_NAME", "Field"));
+                selectList.add(AliasInfo.of("COLUMN_TYPE", "Type"));
+                selectList.add(AliasInfo.of("COLLATION_NAME", "Collation"));
+                selectList.add(AliasInfo.of("IS_NULLABLE", "Null"));
+                selectList.add(AliasInfo.of("COLUMN_KEY", "Key"));
+                selectList.add(AliasInfo.of("COLUMN_DEFAULT", "Default"));
+                selectList.add(AliasInfo.of("EXTRA", "Extra"));
+                selectList.add(AliasInfo.of("PRIVILEGES", "Privileges")); // optional, can be set to ''
+                selectList.add(AliasInfo.of("COLUMN_COMMENT", "Comment"));
+            } else {
+                selectList.add(AliasInfo.of("COLUMN_NAME", "Field"));
+                selectList.add(AliasInfo.of("COLUMN_TYPE", "Type"));
+                selectList.add(AliasInfo.of("IS_NULLABLE", "Null"));
+                selectList.add(AliasInfo.of("COLUMN_KEY", "Key"));
+                selectList.add(AliasInfo.of("COLUMN_DEFAULT", "Default"));
+                selectList.add(AliasInfo.of("EXTRA", "Extra"));
+            }
 
             LogicalPlan plan = Utils.buildLogicalPlan(selectList, info, whereCondition);
             List<List<String>> rows = Utils.executePlan(ctx, executor, plan);
@@ -218,5 +230,10 @@ public class ShowColumnsCommand extends ShowCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowColumnsCommand(this, context);
+    }
+
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return metaData;
     }
 }
