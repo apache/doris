@@ -43,4 +43,33 @@ TEST(VFieldTest, field_string) {
     ASSERT_EQ(f.get<Array>()[0].get<String>(), "Hello, world (6)");
 }
 
+TEST(VFieldTest, field_jsonb) {
+    const char* data = "hello";
+    JsonbField jsonb(data, 5);
+    ASSERT_EQ(jsonb.size, 5);
+    ASSERT_NE(jsonb.data, data);
+
+    JsonbField copyed_jsonb(jsonb);
+    ASSERT_EQ(copyed_jsonb.size, 5);
+    ASSERT_NE(copyed_jsonb.data, data);
+
+    const char* moved_data = jsonb.data;
+    JsonbField moved_jsonb(std::move(jsonb));
+    ASSERT_EQ(moved_jsonb.size, 5);
+    ASSERT_EQ(moved_jsonb.data, moved_data);
+    ASSERT_EQ(jsonb.size, 0);
+    ASSERT_EQ(jsonb.data, nullptr);
+
+    jsonb = copyed_jsonb;
+    ASSERT_EQ(jsonb.size, 5);
+    ASSERT_NE(jsonb.data, copyed_jsonb.data);
+    ASSERT_EQ(std::string_view(jsonb.data, jsonb.size), "hello");
+
+    jsonb = std::move(moved_jsonb);
+    ASSERT_EQ(jsonb.size, 5);
+    ASSERT_EQ(jsonb.data, moved_data);
+    ASSERT_EQ(moved_jsonb.size, 0);
+    ASSERT_EQ(moved_jsonb.data, nullptr);
+}
+
 } // namespace doris::vectorized

@@ -184,20 +184,26 @@ public:
     }
 
     JsonbField& operator=(const JsonbField& x) {
-        data = new char[size];
-        if (!data) {
-            throw Exception(Status::FatalError("new data buffer failed, size: {}", size));
+        if (this != &x) {
+            delete[] data;
+            data = new char[x.size];
+            if (!data) {
+                throw Exception(Status::FatalError("new data buffer failed, size: {}", size));
+            }
+            memcpy(data, x.data, x.size);
+            size = x.size;
         }
-        memcpy(data, x.data, size);
         return *this;
     }
 
     JsonbField& operator=(JsonbField&& x) {
-        delete[] data;
-        data = x.data;
-        size = x.size;
-        x.data = nullptr;
-        x.size = 0;
+        if (this != &x) {
+            delete[] data;
+            data = x.data;
+            size = x.size;
+            x.data = nullptr;
+            x.size = 0;
+        }
         return *this;
     }
 
