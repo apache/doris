@@ -275,7 +275,7 @@ struct FromUnixTimeImpl {
             return false;
 
         } else {
-            DateV2Value<DateV2ValueType> dt;
+            DateV2Value<DateTimeV2ValueType> dt;
             if (val < 0 || val > TIMESTAMP_VALID_MAX) {
                 return true;
             }
