@@ -612,6 +612,8 @@ Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& requ
     TupleDescriptor tuple_desc(request_block_desc.desc(), false);
     std::unordered_map<std::string, int> colname_to_slot_id;
     std::unique_ptr<RuntimeState> runtime_state = nullptr;
+    std::unique_ptr<RuntimeProfile> runtime_profile;
+    runtime_profile = std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
 
     std::unique_ptr<vectorized::VFileScanner> vfile_scanner_ptr = nullptr;
 
@@ -632,11 +634,7 @@ Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& requ
                                     first_scan_range_desc.columns_from_path_keys.end());
         slots.reserve(request_block_desc.slots().size());
         for (auto slot_idx = 0; slot_idx < request_block_desc.slots().size(); ++slot_idx) {
-            auto pslot = request_block_desc.slots().at(slot_idx);
-
-            // Since vfile_scanner does not handle materialized slots,
-            // I manually change the slot to non-materialized here.
-            pslot.set_is_materialized(false);
+            const auto& pslot = request_block_desc.slots().at(slot_idx);
 
             slots.emplace_back(SlotDescriptor {pslot});
             auto& slot = slots.back();
@@ -653,6 +651,7 @@ Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& requ
                 rpc_scan_params.column_idxs.emplace_back(column_idx);
                 slot_info.is_file_slot = true;
             }
+            rpc_scan_params.default_value_of_src_slot.emplace(slot.id(), TExpr {});
             rpc_scan_params.required_slots.emplace_back(slot_info);
             rpc_scan_params.slot_name_to_schema_pos.emplace(slot.col_name(), column_idx);
         }
@@ -675,7 +674,8 @@ Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& requ
                                                     ExecEnv::GetInstance(), query_ctx.get());
 
         vfile_scanner_ptr = vectorized::VFileScanner::create_unique(
-                runtime_state.get(), &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
+                runtime_state.get(), runtime_profile.get(), &rpc_scan_params, &colname_to_slot_id,
+                &tuple_desc);
 
         RETURN_IF_ERROR(vfile_scanner_ptr->prepare_for_read_one_line(first_scan_range_desc));
     }
@@ -694,6 +694,9 @@ Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& requ
 
         // Clear to avoid reading iceberg position delete file...
         scan_range_desc.table_format_params.iceberg_params = TIcebergFileDesc {};
+
+        // Clear to avoid reading hive transactional delete delta file...
+        scan_range_desc.table_format_params.transactional_hive_params = TTransactionalHiveDesc {};
 
         RETURN_IF_ERROR(vfile_scanner_ptr->read_one_line_from_range(
                 scan_range_desc, request_block_desc.row_id(j), &result_block, external_info,

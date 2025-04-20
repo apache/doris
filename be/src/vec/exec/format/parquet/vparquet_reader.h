@@ -153,11 +153,6 @@ public:
         _table_col_to_file_col = map;
     }
 
-    void set_read_lines(const std::list<int64_t>& read_lines) {
-        _read_line_mode = true;
-        _read_lines = read_lines;
-    }
-
     void set_row_id_column_iterator(
             std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair) {
         _row_id_column_iterator_pair = iterator_pair;
@@ -236,6 +231,8 @@ private:
 
     static SortOrder _determine_sort_order(const tparquet::SchemaElement& parquet_schema);
 
+    Status _set_read_one_line_impl() override { return Status::OK(); }
+
 private:
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
@@ -301,8 +298,6 @@ private:
     bool _hive_use_column_names = false;
     std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
 
-    bool _read_line_mode = false;
-    std::list<int64_t> _read_lines;
     std::vector<std::vector<RowRange>> _read_line_mode_row_ranges;
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};

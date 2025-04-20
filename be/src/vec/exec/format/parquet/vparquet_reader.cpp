@@ -803,7 +803,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         return Status::EndOfFile("stop");
     }
 
-    if (_read_line_mode) {
+    if (_read_line_mode_mode) {
         candidate_row_ranges = _read_line_mode_row_ranges[row_group_index.row_group_id];
         return Status::OK();
     }
@@ -924,7 +924,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
 Status ParquetReader::_process_row_group_filter(
         const RowGroupReader::RowGroupIndex& row_group_index, const tparquet::RowGroup& row_group,
         bool* filter_group) {
-    if (_read_line_mode) {
+    if (_read_line_mode_mode) {
         auto group_start = row_group_index.first_row;
         auto group_end = row_group_index.last_row;
 

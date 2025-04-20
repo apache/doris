@@ -1232,14 +1232,12 @@ Status VFileScanner::prepare_for_read_one_line(const TFileRangeDesc& range) {
     RETURN_IF_ERROR(_init_expr_ctxes());
 
     // Since only one column is read from the file, there is no need to filter, so set these variables to empty.
-    std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
+    static std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
     _colname_to_value_range = &colname_to_value_range;
     _push_down_conjuncts.clear();
     _not_single_slot_filter_conjuncts.clear();
     _slot_id_to_filter_conjuncts.clear();
-    _profile = nullptr;
     _kv_cache = nullptr;
-
     return Status::OK();
 }
 
@@ -1259,26 +1257,26 @@ Status VFileScanner::read_one_line_from_range(const TFileRangeDesc& range,
                 case TFileFormatType::FORMAT_PARQUET: {
                     std::unique_ptr<vectorized::ParquetReader> parquet_reader =
                             vectorized::ParquetReader::create_unique(
-                                    nullptr, *_params, range, 1,
+                                    _profile, *_params, range, 1,
                                     const_cast<cctz::time_zone*>(&_state->timezone_obj()),
-                                    _io_ctx.get(), nullptr,
+                                    _io_ctx.get(), _state,
                                     external_info.enable_file_meta_cache
                                             ? ExecEnv::GetInstance()->file_meta_cache()
                                             : nullptr,
                                     false);
 
                     RETURN_IF_ERROR(parquet_reader->open());
-                    parquet_reader->set_read_lines({rowid});
+                    RETURN_IF_ERROR(parquet_reader->set_read_lines_mode({rowid}));
                     RETURN_IF_ERROR(_init_parquet_reader(std::move(parquet_reader)));
                     break;
                 }
                 case TFileFormatType::FORMAT_ORC: {
                     std::unique_ptr<vectorized::OrcReader> orc_reader =
-                            vectorized::OrcReader::create_unique(nullptr, _state, *_params, range,
+                            vectorized::OrcReader::create_unique(_profile, _state, *_params, range,
                                                                  1, _state->timezone(),
                                                                  _io_ctx.get(), false);
 
-                    orc_reader->set_read_one_line(rowid);
+                    RETURN_IF_ERROR(orc_reader->set_read_lines_mode({rowid}));
                     RETURN_IF_ERROR(_init_orc_reader(std::move(orc_reader)));
                     break;
                 }

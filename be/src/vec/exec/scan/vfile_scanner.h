@@ -83,10 +83,10 @@ public:
     std::string get_current_scan_range_name() override { return _current_range_path; }
 
     //only used for read one line.
-    VFileScanner(RuntimeState* state, const TFileScanRangeParams* params,
+    VFileScanner(RuntimeState* state, RuntimeProfile* profile, const TFileScanRangeParams* params,
                  const std::unordered_map<std::string, int>* colname_to_slot_id,
                  TupleDescriptor* tuple_desc)
-            : VScanner(state),
+            : VScanner(state, profile),
               _params(params),
               _col_name_to_slot_id(colname_to_slot_id),
               _real_tuple_desc(tuple_desc) {};

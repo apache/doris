@@ -91,7 +91,8 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
 
         if (relation.getTable() instanceof HMSExternalTable) {
             HMSExternalTable hmsExternalTable = (HMSExternalTable) relation.getTable();
-            return hmsExternalTable.getDlaType() == DLAType.HIVE || hmsExternalTable.getDlaType() == DLAType.ICEBERG;
+            return (hmsExternalTable.getDlaType() == DLAType.HIVE && hmsExternalTable.supportedHiveTopNLazyTable())
+                    || hmsExternalTable.getDlaType() == DLAType.ICEBERG;
         }
         return true;
     }

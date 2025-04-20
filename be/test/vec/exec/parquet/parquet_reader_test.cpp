@@ -115,8 +115,10 @@ TEST_F(ParquetReaderTest, normal) {
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
     auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr reader;
-    static_cast<void>(local_fs->open_file(
-            "./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", &reader));
+    static_cast<void>(
+            local_fs->open_file("./be/test/exec/test_data/"
+                                "parquet_scanner/type-decoder.parquet",
+                                &reader));
 
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);

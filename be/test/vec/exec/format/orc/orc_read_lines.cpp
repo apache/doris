@@ -81,7 +81,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     TFileScanRangeParams params;
     params.file_type = TFileType::FILE_LOCAL;
     TFileRangeDesc range;
-    range.path = "/mnt/disk1/changyuwei/doris/be/test/exec/test_data/orc_scanner/my-file.orc";
+    range.path = "./be/test/exec/test_data/orc_scanner/my-file.orc";
     range.start_offset = 0;
     range.size = 2024;
 
@@ -91,7 +91,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
                                            time_zone, &io_ctx, true);
     auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr file_reader;
-    reader->set_read_one_line(line);
+    static_cast<void>(reader->set_read_lines_mode({line}));
 
     static_cast<void>(local_fs->open_file(range.path, &file_reader));
 
@@ -154,8 +154,12 @@ static void read_orc_line(int64_t line, std::string block_dump) {
         params.required_slots.emplace_back(slot_info);
     }
     runtime_state->_timezone = "CST";
-    auto vf = VFileScanner::create_unique(runtime_state.get(), &params, &colname_to_slot_id,
-                                          tuple_desc);
+
+    std::unique_ptr<RuntimeProfile> runtime_profile;
+    runtime_profile = std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
+
+    auto vf = VFileScanner::create_unique(runtime_state.get(), runtime_profile.get(), &params,
+                                          &colname_to_slot_id, tuple_desc);
     EXPECT_TRUE(vf->prepare_for_read_one_line(range).ok());
     ExternalFileMappingInfo external_info(0, range, false);
     int64_t init_reader_ms = 0;

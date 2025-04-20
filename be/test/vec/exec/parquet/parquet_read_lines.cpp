@@ -117,7 +117,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr reader;
     static_cast<void>(
-            local_fs->open_file("/mnt/disk1/changyuwei/doris/be/test/exec/test_data/"
+            local_fs->open_file("./be/test/exec/test_data/"
                                 "parquet_scanner/type-decoder.parquet",
                                 &reader));
 
@@ -144,7 +144,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
                            tuple_desc->slots().size());
     p_reader->set_row_id_column_iterator(iterator_pair);
     p_reader->set_file_reader(reader);
-    p_reader->set_read_lines(read_lines);
+    static_cast<void>(p_reader->set_read_lines_mode(read_lines));
 
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
@@ -195,7 +195,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
 
     scan_params.file_type = TFileType::FILE_LOCAL;
     scan_range.path =
-            "/mnt/disk1/changyuwei/doris/be/test/exec/test_data/parquet_scanner/"
+            "./be/test/exec/test_data/parquet_scanner/"
             "type-decoder.parquet";
     scan_range.start_offset = 0;
     scan_range.format_type = TFileFormatType::FORMAT_PARQUET;
@@ -208,8 +208,12 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
         scan_params.required_slots.emplace_back(slot_info);
     }
     runtime_state._timezone = "CST";
-    auto vf = VFileScanner::create_unique(&runtime_state, &scan_params, &colname_to_slot_id,
-                                          tuple_desc);
+
+    std::unique_ptr<RuntimeProfile> runtime_profile;
+    runtime_profile = std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
+
+    auto vf = VFileScanner::create_unique(&runtime_state, runtime_profile.get(), &scan_params,
+                                          &colname_to_slot_id, tuple_desc);
     EXPECT_TRUE(vf->prepare_for_read_one_line(scan_range).ok());
     ExternalFileMappingInfo external_info(0, scan_range, false);
     int64_t init_reader_ms = 0;

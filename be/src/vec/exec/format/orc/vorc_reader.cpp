@@ -1179,8 +1179,6 @@ Status OrcReader::set_fill_columns(
         _row_reader = _reader->createRowReader(_row_reader_options, _orc_filter.get(),
                                                _string_dict_filter.get());
 
-        _seek_to_read_one_line();
-
         _batch = _row_reader->createRowBatch(_batch_size);
         const auto& selected_type = _row_reader->getSelectedType();
         int idx = 0;
@@ -1883,7 +1881,7 @@ std::string OrcReader::get_field_name_lower_case(const orc::Type* orc_type, int 
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     RETURN_IF_ERROR(get_next_block_impl(block, read_rows, eof));
-    if (*eof && _profile != nullptr) {
+    if (*eof) {
         COUNTER_UPDATE(_orc_profile.selected_row_group_count,
                        _reader_metrics.SelectedRowGroupCount);
         COUNTER_UPDATE(_orc_profile.evaluated_row_group_count,
@@ -1917,6 +1915,11 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
         if (get_remaining_rows() == 0) {
             *eof = true;
         }
+        return Status::OK();
+    }
+
+    if (!_seek_to_read_one_line()) {
+        *eof = true;
         return Status::OK();
     }
 

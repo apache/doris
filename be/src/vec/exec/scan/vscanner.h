@@ -58,7 +58,8 @@ public:
              RuntimeProfile* profile);
 
     //only used for VFileScanner read one line.
-    VScanner(RuntimeState* state) : _state(state), _limit(1), _profile(nullptr), _total_rf_num(0) {
+    VScanner(RuntimeState* state, RuntimeProfile* profile)
+            : _state(state), _limit(1), _profile(profile), _total_rf_num(0) {
         DorisMetrics::instance()->scanner_cnt->increment(1);
     };
 
