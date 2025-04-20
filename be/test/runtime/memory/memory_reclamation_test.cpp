@@ -326,6 +326,17 @@ TEST_F(MemoryReclamationTest, TestRevokeTasksMemoryMixTaskNoFilter) {
                       1, resource_ctxs, "MemoryReclamationTest", profile.get(),
                       MemoryReclamation::PriorityCmpFunc::TOP_OVERCOMMITED_MEMORY, {},
                       MemoryReclamation::ActionFunc::CANCEL),
+              0);
+    EXPECT_TRUE(resource_ctxs[0]->task_controller()->is_cancelled());
+    EXPECT_TRUE(resource_ctxs[1]->task_controller()->is_cancelled());
+    EXPECT_FALSE(resource_ctxs[2]->task_controller()->is_cancelled());
+    EXPECT_FALSE(resource_ctxs[3]->task_controller()->is_cancelled());
+    EXPECT_FALSE(resource_ctxs[4]->task_controller()->is_cancelled());
+
+    EXPECT_EQ(MemoryReclamation::revoke_tasks_memory(1, resource_ctxs, "MemoryReclamationTest",
+                                                     profile.get(),
+                                                     MemoryReclamation::PriorityCmpFunc::TOP_MEMORY,
+                                                     {}, MemoryReclamation::ActionFunc::CANCEL),
               2048000000000);
     EXPECT_TRUE(resource_ctxs[0]->task_controller()->is_cancelled());
     EXPECT_TRUE(resource_ctxs[1]->task_controller()->is_cancelled());

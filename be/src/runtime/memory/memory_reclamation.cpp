@@ -129,8 +129,10 @@ int64_t MemoryReclamation::revoke_tasks_memory(
             if (is_filtered) {
                 continue;
             }
-            revocable_resource_ctxs.emplace(PriorityCmpFuncImpl[priority_cmp](resource_ctx.get()),
-                                            resource_ctx);
+            int64_t weight = PriorityCmpFuncImpl[priority_cmp](resource_ctx.get());
+            if (weight != -1) {
+                revocable_resource_ctxs.emplace(weight, resource_ctx);
+            }
         }
     }
 

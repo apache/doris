@@ -44,14 +44,13 @@ public:
                     {PriorityCmpFunc::TOP_OVERCOMMITED_MEMORY,
                      [](ResourceContext* resource_ctx) {
                          int64_t mem_limit = resource_ctx->memory_context()->mem_limit();
-                         if (mem_limit <= 0) {
-                             mem_limit = INT64_MAX;
+                         int64_t mem_size = resource_ctx->memory_context()->current_memory_bytes();
+                         if (mem_limit <= 0 || mem_limit > mem_size) {
+                             return static_cast<int64_t>(-1); // skip not overcommited task.
                          }
                          return static_cast<int64_t>(
-                                 (static_cast<double>(
-                                          resource_ctx->memory_context()->current_memory_bytes()) /
-                                  static_cast<double>(mem_limit)) *
-                                 10000);
+                                 (static_cast<double>(mem_size) / static_cast<double>(mem_limit)) *
+                                 1000000); // mem_size will not be greater than 9000G, so not overflow int64_t.
                      }},
     };
 
