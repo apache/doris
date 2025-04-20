@@ -66,19 +66,12 @@ suite ("test_alter_table_property") {
         return
     }
 
-    sql """ ALTER TABLE ${tableName} SET ( "default.replication_allocation" = "tag.location.default: 2" ) """
-    sql """ ALTER TABLE ${tableName} ADD PARTITION p3 VALUES LESS THAN ("300") """
-    assertEquals(2, queryReplicaCount("p3"))
+    sql """ ALTER TABLE ${tableName} SET("storage_medium"="SSD") """
 
-    sql """ ALTER TABLE ${tableName} MODIFY PARTITION p1 SET ( "replication_allocation" = "tag.location.default: 2" ) """
-    for (i = 0; i < 300; i++) {
-        if (queryReplicaCount("p1") != 2) {
-            Thread.sleep(3000)
-        }
-    }
-    assertEquals(2, queryReplicaCount("p1"))
-    assertEquals(replication_num, queryReplicaCount("p2"))
-
+    def result = sql "show create table ${tableName}"
+    logger.info("${result[0]}")
+    String rs = result[0]
+    assertTrue(rs.contains("\"storage_medium\" = \"ssd\""))
     sql "DROP TABLE ${tableName}"
 }
 

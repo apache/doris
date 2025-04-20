@@ -371,6 +371,9 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             throw new AnalysisException("You can not modify property 'enable_unique_key_skip_bitmap_column'.");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE)) {
             throw new AnalysisException("You can not modify storage_page_size");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY;
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

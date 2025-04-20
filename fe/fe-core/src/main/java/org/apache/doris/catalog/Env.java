@@ -5596,6 +5596,7 @@ public class Env {
         tableProperty.buildInMemory()
                 .buildMinLoadReplicaNum()
                 .buildStoragePolicy()
+                .buildStorageMedium()
                 .buildIsBeingSynced()
                 .buildCompactionPolicy()
                 .buildTimeSeriesCompactionGoalSizeMbytes()

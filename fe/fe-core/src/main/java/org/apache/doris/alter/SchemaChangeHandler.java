@@ -2034,6 +2034,9 @@ public class SchemaChangeHandler extends AlterHandler {
                             rowColumn.setUniqueId(maxColUniqueId + 1);
                             indexSchemaMap.get(olapTable.getBaseIndexId()).add(rowColumn);
                         }
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
+                        Env.getCurrentEnv().modifyTableProperties(db, olapTable, properties);
+                        return;
                     }
                 }
 
