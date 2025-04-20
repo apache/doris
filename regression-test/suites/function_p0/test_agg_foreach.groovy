@@ -83,26 +83,27 @@ suite("test_agg_foreach") {
    select count_foreach(a)  , count_by_enum_foreach(a)  , approx_count_distinct_foreach(a) from foreach_table;
    """
 
+   test {
+        sql """select array_agg_foreach(b) from foreach_table;"""
+        exception "not support"
+   }
+
    qt_sql """
    select histogram_foreach(a) from foreach_table;
    """
    
-   try {
-        sql "select PERCENTILE_foreach(a,a)  from foreach_table;"
-   } catch (Exception ex) {
-        assert("${ex}".contains("Unsupport the func"))
-   }
-  
-
-   try {
-        sql "select PERCENTILE_ARRAY_foreach(a,b) from foreach_table where id = 1;"
-   } catch (Exception ex) {
-        assert("${ex}".contains("Unsupport the func"))
+   test {
+        sql """select PERCENTILE_foreach(a,a)  from foreach_table;"""
+        exception "Unsupport the func"
    }
 
-   try {
-	sql "select PERCENTILE_APPROX_foreach(a,a) from foreach_table;"
-   } catch (Exception ex) {
-        assert("${ex}".contains("Unsupport the func"))
+   test {
+        sql """select PERCENTILE_ARRAY_foreach(a,b) from foreach_table where id = 1;"""
+        exception "Unsupport the func"
+   }
+
+   test {
+        sql """select PERCENTILE_APPROX_foreach(a,a) from foreach_table;"""
+        exception "Unsupport the func"
    }
 }
