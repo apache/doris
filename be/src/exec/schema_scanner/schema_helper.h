@@ -94,8 +94,8 @@ public:
                                          TFetchRoutineLoadJobResult* result);
 
     static Status fetch_schema_table_data(const std::string& ip, const int32_t port,
-                                   const TFetchSchemaTableDataRequest& request,
-                                   TFetchSchemaTableDataResult* result);
+                                          const TFetchSchemaTableDataRequest& request,
+                                          TFetchSchemaTableDataResult* result);
 };
 
 } // namespace doris
