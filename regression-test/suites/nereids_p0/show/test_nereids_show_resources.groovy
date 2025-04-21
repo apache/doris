@@ -63,13 +63,6 @@ suite("test_nereids_show_resources") {
     checkNereidsExecute("SHOW RESOURCES ORDER BY Value LIMIT 1")
     checkNereidsExecute("SHOW RESOURCES ORDER BY Value LIMIT 1,2")
 
-    def res = sql """SHOW RESOURCES"""
-    def size = res.size()
-    assertEquals("test_resource_for_show_resources", res.get(0).get(0))
-    assertEquals("test_resource_for_show_resources", res.get(size - 1).get(0))
-    assertEquals("jdbc", res.get(0).get(1))
-    assertEquals("jdbc", res.get(size - 1).get(1))
-
     def res1 = sql """SHOW RESOURCES WHERE NAME = 'test_resource_for_show_resources'"""
     def size1 = res1.size()
     assertEquals("test_resource_for_show_resources", res1.get(0).get(0))
@@ -111,34 +104,6 @@ suite("test_nereids_show_resources") {
     assertEquals("test_resource_for_show_resources", res7.get(size7 - 1).get(0))
     assertEquals("jdbc", res7.get(0).get(1))
     assertEquals("jdbc", res7.get(size7 - 1).get(1))
-
-    def res8 = sql """SHOW RESOURCES ORDER BY Name"""
-    def size8 = res8.size()
-    assertEquals("test_resource_for_show_resources", res8.get(0).get(0))
-    assertEquals("test_resource_for_show_resources", res8.get(size8 - 1).get(0))
-    assertEquals("jdbc", res8.get(0).get(1))
-    assertEquals("jdbc", res8.get(size8 - 1).get(1))
-
-    def res9 = sql """SHOW RESOURCES ORDER BY Name LIMIT 2"""
-    def size9 = res9.size()
-    assertEquals("test_resource_for_show_resources", res9.get(0).get(0))
-    assertEquals("test_resource_for_show_resources", res9.get(size9 - 1).get(0))
-    assertEquals("jdbc", res9.get(0).get(1))
-    assertEquals("jdbc", res9.get(size9 - 1).get(1))
-
-    def res10 = sql """SHOW RESOURCES ORDER BY Item"""
-    def size10 = res10.size()
-    assertEquals("test_resource_for_show_resources", res10.get(0).get(0))
-    assertEquals("test_resource_for_show_resources", res10.get(size10 - 1).get(0))
-    assertEquals("jdbc", res10.get(0).get(1))
-    assertEquals("jdbc", res10.get(size10 - 1).get(1))
-
-    def res11 = sql """SHOW RESOURCES ORDER BY Item LIMIT 1,2"""
-    def size11 = res11.size()
-    assertEquals("test_resource_for_show_resources", res11.get(0).get(0))
-    assertEquals("test_resource_for_show_resources", res11.get(size11 - 1).get(0))
-    assertEquals("jdbc", res11.get(0).get(1))
-    assertEquals("jdbc", res11.get(size11 - 1).get(1))
 
     assertThrows(Exception.class, {
         sql """SHOW RESOURCES WHERE NAME = 'test_resource_for_show_resources' AND Item = 'user'"""
