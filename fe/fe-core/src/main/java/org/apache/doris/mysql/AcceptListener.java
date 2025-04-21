@@ -158,7 +158,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
 
     // this exception is only used for some expected exception after connection established.
     // so that we can catch these kind of exceptions and close the channel without printing warning logs.
-    public static class AfterConnectedException extends Exception {
+    private static class AfterConnectedException extends Exception {
         public AfterConnectedException(String msg) {
             super(msg);
         }
