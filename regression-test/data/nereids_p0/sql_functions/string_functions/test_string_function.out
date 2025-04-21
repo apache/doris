@@ -381,15 +381,6 @@ doris
 \N
 
 -- !sql --
-AAA|BBB|CCC	BBB	|CCC	|CCC
-XXX|YYY|ZZZ	YYY	|ZZZ	|ZZZ
-
--- !sql --
-1	AAA_01|BBB_02|CCC_03|DDD_04|EEE_05|FFF_06	DDD	_04|EEE_05|FFF_06	_04|EEE_05|FFF_06
-2	sgr_01|wsc_02|CCC_03|DDD_04|rfv_05|rgb_06	DDD	_04|rfv_05|rgb_06	_04|rfv_05|rgb_06
-3	AAA_01|dsd_02|ert_03|bgt_04|fgh_05|hyb_06	A_01	|dsd_02|ert_03|bgt_04|fgh_05|hyb_06	|dsd_02|ert_03|bgt_04|fgh_05|hyb_06
-
--- !sql --
 tNEW-STRorigin str
 
 -- !sql --
