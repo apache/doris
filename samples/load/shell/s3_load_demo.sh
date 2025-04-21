@@ -53,7 +53,7 @@
 #    - PROVIDER: Object storage service provider, such as S3, AZURE, GCP, etc.
 #    - S3_ENDPOINT: The endpoint address of the S3 storage.
 #    - S3_REGION: The region where the S3 storage is located.
-#    - AWS_ACCESS_KEY, AWS_SECRET_KEY: S3 access credentials
+#    - S3_ACCESS_KEY, S3_SECRET_KEY: S3 access credentials
 #    - The script will automatically add the date path after S3_PREFIX, for example: s3://bucket/path/2025-04-01/*
 #
 # 6. Other Configurations:
