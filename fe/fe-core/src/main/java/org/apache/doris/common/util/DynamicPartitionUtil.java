@@ -455,6 +455,10 @@ public class DynamicPartitionUtil {
         if (partitionInfo.getType() != PartitionType.RANGE || partitionInfo.isMultiColumnPartition()) {
             throw new DdlException("Dynamic partition only support single-column range partition");
         }
+        // we use partition column rather than partition expr here cuz expr's not been analyzed yet.
+        if (!partitionInfo.getPartitionColumns().get(0).getDataType().isDateType()) {
+            throw new DdlException("Dynamic partition only support datelike type column");
+        }
         String timeUnit = properties.get(DynamicPartitionProperty.TIME_UNIT);
         String prefix = properties.get(DynamicPartitionProperty.PREFIX);
         String start = properties.get(DynamicPartitionProperty.START);

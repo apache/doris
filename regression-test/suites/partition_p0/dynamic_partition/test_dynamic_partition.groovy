@@ -160,7 +160,29 @@ suite("test_dynamic_partition") {
         exception "errCode = 2,"
     }
     }
-    sql "drop table if exists dy_par_bad"
+
+    test {
+        sql """
+            CREATE TABLE test_dynamic_partition(
+                order_id    BIGINT,
+                create_dt   DATE,
+                username    VARCHAR(20)
+            )
+            DUPLICATE KEY(order_id)
+            PARTITION BY RANGE(order_id) ()
+            DISTRIBUTED BY HASH(order_id) BUCKETS 10
+            PROPERTIES(
+                "replication_num" = "1",
+                "dynamic_partition.enable" = "true",
+                "dynamic_partition.time_unit" = "DAY",
+                "dynamic_partition.start" = "-1",
+                "dynamic_partition.end" = "2",
+                "dynamic_partition.prefix" = "p",
+                "dynamic_partition.create_history_partition" = "true"
+            );
+        """
+        exception "Dynamic partition only support datelike type column"
+    }
 
     // restore force_olap_table_replication_allocation to old_value
     sql """ ADMIN SET FRONTEND CONFIG ("force_olap_table_replication_allocation" = "${old_conf_value}"); """
