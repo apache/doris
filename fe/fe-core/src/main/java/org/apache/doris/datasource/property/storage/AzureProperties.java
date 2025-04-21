@@ -20,11 +20,14 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.google.common.base.Strings;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Stream;
 
 /**
  * AzureProperties is a specialized configuration class for accessing Azure Blob Storage
@@ -54,19 +57,18 @@ import java.util.Map;
  */
 public class AzureProperties extends StorageProperties {
     @Getter
-    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "access_key"},
-            required = false,
+    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "azure.endpoint"},
             description = "The endpoint of S3.")
     protected String endpoint = "";
 
 
     @Getter
-    @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
+    @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key", "azure.access_key"},
             description = "The access key of S3.")
     protected String accessKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key"},
+    @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "azure.secret_key"},
             description = "The secret key of S3.")
     protected String secretKey = "";
 
@@ -95,9 +97,33 @@ public class AzureProperties extends StorageProperties {
         super(Type.AZURE, origProps);
     }
 
+    private static final String AZURE_ENDPOINT_SUFFIX = ".blob.core.windows.net";
+
+    @Override
+    protected void initNormalizeAndCheckProps() throws UserException {
+        super.initNormalizeAndCheckProps();
+        //check endpoint
+        if (!endpoint.endsWith(AZURE_ENDPOINT_SUFFIX)) {
+            throw new IllegalArgumentException(String.format("Endpoint '%s' is not valid. It should end with '%s'.",
+                    endpoint, AZURE_ENDPOINT_SUFFIX));
+        }
+    }
+
     public static boolean guessIsMe(Map<String, String> origProps) {
-        return origProps.containsKey(FS_PROVIDER_KEY)
+        boolean enable = origProps.containsKey(FS_PROVIDER_KEY)
                 && origProps.get(FS_PROVIDER_KEY).equalsIgnoreCase("azure");
+        if (enable) {
+            return true;
+        }
+        String value = Stream.of("azure.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT")
+                .map(origProps::get)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        if (!Strings.isNullOrEmpty(value)) {
+            return value.endsWith("blob.core.windows.net");
+        }
+        return false;
     }
 
     @Override

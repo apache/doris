@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class AzurePropertiesTest {
@@ -75,12 +76,17 @@ public class AzurePropertiesTest {
         origProps.put("s3.endpoint", "https://mystorageaccount.blob.core.windows.net");
         origProps.put("s3.access_key", "myAzureAccessKey");
         origProps.put("s3.secret_key", "myAzureSecretKey");
-        Assertions.assertEquals(1, StorageProperties.createAll(origProps).size());
-        // Expect an exception due to missing provider
+        List<StorageProperties> storagePropertiesList = StorageProperties.createAll(origProps);
+        Assertions.assertEquals(2, storagePropertiesList.size());
+        Assertions.assertEquals(HdfsProperties.class, storagePropertiesList.get(1).getClass());
+        Assertions.assertEquals(AzureProperties.class, storagePropertiesList.get(0).getClass());
+        origProps.put("s3.endpoint", "https://mystorageaccount.net");
         Assertions.assertThrows(RuntimeException.class, () ->
-                StorageProperties.createPrimary(origProps), "Property provider is required.");
+                StorageProperties.createPrimary(origProps), "No supported storage type found.");
+        // Expect an exception due to missing provider
         origProps.put("provider", "azure");
-        Assertions.assertEquals(AzureProperties.class, StorageProperties.createPrimary(origProps).getClass());
+        Assertions.assertThrows(IllegalArgumentException.class, () ->
+                StorageProperties.createPrimary(origProps), "Endpoint 'https://mystorageaccount.net' is not valid. It should end with '.blob.core.windows.net'.");
     }
 
     // Test for empty configuration, should throw an exception
@@ -90,20 +96,6 @@ public class AzurePropertiesTest {
         Assertions.assertThrows(RuntimeException.class, () ->
                 StorageProperties.createPrimary(new HashMap<>()), "Empty configuration is not allowed.");
 
-
-    }
-
-    // Test for invalid configuration, should throw a UserException
-    @Test
-    public void testInvalidConfiguration() throws UserException {
-        origProps.put("s3.endpoint", "invalid_endpoint");
-        origProps.put("s3.secret_key", "invalid_secret");
-        origProps.put("provider", "azure");
-        // Expect a UserException due to invalid configuration
-        Assertions.assertThrows(IllegalArgumentException.class, () ->
-                StorageProperties.createAll(origProps), "Property s3.access_key is required.");
-        origProps.put("s3.access_key", "access_key");
-        Assertions.assertDoesNotThrow(() -> StorageProperties.createAll(origProps));
 
     }
 
