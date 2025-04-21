@@ -27,7 +27,7 @@
 # and checks for failures after all tasks are completed, making it easy to re-run failed tasks.
 #
 # How to Use:
-# Run: ./loadsnowflakev2.sh
+# Run: ./s3_load_demo.sh
 #
 # Configuration Instructions:
 # 1. Load Date Range
