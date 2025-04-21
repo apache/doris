@@ -192,3 +192,6 @@ v.auto_type	json	Yes	false	\N	NONE
 -- !sql --
 {"a.b.c":"Int32","db":"Float64","dcm":"Decimal128V3","dt":"DateTimeV2"}
 
+-- !sql --
+{"a.b.c":"Int32","db":"Float64","dcm":"Decimal128V3","dt":"DateTimeV2"}
+
