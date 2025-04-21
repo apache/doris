@@ -295,14 +295,12 @@ public class Tablet extends MetaObject implements Writable {
             if (replica.isBad()) {
                 continue;
             }
-
-            if (replica.getLastFailedVersion() > 0) {
-                mayMissingVersionReplica.add(replica);
-                continue;
-            }
-
             if (!replica.checkVersionCatchUp(visibleVersion, false)) {
                 notCatchupReplica.add(replica);
+                continue;
+            }
+            if (replica.getLastFailedVersion() > 0) {
+                mayMissingVersionReplica.add(replica);
                 continue;
             }
 
