@@ -39,20 +39,20 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                \
-    template <typename ArgType>                                                  \
-    struct CLASS {                                                               \
-        using OpArgType = ArgType;                                               \
-        static constexpr auto name = #UNIT;                                      \
-                                                                                 \
-        static inline auto execute(const ArgType& t) {                           \
-            const auto& date_time_value = (typename DateTraits<ArgType>::T&)(t); \
-            return date_time_value.FUNCTION;                                     \
-        }                                                                        \
-                                                                                 \
-        static DataTypes get_variadic_argument_types() {                         \
-            return {std::make_shared<typename DateTraits<ArgType>::DateType>()}; \
-        }                                                                        \
+#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                   \
+    template <typename NativeType>                                                  \
+    struct CLASS {                                                                  \
+        using OpArgType = NativeType;                                               \
+        static constexpr auto name = #UNIT;                                         \
+                                                                                    \
+        static inline auto execute(const NativeType& t) {                           \
+            const auto& date_time_value = (typename DateTraits<NativeType>::T&)(t); \
+            return date_time_value.FUNCTION;                                        \
+        }                                                                           \
+                                                                                    \
+        static DataTypes get_variadic_argument_types() {                            \
+            return {std::make_shared<typename DateTraits<NativeType>::DateType>()}; \
+        }                                                                           \
     }
 
 #define TO_TIME_FUNCTION(CLASS, UNIT) TIME_FUNCTION_IMPL(CLASS, UNIT, UNIT())
