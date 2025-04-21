@@ -95,5 +95,4 @@ TEST_F(AggregateFunctionCollectTest, test_array_agg_aint64) {
             ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
 }
 
-
 } // namespace doris::vectorized
