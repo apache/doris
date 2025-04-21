@@ -549,7 +549,7 @@ void ExecEnv::init_mem_tracker() {
     _stream_load_pipe_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "StreamLoadPipe");
     _parquet_meta_tracker =
-            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::METADATA, "ParquetMeta");
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "ParquetMeta");
 }
 
 void ExecEnv::_register_metrics() {
