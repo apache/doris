@@ -49,17 +49,12 @@ int32_t CharacterUtil::identifyCharType(int32_t rune) {
 }
 
 int32_t CharacterUtil::regularize(int32_t rune, bool use_lowercase) {
-    // Full-width space
     if (rune == 0x3000) {
         return 0x0020;
-    }
-
-    // All full-width characters
-    if (rune > 0xFF00 && rune < 0xFF5F) {
+    } else if (rune > 0xFF00 && rune < 0xFF5F) {
         rune = rune - 0xFEE0;
-    }
-
-    if (use_lowercase && rune >= 0x41 && rune <= 0x5A) {
+    } else if (use_lowercase && rune >= 0x41 && rune <= 0x5A) {
+        // This else-if causes full-width letters unable to be converted to lowercase
         rune += 32;
     }
 
