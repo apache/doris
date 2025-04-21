@@ -95,6 +95,11 @@ RUN cd ${DEFAULT_DIR}/doris && /bin/bash thirdparty/build-thirdparty.sh \
 
 RUN alternatives --set java java-1.8.0-openjdk.x86_64 && alternatives --set javac java-1.8.0-openjdk.x86_64
 
+# Create JDK switch scripts
+RUN echo 'export JAVA_HOME=/usr/lib/jvm/java-1.8.0\nexport PATH=$JAVA_HOME/bin/:$PATH' > /root/switch-to-jdk8.sh && \
+    echo 'export JAVA_HOME=/usr/lib/jvm/jdk-17.0.2/\nexport PATH=$JAVA_HOME/bin/:$PATH' > /root/switch-to-jdk17.sh && \
+    chmod +x /root/switch-to-jdk8.sh /root/switch-to-jdk17.sh
+
 # squash all layers to reduce the image size
 FROM scratch
 COPY --from=builder / /
