@@ -47,6 +47,35 @@ suite("test_load_with_functions") {
             assertEquals("fail", json.Status.toLowerCase())
         }
     }
+	
+    // test array_map with non-array arg for nereids which should throw exception
+    // literal
+
+    test {
+        sql """
+            select array_map(x -> x is null, "sss");
+        """
+        exception "lambda argument must be array"
+    }
+    // column
+    sql """ insert into test_table values(1, ["a", "b", "c"]) """
+    sql """ insert into test_table values(2, ["a", "b", "c"]) """
+
+    
+    test {
+        sql """
+            select array_map(x -> x is null, id) from test_table;
+        """
+        exception "lambda argument must be array"
+    }     
+
+
+    test {
+        sql """
+            select array_map(x -> x is null, arr[0]) from test_table;
+        """
+        exception "lambda argument must be array"
+    } 
 
 }
 
