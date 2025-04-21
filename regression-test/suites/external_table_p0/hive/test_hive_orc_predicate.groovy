@@ -53,6 +53,7 @@ suite("test_hive_orc_predicate", "p0,external,hive,external_docker,external_dock
             qt_predicate_full_acid_push_down """ select * from orc_full_acid_par where value = 'BB' order by id;"""
             sql """ set check_orc_init_sargs_success = false; """
 
+            sql """use `${catalog_name}`.`multi_catalog`"""
             qt_lazy_materialization_for_list_type """ select l from complex_data_orc where id > 2 order by id; """
             qt_lazy_materialization_for_map_type """ select m from complex_data_orc where id > 2 order by id; """
             qt_lazy_materialization_for_list_and_map_type """ select * from complex_data_orc where id > 2 order by id; """
