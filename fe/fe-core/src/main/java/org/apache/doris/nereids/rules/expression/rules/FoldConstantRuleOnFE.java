@@ -95,6 +95,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.thrift.TUniqueId;
@@ -539,6 +540,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitCaseWhen(CaseWhen caseWhen, ExpressionRewriteContext context) {
+        CaseWhen originCaseWhen = caseWhen;
         caseWhen = rewriteChildren(caseWhen, context);
         Expression newDefault = null;
         boolean foundNewDefault = false;
@@ -564,7 +566,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             defaultResult = newDefault;
         }
         if (whenClauses.isEmpty()) {
-            return defaultResult == null ? new NullLiteral(caseWhen.getDataType()) : defaultResult;
+            return TypeCoercionUtils.ensureSameResultType(
+                    originCaseWhen, defaultResult == null ? new NullLiteral(caseWhen.getDataType()) : defaultResult,
+                    context
+            );
         }
         if (defaultResult == null) {
             if (caseWhen.getDataType().isNullType()) {
@@ -572,21 +577,24 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 // it's safe to return null literal here
                 return new NullLiteral();
             } else {
-                return new CaseWhen(whenClauses);
+                return TypeCoercionUtils.ensureSameResultType(originCaseWhen, new CaseWhen(whenClauses), context);
             }
         }
-        return new CaseWhen(whenClauses, defaultResult);
+        return TypeCoercionUtils.ensureSameResultType(
+                originCaseWhen, new CaseWhen(whenClauses, defaultResult), context
+        );
     }
 
     @Override
     public Expression visitIf(If ifExpr, ExpressionRewriteContext context) {
+        If originIf = ifExpr;
         ifExpr = rewriteChildren(ifExpr, context);
         if (ifExpr.child(0) instanceof NullLiteral || ifExpr.child(0).equals(BooleanLiteral.FALSE)) {
-            return ifExpr.child(2);
+            return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.child(2), context);
         } else if (ifExpr.child(0).equals(BooleanLiteral.TRUE)) {
-            return ifExpr.child(1);
+            return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.child(1), context);
         }
-        return ifExpr;
+        return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr, context);
     }
 
     @Override
@@ -684,17 +692,20 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitNvl(Nvl nvl, ExpressionRewriteContext context) {
+        Nvl originNvl = nvl;
+        nvl = rewriteChildren(nvl, context);
+
         for (Expression expr : nvl.children()) {
             if (expr.isLiteral()) {
                 if (!expr.isNullLiteral()) {
-                    return expr;
+                    return TypeCoercionUtils.ensureSameResultType(originNvl, expr, context);
                 }
             } else {
-                return nvl;
+                return TypeCoercionUtils.ensureSameResultType(originNvl, nvl, context);
             }
         }
         // all nulls
-        return nvl.child(0);
+        return TypeCoercionUtils.ensureSameResultType(originNvl, nvl.child(0), context);
     }
 
     private <E extends Expression> E rewriteChildren(E expr, ExpressionRewriteContext context) {
