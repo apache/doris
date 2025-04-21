@@ -22,22 +22,9 @@
 #include "common/logging.h"
 #include "http/http_channel.h"
 #include "http/http_request.h"
+#include "util/string_util.h"
 
 namespace doris {
-
-Status safe_stoi(const std::string& input, int* output) {
-    try {
-        int value = std::stoi(input); // 修正变量名
-        *output = value;
-        return Status::OK();
-    } catch (const std::invalid_argument& e) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>(std::string("Invalid level format: ") +
-                                                          e.what());
-    } catch (const std::out_of_range& e) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>("Level value out of range: " +
-                                                          std::string(e.what()));
-    }
-}
 
 // **Note**: If the module_name does not exist in the vlog modules, vlog
 // would create corresponding module for it.
@@ -54,9 +41,6 @@ std::tuple<std::string, int, int> handle_request(HttpRequest* req) {
     const auto& level = parse_param("level");
     int maybe_level = 0;
     Status st = safe_stoi(level, &maybe_level);
-    if (!st.ok()) {
-        return std::make_tuple(module, -1, -1);
-    }
     return std::make_tuple(module, google::SetVLOGLevel(module.c_str(), maybe_level), maybe_level);
 }
 
