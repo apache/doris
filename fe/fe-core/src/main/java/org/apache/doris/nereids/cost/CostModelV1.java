@@ -74,6 +74,9 @@ import java.util.Set;
 
 class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     static final double RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR = 0.1;
+    // The cost of using external tables should be somewhat higher than using internal tables,
+    // so when encountering a scan of an external table, a coefficient should be applied.
+    static final double EXTERNAL_TABLE_SCAN_FACTOR = 5;
     private final int beNumber;
     private final int parallelInstance;
 
@@ -215,7 +218,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     @Override
     public Cost visitPhysicalFileScan(PhysicalFileScan physicalFileScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
+        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
     }
 
     @Override
@@ -236,19 +239,19 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     @Override
     public Cost visitPhysicalJdbcScan(PhysicalJdbcScan physicalJdbcScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
+        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
     }
 
     @Override
     public Cost visitPhysicalOdbcScan(PhysicalOdbcScan physicalOdbcScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
+        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
     }
 
     @Override
     public Cost visitPhysicalEsScan(PhysicalEsScan physicalEsScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount());
+        return CostV1.ofCpu(context.getSessionVariable(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
     }
 
     @Override
