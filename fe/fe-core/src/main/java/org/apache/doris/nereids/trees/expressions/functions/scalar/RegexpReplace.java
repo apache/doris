@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
@@ -92,7 +93,7 @@ public class RegexpReplace extends ScalarFunction
                 throw new AnalysisException(
                         "The fourth param of regexp_replace must be a string type: " + this.toSql());
             }
-            if (!value.isConstant()) {
+            if (!(value instanceof Literal)) {
                 throw new AnalysisException(
                         "The fourth param of regexp_replace must be a constant value: " + this.toSql());
             }

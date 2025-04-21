@@ -143,27 +143,22 @@ public:
 
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
-        // the options have check in FE, so is always const, and get idx of 0
         StringRef options_value;
-        if (argument_size == 4) {
-            options_value = block.get_by_position(arguments[3]).column->get_data_at(0);
-        }
-
         if (col_const[1] && col_const[2]) {
             Impl::execute_impl_const_args(context, argument_columns, options_value,
                                           input_rows_count, result_data, result_offset,
                                           result_null_map->get_data());
         } else {
+            // the options have check in FE, so is always const, and get idx of 0
+            if (argument_size == 4) {
+                options_value = block.get_by_position(arguments[3]).column->get_data_at(0);
+            }
             Impl::execute_impl(context, argument_columns, options_value, input_rows_count,
                                result_data, result_offset, result_null_map->get_data());
         }
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(result_data_column), std::move(result_null_map));
-        return Status::OK();
-    }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return Status::OK();
     }
 };
@@ -601,10 +596,6 @@ public:
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(result_data_column), std::move(result_null_map));
-        return Status::OK();
-    }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return Status::OK();
     }
 };
