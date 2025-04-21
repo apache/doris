@@ -2674,6 +2674,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
                     .tag("instance_id", instance_id_);
             return ret;
         }
+        recycle_txn_info_keys.clear();
         return ret;
     };
 

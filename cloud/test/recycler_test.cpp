@@ -72,7 +72,6 @@ int main(int argc, char** argv) {
     config::recycler_sleep_before_scheduling_seconds = 0; // we dont have to wait in UT
 
     ::testing::InitGoogleTest(&argc, argv);
-    config::recycle_pool_parallelism=1;
     auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     s3_producer_pool->start();
     auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
@@ -4075,8 +4074,8 @@ int put_single_kv(const std::unique_ptr<Transaction>& txn, int64_t i) {
     std::string key;
     std::string val;
     int64_t db_id = i;
-    int64_t txn_id = 10000 + i;
-    int64_t sub_txn_id = 20000 + i;
+    int64_t txn_id = 100000 + i;
+    int64_t sub_txn_id = 200000 + i;
     int64_t current_time = duration_cast<std::chrono::milliseconds>(
                                    std::chrono::system_clock::now().time_since_epoch())
                                    .count();
@@ -4266,8 +4265,9 @@ void check_kv(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t size) {
 }
 
 TEST(RecyclerTest, concurrent_recycle_txn_label_test) {
+    config::recycle_pool_parallelism = 32;
     cloud::config::init(nullptr, true);
-    cloud::config::fdb_cluster_file_path = "/mnt/disk2/lianyukang/doris/fdb_cluster";
+    cloud::config::fdb_cluster_file_path = "fdb.cluster";
     auto fdb_txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
     ASSERT_TRUE(fdb_txn_kv.get()) << "exit get FdbTxnKv error" << std::endl;
     ASSERT_EQ(fdb_txn_kv->init(), 0) << "exit inti FdbTxnKv error" << std::endl;
