@@ -219,7 +219,7 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .nonMatch(logicalAggregate());
+                .matches(logicalAggregate().when(aggregate -> aggregate.getGroupByExpressions().size() == 1));
     }
 
     @Test
@@ -248,7 +248,8 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .nonMatch(logicalAggregate());
+                .matches(logicalAggregate()
+                        .when(agg -> agg.getGroupByExpressions().size() == 1));
     }
 
     @Test
