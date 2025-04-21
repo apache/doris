@@ -40,7 +40,7 @@ public class ParquetFileFormatConfiguratorTest {
     public void testAnalyzeFileFormatProperties() {
         Map<String, String> properties = new HashMap<>();
         // Add properties if needed
-        configurator.analyzeFileFormatProperties(properties);
+        configurator.analyzeFileFormatProperties(properties, true);
 
         Assert.assertEquals(TParquetCompressionType.SNAPPY, configurator.getParquetCompressionType());
         Assert.assertEquals(false, configurator.isParquetDisableDictionary());

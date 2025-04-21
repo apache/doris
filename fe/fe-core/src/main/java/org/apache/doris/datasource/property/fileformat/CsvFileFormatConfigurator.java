@@ -23,8 +23,10 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 import org.apache.doris.thrift.TTextSerdeType;
 
@@ -71,25 +73,26 @@ public class CsvFileFormatConfigurator extends FileFormatConfigurator {
 
 
     @Override
-    public void analyzeFileFormatProperties(Map<String, String> formatProperties)
+    public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException {
         try {
             // check properties specified by user -- formatProperties
-            columnSeparator = formatProperties.getOrDefault(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR,
-                    defaultColumnSeparator);
+            columnSeparator = getOrDefaultAndRemove(formatProperties, CsvFileFormatProperties.PROP_COLUMN_SEPARATOR,
+                    defaultColumnSeparator, isRemoveOriginProperty);
             if (Strings.isNullOrEmpty(columnSeparator)) {
                 throw new AnalysisException("column_separator can not be empty.");
             }
             columnSeparator = Separator.convertSeparator(columnSeparator);
 
-            lineDelimiter = formatProperties.getOrDefault(CsvFileFormatProperties.PROP_LINE_DELIMITER,
-                    CsvFileFormatProperties.DEFAULT_LINE_DELIMITER);
+            lineDelimiter = getOrDefaultAndRemove(formatProperties, CsvFileFormatProperties.PROP_LINE_DELIMITER,
+                    CsvFileFormatProperties.DEFAULT_LINE_DELIMITER, isRemoveOriginProperty);
             if (Strings.isNullOrEmpty(lineDelimiter)) {
                 throw new AnalysisException("line_delimiter can not be empty.");
             }
             lineDelimiter = Separator.convertSeparator(lineDelimiter);
 
-            String enclosedString = formatProperties.getOrDefault(CsvFileFormatProperties.PROP_ENCLOSE, "");
+            String enclosedString = getOrDefaultAndRemove(formatProperties, CsvFileFormatProperties.PROP_ENCLOSE,
+                    "", isRemoveOriginProperty);
             if (!Strings.isNullOrEmpty(enclosedString)) {
                 if (enclosedString.length() > 1) {
                     throw new AnalysisException("enclose should not be longer than one byte.");
@@ -100,21 +103,25 @@ public class CsvFileFormatConfigurator extends FileFormatConfigurator {
                 }
             }
 
-            trimDoubleQuotes = Boolean.valueOf(
-                    formatProperties.getOrDefault(CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES, "")).booleanValue();
-            skipLines = Integer.valueOf(
-                    formatProperties.getOrDefault(CsvFileFormatProperties.PROP_SKIP_LINES, "0")).intValue();
+            trimDoubleQuotes = Boolean.valueOf(getOrDefaultAndRemove(formatProperties,
+                    CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES, "", isRemoveOriginProperty))
+                    .booleanValue();
+            skipLines = Integer.valueOf(getOrDefaultAndRemove(formatProperties,
+                    CsvFileFormatProperties.PROP_SKIP_LINES, "0", isRemoveOriginProperty)).intValue();
+            if (skipLines < 0) {
+                throw new AnalysisException("skipLines should not be less than 0.");
+            }
 
-            String compressTypeStr = formatProperties.getOrDefault(CsvFileFormatProperties.PROP_COMPRESS_TYPE,
-                    "UNKNOWN");
+            String compressTypeStr = getOrDefaultAndRemove(formatProperties,
+                    CsvFileFormatProperties.PROP_COMPRESS_TYPE, "UNKNOWN", isRemoveOriginProperty);
             try {
                 compressionType = Util.getFileCompressType(compressTypeStr);
             } catch (IllegalArgumentException e) {
                 throw new AnalysisException("Compress type : " +  compressTypeStr + " is not supported.");
             }
 
-            FileFormatUtils.parseCsvSchema(csvSchema, formatProperties.getOrDefault(
-                    CsvFileFormatProperties.PROP_CSV_SCHEMA, ""));
+            FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(formatProperties,
+                    CsvFileFormatProperties.PROP_CSV_SCHEMA, "", isRemoveOriginProperty));
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get csv schema: {}", csvSchema);
             }
@@ -133,9 +140,23 @@ public class CsvFileFormatConfigurator extends FileFormatConfigurator {
         return null;
     }
 
+    // The method `analyzeFileFormatProperties` must have been called once before this method
     @Override
     public TFileAttributes toTFileAttributes() {
-        return null;
+        TFileAttributes fileAttributes = new TFileAttributes();
+        TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
+        fileTextScanRangeParams.setColumnSeparator(this.columnSeparator);
+        fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
+        if (this.enclose != 0) {
+            fileTextScanRangeParams.setEnclose(this.enclose);
+        }
+        fileAttributes.setTextParams(fileTextScanRangeParams);
+        fileAttributes.setHeaderType(headerType);
+        fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
+        fileAttributes.setSkipLines(skipLines);
+        fileAttributes.setEnableTextValidateUtf8(
+                ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
+        return fileAttributes;
     }
 
     public String getHeaderType() {
@@ -180,7 +201,6 @@ public class CsvFileFormatConfigurator extends FileFormatConfigurator {
 
         public static final String PROP_SKIP_LINES = "skip_lines";
         public static final String PROP_CSV_SCHEMA = "csv_schema";
-        public static final String PROP_COMPRESS = "compress";
         public static final String PROP_COMPRESS_TYPE = "compress_type";
         public static final String PROP_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
 

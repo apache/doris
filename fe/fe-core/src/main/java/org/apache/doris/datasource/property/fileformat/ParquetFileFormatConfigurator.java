@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TParquetCompressionType;
 import org.apache.doris.thrift.TParquetVersion;
 import org.apache.doris.thrift.TResultFileSinkOptions;
@@ -36,7 +37,7 @@ public class ParquetFileFormatConfigurator extends FileFormatConfigurator {
     }
 
     @Override
-    public void analyzeFileFormatProperties(Map<String, String> formatProperties)
+    public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException {
     }
 
@@ -52,7 +53,10 @@ public class ParquetFileFormatConfigurator extends FileFormatConfigurator {
 
     @Override
     public TFileAttributes toTFileAttributes() {
-        return null;
+        TFileAttributes fileAttributes = new TFileAttributes();
+        TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
+        fileAttributes.setTextParams(fileTextScanRangeParams);
+        return fileAttributes;
     }
 
     public TParquetCompressionType getParquetCompressionType() {

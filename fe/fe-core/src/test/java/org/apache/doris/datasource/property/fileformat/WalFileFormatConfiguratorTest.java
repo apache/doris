@@ -38,6 +38,6 @@ public class WalFileFormatConfiguratorTest {
     public void testAnalyzeFileFormatProperties() {
         Map<String, String> properties = new HashMap<>();
         // Add properties if needed
-        configurator.analyzeFileFormatProperties(properties);
+        configurator.analyzeFileFormatProperties(properties, true);
     }
 }

@@ -52,12 +52,20 @@ public abstract class FileFormatConfigurator {
     }
 
     /**
-     * Analyze user properties
-     * @param formatProperties properties specified by user
+     *
+     * @param formatProperties
      * @return properties needed by Doris
      * @throws AnalysisException
      */
-    public abstract void analyzeFileFormatProperties(Map<String, String> formatProperties)
+
+    /**
+     * Analyze user properties
+     * @param formatProperties properties specified by user
+     * @param isRemoveOriginProperty if this param is set to true, then this method would remove the origin property
+     * @throws AnalysisException
+     */
+    public abstract void analyzeFileFormatProperties(
+            Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException;
 
     public abstract PFetchTableSchemaRequest toPFetchTableSchemaRequest();
@@ -100,6 +108,15 @@ public abstract class FileFormatConfigurator {
         String formatString = formatProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "")
                 .toLowerCase();
         return createFileFormatChecker(formatString);
+    }
+
+    protected String getOrDefaultAndRemove(Map<String, String> props, String key, String defaultValue,
+            boolean isRemove) {
+        String value = props.getOrDefault(key, defaultValue);
+        if (isRemove) {
+            props.remove(key);
+        }
+        return value;
     }
 
     public TFileFormatType getFileFormatType() {

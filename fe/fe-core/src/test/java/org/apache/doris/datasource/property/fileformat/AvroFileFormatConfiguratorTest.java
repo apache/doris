@@ -39,6 +39,6 @@ public class AvroFileFormatConfiguratorTest {
     public void testAnalyzeFileFormatProperties() {
         Map<String, String> properties = new HashMap<>();
         // Add properties if needed
-        checker.analyzeFileFormatProperties(properties);
+        checker.analyzeFileFormatProperties(properties, true);
     }
 }

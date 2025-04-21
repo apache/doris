@@ -44,7 +44,7 @@ public class CsvFileFormatConfiguratorTest {
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_LINE_DELIMITER, "\n");
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_SKIP_LINES, "1");
 
-        csvConfigurator.analyzeFileFormatProperties(properties);
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
 
         Assert.assertEquals(",", csvConfigurator.getColumnSeparator());
         Assert.assertEquals("\n", csvConfigurator.getLineDelimiter());
@@ -57,7 +57,7 @@ public class CsvFileFormatConfiguratorTest {
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, "");
 
         Assert.assertThrows(AnalysisException.class, () -> {
-            csvConfigurator.analyzeFileFormatProperties(properties);
+            csvConfigurator.analyzeFileFormatProperties(properties, true);
         });
     }
 
@@ -67,7 +67,7 @@ public class CsvFileFormatConfiguratorTest {
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_LINE_DELIMITER, "");
 
         Assert.assertThrows(AnalysisException.class, () -> {
-            csvConfigurator.analyzeFileFormatProperties(properties);
+            csvConfigurator.analyzeFileFormatProperties(properties, true);
         });
     }
 
@@ -77,7 +77,7 @@ public class CsvFileFormatConfiguratorTest {
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_ENCLOSE, "invalid");
 
         Assert.assertThrows(AnalysisException.class, () -> {
-            csvConfigurator.analyzeFileFormatProperties(properties);
+            csvConfigurator.analyzeFileFormatProperties(properties, true);
         });
     }
 
@@ -86,7 +86,7 @@ public class CsvFileFormatConfiguratorTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_ENCLOSE, "\"");
 
-        csvConfigurator.analyzeFileFormatProperties(properties);
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals((byte) '"', csvConfigurator.getEnclose());
     }
 
@@ -96,7 +96,7 @@ public class CsvFileFormatConfiguratorTest {
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_SKIP_LINES, "-1");
 
         Assert.assertThrows(AnalysisException.class, () -> {
-            csvConfigurator.analyzeFileFormatProperties(properties);
+            csvConfigurator.analyzeFileFormatProperties(properties, true);
         });
     }
 
@@ -105,7 +105,7 @@ public class CsvFileFormatConfiguratorTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_SKIP_LINES, "1000");
 
-        csvConfigurator.analyzeFileFormatProperties(properties);
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(1000, csvConfigurator.getSkipLines());
     }
 
@@ -114,7 +114,7 @@ public class CsvFileFormatConfiguratorTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES, "true");
 
-        csvConfigurator.analyzeFileFormatProperties(properties);
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(true, csvConfigurator.isTrimDoubleQuotes());
     }
 
@@ -123,7 +123,7 @@ public class CsvFileFormatConfiguratorTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES, "false");
 
-        csvConfigurator.analyzeFileFormatProperties(properties);
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(false, csvConfigurator.isTrimDoubleQuotes());
     }
 
@@ -133,16 +133,16 @@ public class CsvFileFormatConfiguratorTest {
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_COMPRESS_TYPE, "invalid");
 
         Assert.assertThrows(AnalysisException.class, () -> {
-            csvConfigurator.analyzeFileFormatProperties(properties);
+            csvConfigurator.analyzeFileFormatProperties(properties, true);
         });
     }
 
     @Test
     public void testAnalyzeFileFormatPropertiesValidCompressType() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_COMPRESS_TYPE, "gzip");
+        properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_COMPRESS_TYPE, "gz");
 
-        csvConfigurator.analyzeFileFormatProperties(properties);
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(TFileCompressType.GZ, csvConfigurator.getCompressionType());
     }
 
@@ -150,19 +150,7 @@ public class CsvFileFormatConfiguratorTest {
     public void testAnalyzeFileFormatPropertiesEmptyCsvSchema() {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_CSV_SCHEMA, "");
-
-        Assert.assertThrows(AnalysisException.class, () -> {
-            csvConfigurator.analyzeFileFormatProperties(properties);
-        });
-    }
-
-    @Test
-    public void testAnalyzeFileFormatPropertiesValidCsvSchema() throws AnalysisException {
-        Map<String, String> properties = new HashMap<>();
-        properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_CSV_SCHEMA, "column1,column2,column3");
-
-        csvConfigurator.analyzeFileFormatProperties(properties);
-        Assert.assertEquals(3, csvConfigurator.getCsvSchema().size());
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
     }
 
     @Test
@@ -171,7 +159,7 @@ public class CsvFileFormatConfiguratorTest {
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_ENCLOSE, "\"\"");
 
         Assert.assertThrows(AnalysisException.class, () -> {
-            csvConfigurator.analyzeFileFormatProperties(properties);
+            csvConfigurator.analyzeFileFormatProperties(properties, true);
         });
     }
 
@@ -180,9 +168,8 @@ public class CsvFileFormatConfiguratorTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_ENCLOSE, "");
 
-        Assert.assertThrows(AnalysisException.class, () -> {
-            csvConfigurator.analyzeFileFormatProperties(properties);
-        });
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
+        Assert.assertEquals(0, csvConfigurator.getEnclose());
     }
 
     @Test
@@ -190,8 +177,8 @@ public class CsvFileFormatConfiguratorTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_SKIP_LINES, "abc");
 
-        Assert.assertThrows(AnalysisException.class, () -> {
-            csvConfigurator.analyzeFileFormatProperties(properties);
+        Assert.assertThrows(NumberFormatException.class, () -> {
+            csvConfigurator.analyzeFileFormatProperties(properties, true);
         });
     }
 
@@ -200,7 +187,7 @@ public class CsvFileFormatConfiguratorTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, ";");
 
-        csvConfigurator.analyzeFileFormatProperties(properties);
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(";", csvConfigurator.getColumnSeparator());
     }
 
@@ -208,10 +195,7 @@ public class CsvFileFormatConfiguratorTest {
     public void testAnalyzeFileFormatPropertiesLineDelimiterAsString() {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_LINE_DELIMITER, "abc");
-
-        Assert.assertThrows(AnalysisException.class, () -> {
-            csvConfigurator.analyzeFileFormatProperties(properties);
-        });
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
     }
 
     @Test
@@ -219,7 +203,7 @@ public class CsvFileFormatConfiguratorTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_LINE_DELIMITER, "\r\n");
 
-        csvConfigurator.analyzeFileFormatProperties(properties);
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals("\r\n", csvConfigurator.getLineDelimiter());
     }
 
@@ -228,7 +212,7 @@ public class CsvFileFormatConfiguratorTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES, "true");
 
-        csvConfigurator.analyzeFileFormatProperties(properties);
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(true, csvConfigurator.isTrimDoubleQuotes());
     }
 
@@ -237,17 +221,17 @@ public class CsvFileFormatConfiguratorTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES, "invalid");
 
-        Assert.assertThrows(AnalysisException.class, () -> {
-            csvConfigurator.analyzeFileFormatProperties(properties);
-        });
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
+        Assert.assertEquals(false, csvConfigurator.isTrimDoubleQuotes());
     }
 
     @Test
     public void testAnalyzeFileFormatPropertiesValidCsvSchemaWithSpaces() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_CSV_SCHEMA, " column1 , column2 , column3 ");
+        properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_CSV_SCHEMA,
+                " column1:int ; column2:string ; column3:double ");
 
-        csvConfigurator.analyzeFileFormatProperties(properties);
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(3, csvConfigurator.getCsvSchema().size());
         Assert.assertEquals("column1", csvConfigurator.getCsvSchema().get(0).getName().trim());
         Assert.assertEquals("column2", csvConfigurator.getCsvSchema().get(1).getName().trim());
@@ -257,12 +241,43 @@ public class CsvFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesValidCsvSchemaWithSpecialCharacters() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_CSV_SCHEMA, "col1@#$,col2&*(),col3");
+        properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_CSV_SCHEMA,
+                "col1@#$:int;col2&*:string;col3:double");
 
-        csvConfigurator.analyzeFileFormatProperties(properties);
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(3, csvConfigurator.getCsvSchema().size());
         Assert.assertEquals("col1@#$", csvConfigurator.getCsvSchema().get(0).getName());
-        Assert.assertEquals("col2&*()", csvConfigurator.getCsvSchema().get(1).getName());
+        Assert.assertEquals("col2&*", csvConfigurator.getCsvSchema().get(1).getName());
         Assert.assertEquals("col3", csvConfigurator.getCsvSchema().get(2).getName());
+    }
+
+    @Test
+    public void testAnalyzeFileFormatPropertiesInvalidCsvSchema() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_CSV_SCHEMA, "column1,column2,column3");
+
+        Assert.assertThrows(AnalysisException.class, () -> {
+            csvConfigurator.analyzeFileFormatProperties(properties, true);
+        });
+    }
+
+    @Test
+    public void testAnalyzeFileFormatPropertiesInvalidCsvSchemaWithSpecialCharacters() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_CSV_SCHEMA,
+                "col1@#$:int;col2&*():string;col3:double");
+
+        Assert.assertThrows(AnalysisException.class, () -> {
+            csvConfigurator.analyzeFileFormatProperties(properties, true);
+        });
+    }
+
+    @Test
+    public void testAnalyzeFileFormatPropertiesValidCsvSchema() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CsvFileFormatConfigurator.CsvFileFormatProperties.PROP_CSV_SCHEMA,
+                "column1:int;column2:string;column3:double");
+        csvConfigurator.analyzeFileFormatProperties(properties, true);
+        Assert.assertEquals(3, csvConfigurator.getCsvSchema().size());
     }
 }

@@ -17,12 +17,13 @@
 
 package org.apache.doris.datasource.property.fileformat;
 
+import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.property.fileformat.CsvFileFormatConfigurator.CsvFileFormatProperties;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import java.util.Map;
@@ -42,22 +43,28 @@ public class JsonFileFormatConfigurator extends FileFormatConfigurator {
     }
 
     @Override
-    public void analyzeFileFormatProperties(Map<String, String> formatProperties)
+    public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException {
         // 这几个json应该移到json checker中
-        jsonRoot = formatProperties.getOrDefault(JsonFileFormatProperties.PROP_JSON_ROOT, "");
-        jsonPaths = formatProperties.getOrDefault(JsonFileFormatProperties.PROP_JSON_PATHS, "");
+        jsonRoot = getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_JSON_ROOT,
+                "", isRemoveOriginProperty);
+        jsonPaths = getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_JSON_PATHS,
+                "", isRemoveOriginProperty);
         readJsonByLine = Boolean.valueOf(
-                formatProperties.getOrDefault(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, "")).booleanValue();
+                getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_READ_JSON_BY_LINE,
+                        "", isRemoveOriginProperty)).booleanValue();
         stripOuterArray = Boolean.valueOf(
-                formatProperties.getOrDefault(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, "")).booleanValue();
+                getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_STRIP_OUTER_ARRAY,
+                        "", isRemoveOriginProperty)).booleanValue();
         numAsString = Boolean.valueOf(
-                formatProperties.getOrDefault(JsonFileFormatProperties.PROP_NUM_AS_STRING, "")).booleanValue();
+                getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_NUM_AS_STRING,
+                        "", isRemoveOriginProperty)).booleanValue();
         fuzzyParse = Boolean.valueOf(
-                formatProperties.getOrDefault(JsonFileFormatProperties.PROP_FUZZY_PARSE, "")).booleanValue();
+                getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_FUZZY_PARSE,
+                        "", isRemoveOriginProperty)).booleanValue();
 
-        String compressTypeStr = formatProperties.getOrDefault(CsvFileFormatProperties.PROP_COMPRESS_TYPE,
-                "UNKNOWN");
+        String compressTypeStr = getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_COMPRESS_TYPE,
+                "UNKNOWN", isRemoveOriginProperty);
         try {
             compressionType = Util.getFileCompressType(compressTypeStr);
         } catch (IllegalArgumentException e) {
@@ -77,7 +84,16 @@ public class JsonFileFormatConfigurator extends FileFormatConfigurator {
 
     @Override
     public TFileAttributes toTFileAttributes() {
-        return null;
+        TFileAttributes fileAttributes = new TFileAttributes();
+        TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
+        fileAttributes.setTextParams(fileTextScanRangeParams);
+        fileAttributes.setJsonRoot(jsonRoot);
+        fileAttributes.setJsonpaths(jsonPaths);
+        fileAttributes.setReadJsonByLine(readJsonByLine);
+        fileAttributes.setStripOuterArray(stripOuterArray);
+        fileAttributes.setNumAsString(numAsString);
+        fileAttributes.setFuzzyParse(fuzzyParse);
+        return fileAttributes;
     }
 
     public String getJsonRoot() {
