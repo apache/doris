@@ -523,12 +523,6 @@ public class MTMV extends OlapTable {
         if (refreshSnapshot == null) {
             refreshSnapshot = new MTMVRefreshSnapshot();
         }
-        try {
-            compatibleInternal(Env.getCurrentEnv().getCatalogMgr());
-        } catch (Throwable t) {
-            LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getQualifiedDbName(), name,
-                    t.getMessage());
-        }
     }
 
     // toString() is not easy to find where to call the method
@@ -566,7 +560,7 @@ public class MTMV extends OlapTable {
             compatibleInternal(catalogMgr);
             Env.getCurrentEnv().getMtmvService().deregisterMTMV(this);
             Env.getCurrentEnv().getMtmvService().registerMTMV(this, this.getDatabase().getId());
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getDBName(), name, e.getMessage());
             status.setState(MTMVState.SCHEMA_CHANGE);
             status.setSchemaChangeDetail("compatible failed, please refresh or recreate it, reason: " + e.getMessage());

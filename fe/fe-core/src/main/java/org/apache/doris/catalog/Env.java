@@ -4305,7 +4305,11 @@ public class Env {
     public void replayCreateTable(CreateTableInfo info) throws MetaNotFoundException {
         if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
                 .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            getInternalCatalog().replayCreateTable(info.getDbName(), info.getTable());
+            Table table = info.getTable();
+            getInternalCatalog().replayCreateTable(info.getDbName(), table);
+            if (table instanceof MTMV) {
+                ((MTMV) table).compatible(Env.getCurrentEnv().getCatalogMgr());
+            }
         } else {
             ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
             if (externalCatalog != null) {

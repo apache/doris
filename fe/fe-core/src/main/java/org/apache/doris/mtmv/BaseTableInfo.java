@@ -163,6 +163,10 @@ public class BaseTableInfo {
         if (!StringUtils.isEmpty(ctlName)) {
             return;
         }
+        // should not get meta from external catalog when replay, because the timeout period may be very long
+        if (ctlId == InternalCatalog.INTERNAL_CATALOG_ID) {
+            throw new Exception("can not compatibility external table");
+        }
         try {
             CatalogIf catalog = catalogMgr.getCatalogOrAnalysisException(ctlId);
             DatabaseIf db = catalog.getDbOrAnalysisException(dbId);
