@@ -40,12 +40,15 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_OBS_SUPPORT = "fs.obs.support";
     public static final String FS_COS_SUPPORT = "fs.cos.support";
 
+    public static final String FS_PROVIDER_KEY = "provider";
+
     public enum Type {
         HDFS,
         S3,
         OSS,
         OBS,
         COS,
+        AZURE,
         UNKNOWN
     }
 
@@ -115,7 +118,9 @@ public abstract class StorageProperties extends ConnectionProperties {
                     props -> (isFsSupport(props, FS_OBS_SUPPORT)
                             || OBSProperties.guessIsMe(props)) ? new OBSProperties(props) : null,
                     props -> (isFsSupport(props, FS_COS_SUPPORT)
-                            || COSProperties.guessIsMe(props)) ? new COSProperties(props) : null
+                            || COSProperties.guessIsMe(props)) ? new COSProperties(props) : null,
+                    props -> (isFsSupport(props, FS_AZURE_SUPPORT)
+                            || AzureProperties.guessIsMe(props)) ? new AzureProperties(props) : null
             );
 
     protected StorageProperties(Type type, Map<String, String> origProps) {
