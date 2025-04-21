@@ -1815,7 +1815,8 @@ public:
         bool part_num_const = false;
         std::tie(part_num_column_ptr, part_num_const) =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
-        const ColumnVector<Int32>* part_num_col = assert_cast<const ColumnVector<Int32>*>(part_num_column_ptr.get());
+        const ColumnVector<Int32>* part_num_col =
+                assert_cast<const ColumnVector<Int32>*>(part_num_column_ptr.get());
 
         // For constant multi-character delimiters, create StringRef and StringSearch only once
         std::optional<StringRef> const_delimiter_ref;
@@ -1867,7 +1868,8 @@ public:
                 } else {
                     // For multi-character delimiters
                     // Use pre-created StringRef and StringSearch for constant delimiters
-                    StringRef delimiter_ref = const_delimiter_ref ? const_delimiter_ref.value() : StringRef(delimiter);
+                    StringRef delimiter_ref = const_delimiter_ref ? const_delimiter_ref.value()
+                                                                  : StringRef(delimiter);
                     const StringSearch* search_ptr = const_search ? &const_search.value() : nullptr;
                     StringSearch local_search(&delimiter_ref);
                     if (!search_ptr) {
@@ -1909,8 +1911,11 @@ public:
                 auto substr = str_str;
 
                 // Use pre-created StringRef for constant delimiters
-                StringRef delimiter_str = const_delimiter_ref ? const_delimiter_ref.value() :
-                                          StringRef(reinterpret_cast<const char*>(delimiter.data), delimiter.size);
+                StringRef delimiter_str =
+                        const_delimiter_ref
+                                ? const_delimiter_ref.value()
+                                : StringRef(reinterpret_cast<const char*>(delimiter.data),
+                                            delimiter.size);
 
                 while (num <= neg_part_number && offset >= 0) {
                     offset = (int)substr.rfind(delimiter_str, offset);
