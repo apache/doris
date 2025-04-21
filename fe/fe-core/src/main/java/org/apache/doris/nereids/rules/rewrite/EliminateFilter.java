@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -50,14 +51,10 @@ public class EliminateFilter implements RewriteRuleFactory {
                 .thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
                     ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builder();
-                    boolean needEliminateNull = !ctx.cascadesContext.getConnectContext().getSessionVariable()
-                            .isDebugSkipFoldConstant();
                     ExpressionRewriteContext context =
                             new ExpressionRewriteContext(ctx.cascadesContext);
                     for (Expression expression : filter.getConjuncts()) {
-                        if (needEliminateNull) {
-                            expression = FoldConstantRule.evaluate(eliminateNullLiteral(expression), context);
-                        }
+                        expression = FoldConstantRule.evaluate(eliminateNullLiteral(expression), context);
                         if (expression == BooleanLiteral.FALSE || expression.isNullLiteral()) {
                             return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(),
                                     filter.getOutput());
@@ -79,16 +76,11 @@ public class EliminateFilter implements RewriteRuleFactory {
                     Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(filter.child().getOutputs());
 
                     ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builder();
-                    boolean needEliminateNull = !ctx.cascadesContext.getConnectContext().getSessionVariable()
-                            .isDebugSkipFoldConstant();
                     ExpressionRewriteContext context =
                             new ExpressionRewriteContext(ctx.cascadesContext);
                     for (Expression expression : filter.getConjuncts()) {
                         Expression newExpr = ExpressionUtils.replace(expression, replaceMap);
-                        if (needEliminateNull) {
-                            newExpr = eliminateNullLiteral(newExpr);
-                        }
-                        Expression foldExpression = FoldConstantRule.evaluate(newExpr, context);
+                        Expression foldExpression = FoldConstantRule.evaluate(eliminateNullLiteral(newExpr), context);
 
                         if (foldExpression == BooleanLiteral.FALSE || expression.isNullLiteral()) {
                             return new LogicalEmptyRelation(
@@ -108,7 +100,8 @@ public class EliminateFilter implements RewriteRuleFactory {
                 .toRule(RuleType.ELIMINATE_FILTER_ON_ONE_RELATION));
     }
 
-    private Expression eliminateNullLiteral(Expression expression) {
+    @VisibleForTesting
+    public Expression eliminateNullLiteral(Expression expression) {
         if (!expression.anyMatch(e -> ((Expression) e).isNullLiteral())) {
             return expression;
         }
