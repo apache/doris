@@ -23,23 +23,21 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 void TaskController::update_paused_reason(const Status& st) {
-    std::lock_guard l(paused_mutex_);
-    if (paused_reason_.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
+    if (paused_reason_.status().is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
         return;
-    } else if (paused_reason_.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
+    } else if (paused_reason_.status().is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
         if (st.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
-            paused_reason_ = st;
+            paused_reason_.update(st);
             return;
         } else {
             return;
         }
     } else {
-        paused_reason_ = st;
+        paused_reason_.update(st);
     }
 }
 
 std::string TaskController::debug_string() {
-    std::lock_guard l(paused_mutex_);
     return fmt::format(
             "TaskId={}, Memory(Used={}, Limit={}, Peak={}), Spill(RunningSpillTaskCnt={}, "
             "TotalPausedPeriodSecs={}, LatestPausedReason={})",
@@ -48,7 +46,7 @@ std::string TaskController::debug_string() {
             MemCounter::print_bytes(resource_ctx_->memory_context()->mem_limit()),
             MemCounter::print_bytes(resource_ctx_->memory_context()->peak_memory_bytes()),
             revoking_tasks_count_, memory_sufficient_time() / NANOS_PER_SEC,
-            paused_reason_.to_string());
+            paused_reason_.status().to_string());
 }
 
 #include "common/compile_check_end.h"

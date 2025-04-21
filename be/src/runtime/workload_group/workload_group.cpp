@@ -237,7 +237,7 @@ int64_t WorkloadGroup::revoke_memory(int64_t need_free_mem, const std::string& r
     MonotonicStopWatch watch;
     watch.start();
     RuntimeProfile* group_revoke_profile =
-            profile->create_child(fmt::format("RevokeGroupMemory:Name {}", _name), true, true);
+            profile->create_child(fmt::format("RevokeGroupMemory:id {}", _id), true, true);
 
     std::vector<std::shared_ptr<ResourceContext>> resource_ctxs;
     {
@@ -266,7 +266,7 @@ int64_t WorkloadGroup::revoke_memory(int64_t need_free_mem, const std::string& r
                 MemCounter::print_bytes(freed_mem), watch.elapsed_time() / 1000, ss.str());
     }};
 
-    // 1. free top overcommit query
+    // step 1. free top overcommit query
     RuntimeProfile* free_top_profile = group_revoke_profile->create_child(
             fmt::format("FreeGroupTopOvercommitQuery:Name {}", _name), true, true);
     freed_mem += MemoryReclamation::revoke_tasks_memory(
@@ -279,20 +279,21 @@ int64_t WorkloadGroup::revoke_memory(int64_t need_free_mem, const std::string& r
         return freed_mem;
     }
 
-    // 2. free top usage query
+    // step 2. free top usage query
     free_top_profile = group_revoke_profile->create_child(
             fmt::format("FreeGroupTopUsageQuery:Name {}", _name), true, true);
     freed_mem += MemoryReclamation::revoke_tasks_memory(
             need_free_mem - freed_mem, resource_ctxs, group_revoke_reason, free_top_profile,
             MemoryReclamation::PriorityCmpFunc::TOP_MEMORY,
             {MemoryReclamation::FilterFunc::EXCLUDE_IS_SMALL,
+             MemoryReclamation::FilterFunc::EXCLUDE_IS_OVERCOMMITED,
              MemoryReclamation::FilterFunc::IS_QUERY},
-            MemoryReclamation::ActionFunc::CANCEL);
+            MemoryReclamation::ActionFunc::CANCEL); // skip overcommited query, cancelled in step 1.
     if (freed_mem >= need_free_mem) {
         return freed_mem;
     }
 
-    // 3. free top overcommit load
+    // step 3. free top overcommit load
     free_top_profile = group_revoke_profile->create_child(
             fmt::format("FreeGroupTopOvercommitLoad:Name {}", _name), true, true);
     freed_mem += MemoryReclamation::revoke_tasks_memory(
@@ -305,13 +306,14 @@ int64_t WorkloadGroup::revoke_memory(int64_t need_free_mem, const std::string& r
         return freed_mem;
     }
 
-    // 4. free top usage load
+    // step 4. free top usage load
     free_top_profile = group_revoke_profile->create_child(
             fmt::format("FreeGroupTopUsageLoad:Name {}", _name), true, true);
     freed_mem += MemoryReclamation::revoke_tasks_memory(
             need_free_mem - freed_mem, resource_ctxs, group_revoke_reason, free_top_profile,
             MemoryReclamation::PriorityCmpFunc::TOP_OVERCOMMITED_MEMORY,
             {MemoryReclamation::FilterFunc::EXCLUDE_IS_SMALL,
+             MemoryReclamation::FilterFunc::EXCLUDE_IS_OVERCOMMITED,
              MemoryReclamation::FilterFunc::IS_LOAD},
             MemoryReclamation::ActionFunc::CANCEL);
     return freed_mem;

@@ -118,8 +118,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
             return;
         }
 
-        if (doris::thread_context()->resource_ctx()->task_controller()->is_attach_task() &&
-            doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
+        if (doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
             int64_t wait_milliseconds = 0;
             LOG(INFO) << fmt::format(
                     "Task:{} waiting for enough memory in thread id:{}, maximum {}ms, {}.",
@@ -219,35 +218,21 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
         auto err_msg = fmt::format("Allocator mem tracker check failed, {}", st.to_string());
         doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->print_log_usage(
                 err_msg);
-        if (doris::thread_context()->resource_ctx()->task_controller()->is_attach_task()) {
-            doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
-            // If the outside will catch the exception, after throwing an exception,
-            // the task will actively cancel itself.
-            if (doris::enable_thread_catch_bad_alloc) {
-                LOG(INFO) << fmt::format(
-                        "Task:{} memory tracker check failed, throw exception, {}.",
-                        print_id(doris::thread_context()
-                                         ->resource_ctx()
-                                         ->task_controller()
-                                         ->task_id()),
-                        err_msg);
-                throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
-            } else {
-                LOG(INFO) << fmt::format(
-                        "Task:{} memory tracker check failed, will continue to execute, cannot "
-                        "throw exception, {}.",
-                        print_id(doris::thread_context()
-                                         ->resource_ctx()
-                                         ->task_controller()
-                                         ->task_id()),
-                        err_msg);
-            }
-        } else if (doris::enable_thread_catch_bad_alloc) {
-            LOG(INFO) << fmt::format("memory tracker check failed, throw exception, {}.", err_msg);
+        doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
+        // If the outside will catch the exception, after throwing an exception,
+        // the task will actively cancel itself.
+        if (doris::enable_thread_catch_bad_alloc) {
+            LOG(INFO) << fmt::format(
+                    "Task:{} memory tracker check failed, throw exception, {}.",
+                    print_id(doris::thread_context()->resource_ctx()->task_controller()->task_id()),
+                    err_msg);
             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
         } else {
-            LOG(INFO) << fmt::format("memory tracker check failed, no throw exception, {}.",
-                                     err_msg);
+            LOG(INFO) << fmt::format(
+                    "Task:{} memory tracker check failed, will continue to execute, no throw "
+                    "exception, {}.",
+                    print_id(doris::thread_context()->resource_ctx()->task_controller()->task_id()),
+                    err_msg);
         }
     }
 }

@@ -675,19 +675,19 @@ int64_t WorkloadGroupMgr::revoke_memory_from_other_overcommited_groups_(
     int64_t total_exceeded_memory = 0;
     {
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-        for (auto& _workload_group : _workload_groups) {
-            if (!_workload_group.second->is_mem_limit_valid() ||
-                !_workload_group.second->enable_memory_overcommit() ||
-                !_workload_group.second->exceed_limit()) {
+        for (auto& workload_group : _workload_groups) {
+            if (!workload_group.second->is_mem_limit_valid() ||
+                !workload_group.second->enable_memory_overcommit() ||
+                !workload_group.second->exceed_limit()) {
                 continue;
             }
             if (requestor->workload_group() != nullptr &&
-                _workload_group.second->id() == requestor->workload_group()->id()) {
+                workload_group.second->id() == requestor->workload_group()->id()) {
                 continue;
             }
             auto exceeded_memory =
-                    _workload_group.second->memory_used() - _workload_group.second->memory_limit();
-            exceeded_memory_heap.emplace(_workload_group.second, exceeded_memory);
+                    workload_group.second->memory_used() - workload_group.second->memory_limit();
+            exceeded_memory_heap.emplace(workload_group.second, exceeded_memory);
             total_exceeded_memory += exceeded_memory;
         }
     }
@@ -735,7 +735,8 @@ int64_t WorkloadGroupMgr::revoke_memory_from_other_overcommited_groups_(
            !requestor->task_controller()->is_cancelled()) {
         auto [wg, exceeded_memory] = exceeded_memory_heap.top();
         exceeded_memory_heap.pop();
-        freed_mem += wg->revoke_memory(exceeded_memory, revoke_reason, profile.get());
+        freed_mem += wg->revoke_memory(std::min(exceeded_memory, need_free_mem - freed_mem),
+                                       revoke_reason, profile.get());
     }
     return freed_mem;
 }

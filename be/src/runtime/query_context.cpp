@@ -250,9 +250,6 @@ QueryContext::~QueryContext() {
 void QueryContext::set_ready_to_execute(Status reason) {
     set_execution_dependency_ready();
     _exec_status.update(reason);
-    if (!reason.ok()) {
-        _resource_ctx->task_controller()->set_is_cancelled();
-    }
 }
 
 void QueryContext::set_ready_to_execute_only() {
@@ -314,7 +311,6 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
 
     set_ready_to_execute(new_status);
     cancel_all_pipeline_context(new_status, fragment_id);
-    resource_ctx()->task_controller()->set_is_cancelled();
 }
 
 void QueryContext::set_load_error_url(std::string error_url) {

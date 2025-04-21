@@ -387,4 +387,99 @@ TEST_F(WorkloadGroupManagerTest, query_released) {
     ASSERT_TRUE(_wg_manager->_paused_queries_list[wg].empty()) << "pasued queue should be empty";
 }
 
+TEST_F(WorkloadGroupManagerTest, overcommit1) {
+    WorkloadGroupInfo wg1_info {
+            .id = 1, .memory_limit = 1024L * 1024 * 100, .enable_memory_overcommit = true};
+    WorkloadGroupInfo wg2_info {
+            .id = 2, .memory_limit = 1024L * 1024 * 100, .enable_memory_overcommit = true};
+    WorkloadGroupInfo wg3_info {
+            .id = 3, .memory_limit = 1024L * 1024 * 100, .enable_memory_overcommit = true};
+    WorkloadGroupInfo wg4_info {
+            .id = 4, .memory_limit = 1024L * 1024 * 1024 * 10, .enable_memory_overcommit = true};
+    WorkloadGroupInfo wg5_info {
+            .id = 5, .memory_limit = 1024L * 1024 * 1024 * 100, .enable_memory_overcommit = false};
+    auto wg1 = _wg_manager->get_or_create_workload_group(wg1_info);
+    auto wg2 = _wg_manager->get_or_create_workload_group(wg2_info);
+    auto wg3 = _wg_manager->get_or_create_workload_group(wg3_info);
+    auto wg4 = _wg_manager->get_or_create_workload_group(wg4_info);
+    auto wg5 = _wg_manager->get_or_create_workload_group(wg5_info);
+    EXPECT_EQ(wg1->id(), wg1_info.id);
+    EXPECT_EQ(wg1->enable_memory_overcommit(), true);
+    EXPECT_EQ(wg2->id(), wg2_info.id);
+    EXPECT_EQ(wg2->enable_memory_overcommit(), true);
+    EXPECT_EQ(wg3->id(), wg3_info.id);
+    EXPECT_EQ(wg3->enable_memory_overcommit(), true);
+    EXPECT_EQ(wg5->id(), wg5_info.id);
+    EXPECT_EQ(wg5->enable_memory_overcommit(), false);
+
+    auto query_context11 = _generate_on_query(wg1);
+
+    // wg2 is overcommited, some query is overcommited
+    auto query_context21 = _generate_on_query(wg2);
+    auto query_context22 = _generate_on_query(wg2);
+    auto query_context23 = _generate_on_query(wg2);
+    auto query_context24 = _generate_on_query(wg2);
+    auto query_context25 = _generate_on_query(wg2);
+    auto query_context26 = _generate_on_query(wg2);
+    query_context21->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
+    query_context21->query_mem_tracker()->consume(1024 * 1024 * 1024);
+    query_context22->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 1024);
+    query_context22->query_mem_tracker()->consume(1024 * 1024 * 64);
+    query_context23->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
+    query_context23->query_mem_tracker()->consume(1024 * 1024 * 10);
+    query_context24->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
+    query_context24->query_mem_tracker()->consume(1024);
+    query_context25->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 512);
+    query_context25->query_mem_tracker()->consume(1024 * 1024 * 1024);
+    query_context26->resource_ctx()->memory_context()->set_mem_limit(1024L * 1024 * 1024 * 100);
+    query_context26->query_mem_tracker()->consume(1024 * 1024 * 1024);
+
+    // wg3 is overcommited, some query is overcommited
+    auto query_context31 = _generate_on_query(wg3);
+    auto query_context32 = _generate_on_query(wg3);
+    auto query_context33 = _generate_on_query(wg3);
+    query_context31->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024);
+    query_context31->query_mem_tracker()->consume(1024 * 1024 * 1024);
+    query_context32->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 1024);
+    query_context32->query_mem_tracker()->consume(1024 * 1024 * 512);
+    query_context33->resource_ctx()->memory_context()->set_mem_limit(1024 * 1024 * 512);
+    query_context33->query_mem_tracker()->consume(1024 * 1024 * 1024);
+
+    // wg4 not overcommited, query is overcommited
+    auto query_context41 = _generate_on_query(wg4);
+    query_context41->resource_ctx()->memory_context()->set_mem_limit(1024L * 1024);
+    query_context41->query_mem_tracker()->consume(1024L * 1024 * 1024 * 9);
+
+    // wg5 disable overcommited, query is overcommited
+    auto query_context51 = _generate_on_query(wg5);
+    query_context51->resource_ctx()->memory_context()->set_mem_limit(1024L * 1024);
+    query_context51->query_mem_tracker()->consume(1024L * 1024 * 1024 * 99);
+
+    wg1->refresh_memory_usage();
+    wg2->refresh_memory_usage();
+    wg3->refresh_memory_usage();
+    wg4->refresh_memory_usage();
+    wg5->refresh_memory_usage();
+
+    // step1, wg2 is overcommited largest, cancel some overcommited query, freed memory less than need_free_mem.
+    // step2, wg3 is less overcommited than wg2, cancel some overcommited query, terminate after freed memory is greater than need_free_mem.
+    // query41 in wg4 has largest overcommited, but wg4 not overcommited, so not cancel query41.
+    EXPECT_EQ(_wg_manager->revoke_memory_from_other_overcommited_groups_(
+                      query_context11->resource_ctx(), 1024L * 1024 * 1024 * 3 + 1),
+              1024L * 1024 * 1024 * 4);
+
+    ASSERT_FALSE(query_context11->is_cancelled());
+    ASSERT_TRUE(query_context21->is_cancelled());
+    ASSERT_FALSE(query_context22->is_cancelled());
+    ASSERT_FALSE(query_context23->is_cancelled());
+    ASSERT_FALSE(query_context24->is_cancelled());
+    ASSERT_TRUE(query_context25->is_cancelled());
+    ASSERT_TRUE(query_context26->is_cancelled());
+    ASSERT_TRUE(query_context31->is_cancelled());
+    ASSERT_FALSE(query_context32->is_cancelled());
+    ASSERT_FALSE(query_context33->is_cancelled());
+    ASSERT_FALSE(query_context41->is_cancelled());
+    ASSERT_FALSE(query_context51->is_cancelled());
+}
+
 } // namespace doris

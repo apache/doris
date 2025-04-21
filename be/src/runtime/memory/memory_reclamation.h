@@ -31,7 +31,13 @@ constexpr size_t SMALL_MEMORY_TASK = 32 * 1024 * 1024; // 32M
 class MemoryReclamation {
 public:
     enum class PriorityCmpFunc { TOP_MEMORY = 0, TOP_OVERCOMMITED_MEMORY = 1 };
-    enum class FilterFunc { EXCLUDE_IS_SMALL = 0, IS_QUERY = 1, IS_LOAD = 2, IS_COMPACTION = 3 };
+    enum class FilterFunc {
+        EXCLUDE_IS_SMALL = 0,
+        EXCLUDE_IS_OVERCOMMITED = 1,
+        IS_QUERY = 2,
+        IS_LOAD = 3,
+        IS_COMPACTION = 4
+    };
     enum class ActionFunc { CANCEL = 0 };
 
     inline static std::unordered_map<PriorityCmpFunc,
@@ -72,6 +78,11 @@ public:
                          return resource_ctx->memory_context()->current_memory_bytes() >
                                 SMALL_MEMORY_TASK;
                      }},
+                    {FilterFunc::EXCLUDE_IS_OVERCOMMITED,
+                     [](ResourceContext* resource_ctx) {
+                         return resource_ctx->memory_context()->current_memory_bytes() <
+                                resource_ctx->memory_context()->mem_limit();
+                     }},
                     {FilterFunc::IS_QUERY,
                      [](ResourceContext* resource_ctx) {
                          return resource_ctx->task_controller()->query_type() == TQueryType::SELECT;
@@ -89,6 +100,9 @@ public:
             switch (it) {
             case FilterFunc::EXCLUDE_IS_SMALL:
                 func_strs.emplace_back("Exclude Is Small");
+                break;
+            case FilterFunc::EXCLUDE_IS_OVERCOMMITED:
+                func_strs.emplace_back("Exclude Is Overcommited");
                 break;
             case FilterFunc::IS_QUERY:
                 func_strs.emplace_back("Is Query");

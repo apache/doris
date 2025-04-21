@@ -27,7 +27,6 @@ struct MockQueryTaskController : public QueryTaskController {
             : QueryTaskController(query_ctx) {}
 
     static std::unique_ptr<MockQueryTaskController> create(QueryTaskController* controller) {
-        controller->set_is_finished();
         auto ctx = MockQueryTaskController::create_unique(controller->query_ctx_.lock());
         ctx->set_task_id(controller->task_id());
         ctx->set_fe_addr(controller->fe_addr());

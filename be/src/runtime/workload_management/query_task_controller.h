@@ -32,8 +32,9 @@ public:
     static std::unique_ptr<TaskController> create(QueryContext* query_ctx);
     ~QueryTaskController() override = default;
 
-    bool cancel(const Status& reason, int fragment_id);
-    bool cancel(const Status& reason) override { return cancel(reason, -1); }
+    bool is_cancelled() const override;
+    bool cancel_impl(const Status& reason, int fragment_id);
+    bool cancel_impl(const Status& reason) override { return cancel_impl(reason, -1); }
     bool is_pure_load_task() const override;
     int32_t get_slot_count() const override;
     bool is_enable_reserve_memory() const override;

@@ -40,10 +40,8 @@ public:
 
     /* common action
     */
-    bool is_attach_task() const { return is_attached_; }
     const TUniqueId& task_id() const { return task_id_; }
     void set_task_id(TUniqueId task_id) {
-        is_attached_ = true;
         task_id_ = task_id;
         start_time_ = MonotonicMillis();
     }
@@ -56,44 +54,38 @@ public:
     /* finish action
     */
     bool is_finished() const { return is_finished_; }
-    void set_is_finished() {
+    void finish() {
         if (!is_finished_) {
             is_finished_ = true;
             finish_time_ = MonotonicMillis();
         }
+        finish_impl();
     }
-    virtual void finish() { set_is_finished(); }
+    virtual void finish_impl() {}
     int64_t start_time() const { return start_time_; }
     int64_t finish_time() const { return finish_time_; }
     int64_t running_time() const { return finish_time() - start_time(); }
 
     /* cancel action
     */
-    bool is_cancelled() const { return is_cancelled_; }
-    void set_is_cancelled() {
-        DCHECK(is_attach_task());
-        if (!is_cancelled_) {
-            is_cancelled_ = true;
+    virtual bool is_cancelled() const { return false; }
+
+    bool cancel(const Status& reason) {
+        if (cancelled_time_ == 0) {
             cancelled_time_ = MonotonicMillis();
         }
+        return cancel_impl(reason);
     }
-    virtual bool cancel(const Status& reason) {
-        set_is_cancelled();
-        return false;
-    }
+
+    virtual bool cancel_impl(const Status& reason) { return false; }
+
     int64_t cancelled_time() const { return cancelled_time_; }
 
     /* pause action & property
     */
     void update_paused_reason(const Status& st);
-    void reset_paused_reason() {
-        std::lock_guard l(paused_mutex_);
-        paused_reason_ = Status::OK();
-    }
-    Status paused_reason() {
-        std::lock_guard l(paused_mutex_);
-        return paused_reason_;
-    }
+    void reset_paused_reason() { paused_reason_.reset(); }
+    Status paused_reason() { return paused_reason_.status(); }
     void add_paused_count() { paused_count_.fetch_add(1); }
 
     /* memory status action
@@ -126,15 +118,13 @@ protected:
 
     /* common property
     */
-    bool is_attached_ = false;
     TUniqueId task_id_;
     TNetworkAddress fe_addr_;
     TQueryType::type query_type_;
 
     /* cancel property
     */
-    std::atomic<bool> is_cancelled_ = false;
-    std::atomic<int64_t> cancelled_time_;
+    std::atomic<int64_t> cancelled_time_ = 0;
 
     /* finish property
     */
@@ -144,8 +134,7 @@ protected:
 
     /* pause property
     */
-    std::mutex paused_mutex_;
-    Status paused_reason_;
+    AtomicStatus paused_reason_;
     std::atomic<int64_t> paused_count_ = 0;
 
     /* memory status property

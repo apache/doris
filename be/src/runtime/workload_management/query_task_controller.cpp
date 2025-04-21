@@ -28,7 +28,15 @@ std::unique_ptr<TaskController> QueryTaskController::create(QueryContext* query_
     return QueryTaskController::create_unique(query_ctx->shared_from_this());
 }
 
-bool QueryTaskController::cancel(const Status& reason, int fragment_id) {
+bool QueryTaskController::is_cancelled() const {
+    auto query_ctx = query_ctx_.lock();
+    if (query_ctx == nullptr) {
+        return false;
+    }
+    return query_ctx->is_cancelled();
+}
+
+bool QueryTaskController::cancel_impl(const Status& reason, int fragment_id) {
     auto query_ctx = query_ctx_.lock();
     if (query_ctx == nullptr) {
         return false;
