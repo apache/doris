@@ -167,6 +167,7 @@ const int TIME_MAX_VALUE_SECONDS = 3600 * TIME_MAX_HOUR + 60 * TIME_MAX_MINUTE +
 constexpr int HOUR_PER_DAY = 24;
 constexpr int64_t SECOND_PER_HOUR = 3600;
 constexpr int64_t SECOND_PER_MINUTE = 60;
+constexpr int64_t MS_PER_SECOND = 1000 * 1000;
 
 inline constexpr int S_DAYS_IN_MONTH[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
@@ -426,7 +427,7 @@ public:
     void unchecked_set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
                             uint32_t minute, uint32_t second);
 
-    int64_t daynr() const { return calc_daynr(_year, _month, _day); }
+    uint32_t daynr() const { return calc_daynr(_year, _month, _day); }
 
     int year() const { return _year; }
     int month() const { return _month; }
@@ -650,7 +651,7 @@ public:
     }
 
     template <typename T>
-    int64_t second_diff(const T& rhs) const {
+    int64_t datetime_diff_in_seconds(const T& rhs) const {
         return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
     }
 
@@ -892,6 +893,7 @@ public:
 
     void unchecked_set_time(uint8_t hour, uint8_t minute, uint8_t second, uint32_t microsecond);
 
+    // we frequently use this to do arithmetic operation, so use signed int64_t to avoid overflow.
     int64_t daynr() const {
         return calc_daynr(date_v2_value_.year_, date_v2_value_.month_, date_v2_value_.day_);
     }
@@ -1136,34 +1138,57 @@ public:
 
     //only calculate the diff of dd:mm:ss
     template <typename RHS>
-    int64_t time_part_diff(const RHS& rhs) const {
+    int64_t time_part_diff_without_ms(const RHS& rhs) const {
         return time_part_to_seconds() - rhs.time_part_to_seconds();
     }
 
     //only calculate the diff of dd:mm:ss.SSSSSS
     template <typename RHS>
-    int64_t time_part_diff_microsecond(const RHS& rhs) const {
+    int64_t time_part_diff_in_ms(const RHS& rhs) const {
         return time_part_to_microsecond() - rhs.time_part_to_microsecond();
     }
 
     template <typename RHS>
-    int64_t second_diff(const RHS& rhs) const {
-        return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
+    int64_t datetime_diff_in_seconds(const RHS& rhs) const {
+        return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY +
+               time_part_diff_without_ms(rhs);
+    }
+
+    template <typename RHS>
+    int32_t date_diff_in_days(const RHS& rhs) const {
+        return daynr() - rhs.daynr(); // arithmetic calculation will auto promote to signed int32
+    }
+
+    int32_t date_diff_in_days_round_to_zero_by_time(const auto& rhs) const {
+        int32_t day = this->date_diff_in_days(rhs);
+        int64_t ms_diff = this->time_part_diff_in_ms(rhs);
+        if (day > 0 && ms_diff < 0) {
+            day--;
+        } else if (day < 0 && ms_diff > 0) {
+            day++;
+        }
+        return day;
     }
 
     // used by INT microseconds_diff(DATETIME enddate, DATETIME startdate)
-    // return it's int type, so shouldn't have any limit.
+    // return value is int type, so shouldn't have any limit.
     // when used by TIME TIMEDIFF(DATETIME expr1, DATETIME expr2), it's return time type, should have limited.
     template <typename RHS>
-    int64_t microsecond_diff(const RHS& rhs) const {
-        int64_t diff_m = (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY * 1000 * 1000 +
-                         time_part_diff_microsecond(rhs);
+    int64_t datetime_diff_in_microseconds(const RHS& rhs) const {
+        int64_t diff_m = (daynr() - rhs.daynr()) * HOUR_PER_DAY * SECOND_PER_HOUR * MS_PER_SECOND +
+                         time_part_diff_in_ms(rhs);
         return diff_m;
     }
 
-    bool can_cast_to_date_without_loss_accuracy() {
-        return this->hour() == 0 && this->minute() == 0 && this->second() == 0 &&
-               this->microsecond() == 0;
+    int64_t datetime_diff_in_seconds_round_to_zero_by_ms(const auto& rhs) const {
+        int64_t second = this->datetime_diff_in_seconds(rhs);
+        int32_t ms_diff = this->microsecond() - rhs.microsecond();
+        if (second > 0 && ms_diff < 0) {
+            second--;
+        } else if (second < 0 && ms_diff > 0) {
+            second++;
+        }
+        return second;
     }
 
     underlying_value to_date_int_val() const { return int_val_; }
@@ -1388,17 +1413,17 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue&
         return day;
     }
     case HOUR: {
-        int64_t second = ts_value2.second_diff(ts_value1);
+        int64_t second = ts_value2.datetime_diff_in_seconds(ts_value1);
         int64_t hour = second / 60 / 60;
         return hour;
     }
     case MINUTE: {
-        int64_t second = ts_value2.second_diff(ts_value1);
+        int64_t second = ts_value2.datetime_diff_in_seconds(ts_value1);
         int64_t minute = second / 60;
         return minute;
     }
     case SECOND: {
-        int64_t second = ts_value2.second_diff(ts_value1);
+        int64_t second = ts_value2.datetime_diff_in_seconds(ts_value1);
         return second;
     }
     }
@@ -1406,10 +1431,15 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue&
     return 0;
 }
 
-template <TimeUnit unit, typename T0, typename T1>
+// ROUND the result TO ZERO( not FLOOR). for datetime_diff<year>, everything less than year is the remainder.
+// "ROUND TO ZERO" means `years_diff('2020-05-05', '2015-06-06')` gets 4 and
+//  `years_diff('2015-06-06', '2020-05-05')` gets -4.
+template <TimeUnit UNIT, typename T0, typename T1>
 int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& ts_value2) {
     constexpr uint64_t uint64_minus_one = -1;
-    switch (unit) {
+    switch (UNIT) {
+    // for YEAR and MONTH: calculate the diff of year or month, and use bitmask to get the remainder of all other
+    // parts. then round to zero by the remainder.
     case YEAR: {
         int year = (ts_value2.year() - ts_value1.year());
         if constexpr (std::is_same_v<T0, T1>) {
@@ -1494,47 +1524,27 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
         return month;
     }
     case WEEK: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
-        int64_t ms_diff = ts_value2.time_part_diff_microsecond(ts_value1);
-        if (day > 0 && ms_diff < 0) {
-            day--;
-        } else if (day < 0 && ms_diff > 0) {
-            day++;
-        }
-        return day / 7;
+        return ts_value2.date_diff_in_days_round_to_zero_by_time(ts_value1) / 7;
     }
     case DAY: {
-        int day = ts_value2.daynr() - ts_value1.daynr();
-        int64_t ms_diff = ts_value2.time_part_diff_microsecond(ts_value1);
-        if (day > 0 && ms_diff < 0) {
-            day--;
-        } else if (day < 0 && ms_diff > 0) {
-            day++;
-        }
-        return day;
+        return ts_value2.date_diff_in_days_round_to_zero_by_time(ts_value1);
     }
     case HOUR: {
-        int64_t second = ts_value2.second_diff(ts_value1);
-        int64_t hour = second / 60 / 60;
-        return hour;
+        return ts_value2.datetime_diff_in_seconds_round_to_zero_by_ms(ts_value1) / 60 / 60;
     }
     case MINUTE: {
-        int64_t second = ts_value2.second_diff(ts_value1);
-        int64_t minute = second / 60;
-        return minute;
+        return ts_value2.datetime_diff_in_seconds_round_to_zero_by_ms(ts_value1) / 60;
     }
     case SECOND: {
-        int64_t second = ts_value2.second_diff(ts_value1);
-        return second;
+        return ts_value2.datetime_diff_in_seconds_round_to_zero_by_ms(ts_value1);
     }
     case MILLISECOND: {
-        int64_t microsecond = ts_value2.microsecond_diff(ts_value1);
-        int64_t millisecond = microsecond / 1000;
-        return millisecond;
+        // C++ naturally rounds to zero
+        return ts_value2.datetime_diff_in_microseconds(ts_value1) / 1000;
     }
     case MICROSECOND: {
-        int64_t microsecond = ts_value2.microsecond_diff(ts_value1);
-        return microsecond;
+        // no precision loss
+        return ts_value2.datetime_diff_in_microseconds(ts_value1);
     }
     }
     // Rethink the default return value

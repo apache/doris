@@ -160,7 +160,7 @@ bool PipelineFragmentContext::is_timeout(const VecDateTimeValue& now) const {
     if (_timeout <= 0) {
         return false;
     }
-    if (now.second_diff(_start_time) > _timeout) {
+    if (now.datetime_diff_in_seconds(_start_time) > _timeout) {
         return true;
     }
     return false;
