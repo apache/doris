@@ -47,7 +47,6 @@ import org.apache.doris.nereids.rules.analysis.QualifyToFilter;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
-import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
@@ -154,8 +153,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             ),
             topDown(new LeadingJoin()),
             bottomUp(new NormalizeGenerate()),
-            bottomUp(new SubqueryToApply()),
-            topDown(new MergeProjects())
+            bottomUp(new SubqueryToApply())
         );
     }
 }
