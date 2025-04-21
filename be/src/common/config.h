@@ -335,6 +335,8 @@ DECLARE_Int32(be_service_threads);
 
 // interval between profile reports; in seconds
 DECLARE_mInt32(pipeline_status_report_interval);
+// Time slice for pipeline task execution (ms)
+DECLARE_mInt32(pipeline_task_exec_time_slice);
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
@@ -1135,6 +1137,8 @@ DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
+DECLARE_mInt64(file_cache_background_monitor_interval_ms);
+DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
 // inverted index searcher cache
 // cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);

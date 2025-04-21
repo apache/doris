@@ -56,6 +56,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -510,37 +511,29 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
         }
     }
-
-    if (!req.runtime_state->hive_partition_updates().empty()) {
+    if (auto hpu = req.runtime_state->hive_partition_updates(); !hpu.empty()) {
         params.__isset.hive_partition_updates = true;
-        params.hive_partition_updates.reserve(req.runtime_state->hive_partition_updates().size());
-        for (auto& hive_partition_update : req.runtime_state->hive_partition_updates()) {
-            params.hive_partition_updates.push_back(hive_partition_update);
-        }
+        params.hive_partition_updates.insert(params.hive_partition_updates.end(), hpu.begin(),
+                                             hpu.end());
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
-            if (!rs->hive_partition_updates().empty()) {
+            if (auto rs_hpu = rs->hive_partition_updates(); !rs_hpu.empty()) {
                 params.__isset.hive_partition_updates = true;
                 params.hive_partition_updates.insert(params.hive_partition_updates.end(),
-                                                     rs->hive_partition_updates().begin(),
-                                                     rs->hive_partition_updates().end());
+                                                     rs_hpu.begin(), rs_hpu.end());
             }
         }
     }
-
-    if (!req.runtime_state->iceberg_commit_datas().empty()) {
+    if (auto icd = req.runtime_state->iceberg_commit_datas(); !icd.empty()) {
         params.__isset.iceberg_commit_datas = true;
-        params.iceberg_commit_datas.reserve(req.runtime_state->iceberg_commit_datas().size());
-        for (auto& iceberg_commit_data : req.runtime_state->iceberg_commit_datas()) {
-            params.iceberg_commit_datas.push_back(iceberg_commit_data);
-        }
+        params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(), icd.begin(),
+                                           icd.end());
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
-            if (!rs->iceberg_commit_datas().empty()) {
+            if (auto rs_icd = rs->iceberg_commit_datas(); !rs_icd.empty()) {
                 params.__isset.iceberg_commit_datas = true;
                 params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(),
-                                                   rs->iceberg_commit_datas().begin(),
-                                                   rs->iceberg_commit_datas().end());
+                                                   rs_icd.begin(), rs_icd.end());
             }
         }
     }
@@ -679,9 +672,10 @@ std::shared_ptr<QueryContext> FragmentMgr::get_query_ctx(const TUniqueId& query_
 }
 
 Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& params,
-                                             TUniqueId query_id, bool pipeline,
+                                             const TPipelineFragmentParamsList& parent,
                                              QuerySource query_source,
                                              std::shared_ptr<QueryContext>& query_ctx) {
+    auto query_id = params.query_id;
     DBUG_EXECUTE_IF("FragmentMgr._get_query_ctx.failed", {
         return Status::InternalError("FragmentMgr._get_query_ctx.failed, query id {}",
                                      print_id(query_id));
@@ -757,6 +751,25 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                             query_ctx->set_workload_group(dummy_wg);
                         }
 
+                        if (parent.__isset.runtime_filter_info) {
+                            auto info = parent.runtime_filter_info;
+                            if (info.__isset.runtime_filter_params) {
+                                if (!info.runtime_filter_params.rid_to_runtime_filter.empty()) {
+                                    auto handler =
+                                            std::make_shared<RuntimeFilterMergeControllerEntity>();
+                                    RETURN_IF_ERROR(
+                                            handler->init(query_ctx, info.runtime_filter_params));
+                                    query_ctx->set_merge_controller_handler(handler);
+                                }
+
+                                query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+                                        info.runtime_filter_params);
+                            }
+                            if (info.__isset.topn_filter_descs) {
+                                query_ctx->init_runtime_predicates(info.topn_filter_descs);
+                            }
+                        }
+
                         // There is some logic in query ctx's dctor, we could not check if exists and delete the
                         // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
                         map.insert({query_id, query_ctx});
@@ -827,8 +840,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
     std::shared_ptr<QueryContext> query_ctx;
-    RETURN_IF_ERROR(
-            _get_or_create_query_ctx(params, params.query_id, true, query_source, query_ctx));
+    RETURN_IF_ERROR(_get_or_create_query_ctx(params, parent, query_source, query_ctx));
     SCOPED_SWITCH_RESOURCE_CONTEXT(query_ctx.get()->resource_ctx());
     int64_t duration_ns = 0;
     std::shared_ptr<pipeline::PipelineFragmentContext> context =
@@ -850,23 +862,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
-    if (parent.__isset.runtime_filter_info) {
-        auto info = parent.runtime_filter_info;
-        if (info.__isset.runtime_filter_params) {
-            if (!info.runtime_filter_params.rid_to_runtime_filter.empty()) {
-                auto handler = std::make_shared<RuntimeFilterMergeControllerEntity>(
-                        RuntimeFilterParamsContext::create(context->get_runtime_state()));
-                RETURN_IF_ERROR(handler->init(params.query_id, info.runtime_filter_params));
-                query_ctx->set_merge_controller_handler(handler);
-            }
-
-            query_ctx->runtime_filter_mgr()->set_runtime_filter_params(info.runtime_filter_params);
-        }
-        if (info.__isset.topn_filter_descs) {
-            query_ctx->init_runtime_predicates(info.topn_filter_descs);
-        }
-    }
-
     {
         int64 now = duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
@@ -1326,7 +1321,13 @@ Status FragmentMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
     query_id.__set_hi(queryid.hi);
     query_id.__set_lo(queryid.lo);
     if (auto q_ctx = get_query_ctx(query_id)) {
-        return q_ctx->runtime_filter_mgr()->sync_filter_size(request);
+        try {
+            return q_ctx->runtime_filter_mgr()->sync_filter_size(request);
+        } catch (const Exception& e) {
+            return Status::InternalError(
+                    "Sync filter size failed: Query context (query-id: {}) error: {}",
+                    queryid.to_string(), e.what());
+        }
     } else {
         return Status::EndOfFile(
                 "Sync filter size failed: Query context (query-id: {}) already finished",
@@ -1343,7 +1344,9 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
     query_id.__set_lo(queryid.lo);
     if (auto q_ctx = get_query_ctx(query_id)) {
         SCOPED_ATTACH_TASK(q_ctx.get());
-        std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
+        if (!q_ctx->get_merge_controller_handler()) {
+            return Status::InternalError("Merge filter failed: Merge controller handler is null");
+        }
         return q_ctx->get_merge_controller_handler()->merge(q_ctx, request, attach_data);
     } else {
         return Status::EndOfFile(

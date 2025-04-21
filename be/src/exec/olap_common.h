@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <glog/logging.h>
 #include <stddef.h>
@@ -41,6 +42,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
+#include "util/runtime_profile.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/ipv4_value.h"
@@ -301,12 +303,21 @@ public:
         _contain_null = _is_nullable_col && contain_null;
     }
 
-    void set_runtime_filter_info(int runtime_filter_id,
-                                 RuntimeProfile::Counter* predicate_filtered_rows_counter,
-                                 RuntimeProfile::Counter* predicate_input_rows_counter) {
+    void attach_profile_counter(
+            int runtime_filter_id,
+            std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter,
+            std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter) {
+        DCHECK(predicate_filtered_rows_counter != nullptr);
+        DCHECK(predicate_input_rows_counter != nullptr);
+
         _runtime_filter_id = runtime_filter_id;
-        _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
-        _predicate_input_rows_counter = predicate_input_rows_counter;
+
+        if (predicate_filtered_rows_counter != nullptr) {
+            _predicate_filtered_rows_counter = predicate_filtered_rows_counter;
+        }
+        if (predicate_input_rows_counter != nullptr) {
+            _predicate_input_rows_counter = predicate_input_rows_counter;
+        }
     }
 
     int precision() const { return _precision; }
@@ -370,8 +381,11 @@ private:
                                                   primitive_type == PrimitiveType::TYPE_DATETIMEV2;
 
     int _runtime_filter_id = -1;
-    RuntimeProfile::Counter* _predicate_filtered_rows_counter = nullptr;
-    RuntimeProfile::Counter* _predicate_input_rows_counter = nullptr;
+
+    std::shared_ptr<RuntimeProfile::Counter> _predicate_filtered_rows_counter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
+    std::shared_ptr<RuntimeProfile::Counter> _predicate_input_rows_counter =
+            std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);
 };
 
 class OlapScanKeys {

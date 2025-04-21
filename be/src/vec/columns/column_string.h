@@ -558,6 +558,8 @@ public:
                           uint8* __restrict filter) const override;
 
     ColumnPtr convert_column_if_overflow() override;
+
+    void erase(size_t start, size_t length) override;
 };
 
 using ColumnString = ColumnStr<UInt32>;

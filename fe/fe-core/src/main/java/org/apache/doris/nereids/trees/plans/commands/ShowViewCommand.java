@@ -126,6 +126,11 @@ public class ShowViewCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         List<List<String>> rows = Lists.newArrayList();
@@ -141,6 +146,6 @@ public class ShowViewCommand extends ShowCommand {
                 view.readUnlock();
             }
         }
-        return new ShowResultSet(META_DATA, rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 }

@@ -17,11 +17,11 @@
 
 #include "runtime_filter/runtime_filter_consumer.h"
 
-#include "exprs/create_predicate_function.h"
+#include "exprs/minmax_predicate.h"
+#include "util/runtime_profile.h"
 #include "vec/exprs/vbitmap_predicate.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -31,57 +31,34 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
     _set_state(State::APPLIED);
 
     if (_wrapper->get_state() != RuntimeFilterWrapper::State::READY) {
-        _wrapper->check_state(
-                {RuntimeFilterWrapper::State::DISABLED, RuntimeFilterWrapper::State::IGNORED});
+        _wrapper->check_state({RuntimeFilterWrapper::State::DISABLED});
         return Status::OK();
     }
 
     auto origin_size = push_exprs.size();
     RETURN_IF_ERROR(_get_push_exprs(push_exprs, _probe_expr));
-    // The runtime filter is pushed down, adding filtering information.
-    auto* expr_filtered_rows_counter = _execution_profile->add_collaboration_counter(
-            "ExprFilteredRows", TUnit::UNIT, _rf_filter);
-    auto* expr_input_rows_counter =
-            _execution_profile->add_collaboration_counter("ExprInputRows", TUnit::UNIT, _rf_input);
-    auto* expr_always_true_counter =
-            ADD_COUNTER(_execution_profile, "AlwaysTruePassRows", TUnit::UNIT);
-
-    auto* predicate_filtered_rows_counter = _storage_profile->add_collaboration_counter(
-            "PredicateFilteredRows", TUnit::UNIT, _rf_filter);
-    auto* predicate_input_rows_counter = _storage_profile->add_collaboration_counter(
-            "PredicateInputRows", TUnit::UNIT, _rf_input);
 
     for (auto i = origin_size; i < push_exprs.size(); i++) {
-        push_exprs[i]->attach_profile_counter(
-                expr_filtered_rows_counter, expr_input_rows_counter, expr_always_true_counter,
-                predicate_filtered_rows_counter, predicate_input_rows_counter);
+        push_exprs[i]->attach_profile_counter(_rf_input, _rf_filter, _always_true_counter);
     }
     return Status::OK();
 }
 
 Status RuntimeFilterConsumer::acquire_expr(std::vector<vectorized::VRuntimeFilterPtr>& push_exprs) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
     if (_rf_state == State::READY) {
         RETURN_IF_ERROR(_apply_ready_expr(push_exprs));
     }
     if (_rf_state != State::APPLIED && _rf_state != State::TIMEOUT) {
         _set_state(State::TIMEOUT);
-        DorisMetrics::instance()->runtime_filter_consumer_timeout_num->increment(1);
-        _profile->add_info_string("ReachTimeoutLimit", "true");
     }
     return Status::OK();
 }
 
 void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
     COUNTER_SET(_wait_timer, int64_t((MonotonicMillis() - _registration_time) * NANOS_PER_MILLIS));
-    _wrapper = other->_wrapper;
-    _check_wrapper_state({RuntimeFilterWrapper::State::DISABLED,
-                          RuntimeFilterWrapper::State::IGNORED,
-                          RuntimeFilterWrapper::State::READY});
-    _check_state({State::NOT_READY, State::TIMEOUT});
-    _set_state(State::READY);
-    DorisMetrics::instance()->runtime_filter_consumer_ready_num->increment(1);
-    DorisMetrics::instance()->runtime_filter_consumer_wait_ready_ms->increment(MonotonicMillis() -
-                                                                               _registration_time);
+    _set_state(State::READY, other->_wrapper);
     if (!_filter_timer.empty()) {
         for (auto& timer : _filter_timer) {
             timer->call_ready();
@@ -90,7 +67,8 @@ void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
 }
 
 std::shared_ptr<pipeline::RuntimeFilterTimer> RuntimeFilterConsumer::create_filter_timer(
-        std::shared_ptr<pipeline::RuntimeFilterDependency> dependencies) {
+        std::shared_ptr<pipeline::Dependency> dependencies) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
     auto timer = std::make_shared<pipeline::RuntimeFilterTimer>(_registration_time,
                                                                 _rf_wait_time_ms, dependencies);
     _filter_timer.push_back(timer);
@@ -233,6 +211,36 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         break;
     }
     return Status::OK();
+}
+
+void RuntimeFilterConsumer::collect_realtime_profile(RuntimeProfile* parent_operator_profile) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
+    DCHECK(parent_operator_profile != nullptr);
+    int filter_id = -1;
+    {
+        // since debug_string will read from  RuntimeFilter::_wrapper
+        // and it is a shared_ptr, instead of a atomic_shared_ptr
+        // so it is not thread safe
+        filter_id = _wrapper->filter_id();
+        parent_operator_profile->add_description(fmt::format("RF{} Info", filter_id),
+                                                 debug_string(), "RuntimeFilterInfo");
+    }
+
+    // Counter* is owned by RuntimeProfile, so no need to free.
+    RuntimeProfile::Counter* c = parent_operator_profile->add_counter(
+            fmt::format("RF{} InputRows", filter_id), TUnit::UNIT, "RuntimeFilterInfo", 1);
+    c->update(_rf_input->value());
+
+    c = parent_operator_profile->add_counter(fmt::format("RF{} FilterRows", filter_id), TUnit::UNIT,
+                                             "RuntimeFilterInfo", 1);
+    c->update(_rf_filter->value());
+    c = parent_operator_profile->add_counter(fmt::format("RF{} WaitTime", filter_id),
+                                             TUnit::TIME_NS, "RuntimeFilterInfo", 2);
+    c->update(_wait_timer->value());
+
+    c = parent_operator_profile->add_counter(fmt::format("RF{} AlwaysTrueFilterRows", filter_id),
+                                             TUnit::UNIT, "RuntimeFilterInfo", 2);
+    c->update(_always_true_counter->value());
 }
 
 } // namespace doris

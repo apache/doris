@@ -21,6 +21,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "runtime/query_context.h"
 #include "runtime_filter/runtime_filter_definitions.h"
 #include "runtime_filter/runtime_filter_wrapper.h"
 #include "runtime_filter/utils.h"
@@ -45,11 +46,13 @@ public:
 
     template <class T>
     Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         return _wrapper->assign(request, data);
     }
 
     template <class T>
     Status serialize(T* request, void** data, int* len) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         auto real_runtime_filter_type = _wrapper->get_real_type();
 
         request->set_filter_type(get_type(real_runtime_filter_type));
@@ -57,7 +60,6 @@ public:
 
         auto state = _wrapper->get_state();
         if (state != RuntimeFilterWrapper::State::READY) {
-            request->set_ignored(state == RuntimeFilterWrapper::State::IGNORED);
             request->set_disabled(state == RuntimeFilterWrapper::State::DISABLED);
             return Status::OK();
         }
@@ -81,17 +83,13 @@ public:
         return Status::OK();
     }
 
-    virtual std::string debug_string() const = 0;
-    std::shared_ptr<RuntimeFilterWrapper> wrapper() const { return _wrapper; }
-    void set_wrapper(std::shared_ptr<RuntimeFilterWrapper> wrapper) { _wrapper = wrapper; }
+    virtual std::string debug_string() = 0;
 
 protected:
-    RuntimeFilter(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc)
-            : _state(state),
-              _has_remote_target(desc->has_remote_targets),
+    RuntimeFilter(const TRuntimeFilterDesc* desc)
+            : _has_remote_target(desc->has_remote_targets),
               _runtime_filter_type(get_runtime_filter_type(desc)) {
         DCHECK_NE(desc->has_remote_targets, desc->has_local_targets);
-        DCHECK_NE(state, nullptr);
     }
 
     virtual Status _init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options);
@@ -108,28 +106,22 @@ protected:
 
     std::string _debug_string() const;
 
-    void _check_wrapper_state(std::vector<RuntimeFilterWrapper::State> assumed_states) {
-        try {
-            _wrapper->check_state(assumed_states);
-        } catch (const Exception& e) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "rf wrapper meet invalid state, {}, {}",
-                            e.what(), debug_string());
-        }
-    }
+    void _check_wrapper_state(std::vector<RuntimeFilterWrapper::State> assumed_states);
 
-    RuntimeFilterParamsContext* _state = nullptr;
     // _wrapper is a runtime filter function wrapper
     std::shared_ptr<RuntimeFilterWrapper> _wrapper;
 
     // will apply to remote node
-    bool _has_remote_target;
+    bool _has_remote_target = false;
 
     // runtime filter type
-    RuntimeFilterType _runtime_filter_type;
+    RuntimeFilterType _runtime_filter_type = RuntimeFilterType::UNKNOWN_FILTER;
 
     friend class RuntimeFilterProducer;
     friend class RuntimeFilterConsumer;
     friend class RuntimeFilterMerger;
+
+    std::recursive_mutex _rmtx; // lock all member function of runtime filter producer/consumer
 };
 #include "common/compile_check_end.h"
 } // namespace doris

@@ -45,6 +45,7 @@
 #include "io/fs/s3_file_writer.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -107,7 +108,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         return Status::InvalidArgument("failed to init s3 client with conf {}", conf.to_string());
     }
 
-    LOG(INFO) << "reset s3 client with new conf: " << conf.to_string();
+    LOG(WARNING) << "reset s3 client with new conf: " << conf.to_string();
 
     {
         std::lock_guard lock(_mtx);
@@ -357,6 +358,7 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
     std::vector<FileWriterPtr> obj_writers(local_files.size());
 
     auto upload_task = [&, this](size_t idx) {
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->s3_file_buffer_tracker());
         const auto& local_file = local_files[idx];
         const auto& remote_file = remote_files[idx];
         auto& obj_writer = obj_writers[idx];

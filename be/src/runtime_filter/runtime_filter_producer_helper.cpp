@@ -17,6 +17,8 @@
 
 #include "runtime_filter/runtime_filter_producer_helper.h"
 
+#include <gen_cpp/Metrics_types.h>
+
 #include "pipeline/pipeline_task.h"
 #include "runtime_filter/runtime_filter_wrapper.h"
 
@@ -36,8 +38,8 @@ Status RuntimeFilterProducerHelper::init(
         const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
     _producers.resize(runtime_filter_descs.size());
     for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->register_producer_runtime_filter(runtime_filter_descs[i],
-                                                                &_producers[i], _profile.get()));
+        RETURN_IF_ERROR(
+                state->register_producer_runtime_filter(runtime_filter_descs[i], &_producers[i]));
     }
     _init_expr(build_expr_ctxs, runtime_filter_descs);
     return Status::OK();
@@ -45,12 +47,15 @@ Status RuntimeFilterProducerHelper::init(
 
 Status RuntimeFilterProducerHelper::send_filter_size(
         RuntimeState* state, uint64_t hash_table_size,
-        std::shared_ptr<pipeline::CountedFinishDependency> dependency) {
+        const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
     if (_skip_runtime_filters_process) {
         return Status::OK();
     }
     for (const auto& filter : _producers) {
-        RETURN_IF_ERROR(filter->send_size(state, hash_table_size, dependency));
+        filter->latch_dependency(dependency);
+    }
+    for (const auto& filter : _producers) {
+        RETURN_IF_ERROR(filter->send_size(state, hash_table_size));
     }
     return Status::OK();
 }
@@ -65,7 +70,7 @@ Status RuntimeFilterProducerHelper::_init_filters(RuntimeState* state,
 }
 
 Status RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size_t start) {
-    SCOPED_TIMER(_runtime_filter_compute_timer);
+    SCOPED_TIMER(_runtime_filter_compute_timer.get());
     for (int i = 0; i < _producers.size(); i++) {
         auto filter = _producers[i];
         int result_column_id = _filter_expr_contexts[i]->get_last_result_column_id();
@@ -77,7 +82,7 @@ Status RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size
 }
 
 Status RuntimeFilterProducerHelper::_publish(RuntimeState* state) {
-    SCOPED_TIMER(_publish_runtime_filter_timer);
+    SCOPED_TIMER(_publish_runtime_filter_timer.get());
     for (const auto& filter : _producers) {
         RETURN_IF_ERROR(filter->publish(state, _should_build_hash_table));
     }
@@ -123,7 +128,7 @@ Status RuntimeFilterProducerHelper::terminate(RuntimeState* state) {
     }
 
     for (const auto& filter : _producers) {
-        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::IGNORED);
+        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
     }
 
     RETURN_IF_ERROR(_publish(state));
@@ -139,7 +144,9 @@ Status RuntimeFilterProducerHelper::publish(RuntimeState* state) {
 }
 
 Status RuntimeFilterProducerHelper::skip_process(RuntimeState* state) {
-    RETURN_IF_ERROR(send_filter_size(state, 0, nullptr));
+    auto mocked_dependency =
+            std::make_shared<pipeline::CountedFinishDependency>(0, 0, "MOCKED_FINISH_DEPENDENCY");
+    RETURN_IF_ERROR(send_filter_size(state, 0, mocked_dependency));
 
     for (const auto& filter : _producers) {
         filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED,
@@ -148,8 +155,30 @@ Status RuntimeFilterProducerHelper::skip_process(RuntimeState* state) {
 
     RETURN_IF_ERROR(publish(state));
     _skip_runtime_filters_process = true;
-    _profile->add_info_string("SkipProcess", "True");
     return Status::OK();
+}
+
+void RuntimeFilterProducerHelper::collect_realtime_profile(
+        RuntimeProfile* parent_operator_profile) {
+    DCHECK(parent_operator_profile != nullptr);
+    if (parent_operator_profile == nullptr) {
+        return;
+    }
+
+    parent_operator_profile->add_counter_with_level("RuntimeFilterInfo", TUnit::NONE, 1);
+    RuntimeProfile::Counter* publish_timer = parent_operator_profile->add_counter(
+            "PublishTime", TUnit::TIME_NS, "RuntimeFilterInfo", 1);
+    RuntimeProfile::Counter* build_timer = parent_operator_profile->add_counter(
+            "BuildTime", TUnit::TIME_NS, "RuntimeFilterInfo", 1);
+
+    parent_operator_profile->add_description(
+            "SkipProcess", _skip_runtime_filters_process ? "True" : "False", "RuntimeFilterInfo");
+    publish_timer->set(_publish_runtime_filter_timer->value());
+    build_timer->set(_runtime_filter_compute_timer->value());
+
+    for (auto& producer : _producers) {
+        producer->collect_realtime_profile(parent_operator_profile);
+    }
 }
 
 } // namespace doris

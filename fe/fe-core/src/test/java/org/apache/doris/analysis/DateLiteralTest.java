@@ -35,9 +35,9 @@ public class DateLiteralTest {
     @Test
     public void testGetStringInFe() throws AnalysisException {
         DateLiteral literal = new DateLiteral("1997-10-07", Type.DATE);
-        String s = literal.getStringValueInFe(FormatOptions.getDefault());
+        String s = literal.getStringValueForQuery(FormatOptions.getDefault());
         Assert.assertEquals(s, "1997-10-07");
-        Assert.assertEquals(literal.getStringValueInFe(FormatOptions.getForPresto()), "1997-10-07");
+        Assert.assertEquals(literal.getStringValueForQuery(FormatOptions.getForPresto()), "1997-10-07");
     }
 
     @Test

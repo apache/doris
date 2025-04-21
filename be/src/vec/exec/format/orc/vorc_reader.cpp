@@ -1062,12 +1062,25 @@ Status OrcReader::set_fill_columns(
         visit_slot(conjunct->root().get());
     }
 
+    if (_is_acid) {
+        _lazy_read_ctx.predicate_orc_columns.insert(
+                _lazy_read_ctx.predicate_orc_columns.end(),
+                TransactionalHive::READ_ROW_COLUMN_NAMES.begin(),
+                TransactionalHive::READ_ROW_COLUMN_NAMES.end());
+    }
+
     for (auto& read_col : _read_cols_lower_case) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_col);
         if (!predicate_columns.empty()) {
             auto iter = predicate_columns.find(read_col);
             if (iter == predicate_columns.end()) {
-                _lazy_read_ctx.lazy_read_columns.emplace_back(read_col);
+                if (!_is_acid ||
+                    std::find(TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
+                              TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end(),
+                              read_col) ==
+                            TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end()) {
+                    _lazy_read_ctx.lazy_read_columns.emplace_back(read_col);
+                }
             } else {
                 _lazy_read_ctx.predicate_columns.first.emplace_back(iter->first);
                 _lazy_read_ctx.predicate_columns.second.emplace_back(iter->second.second);
@@ -1119,13 +1132,15 @@ Status OrcReader::set_fill_columns(
         }
     }
 
-    if (!_has_complex_type && _enable_lazy_mat && !_lazy_read_ctx.predicate_columns.first.empty() &&
+    if (_enable_lazy_mat && !_lazy_read_ctx.predicate_columns.first.empty() &&
         !_lazy_read_ctx.lazy_read_columns.empty()) {
         _lazy_read_ctx.can_lazy_read = true;
     }
 
-    if (_lazy_read_ctx.conjuncts.empty() || !_init_search_argument(_lazy_read_ctx.conjuncts)) {
+    if (_lazy_read_ctx.conjuncts.empty()) {
         _lazy_read_ctx.can_lazy_read = false;
+    } else {
+        _init_search_argument(_lazy_read_ctx.conjuncts);
     }
     try {
         _row_reader_options.range(_range_start_offset, _range_size);
@@ -1709,7 +1724,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                         ->get_nested_type());
         const orc::Type* nested_orc_type = orc_column_type->getSubtype(0);
         std::string element_name = col_name + ".element";
-        return _orc_column_to_doris_column<is_filter>(
+        return _orc_column_to_doris_column<false>(
                 element_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
                 nested_orc_type, orc_list->elements.get(), element_size);
     }
@@ -1735,12 +1750,12 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         std::string key_col_name = col_name + ".key";
         std::string value_col_name = col_name + ".value";
-        RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(key_col_name, doris_key_column,
-                                                               doris_key_type, orc_key_type,
-                                                               orc_map->keys.get(), element_size));
-        return _orc_column_to_doris_column<is_filter>(value_col_name, doris_value_column,
-                                                      doris_value_type, orc_value_type,
-                                                      orc_map->elements.get(), element_size);
+        RETURN_IF_ERROR(_orc_column_to_doris_column<false>(key_col_name, doris_key_column,
+                                                           doris_key_type, orc_key_type,
+                                                           orc_map->keys.get(), element_size));
+        return _orc_column_to_doris_column<false>(value_col_name, doris_value_column,
+                                                  doris_value_type, orc_value_type,
+                                                  orc_map->elements.get(), element_size);
     }
     case TypeIndex::Struct: {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
