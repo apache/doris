@@ -59,17 +59,19 @@ public class ConnectionExceedTest {
         ConnectScheduler scheduler = new ConnectScheduler(2);
 
         // Setup expectations
-        new Expectations() {{
-            mockEnv.getAuth();
-            result = mockAuth;
+        new Expectations() {
+            {
+                mockEnv.getAuth();
+                result = mockAuth;
 
-            mockAuth.getMaxConn("test_user");
-            result = 2;
+                mockAuth.getMaxConn("test_user");
+                result = 2;
 
-            // Mock MysqlProto.negotiate to return true to simulate successful authentication
-            MysqlProto.negotiate((ConnectContext) any);
-            result = true;
-        }};
+                // Mock MysqlProto.negotiate to return true to simulate successful authentication
+                MysqlProto.negotiate((ConnectContext) any);
+                result = true;
+            }
+        };
 
         // Create first context and register
         ConnectContext context1 = new ConnectContext();
@@ -109,28 +111,29 @@ public class ConnectionExceedTest {
         ConnectScheduler scheduler = new ConnectScheduler(2);
 
         // Setup expectations
-        new Expectations() {{
-            mockEnv.getAuth();
-            result = mockAuth;
+        new Expectations() {
+            {
+                mockEnv.getAuth();
+                result = mockAuth;
+                mockAuth.getMaxConn("test_user");
+                result = 2;
 
-            mockAuth.getMaxConn("test_user");
-            result = 2;
+                mockExecuteEnv.getScheduler();
+                result = scheduler;
 
-            mockExecuteEnv.getScheduler();
-            result = scheduler;
-
-            UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
-            FlightTokenDetails tokenDetails = new FlightTokenDetails(
-                    "test_token",
-                    "test_user",
-                    System.currentTimeMillis(),
-                    System.currentTimeMillis() + 3600000, // expires in 1 hour
-                    userIdentity,
-                    "127.0.0.1"
-            );
-            mockTokenManager.validateToken("test_token");
-            result = tokenDetails;
-        }};
+                UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+                FlightTokenDetails tokenDetails = new FlightTokenDetails(
+                        "test_token",
+                        "test_user",
+                        System.currentTimeMillis(),
+                        System.currentTimeMillis() + 3600000, // expires in 1 hour
+                        userIdentity,
+                        "127.0.0.1"
+                );
+                mockTokenManager.validateToken("test_token");
+                result = tokenDetails;
+            }
+        };
 
         // Create first context and register
         ConnectContext context1 = new ConnectContext();
