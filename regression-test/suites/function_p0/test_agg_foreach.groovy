@@ -83,6 +83,8 @@ suite("test_agg_foreach") {
    select count_foreach(a)  , count_by_enum_foreach(a)  , approx_count_distinct_foreach(a) from foreach_table;
    """
 
+   qt_sql """select array_agg_foreach(s) from foreach_table;"""
+
    test {
         sql """select array_agg_foreach(b) from foreach_table;"""
         exception "not support"

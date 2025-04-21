@@ -540,11 +540,32 @@ struct AggregateFunctionArrayAggData<StringRef> {
     }
 
     void write(BufferWritable& buf) const {
-        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support write");
+        const size_t size = null_map->size();
+        write_binary(size, buf);
+        for (size_t i = 0; i < size; i++) {
+            write_binary(null_map->data()[i], buf);
+        }
+        for (size_t i = 0; i < size; i++) {
+            write_string_binary(nested_column->get_data_at(i), buf);
+        }
     }
 
     void read(BufferReadable& buf) {
-        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support read");
+        DCHECK(null_map);
+        DCHECK(null_map->empty());
+        size_t size = 0;
+        read_binary(size, buf);
+        null_map->resize(size);
+        nested_column->reserve(size);
+        for (size_t i = 0; i < size; i++) {
+            read_binary(null_map->data()[i], buf);
+        }
+
+        StringRef s;
+        for (size_t i = 0; i < size; i++) {
+            read_string_binary(s, buf);
+            nested_column->insert_data(s.data, s.size);
+        }
     }
 
     void merge(const Self& rhs) {
@@ -606,10 +627,7 @@ struct AggregateFunctionArrayAggData<void> {
     }
 
     void merge(const Self& rhs) {
-        const auto size = rhs.column_data->size();
-        for (size_t i = 0; i < size; i++) {
-            column_data->insert_from(*rhs.column_data, i);
-        }
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "array_agg not support merge");
     }
 };
 
@@ -622,6 +640,10 @@ class AggregateFunctionCollect
     using GenericType = AggregateFunctionCollectSetData<StringRef, HasLimit>;
 
     static constexpr bool ENABLE_ARENA = std::is_same_v<Data, GenericType>;
+    static constexpr bool CREATE_NEED_ARG =
+            (ShowNull::value && (IsDecimalNumber<typename Data::ElementType> ||
+                                 std::is_same_v<Data, AggregateFunctionArrayAggData<void>>)) ||
+            std::is_same_v<Data, AggregateFunctionCollectListData<void, HasLimit>>;
 
 public:
     using BaseHelper = IAggregateFunctionHelper<AggregateFunctionCollect<Data, HasLimit, ShowNull>>;
@@ -646,19 +668,10 @@ public:
     }
 
     void create(AggregateDataPtr __restrict place) const override {
-        if constexpr (ShowNull::value) {
-            if constexpr (IsDecimalNumber<typename Data::ElementType> ||
-                          std::is_same_v<Data, AggregateFunctionArrayAggData<void>>) {
-                new (place) Data(argument_types);
-            } else {
-                new (place) Data();
-            }
+        if constexpr (CREATE_NEED_ARG) {
+            new (place) Data(argument_types);
         } else {
-            if constexpr (std::is_same_v<Data, AggregateFunctionCollectListData<void, HasLimit>>) {
-                new (place) Data(argument_types);
-            } else {
-                new (place) Data();
-            }
+            new (place) Data();
         }
     }
 
