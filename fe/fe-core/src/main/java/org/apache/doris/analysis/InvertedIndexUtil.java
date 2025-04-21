@@ -58,10 +58,18 @@ public class InvertedIndexUtil {
 
     public static String INVERTED_INDEX_DICT_COMPRESSION_KEY = "dict_compression";
 
+    public static String INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY = "field_pattern";
+
     public static String getInvertedIndexParser(Map<String, String> properties) {
         String parser = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_KEY);
         // default is "none" if not set
         return parser != null ? parser : INVERTED_INDEX_PARSER_NONE;
+    }
+
+    public static String getInvertedIndexFieldPattern(Map<String, String> properties) {
+        String fieldPattern = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY);
+        // default is "none" if not set
+        return fieldPattern != null ? fieldPattern : "";
     }
 
     public static String getInvertedIndexParserMode(Map<String, String> properties) {
@@ -165,7 +173,8 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY,
                 INVERTED_INDEX_PARSER_LOWERCASE_KEY,
                 INVERTED_INDEX_PARSER_STOPWORDS_KEY,
-                INVERTED_INDEX_DICT_COMPRESSION_KEY
+                INVERTED_INDEX_DICT_COMPRESSION_KEY,
+                INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY
         ));
 
         for (String key : properties.keySet()) {

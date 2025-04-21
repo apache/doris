@@ -234,7 +234,15 @@ bool ColumnReader::is_compaction_reader_type(ReaderType type) {
 
 const SubcolumnColumnReaders::Node* VariantColumnReader::get_reader_by_path(
         const vectorized::PathInData& relative_path) const {
-    return _subcolumn_readers->find_leaf(relative_path);
+    const auto* node = _subcolumn_readers->find_leaf(relative_path);
+    if (node) {
+        return node;
+    }
+    // try rebuild path with hierarchical
+    // example path(['a.b']) -> path(['a', 'b'])
+    auto path = vectorized::PathInData(relative_path.get_path());
+    node = _subcolumn_readers->find_leaf(path);
+    return node;
 }
 
 bool VariantColumnReader::exist_in_sparse_column(
@@ -322,12 +330,11 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIterator** iterato
         }
     }
     VLOG_DEBUG << "subcolumns to merge " << src_subcolumns_for_sparse.size();
-
     // Create sparse column merge reader
-    *iterator = new SparseColumnMergeReader(path_set_info.sub_path_set,
-                                            std::unique_ptr<ColumnIterator>(inner_iter),
-                                            std::move(src_subcolumns_for_sparse),
-                                            const_cast<StorageReadOptions*>(opts), target_col);
+    *iterator =
+            new SparseColumnMergeReader(path_set_info, std::unique_ptr<ColumnIterator>(inner_iter),
+                                        std::move(src_subcolumns_for_sparse),
+                                        const_cast<StorageReadOptions*>(opts), target_col);
     return Status::OK();
 }
 
@@ -425,6 +432,13 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
     const auto* node =
             target_col.has_path_info() ? _subcolumn_readers->find_exact(relative_path) : nullptr;
 
+    // try rebuild path with hierarchical
+    // example path(['a.b']) -> path(['a', 'b'])
+    if (node == nullptr) {
+        relative_path = vectorized::PathInData(relative_path.get_path());
+        node = _subcolumn_readers->find_exact(relative_path);
+    }
+
     // Check if path exist in sparse column
     bool existed_in_sparse_column =
             !_statistics->sparse_column_non_null_size.empty() &&
@@ -505,6 +519,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     _subcolumn_readers = std::make_unique<SubcolumnColumnReaders>();
     _statistics = std::make_unique<VariantStatistics>();
     const ColumnMetaPB& self_column_pb = footer.columns(column_id);
+    const auto* parent_index = opts.tablet_schema->inverted_index(self_column_pb.unique_id());
     for (const ColumnMetaPB& column_pb : footer.columns()) {
         // Find all columns belonging to the current variant column
         // 1. not the variant column
@@ -570,12 +585,20 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
             }
             _subcolumn_readers->add(relative_path,
                                     SubcolumnReader {std::move(reader), get_data_type_fn()});
-            // init TabletIndex for subcolumns
-            if (opts.inverted_index) {
+            TabletSchema::SubColumnInfo sub_column_info;
+            if (vectorized::schema_util::generate_sub_column_info(
+                        *opts.tablet_schema, self_column_pb.unique_id(), relative_path.get_path(),
+                        &sub_column_info) &&
+                sub_column_info.index != nullptr) {
+                const auto* index_meta = sub_column_info.index.get();
+                DCHECK(index_meta != nullptr);
+                auto subcolumn_index = std::make_unique<TabletIndex>(*index_meta);
+                _variant_subcolumns_indexes.emplace(path.get_path(), std::move(subcolumn_index));
+            } else if (parent_index) {
                 const auto& suffix_path = path.get_path();
                 auto it = _variant_subcolumns_indexes.find(suffix_path);
                 if (it == _variant_subcolumns_indexes.end()) {
-                    auto subcolumn_index = std::make_unique<TabletIndex>(*opts.inverted_index);
+                    auto subcolumn_index = std::make_unique<TabletIndex>(*parent_index);
                     subcolumn_index->set_escaped_escaped_index_suffix_path(suffix_path);
                     _variant_subcolumns_indexes.emplace(suffix_path, std::move(subcolumn_index));
                 } else {
@@ -599,6 +622,16 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
 TabletIndex* VariantColumnReader::find_subcolumn_tablet_index(const std::string& path) {
     auto it = _variant_subcolumns_indexes.find(path);
     return it == _variant_subcolumns_indexes.end() ? nullptr : it->second.get();
+}
+
+std::vector<std::string> VariantColumnReader::get_typed_paths() const {
+    std::vector<std::string> typed_paths;
+    for (const auto& entry : *_subcolumn_readers) {
+        if (entry->path.get_is_typed()) {
+            typed_paths.push_back(entry->path.get_path());
+        }
+    }
+    return typed_paths;
 }
 
 Status ColumnReader::create_variant(const ColumnReaderOptions& opts, const SegmentFooterPB& footer,

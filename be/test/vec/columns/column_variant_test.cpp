@@ -1869,8 +1869,8 @@ TEST_F(ColumnObjectTest, get_field_info_all_types) {
     // Test VariantMap
     {
         VariantMap variant_map;
-        variant_map["key1"] = Int64(1);
-        variant_map["key2"] = String("value");
+        variant_map[PathInData("key1")] = Int64(1);
+        variant_map[PathInData("key2")] = String("value");
         Field field(variant_map);
         FieldInfo info;
         schema_util::get_field_info(field, &info);

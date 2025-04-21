@@ -157,6 +157,8 @@ message ColumnPathInfo {
     optional bool has_nested = 3;
     // The original parent variant's unique id, used to distinguish from different variants
     optional uint32 parrent_column_unique_id = 4;
+    // is_typed flags if the subcolumn is assigned specific types
+    optional bool is_typed = 5;
 }
 
 message VariantStatisticsPB {
@@ -204,7 +206,7 @@ message ColumnMetaPB {
     optional int32 be_exec_version = 20; // used on agg_state type
     optional VariantStatisticsPB variant_statistics = 21; // only used in variant type
     optional int32 variant_max_subcolumns_count = 22 [default = 0];
-    optional uint32 none_null_size = 23;
+    optional uint64 none_null_size = 23;
 }
 
 message PrimaryKeyIndexMetaPB {

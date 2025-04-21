@@ -299,13 +299,17 @@ private:
 // Implementation for merge processor
 class SparseColumnMergeReader : public BaseSparseColumnProcessor {
 public:
-    SparseColumnMergeReader(const TabletSchema::PathSet& path_map,
+    SparseColumnMergeReader(const TabletSchema::PathsSetInfo& path_set_info,
                             std::unique_ptr<ColumnIterator>&& sparse_column_reader,
                             SubstreamReaderTree&& src_subcolumns_for_sparse,
                             StorageReadOptions* opts, const TabletColumn& col)
             : BaseSparseColumnProcessor(std::move(sparse_column_reader), opts, col),
-              _src_subcolumn_map(path_map),
-              _src_subcolumns_for_sparse(src_subcolumns_for_sparse) {}
+              _src_subcolumn_map(path_set_info.sub_path_set),
+              _src_subcolumns_for_sparse(src_subcolumns_for_sparse) {
+        for (const auto& [path, _] : path_set_info.typed_path_set) {
+            _src_subcolumn_map.emplace(path);
+        }
+    }
     Status init(const ColumnIteratorOptions& opts) override;
 
     // Batch processing using template method
@@ -355,7 +359,7 @@ private:
     }
 
     // subcolumns in src tablet schema, which will be filtered
-    const TabletSchema::PathSet& _src_subcolumn_map;
+    TabletSchema::PathSet _src_subcolumn_map;
     // subcolumns to merge to sparse column
     SubstreamReaderTree _src_subcolumns_for_sparse;
     std::vector<std::pair<StringRef, std::shared_ptr<SubstreamReaderTree::Node>>>

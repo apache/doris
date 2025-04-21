@@ -288,6 +288,8 @@ public:
         return _max_version_schema;
     }
 
+    TabletSchemaSPtr calculate_variant_extended_schema() const;
+
     void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
                           bool include_stale = false) {
         std::shared_lock rlock(_meta_lock);
