@@ -39,7 +39,7 @@ suite("test_open_csv_serde","p0,external,tvf,hive,external_docker,external_docke
         );"""
         sql """use `${catalog_name}`.`multi_catalog`"""
 
-        qt_csv_escape_quote_in_enclose """select * from csv_json_table order by trace_id;"""
+        qt_csv_escape_quote_in_enclose """select * from csv_json_table_simple order by id;"""
         // TODO: add more case after refactor csv_reader and text_reader
     }
 }

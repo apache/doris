@@ -21,19 +21,14 @@ STORED AS TEXTFILE
 LOCATION '/user/doris/preinstalled_data/text/text_table_compressed_skip_header'
 TBLPROPERTIES ("skip.header.line.count"="5");
 
-CREATE TABLE csv_json_table(
-  trace_id string, 
-  loan_account_id string, 
-  name string, 
-  mobile_number string, 
-  identity_number string, 
-  status_desc string, 
-  status string, 
-  status_json string)
+CREATE TABLE csv_json_table_simple (
+  id STRING,
+  status_json STRING
+)
 ROW FORMAT SERDE 
   'org.apache.hadoop.hive.serde2.OpenCSVSerde'
 STORED AS TEXTFILE
-LOCATION '/user/doris/preinstalled_data/csv/csv_json_table';
+LOCATION '/user/doris/preinstalled_data/csv/csv_json_table_simple';
 
 create database if not exists openx_json;
 use openx_json;
