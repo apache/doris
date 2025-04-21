@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.cost;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -29,12 +30,15 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.stats.HboPlanStatisticsProvider;
+import org.apache.doris.nereids.stats.HboUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
@@ -62,13 +66,18 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.hbo.PlanStatistics;
+import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -77,8 +86,10 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     // The cost of using external tables should be somewhat higher than using internal tables,
     // so when encountering a scan of an external table, a coefficient should be applied.
     static final double EXTERNAL_TABLE_SCAN_FACTOR = 5;
+    private static final Logger LOG = LogManager.getLogger(CostModelV1.class);
     private final int beNumber;
     private final int parallelInstance;
+    private final HboPlanStatisticsProvider hboPlanStatisticsProvider;
 
     public CostModelV1(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
@@ -90,6 +101,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             beNumber = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
             parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
         }
+        this.hboPlanStatisticsProvider = Objects.requireNonNull(Env.getCurrentEnv().getHboPlanStatisticsManager()
+                .getHboPlanStatisticsProvider(), "HboPlanStatisticsProvider is null");
     }
 
     public static Cost addChildCost(SessionVariable sessionVariable, Cost planCost, Cost childCost) {
@@ -468,6 +481,33 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
                 }
             }
+
+            // hbo to adjust bc cost parameter to reduce bc cost
+            if (context.getSessionVariable() != null
+                    && context.getSessionVariable().isEnableHboOptimization()
+                    && context.getSessionVariable().isEnableHboInfoCollection()) {
+                PlanNodeAndHash planNodeAndHash = null;
+                try {
+                    planNodeAndHash = HboUtils.getPlanNodeHash(physicalHashJoin);
+                } catch (IllegalStateException e) {
+                    LOG.warn("failed to get plan node hash", e);
+                }
+                if (planNodeAndHash != null) {
+                    RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboPlanStats(
+                            planNodeAndHash);
+                    PlanStatistics matchedPlanStatistics = HboUtils.getMatchedPlanStatistics(planStatistics,
+                            context.getStatementContext().getConnectContext());
+                    if (matchedPlanStatistics != null) {
+                        int builderSkewRatio = matchedPlanStatistics.getJoinBuilderSkewRatio();
+                        int probeSkewRatio = matchedPlanStatistics.getJoinProbeSkewRatio();
+                        int hboSkewRatioThreshold = context.getSessionVariable().getHboSkewRatioThreshold();
+                        if (builderSkewRatio >= hboSkewRatioThreshold || probeSkewRatio >= hboSkewRatioThreshold) {
+                            probeShortcutFactor = probeShortcutFactor * 0.1;
+                        }
+                    }
+                }
+            }
+
             return CostV1.of(context.getSessionVariable(),
                     leftRowCount * probeShortcutFactor + rightRowCount * probeShortcutFactor * buildSideFactor
                             + outputRowCount * probeSideFactor,
