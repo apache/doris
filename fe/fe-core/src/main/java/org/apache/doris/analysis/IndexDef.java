@@ -17,9 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -214,6 +216,19 @@ public class IndexDef {
         return (this.indexType == IndexType.INVERTED);
     }
 
+    // Check if the column type is supported for inverted index
+    public boolean isSupportIdxType(Type colType) {
+        if (colType.isArrayType()) {
+            Type itemType = ((ArrayType) colType).getItemType();
+            return isSupportIdxType(itemType);
+        }
+        PrimitiveType primitiveType = colType.getPrimitiveType();
+        return primitiveType.isDateType() || primitiveType.isDecimalV2Type() || primitiveType.isDecimalV3Type()
+                || primitiveType.isFixedPointType() || primitiveType.isStringType()
+                || primitiveType == PrimitiveType.BOOLEAN
+                || primitiveType.isVariantType() || primitiveType.isIPType();
+    }
+
     public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
@@ -221,9 +236,8 @@ public class IndexDef {
             String indexColName = column.getName();
             caseSensitivityColumns.add(indexColName);
             PrimitiveType colType = column.getDataType();
-            if (!(colType.isDateType() || colType.isDecimalV2Type() || colType.isDecimalV3Type()
-                    || colType.isFixedPointType() || colType.isStringType() || colType == PrimitiveType.BOOLEAN
-                    || colType.isVariantType() || colType.isIPType() || colType.isArrayType())) {
+            Type columnType = column.getType();
+            if (!isSupportIdxType(columnType)) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid index: " + indexName);
             }
