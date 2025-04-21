@@ -666,7 +666,6 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
     }
 }
 
-
 void process_compaction_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                             std::unique_ptr<Transaction>& txn,
                             const FinishTabletJobRequest* request,
