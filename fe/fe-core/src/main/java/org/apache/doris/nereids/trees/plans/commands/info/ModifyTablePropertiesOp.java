@@ -373,7 +373,7 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             throw new AnalysisException("You can not modify storage_page_size");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
             this.needTableStable = false;
-            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
