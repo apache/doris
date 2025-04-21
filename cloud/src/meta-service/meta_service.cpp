@@ -76,6 +76,7 @@ MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
     rate_limiter_ = rate_limiter;
     rate_limiter_->init(this);
     txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_);
+    init_delete_bitmap_update_lock_version_white_list();
 }
 
 MetaServiceImpl::~MetaServiceImpl() = default;
@@ -196,6 +197,17 @@ void get_tablet_idx(MetaServiceCode& code, std::string& msg, Transaction* txn,
         LOG(WARNING) << "unexpected error given_tablet_id=" << tablet_id
                      << " idx_pb_tablet_id=" << tablet_idx.tablet_id() << " key=" << hex(key);
         return;
+    }
+}
+
+void MetaServiceImpl::init_delete_bitmap_update_lock_version_white_list() {
+    std::string white_list = config::delete_bitmap_lock_version_white_list;
+    if (!white_list.empty()) {
+        auto white_list_vector = split(white_list, ',');
+        for (auto& item : white_list_vector) {
+            auto v = split(item, ':');
+            lock_version_white_list.insert({v[0], v[1]});
+        }
     }
 }
 
@@ -1811,7 +1823,7 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
     }
     return true;
 }
-static bool use_new_version_random() {
+bool MetaServiceImpl::use_new_version_random() {
     std::mt19937 gen {std::random_device {}()};
     auto p = 0.5;
     std::bernoulli_distribution inject_fault {p};
@@ -1819,6 +1831,19 @@ static bool use_new_version_random() {
         return true;
     }
     return false;
+}
+
+void MetaServiceImpl::check_version(
+        std::string& use_version, std::string& instance_id,
+        std::unordered_map<std::string, std::string>& lock_version_white_list) {
+    if (config::use_delete_bitmap_lock_random_version && !use_new_version_random()) {
+        use_version = "v1";
+        return;
+    }
+    auto it = lock_version_white_list.find(instance_id);
+    if (it != lock_version_white_list.end()) {
+        use_version = it->second;
+    }
 }
 
 static bool remove_pending_delete_bitmap(MetaServiceCode& code, std::string& msg,
@@ -1963,9 +1988,6 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                                            UpdateDeleteBitmapResponse* response,
                                            ::google::protobuf::Closure* done) {
     std::string use_version = config::use_delete_bitmap_lock_version;
-    if (config::use_delete_bitmap_lock_random_version && !use_new_version_random()) {
-        use_version = "v1";
-    }
     RPC_PREPROCESS(update_delete_bitmap);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
@@ -1981,6 +2003,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
+    check_version(use_version, instance_id, lock_version_white_list);
     RPC_RATE_LIMIT(update_delete_bitmap)
 
     uint64_t fdb_txn_size = 0;
@@ -2432,26 +2455,10 @@ static bool put_delete_bitmap_update_lock_key(MetaServiceCode& code, std::string
 void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
         google::protobuf::RpcController* controller,
         const GetDeleteBitmapUpdateLockRequest* request,
-        GetDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done) {
+        GetDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
+        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss) {
     VLOG_DEBUG << "get delete bitmap update lock in v2 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
-    RPC_PREPROCESS(get_delete_bitmap_update_lock);
-    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
-    if (cloud_unique_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "cloud unique id not set";
-        return;
-    }
-
-    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
-    if (instance_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
-        return;
-    }
-
-    RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
     auto table_id = request->table_id();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     bool first_retry = true;
@@ -2774,25 +2781,10 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
 void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         google::protobuf::RpcController* controller,
         const GetDeleteBitmapUpdateLockRequest* request,
-        GetDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done) {
+        GetDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
+        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss) {
     VLOG_DEBUG << "get delete bitmap update lock in v1 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
-    RPC_PREPROCESS(get_delete_bitmap_update_lock);
-    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
-    if (cloud_unique_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "cloud unique id not set";
-        return;
-    }
-    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
-    if (instance_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
-        return;
-    }
-
-    RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -2962,26 +2954,10 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
 void MetaServiceImpl::remove_delete_bitmap_update_lock_v2(
         google::protobuf::RpcController* controller,
         const RemoveDeleteBitmapUpdateLockRequest* request,
-        RemoveDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done) {
+        RemoveDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
+        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss) {
     VLOG_DEBUG << "remove delete bitmap update lock in v2 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
-    RPC_PREPROCESS(remove_delete_bitmap_update_lock);
-    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
-    if (cloud_unique_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "cloud unique id not set";
-        return;
-    }
-
-    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
-    if (instance_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
-        return;
-    }
-
-    RPC_RATE_LIMIT(remove_delete_bitmap_update_lock)
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -3054,24 +3030,10 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v2(
 void MetaServiceImpl::remove_delete_bitmap_update_lock_v1(
         google::protobuf::RpcController* controller,
         const RemoveDeleteBitmapUpdateLockRequest* request,
-        RemoveDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done) {
+        RemoveDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
+        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss) {
     VLOG_DEBUG << "remove delete bitmap update lock in v1 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
-    RPC_PREPROCESS(remove_delete_bitmap_update_lock);
-    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
-    if (cloud_unique_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "cloud unique id not set";
-        return;
-    }
-    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
-    if (instance_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
-        return;
-    }
-    RPC_RATE_LIMIT(remove_delete_bitmap_update_lock)
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -3135,14 +3097,28 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
                                                     const GetDeleteBitmapUpdateLockRequest* request,
                                                     GetDeleteBitmapUpdateLockResponse* response,
                                                     ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_delete_bitmap_update_lock);
     std::string use_version = config::use_delete_bitmap_lock_version;
-    if (config::use_delete_bitmap_lock_random_version && !use_new_version_random()) {
-        use_version = "v1";
+    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
+    if (cloud_unique_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud unique id not set";
+        return;
     }
+    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
+    RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
+    check_version(use_version, instance_id, lock_version_white_list);
     if (use_version == "v2") {
-        get_delete_bitmap_update_lock_v2(controller, request, response, done);
+        get_delete_bitmap_update_lock_v2(controller, request, response, done, instance_id, code,
+                                         msg, ss);
     } else {
-        get_delete_bitmap_update_lock_v1(controller, request, response, done);
+        get_delete_bitmap_update_lock_v1(controller, request, response, done, instance_id, code,
+                                         msg, ss);
     }
 }
 
@@ -3150,14 +3126,28 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
         google::protobuf::RpcController* controller,
         const RemoveDeleteBitmapUpdateLockRequest* request,
         RemoveDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(remove_delete_bitmap_update_lock);
     std::string use_version = config::use_delete_bitmap_lock_version;
-    if (config::use_delete_bitmap_lock_random_version && !use_new_version_random()) {
-        use_version = "v1";
+    std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
+    if (cloud_unique_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud unique id not set";
+        return;
     }
+    instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        return;
+    }
+    RPC_RATE_LIMIT(remove_delete_bitmap_update_lock)
+    check_version(use_version, instance_id, lock_version_white_list);
     if (use_version == "v2") {
-        remove_delete_bitmap_update_lock_v2(controller, request, response, done);
+        remove_delete_bitmap_update_lock_v2(controller, request, response, done, instance_id, code,
+                                            msg, ss);
     } else {
-        remove_delete_bitmap_update_lock_v1(controller, request, response, done);
+        remove_delete_bitmap_update_lock_v1(controller, request, response, done, instance_id, code,
+                                            msg, ss);
     }
 }
 

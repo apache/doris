@@ -152,11 +152,13 @@ void insert_rowsets(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int64_t p
 }
 
 MetaServiceCode get_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id,
-                                       int64_t lock_id, int64_t initor, int64_t expiration = 5) {
+                                       int64_t lock_id, int64_t initor,
+                                       std::string cloud_unique_id = "test_cloud_unique_id",
+                                       int64_t expiration = 5) {
     brpc::Controller cntl;
     GetDeleteBitmapUpdateLockRequest req;
     GetDeleteBitmapUpdateLockResponse res;
-    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_cloud_unique_id(cloud_unique_id);
     req.set_table_id(table_id);
     req.set_expiration(expiration);
     req.set_lock_id(lock_id);
@@ -1090,7 +1092,41 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
     ASSERT_NO_FATAL_FAILURE(test_abort_compaction_job(1, 2, 3, 7));
 }
 
+void check_delete_bitmap_lock(MetaServiceProxy* meta_service, std::string instance_id,
+                              int64_t table_id, int64_t lock_id, bool exist) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+    std::string lock_val;
+    DeleteBitmapUpdateLockPB lock_info;
+    TxnErrorCode err = txn->get(lock_key, &lock_val);
+    if (exist) {
+        ASSERT_TRUE(err == TxnErrorCode::TXN_OK);
+    } else {
+        ASSERT_TRUE(err == TxnErrorCode::TXN_KEY_NOT_FOUND);
+        return;
+    }
+    ASSERT_TRUE(lock_info.ParseFromString(lock_val));
+    ASSERT_TRUE(lock_info.lock_id() == lock_id);
+}
+
+void check_compaction_key(MetaServiceProxy* meta_service, std::string instance_id, int64_t table_id,
+                          int64_t initiator, bool exist) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string tablet_compaction_key =
+            mow_tablet_compaction_key({instance_id, table_id, initiator});
+    std::string tablet_compaction_val;
+    TxnErrorCode err = txn->get(tablet_compaction_key, &tablet_compaction_val);
+    if (exist) {
+        ASSERT_TRUE(err == TxnErrorCode::TXN_OK);
+    } else {
+        ASSERT_TRUE(err == TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+}
+
 TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
+    config::delete_bitmap_lock_version_white_list = "instance_id1:v1,instance_id2:v2";
     auto meta_service = get_meta_service();
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
@@ -1107,7 +1143,8 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     auto test_start_compaction_job = [&](int64_t table_id, int64_t index_id, int64_t partition_id,
                                          int64_t tablet_id,
                                          TabletCompactionJobPB::CompactionType type,
-                                         std::string job_id = "job_id123") {
+                                         std::string job_id = "job_id123",
+                                         std::string instance_id = "MetaServiceJobTest") {
         StartTabletJobResponse res;
 
         auto index_key = meta_tablet_idx_key({instance_id, tablet_id});
@@ -1135,7 +1172,8 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
                                           int64_t tablet_id,
                                           TabletCompactionJobPB::CompactionType type,
                                           int64_t initiator = 12345,
-                                          std::string job_id = "job_id123") {
+                                          std::string job_id = "job_id123",
+                                          std::string instance_id = "MetaServiceJobTest") {
         FinishTabletJobRequest req;
 
         auto compaction = req.mutable_job()->add_compaction();
@@ -1833,6 +1871,7 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         ASSERT_EQ(res_code, MetaServiceCode::OK);
         // 3 sc、load、compaction get and remove lock in new or old way
         bool load_or_sc_succeed = false;
+        bool compaction_succeed = false;
         std::srand(std::time(0));
         for (int i = 0; i < 10; i++) {
             int num = std::rand() % 3;
@@ -1848,7 +1887,8 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
                         load_or_sc_succeed = true;
                     }
                 }
-                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed;
+                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed
+                          << ",compaction_succeed=" << compaction_succeed;
                 break;
             }
             case 1: {
@@ -1859,7 +1899,8 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
                         load_or_sc_succeed = true;
                     }
                 }
-                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed;
+                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed
+                          << ",compaction_succeed=" << compaction_succeed;
                 break;
             }
             case 2: {
@@ -1868,7 +1909,12 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
                     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
                     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE,
                                                6600 + i);
+                    if (res.status().code() == MetaServiceCode::OK) {
+                        compaction_succeed = true;
+                    }
                 }
+                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed
+                          << ",compaction_succeed=" << compaction_succeed;
                 break;
             }
             }
@@ -1883,10 +1929,69 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 2501);
         if (load_or_sc_succeed) {
             ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
-        } else {
-            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
     }
+
+    //white list test
+    std::string instance_id_1 = "instance_id1";
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id_1;
+        ret->second = true;
+    });
+    table_id = 7890;
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    //compaction
+    res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 101);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    check_delete_bitmap_lock(meta_service.get(), instance_id_1, table_id, -1, true);
+    test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, "job_id123",
+                              instance_id_1);
+    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 101, "job_id123",
+                               instance_id_1);
+    check_delete_bitmap_lock(meta_service.get(), instance_id_1, table_id, -1, false);
+
+    std::string instance_id_2 = "instance_id2";
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id_2;
+        ret->second = true;
+    });
+    res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 102);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    check_delete_bitmap_lock(meta_service.get(), instance_id_2, table_id, -1, true);
+    check_compaction_key(meta_service.get(), instance_id_2, table_id, 102, true);
+    test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, "job_id123",
+                              instance_id_2);
+    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 102, "job_id123",
+                               instance_id_2);
+    check_compaction_key(meta_service.get(), instance_id_2, table_id, 102, false);
+
+    //load
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id_1;
+        ret->second = true;
+    });
+    res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 123, -1);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    check_delete_bitmap_lock(meta_service.get(), instance_id_1, table_id, 123, true);
+    res_code = remove_delete_bitmap_lock(meta_service.get(), table_id, 123, -1);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    check_delete_bitmap_lock(meta_service.get(), instance_id_1, table_id, 123, false);
+
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id_2;
+        ret->second = true;
+    });
+    res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 124, -1);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    check_delete_bitmap_lock(meta_service.get(), instance_id_2, table_id, 124, true);
+    res_code = remove_delete_bitmap_lock(meta_service.get(), table_id, 124, -1);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    check_delete_bitmap_lock(meta_service.get(), instance_id_1, table_id, 124, false);
 }
 
 TEST(MetaServiceJobTest, CompactionJobWithMoWTest) {
