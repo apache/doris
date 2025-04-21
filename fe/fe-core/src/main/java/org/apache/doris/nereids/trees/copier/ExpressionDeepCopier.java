@@ -162,6 +162,6 @@ public class ExpressionDeepCopier extends DefaultExpressionRewriter<DeepCopierCo
                 .collect(Collectors.toList());
         Optional<Expression> typeCoercionExpr = scalar.getTypeCoercionExpr()
                 .map(c -> c.accept(this, context));
-        return new ScalarSubquery(logicalPlan, correlateSlots, typeCoercionExpr);
+        return new ScalarSubquery(logicalPlan, correlateSlots, typeCoercionExpr, scalar.limitOneIsEliminated());
     }
 }
