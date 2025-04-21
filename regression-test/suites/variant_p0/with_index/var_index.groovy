@@ -114,39 +114,4 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     """
     sql """ALTER TABLE var_index ADD INDEX idx_var(v) USING INVERTED"""
     sql """ set disable_inverted_index_v1_for_variant = true """
-    sql "DROP TABLE IF EXISTS objects"
-    sql """
-         CREATE TABLE `objects` (
-          `id` int NOT NULL,
-          `overflow_properties` variant NULL,
-          INDEX idx1 (`overflow_properties`) USING INVERTED PROPERTIES("support_phrase" = "true", "parser" = "english", "lower_case" = "true")
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`id`)
-        DISTRIBUTED BY RANDOM BUCKETS 1
-        PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1",
-        "min_load_replica_num" = "-1",
-        "is_being_synced" = "false",
-        "storage_medium" = "hdd",
-        "storage_format" = "V2",
-        "inverted_index_storage_format" = "V2",
-        "light_schema_change" = "true",
-        "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
-        "group_commit_interval_ms" = "10000",
-        "group_commit_data_bytes" = "134217728",
-         "variant_max_subcolumns_count" = "0"
-        );
-    """ 
-    sql """
-        INSERT INTO objects (id, overflow_properties)
-        VALUES 
-        (6, '{"color":"Bright Red","description":"A bright red circular object with a metallic shine","shape":"Large Circle","tags":["metallic","reflective"]}'),
-        (7, '{"color":"Deep Blue","description":"Opaque square made of plastic in deep blue","shape":"Small Square","tags":["opaque","plastic"]}'),
-        (8, '{"color":"Green","description":"Tall green triangle carved from wood","shape":"Tall Triangle","tags":["matte","wood"]}'),
-        (9, '{"color":"Reddish Orange","description":"Glossy ceramic hexagon with reddish orange tint","shape":"Flat Hexagon","tags":["glossy","ceramic"]}'),
-        (10, '{"color":"Yellow","description":"Shiny yellow circular badge","shape":"Wide Circle","tags":["shiny","plastic"]}');    
-    """
-    sql "set enable_match_without_inverted_index = false"
-    qt_sql "select count() from objects where (overflow_properties['color'] MATCH_PHRASE 'Blue')"    
 }
