@@ -158,6 +158,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowResourcesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRowPolicyCommand;
@@ -577,6 +578,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowRepositoriesCommand(ShowRepositoriesCommand showRepositoriesCommand, C context) {
         return visitCommand(showRepositoriesCommand, context);
+    }
+
+    default R visitShowResourcesCommand(ShowResourcesCommand showResourcesCommand, C context) {
+        return visitCommand(showResourcesCommand, context);
     }
 
     default R visitShowRestoreCommand(ShowRestoreCommand showRestoreCommand, C context) {
