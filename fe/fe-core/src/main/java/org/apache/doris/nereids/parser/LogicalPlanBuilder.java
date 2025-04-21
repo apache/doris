@@ -655,7 +655,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public CreateMTMVCommand visitCreateMTMV(CreateMTMVContext ctx) {
+    public Command visitCreateMTMV(CreateMTMVContext ctx) {
+        if (ctx.buildMode() == null && ctx.refreshMethod() == null && ctx.refreshTrigger() == null
+                && ctx.cols == null && ctx.keys == null
+                && ctx.HASH() == null && ctx.RANDOM() == null && ctx.BUCKETS() == null) {
+            return new UnsupportedCommand();
+        }
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
 
         BuildMode buildMode = visitBuildMode(ctx.buildMode());
@@ -672,7 +677,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.HASH() != null) {
             desc = new DistributionDescriptor(true, ctx.AUTO() != null, bucketNum,
                     visitIdentifierList(ctx.hashKeys));
-        } else if (ctx.RANDOM() != null) {
+        } else {
             desc = new DistributionDescriptor(false, ctx.AUTO() != null, bucketNum, null);
         }
 
