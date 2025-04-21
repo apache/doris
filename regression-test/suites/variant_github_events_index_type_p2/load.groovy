@@ -213,35 +213,62 @@ suite("test_variant_github_events_index_type_p2", "nonConcurrent,p2"){
     qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""
     sql """select * from github_events order by k limit 10"""
     qt_sql """select count()  from github_events where v["repo"]["name"] match 'apache';"""
-    // sql "DROP TABLE IF EXISTS github_events2"
-    // sql """
-    //  CREATE TABLE IF NOT EXISTS github_events2 (
-    //         k bigint,
-    //         v variant<
-    //             MATCH_NAME 'repo.name' : string,
-    //             MATCH_NAME 'payload.pull_request.additions' : int,
-    //             MATCH_NAME 'actor.login' : string,
-    //             MATCH_NAME 'type' : string,
-    //             MATCH_NAME 'payload.action' : string,
-    //             MATCH_NAME 'created_at' : datetime,
-    //             MATCH_NAME 'payload.issue.number' : int,
-    //             MATCH_NAME 'payload.comment.body' : string,
-    //             MATCH_NAME 'type.name' : string
-    //         > null,
-    //         INDEX idx_repo_name(v) USING INVERTED PROPERTIES("parser" = "unicode", "field_pattern" = "repo.name") COMMENT ''
-    //     )
-    //     UNIQUE KEY(`k`)
-    //     DISTRIBUTED BY HASH(k) BUCKETS 4 
-    //     properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "false", "bloom_filter_columns" = "v", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
-    //     """
-    // sql """insert into github_events2 select * from github_events order by k"""
-    // sql """select v['payload']['commits'] from github_events order by k ;"""
-    // sql """select v['payload']['commits'] from github_events2 order by k ;"""
-    // qt_sql """select count() from github_events2"""
-    // // query with inverted index
-    // sql """ set enable_match_without_inverted_index = false """
-    // qt_sql """select count()  from github_events2 where cast(v["repo"]["name"] match 'xpressengine'"""
-    // qt_sql """select count()  from github_events2 where v["repo"]["name"] match 'apache';"""
+    sql "DROP TABLE IF EXISTS github_events2"
+    sql """
+     CREATE TABLE IF NOT EXISTS github_events2 (
+            k bigint,
+            v variant<
+                MATCH_NAME 'repo.name' : string,
+                MATCH_NAME 'payload.pull_request.additions' : int,
+                MATCH_NAME 'actor.login' : string,
+                MATCH_NAME 'type' : string,
+                MATCH_NAME 'payload.action' : string,
+                MATCH_NAME 'created_at' : datetime,
+                MATCH_NAME 'payload.issue.number' : int,
+                MATCH_NAME 'payload.comment.body' : string,
+                MATCH_NAME 'type.name' : string
+            > null,
+            INDEX idx_repo_name(v) USING INVERTED PROPERTIES("parser" = "english", "field_pattern" = "repo.name") COMMENT ''
+        )
+        UNIQUE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "false", "bloom_filter_columns" = "v", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
+        """
+    sql """insert into github_events2 select * from github_events order by k"""
+    sql """select v['payload']['commits'] from github_events order by k ;"""
+    sql """select v['payload']['commits'] from github_events2 order by k ;"""
+    qt_sql """select count() from github_events2"""
+    // query with inverted index
+    sql """ set enable_match_without_inverted_index = false """
+    qt_sql """select count()  from github_events2 where v["repo"]["name"] match 'xpressengine' """
+    qt_sql """select count()  from github_events2 where v["repo"]["name"] match 'apache';"""
+
+
+     sql "DROP TABLE IF EXISTS github_events3"
+    sql """
+     CREATE TABLE IF NOT EXISTS github_events3 (
+            k bigint,
+            v variant<
+                MATCH_NAME 'repo.name' : string,
+                MATCH_NAME 'payload.pull_request.additions' : int,
+                MATCH_NAME 'actor.login' : string,
+                MATCH_NAME 'type' : string,
+                MATCH_NAME 'payload.action' : string,
+                MATCH_NAME 'created_at' : datetime,
+                MATCH_NAME 'payload.issue.number' : int,
+                MATCH_NAME 'payload.comment.body' : string,
+                MATCH_NAME 'type.name' : string
+            > null,
+            INDEX idx_repo_name(v) USING INVERTED PROPERTIES("parser" = "english", "field_pattern" = "repo.name") COMMENT ''
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "false", "bloom_filter_columns" = "v", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
+        """
+    sql """insert into github_events3 select * from github_events order by k"""
+    // query with inverted index
+    sql """ set enable_match_without_inverted_index = false """
+    qt_sql """select count()  from github_events3 where v["repo"]["name"] match 'apache';"""
 
     // specify schema
     // sql "alter table github_events2 modify column v variant<`payload.comment.id`:int,`payload.commits.url`:text,`payload.forkee.has_pages`:tinyint>"
