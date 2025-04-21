@@ -25,6 +25,8 @@
 
 #include <sstream>
 
+#include "util/string_util.h"
+
 // NOTE: be careful not to use string::append.  It is not performant.
 namespace doris {
 
@@ -61,7 +63,7 @@ bool StringFunctions::set_re2_options(const StringRef& match_parameter, std::str
 // The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.
 bool StringFunctions::compile_regex(const StringRef& pattern, std::string* error_str,
                                     const StringRef& match_parameter,
-                                    std::unique_ptr<re2::RE2>& re) {
+                                    const StringRef& options_value, std::unique_ptr<re2::RE2>& re) {
     re2::StringPiece pattern_sp(pattern.data, pattern.size);
     re2::RE2::Options options;
     // Disable error logging in case e.g. every row causes an error
@@ -70,6 +72,18 @@ bool StringFunctions::compile_regex(const StringRef& pattern, std::string* error
     // Return the leftmost longest match (rather than the first match).
     // options.set_longest_match(true);
     options.set_dot_nl(true);
+
+    if ((options_value.data != nullptr) && (options_value.size > 0)) {
+        auto options_split = split(options_value.to_string(), ",");
+        for (const auto& option : options_split) {
+            if (iequal("ignore_invalid_escape", option)) {
+                options.set_ignore_replace_escape(true);
+            } else {
+                // "none" do nothing, and could add more options for future extensibility.
+            }
+        }
+    }
+
     if (match_parameter.size > 0 &&
         !StringFunctions::set_re2_options(match_parameter, error_str, &options)) {
         return false;
