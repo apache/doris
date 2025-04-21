@@ -42,7 +42,7 @@ AWS_ACCESS_KEY="ak"
 AWS_SECRET_KEY="sk"
 
 # Maximum number of concurrent tasks
-MAX_RUNNING_JOB=100
+MAX_RUNNING_JOB=10
 
 # Interval for checking whether the S3 Load task is completed
 CHECK_INTERVAL=10
