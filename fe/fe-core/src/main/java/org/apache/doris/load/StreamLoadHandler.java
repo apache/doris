@@ -41,7 +41,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
@@ -215,19 +214,6 @@ public class StreamLoadHandler {
      * For first-class multi-table scenarios, we should store the mapping between Txn and data source type in a common
      * place. Since there is only Kafka now, we should do this first.
      */
-    private void buildMultiTableStreamLoadTask(StreamLoadTask baseTaskInfo, long txnId) {
-        try {
-            RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
-                    .getRoutineLoadJobByMultiLoadTaskTxnId(txnId);
-            if (routineLoadJob == null) {
-                return;
-            }
-            baseTaskInfo.setMultiTableBaseTaskInfo(routineLoadJob);
-        } catch (Exception e) {
-            LOG.warn("failed to build multi table stream load task: {}", e.getMessage());
-        }
-    }
-
     private void buildMultiTableStreamLoadTask(NereidsStreamLoadTask baseTaskInfo, long txnId) {
         try {
             RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
