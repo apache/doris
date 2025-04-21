@@ -19,7 +19,7 @@ suite("test_variant_predefine_base", "p0"){
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
-
+    def count = new Random().nextInt(5) + 1
     def tableName = "base_match_name_variant_test"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """CREATE TABLE ${tableName} (
@@ -30,21 +30,20 @@ suite("test_variant_predefine_base", "p0"){
             MATCH_NAME 'b?b' : string,
             MATCH_NAME_GLOB 'bb*' : string,
             MATCH_NAME_GLOB 'bx?' : string
-        > NULL,
+        > NOT NULL,
         INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_bb (var) USING INVERTED PROPERTIES("field_pattern"="*cc", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_b_b (var) USING INVERTED PROPERTIES("field_pattern"="b?b", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_bb_glob (var) USING INVERTED PROPERTIES("field_pattern"="bb*", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_bx_glob (var) USING INVERTED PROPERTIES("field_pattern"="bx?", "parser"="unicode", "support_phrase" = "true") COMMENT ''
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "${count}")"""
 
     sql """insert into ${tableName} values(1, '{"ab" : 123, "*cc" : 123, "b?b" : 123, "bb3" : 123, "bxx" : 123}')"""
     sql """insert into ${tableName} values(2, '{"ab" : 456, "*cc" : 456, "b?b" : 456, "bb3" : 456, "bxx" : 456}')"""
     sql """insert into ${tableName} values(3, '{"ab" : 789, "*cc" : 789, "b?b" : 789, "bb3" : 789, "bxx" : 789}')"""
     sql """insert into ${tableName} values(4, '{"ab" : 100, "*cc" : 100, "b?b" : 100, "bb3" : 100, "bxx" : 100}')"""
     sql """insert into ${tableName} values(5, '{"ab" : 111, "*cc" : 111, "b?b" : 111, "bb3" : 111, "bxx" : 111}')"""
-    
-    qt_sql """ desc ${tableName} """
+    qt_sql """ select variant_type(var) from base_match_name_variant_test group by variant_type(var) """
     qt_sql """select * from ${tableName} order by id"""
     qt_sql """ select count() from ${tableName} where cast(var['ab'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['*cc'] as string) match '789' """
@@ -56,7 +55,7 @@ suite("test_variant_predefine_base", "p0"){
     trigger_and_wait_compaction(tableName, "full")
 
     qt_sql """select * from ${tableName} order by id"""
-    qt_sql """ desc ${tableName} """
+    qt_sql """ select variant_type(var) from base_match_name_variant_test group by variant_type(var) """
     qt_sql """ select count() from ${tableName} where cast(var['ab'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['*cc'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['b?b'] as string) match '789' """
@@ -85,8 +84,8 @@ suite("test_variant_predefine_base", "p0"){
     sql """insert into ${tableName} values(1, '{"a" : {"b" : 789, "*" : 789, "b1" : 789, "bxc" : 789, "c2323" : 789}}')"""
     sql """insert into ${tableName} values(2, '{"a" : {"b" : 111, "*" : 111, "b1" : 111, "bxc" : 111, "c2323" : 111}}')"""
     sql """insert into ${tableName} values(3, '{"a" : {"b" : 222, "*" : 222, "b1" : 222, "bxc" : 222, "c2323" : 222}}')"""
-    
-    qt_sql """ desc ${tableName} """
+
+    qt_sql """ select variant_type(var) from base_match_name_variant_test group by variant_type(var) """ 
     qt_sql """select * from ${tableName} order by id"""
     qt_sql """ select count() from ${tableName} where cast(var['a']['b'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['a']['*'] as string) match '789' """
@@ -97,7 +96,7 @@ suite("test_variant_predefine_base", "p0"){
     trigger_and_wait_compaction(tableName, "full")
 
     qt_sql """select * from ${tableName} order by id"""
-    qt_sql """ desc ${tableName} """
+    qt_sql """ select variant_type(var) from base_match_name_variant_test group by variant_type(var) """
     qt_sql """ select count() from ${tableName} where cast(var['a']['b'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['a']['*'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['a']['b1'] as string) match '789' """

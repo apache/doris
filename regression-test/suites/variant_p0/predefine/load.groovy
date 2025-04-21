@@ -342,4 +342,21 @@ suite("regression_test_variant_predefine_schema", "p0"){
     """
     sql """insert into test_variant_type values(1, '{"dcm" : 1.1, "db" : 2.2, "dt" : "2021-01-01 00:00:00", "a.b.c" : [1, 2, 3]}')"""
     qt_sql "select variant_type(var) from test_variant_type"
+
+    sql "DROP TABLE IF EXISTS test_variant_type_not_null"
+    sql """
+        CREATE TABLE `test_variant_type_not_null` (
+      `k` bigint NULL,
+      `var` variant<match_name 'dcm' : decimal, 'db' : double, 'dt' : datetime, 'a.b.c' : array<int>> not null
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k`)
+    DISTRIBUTED BY HASH(`k`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "min_load_replica_num" = "-1",
+    "variant_max_subcolumns_count" = "0"
+    );
+    """
+    sql """insert into test_variant_type_not_null values(1, '{"dcm" : 1.1, "db" : 2.2, "dt" : "2021-01-01 00:00:00", "a.b.c" : [1, 2, 3]}')"""
+    qt_sql "select variant_type(var) from test_variant_type_not_null"
 }
