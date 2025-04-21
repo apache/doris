@@ -125,7 +125,8 @@ struct AggregateFunctionContextNgramsData {
                 ngrams[pair.first] = pair.second;
             }
         }
-        LOG(INFO) << "In AggregateFunctionContextNgramsData::merge(), after merge, this contains " << ngrams.size() << " ngrams";
+        LOG(INFO) << "In AggregateFunctionContextNgramsData::merge(), after merge, this contains "
+                  << ngrams.size() << " ngrams";
         for (const auto& pair : ngrams) {
             std::string s = "";
             for (const auto& str : pair.first) {
@@ -137,8 +138,9 @@ struct AggregateFunctionContextNgramsData {
         // if exceed buffer size, trim
         if (ngrams.size() > k * pf * 2) {
             trim(false);
-            LOG(INFO) << "In AggregateFunctionContextNgramsData::merge(), after trim, this contains "
-                      << ngrams.size() << " ngrams";
+            LOG(INFO)
+                    << "In AggregateFunctionContextNgramsData::merge(), after trim, this contains "
+                    << ngrams.size() << " ngrams";
             for (const auto& pair : ngrams) {
                 std::string s = "";
                 for (const auto& str : pair.first) {
@@ -210,7 +212,7 @@ struct AggregateFunctionContextNgramsData {
         // deserialize context
         size_t context_size;
         read_binary(context_size, buf);
-        LOG(INFO) << "In AggregateFunctionContextNgramsData::deserialize(), context contains " 
+        LOG(INFO) << "In AggregateFunctionContextNgramsData::deserialize(), context contains "
                   << context_size << " strings";
         context.clear();
         context.reserve(context_size);
@@ -338,7 +340,7 @@ public:
         }
         const ColumnArray* array = assert_cast<const ColumnArray*>(col);
         LOG(INFO) << "In AggregateFunctionContextNgrams::add(), array<array<string>>'s size is "
-                  << array -> size();
+                  << array->size();
         const IColumn* inner_col = array->get_data_ptr().get();
         if (const auto* nullable_inner = typeid_cast<const ColumnNullable*>(inner_col)) {
             inner_col = nullable_inner->get_nested_column_ptr().get();
@@ -350,7 +352,7 @@ public:
         }
         const ColumnString* strings = assert_cast<const ColumnString*>(string_col);
         LOG(INFO) << "In AggregateFunctionContextNgrams::add(), sequence contains "
-                  << strings -> size() << " strings: ";
+                  << strings->size() << " strings: ";
         for (size_t i = 0; i < strings->size(); ++i) {
             LOG(INFO) << strings->get_data_at(i);
         }
@@ -362,15 +364,15 @@ public:
             const IColumn* context_col = columns[1];
 
             // Nullable Array
-            if (const auto* nullable_array =
-                        typeid_cast<const ColumnNullable*>(context_col)) {
+            if (const auto* nullable_array = typeid_cast<const ColumnNullable*>(context_col)) {
                 context_col = nullable_array->get_nested_column_ptr().get();
             }
             const ColumnArray* context_array = assert_cast<const ColumnArray*>(context_col);
 
             // Nullable String
             const IColumn* context_string_col = context_array->get_data_ptr().get();
-            if (const auto* nullable_string = typeid_cast<const ColumnNullable*>(context_string_col)) {
+            if (const auto* nullable_string =
+                        typeid_cast<const ColumnNullable*>(context_string_col)) {
                 context_string_col = nullable_string->get_nested_column_ptr().get();
             }
             const ColumnString* context_strings =
@@ -407,11 +409,11 @@ public:
                 LOG(INFO) << "In AggregateFunctionContextNgrams::add(), n = " << data.n;
 
                 if (data.context.empty()) {
-                    throw Exception(ErrorCode::INVALID_ARGUMENT, 
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
                                     "context_ngrams requires non-empty context pattern");
                 }
                 if (data.n == 0) {
-                    throw Exception(ErrorCode::INVALID_ARGUMENT, 
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
                                     "context_ngrams requires at least one null in context pattern");
                 }
             }
