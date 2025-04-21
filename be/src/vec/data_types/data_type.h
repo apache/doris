@@ -269,9 +269,6 @@ struct WhichDataType {
     bool is_json() const { return idx == TypeIndex::JSONB; }
     bool is_bitmap() const { return idx == TypeIndex::BitMap; }
     bool is_hll() const { return idx == TypeIndex::HLL; }
-
-    bool is_bitmap() const { return idx == TypeIndex::BitMap; }
-    bool is_hll() const { return idx == TypeIndex::HLL; }
     bool is_quantile() const { return idx == TypeIndex::QuantileState; }
     bool is_agg_state() const { return idx == TypeIndex::AggState; }
     bool is_array() const { return idx == TypeIndex::Array; }
@@ -362,6 +359,11 @@ bool is_columned_as_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint() || which.is_float() || which.is_date_or_datetime() ||
            which.is_date_v2_or_datetime_v2();
+}
+
+template <typename T>
+bool is_json(const T& data_type) {
+    return WhichDataType(data_type).is_json();
 }
 
 template <typename T>
