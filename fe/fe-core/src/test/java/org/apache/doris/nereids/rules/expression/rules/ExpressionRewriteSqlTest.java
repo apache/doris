@@ -30,8 +30,8 @@ class ExpressionRewriteSqlTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalFilter().when(f -> f.getPredicate().toString().equals(
-                                "OR[(id#0 = score#1),(id#0 = (score#1 + 100))]"
+                        logicalFilter().when(f -> f.getPredicate().toSql().equals(
+                                "OR[(id = score),(id = (score + 100))]"
                         )));
 
         sql = "select * from T1 where id in (score,  score + 10, score + score, score, 10, 20, 30, 100 + 200)";
@@ -39,8 +39,8 @@ class ExpressionRewriteSqlTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalFilter().when(f -> f.getPredicate().toString().equals(
-                                "OR[id#0 IN (10, 20, 30, 300),(id#0 = score#1),(id#0 = (score#1 + 10)),(id#0 = (score#1 + score#1))]"
+                        logicalFilter().when(f -> f.getPredicate().toSql().equals(
+                                "OR[id IN (10, 20, 30, 300),(id = score),(id = (score + 10)),(id = (score + score))]"
                 )));
     }
 
@@ -51,8 +51,8 @@ class ExpressionRewriteSqlTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalFilter().when(f -> f.getPredicate().toString().equals(
-                                "AND[(id#0 > 1),(score#1 > 1)]"
+                        logicalFilter().when(f -> f.getPredicate().toSql().equals(
+                                "AND[(id > 1),(score > 1)]"
                         )));
 
         sql = "select * from T1 where id > 1 and score > 1 or id > 1 and id < 0";
@@ -60,8 +60,8 @@ class ExpressionRewriteSqlTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalFilter().when(f -> f.getPredicate().toString().equals(
-                                "AND[(score#1 > 1),(id#0 > 1)]"
+                        logicalFilter().when(f -> f.getPredicate().toSql().equals(
+                                "AND[(score > 1),(id > 1)]"
                         )));
 
         sql = "select * from T1 where id > 1 and id < 0 or score > 1 and score < 0";
