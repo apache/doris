@@ -104,7 +104,7 @@ public class CreateMTMVInfo {
     private final LogicalPlan logicalQuery;
     private String querySql;
     private final MTMVRefreshInfo refreshInfo;
-    private List<ColumnDefinition> columns;
+    private List<ColumnDefinition> columns = Lists.newArrayList();
     private final List<SimpleColumnDefinition> simpleColumnDefinitions;
     private final MTMVPartitionDefinition mvPartitionDefinition;
     private PartitionDesc partitionDesc;
