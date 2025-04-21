@@ -1793,7 +1793,8 @@ private:
                     variant.is_scalar_variant() ||
                     (!variant.is_null_root() &&
                      !WhichDataType(remove_nullable(variant.get_root_type())).is_nothing() &&
-                     !WhichDataType(data_type_to).is_string());
+                     !WhichDataType(data_type_to).is_string() &&
+                     !WhichDataType(data_type_to).is_json());
             if (is_root_valuable) {
                 ColumnPtr nested = variant.get_root();
                 auto nested_from_type = variant.get_root_type();
@@ -1825,13 +1826,19 @@ private:
                     // TODO not found root cause, a tmp fix
                     col_to->assume_mutable()->insert_many_defaults(input_rows_count);
                     col_to = make_nullable(col_to, true);
-                } else if (!data_type_to->is_nullable() &&
-                           !WhichDataType(data_type_to).is_string()) {
-                    col_to->assume_mutable()->insert_many_defaults(input_rows_count);
-                    col_to = make_nullable(col_to, true);
                 } else if (WhichDataType(data_type_to).is_string()) {
+                    // serialize to string
                     return ConvertImplGenericToString::execute2(context, block, arguments, result,
                                                                 input_rows_count);
+                } else if (WhichDataType(data_type_to).is_json()) {
+                    // serialize to json by parsing
+                    return ConvertImplGenericToJsonb::execute(context, block, arguments, result,
+                                                              input_rows_count);
+                } else if (!data_type_to->is_nullable() &&
+                           !WhichDataType(data_type_to).is_string()) {
+                    // other types
+                    col_to->assume_mutable()->insert_many_defaults(input_rows_count);
+                    col_to = make_nullable(col_to, true);
                 } else {
                     assert_cast<ColumnNullable&>(*col_to->assume_mutable())
                             .insert_many_defaults(input_rows_count);
