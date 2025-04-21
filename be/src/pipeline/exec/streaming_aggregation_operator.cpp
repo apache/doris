@@ -168,6 +168,9 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
                                                                 p._align_aggregate_states);
                            }},
                    _agg_data->method_variant);
+
+        DCHECK(!p._is_merge);
+        DCHECK(!p._needs_finalize);
         if (p._is_merge) {
             if (p._needs_finalize) {
                 _executor = std::make_unique<Executor<false, true, true>>();
