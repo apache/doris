@@ -188,4 +188,25 @@ suite("any_value") {
     qt_sql_any24 """ select max_by_merge(u2),group_concat_merge(u3) from (
         select k1,max_by_union(k2) as u2,group_concat_union(k3) u3 from a_table_any group by k1 order by k1
         ) t; """
+
+    sql """drop table if exists test_table_any;"""
+    sql """CREATE TABLE `test_table_any` (
+            `ordernum` varchar(65533) NOT NULL ,
+            `dnt` datetime NOT NULL ,
+            `data` json NULL 
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`ordernum`, `dnt`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`ordernum`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+    sql """insert into test_table_any values('cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}');"""
+    sql """insert into test_table_any values('cib2205045_1_2s','2023/6/10 3:56:33','{"DB1":168939,"DNT":"2023-06-10 03:56:33"}');"""
+    sql """insert into test_table_any values('cib2205045_1_3s','2023/6/10 3:57:33','{"DB1":168939,"DNT":"2023-06-10 03:57:33"}');"""
+    sql """insert into test_table_any values('cib2205045_1_4s','2023/6/10 3:58:33','{"DB1":168939,"DNT":"2023-06-10 03:58:33"}');"""
+    
+    qt_sql_any25 """ select any(data) from test_table_any; """
+
 }

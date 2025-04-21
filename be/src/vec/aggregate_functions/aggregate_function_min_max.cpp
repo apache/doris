@@ -108,6 +108,11 @@ AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
                 AggregateFunctionsSingleValue<SingleValueDataComplexType>>(argument_types,
                                                                            result_is_nullable);
     }
+    if (is_json(argument_type)) {
+        return creator_without_type::create<
+                AggregateFunctionsSingleValue<Data<SingleValueDataString>>>(argument_types,
+                                                                            result_is_nullable);
+    }
     return nullptr;
 }
 
