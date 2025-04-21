@@ -415,7 +415,7 @@ public:
                 base_it = events_it;
                 ++action_it;
             } else if (action_it->type == PatternActionType::TimeLessOrEqual) {
-                if (events_it->first.second_diff(base_it->first) <= action_it->extra) {
+                if (events_it->first.datetime_diff_in_seconds(base_it->first) <= action_it->extra) {
                     /// condition satisfied, move onto next action
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
@@ -423,28 +423,28 @@ public:
                 } else if (!do_backtrack())
                     break;
             } else if (action_it->type == PatternActionType::TimeLess) {
-                if (events_it->first.second_diff(base_it->first) < action_it->extra) {
+                if (events_it->first.datetime_diff_in_seconds(base_it->first) < action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
                 } else if (!do_backtrack())
                     break;
             } else if (action_it->type == PatternActionType::TimeGreaterOrEqual) {
-                if (events_it->first.second_diff(base_it->first) >= action_it->extra) {
+                if (events_it->first.datetime_diff_in_seconds(base_it->first) >= action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
                 } else if (++events_it == events_end && !do_backtrack())
                     break;
             } else if (action_it->type == PatternActionType::TimeGreater) {
-                if (events_it->first.second_diff(base_it->first) > action_it->extra) {
+                if (events_it->first.datetime_diff_in_seconds(base_it->first) > action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
                 } else if (++events_it == events_end && !do_backtrack())
                     break;
             } else if (action_it->type == PatternActionType::TimeEqual) {
-                if (events_it->first.second_diff(base_it->first) == action_it->extra) {
+                if (events_it->first.datetime_diff_in_seconds(base_it->first) == action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
