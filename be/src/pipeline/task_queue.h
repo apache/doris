@@ -144,15 +144,14 @@ public:
 
     void update_statistics(PipelineTask* task, int64_t time_spent) override {
         task->inc_runtime_ns(time_spent);
-        (*_prio_task_queue_list)[task->get_core_id()]->inc_sub_queue_runtime(
-                task->get_queue_level(), time_spent);
+        _prio_task_queue_list[task->get_core_id()].inc_sub_queue_runtime(task->get_queue_level(),
+                                                                         time_spent);
     }
 
 private:
-    PipelineTask* _steal_take(
-            int core_id, std::vector<std::unique_ptr<PriorityTaskQueue>>& prio_task_queue_list);
+    PipelineTask* _steal_take(int core_id);
 
-    std::shared_ptr<std::vector<std::unique_ptr<PriorityTaskQueue>>> _prio_task_queue_list;
+    std::vector<PriorityTaskQueue> _prio_task_queue_list;
     std::atomic<uint32_t> _next_core = 0;
     std::atomic<bool> _closed;
 };
