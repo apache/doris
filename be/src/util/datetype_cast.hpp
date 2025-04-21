@@ -29,8 +29,12 @@
 /*
  * We use these function family to clarify our types of datelike type. for example:
  *      DataTypeDate -------------------> ColumnDate -----------------------> Int64
- *           |          TypeToColumn                    ValueTypeOfColumn
- *           | TypeToValueType
+ *           |   |      TypeToColumn                    ValueTypeOfColumn       |
+ *           |   ↘--------------------------------------------------------------↗
+ *           |   |                       ::FieldType                            |
+ *           |   ↖--------------------------------------------------------------↙
+ *           |                       DateTraits<T>::DateType
+ *           ↓ TypeToValueType
  *      VecDateTimeValue
  */
 namespace doris::date_cast {
