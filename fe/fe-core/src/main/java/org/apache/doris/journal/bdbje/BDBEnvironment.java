@@ -141,6 +141,8 @@ public class BDBEnvironment {
         environmentConfig.setConfigParam(EnvironmentConfig.FREE_DISK,
                 String.valueOf(Config.bdbje_free_disk_bytes));
         environmentConfig.setCacheSize(Config.bdbje_cache_size_bytes);
+        environmentConfig.setConfigParam(ReplicationConfig.MAX_MESSAGE_SIZE,
+                                         String.valueOf(Config.bdbje_max_message_size_bytes));
 
         if (Config.ignore_bdbje_log_checksum_read) {
             environmentConfig.setConfigParam(EnvironmentConfig.LOG_CHECKSUM_READ, "false");
