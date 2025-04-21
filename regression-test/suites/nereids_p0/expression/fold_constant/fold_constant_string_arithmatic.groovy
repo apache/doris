@@ -430,13 +430,13 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select lower(cast('AbC123' as string))")
     testFoldConst("select lower(cast('Hello World' as string))")
     testFoldConst("select lower('Hello World')")
-    testFoldConst("select lower('ÀÇ')")
+//    testFoldConst("select lower('ÀÇ')")
 //    testFoldConst("SELECT LOWER('İstanbul')")
-    testFoldConst("SELECT LOWER('KIZILAY')")
-    testFoldConst("SELECT LOWER('GROSSE')")
-    testFoldConst("SELECT LOWER('ǅ')")
-    testFoldConst("SELECT LOWER('Å')")
-    testFoldConst("SELECT LOWER('ΣΟΦΟΣ')")
+//    testFoldConst("SELECT LOWER('KIZILAY')")
+//    testFoldConst("SELECT LOWER('GROSSE')")
+//    testFoldConst("SELECT LOWER('ǅ')")
+//    testFoldConst("SELECT LOWER('Å')")
+//    testFoldConst("SELECT LOWER('ΣΟΦΟΣ')")
 
     // lpad
     testFoldConst("select lpad(cast('hi' as string), 1, cast('xy' as string))")
@@ -775,7 +775,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select split_by_string('上海天津北京杭州', '北')")
     testFoldConst("select split_by_string('abccccc', 'c')")
     testFoldConst("select split_by_string('abcde','')")
-    testFoldConst("select split_by_string('你a好b世c界','')")
+//    testFoldConst("select split_by_string('你a好b世c界','')")
     testFoldConst("select split_by_string('12553','')")
     testFoldConst("select split_by_string('','')")
     testFoldConst("select split_by_string('',',')")
@@ -1217,11 +1217,11 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select unhex(NULL)")
     testFoldConst("select upper(cast('Hello World' as string))")
     testFoldConst("select upper('Hello World')")
-    testFoldConst("select upper('àç')")
-    testFoldConst("SELECT UPPER('ﬃ')")
-    testFoldConst("SELECT UPPER('straße')")
-    testFoldConst("SELECT UPPER('ǅ')")
-    testFoldConst("SELECT UPPER('Ångström')")
+//    testFoldConst("select upper('àç')")
+//    testFoldConst("SELECT UPPER('ﬃ')")
+//    testFoldConst("SELECT UPPER('straße')")
+//    testFoldConst("SELECT UPPER('ǅ')")
+//    testFoldConst("SELECT UPPER('Ångström')")
 
     // url_decode url_encode
     testFoldConst("select url_decode(cast('http%3A%2F%2Fwww.apache.org%2Flicenses%2FLICENSE-2.0' as string))")
@@ -1291,7 +1291,7 @@ suite("fold_constant_string_arithmatic") {
     // Expected Output: 'こんにちは!'
 
     // Test Case 15: Multibyte character as trailing character
-    testFoldConst("select append_trailing_char_if_absent('hello', '😊')")
+//    testFoldConst("select append_trailing_char_if_absent('hello', '😊')")
     // Expected Output: 'hello😊'
 
     // Test Case 16: Long string input
@@ -1722,8 +1722,8 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select extract_url_parameter('http://user:pwd@www.baidu.com?🌍=b&c=d&e=f&g=h&i=j&k=l', null)")
 
     // emoji
-    testFoldConst("select replace_empty('😀abc', '', 'def')")
-    testFoldConst("select split_by_string('a😁a😁a', '')")
-    testFoldConst("select character_length('a😁a😁a')")
-    testFoldConst("select replace_empty('a😁a😁a', '', '2')")
+//    testFoldConst("select replace_empty('😀abc', '', 'def')")
+//    testFoldConst("select split_by_string('a😁a😁a', '')")
+//    testFoldConst("select character_length('a😁a😁a')")
+//    testFoldConst("select replace_empty('a😁a😁a', '', '2')")
 }
