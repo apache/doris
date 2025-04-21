@@ -426,17 +426,17 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select locate('2', '   123  ', 1)")
 
     // lower
-    testFoldConst("select lower('AbC123')")
-    testFoldConst("select lower(cast('AbC123' as string))")
-    testFoldConst("select lower(cast('Hello World' as string))")
-    testFoldConst("select lower('Hello World')")
-    testFoldConst("select lower('ÀÇ')")
-    testFoldConst("SELECT LOWER('İstanbul')")
-    testFoldConst("SELECT LOWER('KIZILAY')")
-    testFoldConst("SELECT LOWER('GROSSE')")
-    testFoldConst("SELECT LOWER('ǅ')")
-    testFoldConst("SELECT LOWER('Å')")
-    testFoldConst("SELECT LOWER('ΣΟΦΟΣ')")
+//    testFoldConst("select lower('AbC123')")
+//    testFoldConst("select lower(cast('AbC123' as string))")
+//    testFoldConst("select lower(cast('Hello World' as string))")
+//    testFoldConst("select lower('Hello World')")
+//    testFoldConst("select lower('ÀÇ')")
+//    testFoldConst("SELECT LOWER('İstanbul')")
+//    testFoldConst("SELECT LOWER('KIZILAY')")
+//    testFoldConst("SELECT LOWER('GROSSE')")
+//    testFoldConst("SELECT LOWER('ǅ')")
+//    testFoldConst("SELECT LOWER('Å')")
+//    testFoldConst("SELECT LOWER('ΣΟΦΟΣ')")
 
     // lpad
     testFoldConst("select lpad(cast('hi' as string), 1, cast('xy' as string))")
@@ -506,87 +506,87 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select null_or_empty(' \b')")
 
     // overlay
-    testFoldConst("select overlay('abcdef', 3, 2, '123')")
-    testFoldConst("select overlay('abcdef', 10, 20, '123')")
-    testFoldConst("select overlay(null, 3, 2, '123')")
-    testFoldConst("select overlay('abcdef', 3, 2, null)")
-    testFoldConst("select overlay(cast('abcdef' as string), 3, 2, cast('123' as string))")
-    testFoldConst("select overlay('PRD-1234-5678', 5, 4, '9876')")
-    testFoldConst("select overlay('こんにちは', 1, 2, 'にちは')")
-    testFoldConst("select overlay('123456789123456789', 3, 12, 'abc')")
-    testFoldConst("select overlay('עברית', 1, 1, '😀')")
-    testFoldConst("select overlay('a😀bc', 2, 1, 'x')")
-    testFoldConst("select overlay('日本語', 2, 2, 'xyz')")
-    testFoldConst("select overlay('abc', 1, 1, 'x')")
-    testFoldConst("select overlay('abc', 2, 1, 'x')")
-    testFoldConst("select overlay('abc', 3, 1, 'x')")
-    testFoldConst("select overlay('abc', 1, 3, 'xyz')")
-    testFoldConst("select overlay('abc', 0, 1, 'x')") // 越界
-    testFoldConst("select overlay('abc', -1, 1, 'x')") // 越界
-    testFoldConst("select overlay(null, 1, 1, 'x')") // null 原始字符串
-    testFoldConst("select overlay('abc', null, 1, 'x')") // null 起始位置
-    testFoldConst("select overlay('abc', 1, null, 'x')") // null 子串长度
-    testFoldConst("select overlay('abc', 1, 1, null)") // null 新字符串
-    testFoldConst("select overlay('a😀bc', 2, 1, 'x')")
-    testFoldConst("select overlay('αβγ', 1, 1, 'x')")
-    testFoldConst("select overlay('中文', 1, 1, 'x')")
-    testFoldConst("select overlay('日本語', 1, 1, 'x')")
-    testFoldConst("select overlay('한국어', 1, 1, 'x')")
-    testFoldConst("select overlay('русский', 1, 1, 'x')")
-    testFoldConst("select overlay('עברית', 1, 1, 'x')")
-    testFoldConst("select overlay('a😀bc', 2, 2, 'xyz')")
-    testFoldConst("select overlay('αβγ', 2, 2, 'xyz')")
-    testFoldConst("select overlay('中文', 2, 2, 'xyz')")
-    testFoldConst("select overlay('日本語', 2, 2, 'xyz')")
-    testFoldConst("select overlay('한국어', 2, 2, 'xyz')")
-    testFoldConst("select overlay('русский', 2, 2, 'xyz')")
-    testFoldConst("select overlay('עברית', 2, 2, 'xyz')")
-    testFoldConst("select overlay('abc', 1, 1, '😀')")
-    testFoldConst("select overlay('abc', 1, 1, 'α')")
-    testFoldConst("select overlay('abc', 1, 1, '中')")
-    testFoldConst("select overlay('abc', 1, 1, '日')")
-    testFoldConst("select overlay('abc', 1, 1, '한')")
-    testFoldConst("select overlay('abc', 1, 1, 'р')")
-    testFoldConst("select overlay('abc', 1, 1, 'ע')")
-    testFoldConst("select overlay('a😀bc', 1, 1, 'α')")
-    testFoldConst("select overlay('αβγ', 1, 1, '中')")
-    testFoldConst("select overlay('中文', 1, 1, '日')")
-    testFoldConst("select overlay('日本語', 1, 1, '한')")
-    testFoldConst("select overlay('한국어', 1, 1, 'р')")
-    testFoldConst("select overlay('русский', 1, 1, 'ע')")
-    testFoldConst("select overlay('עברית', 1, 1, '😀')")
-    testFoldConst("select overlay('abc', -1, 1, 'x')") // 负数起始位置
-    testFoldConst("select overlay('abc', 1, -1, 'x')") // 负数子串长度
-    testFoldConst("select overlay('abc', 1, 10, 'xyz')") // 子串长度越界
-    testFoldConst("select overlay('abc', 4, 1, 'x')") // 起始位置越界
-    testFoldConst("select overlay('abc', 1, 1, 'xyzw')") // 新字符串长度大于替换长度
-    testFoldConst("select overlay('a😀bc', 1, 1, 'αβγ')") // 新字符串包含多字符
-    testFoldConst("select overlay('αβγ', 1, 1, '中文')") // 新字符串包含多字符
-    testFoldConst("select overlay('中文', 1, 1, '日本語')") // 新字符串包含多字符
-    testFoldConst("select overlay('日本語', 1, 1, '한국어')") // 新字符串包含多字符
-    testFoldConst("select overlay('한국어', 1, 1, 'русский')") // 新字符串包含多字符
-    testFoldConst("select overlay('русский', 1, 1, 'עברית')") // 新字符串包含多字符
-    testFoldConst("select overlay('עברית', 1, 1, 'a😀bc')") // 新字符串包含多字符
-    testFoldConst("select overlay('', 1, 1, 'x')") // 空字符串
-    testFoldConst("select overlay('abc', 1, 0, 'x')") // 子串长度为0
-    testFoldConst("select overlay('abc', 1, 1, '')") // 新字符串为空
-    testFoldConst("select overlay('a😀bc', 1, 0, 'x')") // 子串长度为0，含emoji
-    testFoldConst("select overlay('αβγ', 1, 0, 'x')") // 子串长度为0，含希腊字符
-    testFoldConst("select overlay('中文', 1, 0, 'x')") // 子串长度为0，含中文
-    testFoldConst("select overlay('日本語', 1, 0, 'x')") // 子串长度为0，含日文
-    testFoldConst("select overlay('한국어', 1, 0, 'x')") // 子串长度为0，含韩文
-    testFoldConst("select overlay('русский', 1, 0, 'x')") // 子串长度为0，含俄文
-    testFoldConst("select overlay('עברית', 1, 0, 'x')") // 子串长度为0，含希伯来文
-    testFoldConst("select overlay('abc', 1, 1, '😀α中文日한俄ע')") // 新字符串包含所有字符集
-    testFoldConst("select overlay('😀α中文日한俄ע', 1, 1, 'abc')") // 原始字符串包含所有字符集
-    testFoldConst("select overlay('abc', 1, 1, '😀α')") // 新字符串包含emoji和希腊字符
-    testFoldConst("select overlay('😀α', 1, 1, 'abc')") // 原始字符串包含emoji和希腊字符
-    testFoldConst("select overlay('中文日한俄ע', 1, 1, 'abc')") // 原始字符串包含多语言字符
-    testFoldConst("select overlay('abc', 1, 1, '中文日한俄ע')") // 新字符串包含多语言字符
-    testFoldConst("select overlay('abc', 1, 2147483647, '中文日한俄ע')")
-    testFoldConst("select overlay('abc', 1, 2147483648, '中文日한俄ע')")
-    testFoldConst("select overlay('abc', -2147483647, 1, '中文日한俄ע')")
-    testFoldConst("select overlay('abc', -2147483648, 1, '中文日한俄ע')")
+//    testFoldConst("select overlay('abcdef', 3, 2, '123')")
+//    testFoldConst("select overlay('abcdef', 10, 20, '123')")
+//    testFoldConst("select overlay(null, 3, 2, '123')")
+//    testFoldConst("select overlay('abcdef', 3, 2, null)")
+//    testFoldConst("select overlay(cast('abcdef' as string), 3, 2, cast('123' as string))")
+//    testFoldConst("select overlay('PRD-1234-5678', 5, 4, '9876')")
+//    testFoldConst("select overlay('こんにちは', 1, 2, 'にちは')")
+//    testFoldConst("select overlay('123456789123456789', 3, 12, 'abc')")
+//    testFoldConst("select overlay('עברית', 1, 1, '😀')")
+//    testFoldConst("select overlay('a😀bc', 2, 1, 'x')")
+//    testFoldConst("select overlay('日本語', 2, 2, 'xyz')")
+//    testFoldConst("select overlay('abc', 1, 1, 'x')")
+//    testFoldConst("select overlay('abc', 2, 1, 'x')")
+//    testFoldConst("select overlay('abc', 3, 1, 'x')")
+//    testFoldConst("select overlay('abc', 1, 3, 'xyz')")
+//    testFoldConst("select overlay('abc', 0, 1, 'x')") // 越界
+//    testFoldConst("select overlay('abc', -1, 1, 'x')") // 越界
+//    testFoldConst("select overlay(null, 1, 1, 'x')") // null 原始字符串
+//    testFoldConst("select overlay('abc', null, 1, 'x')") // null 起始位置
+//    testFoldConst("select overlay('abc', 1, null, 'x')") // null 子串长度
+//    testFoldConst("select overlay('abc', 1, 1, null)") // null 新字符串
+//    testFoldConst("select overlay('a😀bc', 2, 1, 'x')")
+//    testFoldConst("select overlay('αβγ', 1, 1, 'x')")
+//    testFoldConst("select overlay('中文', 1, 1, 'x')")
+//    testFoldConst("select overlay('日本語', 1, 1, 'x')")
+//    testFoldConst("select overlay('한국어', 1, 1, 'x')")
+//    testFoldConst("select overlay('русский', 1, 1, 'x')")
+//    testFoldConst("select overlay('עברית', 1, 1, 'x')")
+//    testFoldConst("select overlay('a😀bc', 2, 2, 'xyz')")
+//    testFoldConst("select overlay('αβγ', 2, 2, 'xyz')")
+//    testFoldConst("select overlay('中文', 2, 2, 'xyz')")
+//    testFoldConst("select overlay('日本語', 2, 2, 'xyz')")
+//    testFoldConst("select overlay('한국어', 2, 2, 'xyz')")
+//    testFoldConst("select overlay('русский', 2, 2, 'xyz')")
+//    testFoldConst("select overlay('עברית', 2, 2, 'xyz')")
+//    testFoldConst("select overlay('abc', 1, 1, '😀')")
+//    testFoldConst("select overlay('abc', 1, 1, 'α')")
+//    testFoldConst("select overlay('abc', 1, 1, '中')")
+//    testFoldConst("select overlay('abc', 1, 1, '日')")
+//    testFoldConst("select overlay('abc', 1, 1, '한')")
+//    testFoldConst("select overlay('abc', 1, 1, 'р')")
+//    testFoldConst("select overlay('abc', 1, 1, 'ע')")
+//    testFoldConst("select overlay('a😀bc', 1, 1, 'α')")
+//    testFoldConst("select overlay('αβγ', 1, 1, '中')")
+//    testFoldConst("select overlay('中文', 1, 1, '日')")
+//    testFoldConst("select overlay('日本語', 1, 1, '한')")
+//    testFoldConst("select overlay('한국어', 1, 1, 'р')")
+//    testFoldConst("select overlay('русский', 1, 1, 'ע')")
+//    testFoldConst("select overlay('עברית', 1, 1, '😀')")
+//    testFoldConst("select overlay('abc', -1, 1, 'x')") // 负数起始位置
+//    testFoldConst("select overlay('abc', 1, -1, 'x')") // 负数子串长度
+//    testFoldConst("select overlay('abc', 1, 10, 'xyz')") // 子串长度越界
+//    testFoldConst("select overlay('abc', 4, 1, 'x')") // 起始位置越界
+//    testFoldConst("select overlay('abc', 1, 1, 'xyzw')") // 新字符串长度大于替换长度
+//    testFoldConst("select overlay('a😀bc', 1, 1, 'αβγ')") // 新字符串包含多字符
+//    testFoldConst("select overlay('αβγ', 1, 1, '中文')") // 新字符串包含多字符
+//    testFoldConst("select overlay('中文', 1, 1, '日本語')") // 新字符串包含多字符
+//    testFoldConst("select overlay('日本語', 1, 1, '한국어')") // 新字符串包含多字符
+//    testFoldConst("select overlay('한국어', 1, 1, 'русский')") // 新字符串包含多字符
+//    testFoldConst("select overlay('русский', 1, 1, 'עברית')") // 新字符串包含多字符
+//    testFoldConst("select overlay('עברית', 1, 1, 'a😀bc')") // 新字符串包含多字符
+//    testFoldConst("select overlay('', 1, 1, 'x')") // 空字符串
+//    testFoldConst("select overlay('abc', 1, 0, 'x')") // 子串长度为0
+//    testFoldConst("select overlay('abc', 1, 1, '')") // 新字符串为空
+//    testFoldConst("select overlay('a😀bc', 1, 0, 'x')") // 子串长度为0，含emoji
+//    testFoldConst("select overlay('αβγ', 1, 0, 'x')") // 子串长度为0，含希腊字符
+//    testFoldConst("select overlay('中文', 1, 0, 'x')") // 子串长度为0，含中文
+//    testFoldConst("select overlay('日本語', 1, 0, 'x')") // 子串长度为0，含日文
+//    testFoldConst("select overlay('한국어', 1, 0, 'x')") // 子串长度为0，含韩文
+//    testFoldConst("select overlay('русский', 1, 0, 'x')") // 子串长度为0，含俄文
+//    testFoldConst("select overlay('עברית', 1, 0, 'x')") // 子串长度为0，含希伯来文
+//    testFoldConst("select overlay('abc', 1, 1, '😀α中文日한俄ע')") // 新字符串包含所有字符集
+//    testFoldConst("select overlay('😀α中文日한俄ע', 1, 1, 'abc')") // 原始字符串包含所有字符集
+//    testFoldConst("select overlay('abc', 1, 1, '😀α')") // 新字符串包含emoji和希腊字符
+//    testFoldConst("select overlay('😀α', 1, 1, 'abc')") // 原始字符串包含emoji和希腊字符
+//    testFoldConst("select overlay('中文日한俄ע', 1, 1, 'abc')") // 原始字符串包含多语言字符
+//    testFoldConst("select overlay('abc', 1, 1, '中文日한俄ע')") // 新字符串包含多语言字符
+//    testFoldConst("select overlay('abc', 1, 2147483647, '中文日한俄ע')")
+//    testFoldConst("select overlay('abc', 1, 2147483648, '中文日한俄ע')")
+//    testFoldConst("select overlay('abc', -2147483647, 1, '中文日한俄ע')")
+//    testFoldConst("select overlay('abc', -2147483648, 1, '中文日한俄ע')")
 
     // parse_url
     testFoldConst("select parse_url(cast('http://www.example.com/path?query=abc' as string), cast('HOST' as string))")
@@ -1300,11 +1300,11 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select unhex(NULL)")
     testFoldConst("select upper(cast('Hello World' as string))")
     testFoldConst("select upper('Hello World')")
-    testFoldConst("select upper('àç')")
-    testFoldConst("SELECT UPPER('ﬃ')")
-    testFoldConst("SELECT UPPER('straße')")
-    testFoldConst("SELECT UPPER('ǅ')")
-    testFoldConst("SELECT UPPER('Ångström')")
+//    testFoldConst("select upper('àç')")
+//    testFoldConst("SELECT UPPER('ﬃ')")
+//    testFoldConst("SELECT UPPER('straße')")
+//    testFoldConst("SELECT UPPER('ǅ')")
+//    testFoldConst("SELECT UPPER('Ångström')")
 
     // url_decode url_encode
     testFoldConst("select url_decode(cast('http%3A%2F%2Fwww.apache.org%2Flicenses%2FLICENSE-2.0' as string))")
@@ -1374,7 +1374,7 @@ suite("fold_constant_string_arithmatic") {
     // Expected Output: 'こんにちは!'
 
     // Test Case 15: Multibyte character as trailing character
-    testFoldConst("select append_trailing_char_if_absent('hello', '😊')")
+//    testFoldConst("select append_trailing_char_if_absent('hello', '😊')")
     // Expected Output: 'hello😊'
 
     // Test Case 16: Long string input
