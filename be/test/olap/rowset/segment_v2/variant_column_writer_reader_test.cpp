@@ -411,7 +411,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     paths_set_info.sparse_path_set.insert("key8");
     paths_set_info.sparse_path_set.insert("key9");
     uid_to_paths_set_info[parent_column.unique_id()] = paths_set_info;
-    _tablet_schema->set_path_set_info(uid_to_paths_set_info);
+    _tablet_schema->set_path_set_info(std::move(uid_to_paths_set_info));
 
     // 14. check compaction subcolumn reader
     check_leaf_reader();

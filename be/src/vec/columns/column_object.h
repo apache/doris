@@ -300,6 +300,8 @@ private:
 
     int32_t _max_subcolumns_count = 0;
 
+    size_t typed_path_count = 0;
+
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
@@ -566,6 +568,13 @@ public:
     // Deserialize the i-th row of the column from the sparse column.
     static std::pair<Field, FieldInfo> deserialize_from_sparse_column(const ColumnString* value,
                                                                       size_t row);
+
+    Status pick_subcolumns_to_sparse_column(
+            const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths);
+
+    void set_max_subcolumns_count(int32_t max_subcolumns_count) {
+        _max_subcolumns_count = max_subcolumns_count;
+    }
 
 private:
     // May throw execption

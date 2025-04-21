@@ -49,6 +49,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
 
     sql """ set disable_inverted_index_v1_for_variant = true """
     sql "DROP TABLE IF EXISTS var_index"
+    boolean findException = false
     try {
         sql """
             CREATE TABLE IF NOT EXISTS var_index (
@@ -63,8 +64,11 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     } catch (Exception e) {
         log.info(e.getMessage())
         assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
+        findException = true
     }
+    assertTrue(findException)
 
+    findException = false
     sql """
         CREATE TABLE IF NOT EXISTS var_index (
             k bigint,
@@ -80,7 +84,9 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     } catch (Exception e) {
         log.info(e.getMessage())
         assertTrue(e.getMessage().contains("not supported in inverted index format V1"))
+        findException = true
     }
+    assertTrue(findException)
 
     sql """ set disable_inverted_index_v1_for_variant = false """
     sql """

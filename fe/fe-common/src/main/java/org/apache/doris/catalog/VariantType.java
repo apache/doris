@@ -110,7 +110,6 @@ public class VariantType extends ScalarType {
 
     public void setVariantMaxSubcolumnsCount(int variantMaxSubcolumnsCount) {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
-        LOG.info("set max count is: {}", variantMaxSubcolumnsCount);
     }
 
     public int getVariantMaxSubcolumnsCount() {
