@@ -264,7 +264,7 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_range(int64_t batch_rows,
                                                            int64_t current_block_base_pos) {
     while (_current_row_position < _partition_by_pose.end) {
         _update_order_by_range();
-        if (_current_row_position == _order_by_pose.start) {
+        if (_current_row_position == _order_by_pose.start && _order_by_pose.is_ended) {
             _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
                                   _order_by_pose.start, _order_by_pose.end);
         }
