@@ -96,7 +96,8 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                                     streamConnection -> connectScheduler.unregisterConnection(context));
                         } else {
                             long userConnLimit = context.getEnv().getAuth().getMaxConn(context.getQualifiedUser());
-                            String errMsg = String.format("Reach limit of connections. Total: %, User: %d, Current: %d",
+                            String errMsg = String.format(
+                                    "Reach limit of connections. Total: %d, User: %d, Current: %d",
                                     connectScheduler.getMaxConnections(), userConnLimit, res);
                             context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, errMsg);
                             MysqlProto.sendResponsePacket(context);
