@@ -1016,4 +1016,63 @@ TEST_F(ColumnStringTest, shrink_padding_chars) {
 TEST_F(ColumnStringTest, sort_column) {
     column_string_common_test(assert_sort_column_callback);
 }
+
+TEST_F(ColumnStringTest, ScalaTypeStringTesterase) {
+    auto column = ColumnString::create();
+    std::vector<StringRef> data = {StringRef("asd"), StringRef("1234567"), StringRef("3"),
+                                   StringRef("4"), StringRef("5")};
+    for (auto d : data) {
+        column->insert_data(d.data, d.size);
+    }
+    column->erase(0, 2);
+    EXPECT_EQ(column->size(), 3);
+    for (int i = 0; i < column->size(); ++i) {
+        std::cout << column->get_data_at(i).to_string() << std::endl;
+        EXPECT_EQ(column->get_data_at(i).to_string(), data[i + 2].to_string());
+    }
+
+    auto column2 = ColumnString::create();
+    std::vector<StringRef> data2 = {StringRef(""), StringRef("1234567"), StringRef("asd"),
+                                    StringRef("4"), StringRef("5")};
+    for (auto d : data2) {
+        column2->insert_data(d.data, d.size);
+    }
+    column2->erase(0, 2);
+    EXPECT_EQ(column2->size(), 3);
+    for (int i = 0; i < column2->size(); ++i) {
+        std::cout << column2->get_data_at(i).to_string() << std::endl;
+        EXPECT_EQ(column2->get_data_at(i).to_string(), data2[i + 2].to_string());
+    }
+}
+
+TEST_F(ColumnStringTest, ScalaTypeStringTest2erase) {
+    auto column = ColumnString::create();
+    std::vector<StringRef> data = {StringRef("asd"), StringRef("1234567"), StringRef("3"),
+                                   StringRef("4"), StringRef("5")};
+    std::vector<StringRef> res = {StringRef("asd"), StringRef("1234567"), StringRef("5")};
+    for (auto d : data) {
+        column->insert_data(d.data, d.size);
+    }
+    column->erase(2, 2);
+    EXPECT_EQ(column->size(), 3);
+    for (int i = 0; i < column->size(); ++i) {
+        std::cout << column->get_data_at(i).to_string() << std::endl;
+        EXPECT_EQ(column->get_data_at(i).to_string(), res[i].to_string());
+    }
+
+    auto column2 = ColumnString::create();
+    std::vector<StringRef> data2 = {StringRef(""), StringRef("1234567"), StringRef("asd"),
+                                    StringRef("4"), StringRef("5")};
+    std::vector<StringRef> res2 = {StringRef(""), StringRef("1234567"), StringRef("5")};
+    for (auto d : data2) {
+        column2->insert_data(d.data, d.size);
+    }
+    column2->erase(2, 2);
+    EXPECT_EQ(column2->size(), 3);
+    for (int i = 0; i < column2->size(); ++i) {
+        std::cout << column2->get_data_at(i).to_string() << std::endl;
+        EXPECT_EQ(column2->get_data_at(i).to_string(), res2[i].to_string());
+    }
+}
+
 } // namespace doris::vectorized

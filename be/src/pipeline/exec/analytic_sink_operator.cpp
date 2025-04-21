@@ -803,7 +803,12 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
 void AnalyticSinkLocalState::_remove_unused_rows() {
     // test column overflow 4G
     DBUG_EXECUTE_IF("AnalyticSinkLocalState._remove_unused_rows", { return; });
+#ifdef BE_TEST
+    const size_t block_num = 1;
+#else
     const size_t block_num = 256;
+#endif
+
     if (_removed_block_index + block_num + 1 >= _input_block_first_row_positions.size()) {
         return;
     }
@@ -822,22 +827,18 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
     }
 
     const int64_t remove_rows = unused_rows_pos - _have_removed_rows;
-    auto left_rows = _input_total_rows - _have_removed_rows - remove_rows;
     {
         SCOPED_TIMER(_remove_rows_timer);
         for (size_t i = 0; i < _agg_functions_size; i++) {
             for (size_t j = 0; j < _agg_expr_ctxs[i].size(); j++) {
-                _agg_input_columns[i][j] =
-                        _agg_input_columns[i][j]->cut(remove_rows, left_rows)->assume_mutable();
+                _agg_input_columns[i][j]->erase(0, remove_rows);
             }
         }
         for (size_t i = 0; i < _partition_exprs_size; i++) {
-            _partition_by_columns[i] =
-                    _partition_by_columns[i]->cut(remove_rows, left_rows)->assume_mutable();
+            _partition_by_columns[i]->erase(0, remove_rows);
         }
         for (size_t i = 0; i < _order_by_exprs_size; i++) {
-            _order_by_columns[i] =
-                    _order_by_columns[i]->cut(remove_rows, left_rows)->assume_mutable();
+            _order_by_columns[i]->erase(0, remove_rows);
         }
     }
     COUNTER_UPDATE(_remove_count, 1);
