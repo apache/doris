@@ -18,9 +18,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_mow_compaction_and_schema_change", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
     def dbName = "regression_test_compaction"
     def testTable = ""
     def backendId_to_backendIP = [:]
@@ -267,6 +264,8 @@ suite("test_mow_compaction_and_schema_change", "nonConcurrent") {
             getTabletStatus(tablet)
             local_dm = getLocalDeleteBitmapStatus(tablet)
             logger.info(testTable + ", local_dm 1: " + local_dm)
+            GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+                    [tablet_id: "${tablet.TabletId}", start_version: 7, end_version: 11]);
             assertTrue(triggerCompaction(tablet).contains("Success"))
             waitForCompaction(tablet)
             order_qt_sql4 "select * from ${testTable}"
@@ -287,8 +286,13 @@ suite("test_mow_compaction_and_schema_change", "nonConcurrent") {
                 // check is agged, wait for unused rowsets is deleted
                 assertEquals(9, local_dm["cardinality"]) // the last one is agged
             } else if (method == 1) {
-                assertEquals(1, local_dm["delete_bitmap_count"])
-                assertEquals(5, local_dm["cardinality"])
+                if (isCloudMode()) { // compaction select [8-11]
+                    assertEquals(2, local_dm["delete_bitmap_count"])
+                    assertEquals(6, local_dm["cardinality"])
+                } else {
+                    assertEquals(1, local_dm["delete_bitmap_count"])
+                    assertEquals(5, local_dm["cardinality"])
+                }
             }
 
             // unblock schema change
