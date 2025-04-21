@@ -37,7 +37,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
+        return make_nullable(std::make_shared<DataTypeString>());
     }
 
     std::map<std::string, std::string> get_type_info(const ColumnObject& column, size_t row) const {
