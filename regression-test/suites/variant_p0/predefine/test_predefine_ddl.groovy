@@ -257,4 +257,22 @@ suite("test_predefine_ddl", "p0"){
         findException = true
     }
     assertTrue(findException)
+
+    findException = false
+    try {
+        sql "DROP TABLE IF EXISTS test_ddl_table"
+        sql """CREATE TABLE test_ddl_table (
+            `id` bigint NULL,
+            `var` variant<
+                MATCH_NAME 'ab' : double
+            > NULL,
+            INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        assertTrue(e.getMessage().contains("is not supported for inverted index"))
+        findException = true
+    }
+    assertTrue(findException)
 }
