@@ -27,11 +27,11 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
-  #include "common/compile_check_begin.h"
+#include "common/compile_check_begin.h"
 
 struct AggregateFunctionContextNgramsData {
     using NGramMap = std::map<std::vector<StringRef>, double>;
-    
+
     Int64 n = 0;
     Int64 k = 0;
     Int64 pf = 0;
@@ -49,7 +49,8 @@ struct AggregateFunctionContextNgramsData {
 
     void add(const std::vector<StringRef>& sequence) {
         LOG(INFO) << "In AggregateFunctionContextNgramsData::add(), data is " << this;
-        LOG(INFO) << "In AggregateFunctionContextNgramsData::add(), sequence contains " << sequence.size() << " strings";
+        LOG(INFO) << "In AggregateFunctionContextNgramsData::add(), sequence contains "
+                  << sequence.size() << " strings";
         for (size_t i = 0; i < sequence.size(); ++i) {
             LOG(INFO) << sequence[i].to_string();
         }
@@ -94,19 +95,13 @@ struct AggregateFunctionContextNgramsData {
             k = other.k;
             pf = other.pf;
         }
-        LOG(INFO) << "In AggregateFunctionContextNgramsData::merge(), this: n = " << n << " k = " << k << " pf = " << pf << " other: n = " << other.n << " k = " << other.k << " pf = " << other.pf;
-        // if (k == 0 && n == 0 && pf == 0) {
-        //     k = other.k;
-        //     n = other.n;
-        //     pf = other.pf;
-        // } else if (other.k != 0 && other.n != 0) {
-        //     if (k != other.k || n != other.n || pf != other.pf) {
-        //         throw Exception(ErrorCode::INVALID_ARGUMENT, "Mismatch in context_ngrams parameters");
-        //     }
-        // }
+        LOG(INFO) << "In AggregateFunctionContextNgramsData::merge(), this: n = " << n
+                  << " k = " << k << " pf = " << pf << " other: n = " << other.n
+                  << " k = " << other.k << " pf = " << other.pf;
 
         // merge n-gram frequency
-        LOG(INFO) << "In AggregateFunctionContextNgramsData::merge(), this contains " << ngrams.size() << " ngrams";
+        LOG(INFO) << "In AggregateFunctionContextNgramsData::merge(), this contains "
+                  << ngrams.size() << " ngrams";
         for (const auto& pair : ngrams) {
             std::string s = "";
             for (const auto& str : pair.first) {
@@ -115,7 +110,8 @@ struct AggregateFunctionContextNgramsData {
             LOG(INFO) << s << "occurs " << pair.second << " times";
         }
         LOG(INFO) << "In AggregateFunctionContextNgramsData::merge(), other is " << &other;
-        LOG(INFO) << "In AggregateFunctionContextNgramsData::merge(), other contains " << other.ngrams.size() << " ngrams";
+        LOG(INFO) << "In AggregateFunctionContextNgramsData::merge(), other contains "
+                  << other.ngrams.size() << " ngrams";
         for (const auto& pair : other.ngrams) {
             std::string s = "";
             for (const auto& str : pair.first) {
@@ -141,7 +137,8 @@ struct AggregateFunctionContextNgramsData {
         // if exceed buffer size, trim
         if (ngrams.size() > k * pf * 2) {
             trim(false);
-            LOG(INFO) << "In AggregateFunctionContextNgramsData::merge(), after trim, this contains " << ngrams.size() << " ngrams";
+            LOG(INFO) << "In AggregateFunctionContextNgramsData::merge(), after trim, this contains "
+                      << ngrams.size() << " ngrams";
             for (const auto& pair : ngrams) {
                 std::string s = "";
                 for (const auto& str : pair.first) {
@@ -155,10 +152,10 @@ struct AggregateFunctionContextNgramsData {
     void trim(bool final_trim) {
         LOG(INFO) << "In AggregateFunctionContextNgramsData::trim(), data is " << this;
         // sort by frequency
-        std::vector<std::pair<std::vector<StringRef>, double>> sorted_ngrams(
-            ngrams.begin(), ngrams.end());
+        std::vector<std::pair<std::vector<StringRef>, double>> sorted_ngrams(ngrams.begin(),
+                                                                             ngrams.end());
         std::sort(sorted_ngrams.begin(), sorted_ngrams.end(),
-                 [](const auto& a, const auto& b) { return a.second < b.second; });
+                  [](const auto& a, const auto& b) { return a.second < b.second; });
 
         // keep top-k or top-(k*pf) n-grams
         size_t keep_size = final_trim ? k : k * pf;
@@ -172,13 +169,15 @@ struct AggregateFunctionContextNgramsData {
 
     void serialize(BufferWritable& buf) const {
         LOG(INFO) << "In AggregateFunctionContextNgramsData::serialize(), data is " << this;
-        LOG(INFO) << "In AggregateFunctionContextNgramsData::serialize(), k = " << k << " pf = " << pf << " n = " << n;
+        LOG(INFO) << "In AggregateFunctionContextNgramsData::serialize(), k = " << k
+                  << " pf = " << pf << " n = " << n;
         write_binary(k, buf);
         write_binary(pf, buf);
         write_binary(n, buf);
 
         // serialize context
-        LOG(INFO) << "In AggregateFunctionContextNgramsData::serialize(), context contains " << context.size() << " strings";
+        LOG(INFO) << "In AggregateFunctionContextNgramsData::serialize(), context contains "
+                  << context.size() << " strings";
         write_binary(context.size(), buf);
         for (const auto& str : context) {
             LOG(INFO) << str.to_string();
@@ -186,7 +185,8 @@ struct AggregateFunctionContextNgramsData {
         }
 
         // serialize n-grams
-        LOG(INFO) << "In AggregateFunctionContextNgramsData::serialize(), contains " << ngrams.size() << " ngrams";
+        LOG(INFO) << "In AggregateFunctionContextNgramsData::serialize(), contains "
+                  << ngrams.size() << " ngrams";
         write_binary(ngrams.size(), buf);
         for (const auto& pair : ngrams) {
             std::string s = "";
@@ -204,12 +204,14 @@ struct AggregateFunctionContextNgramsData {
         read_binary(k, buf);
         read_binary(pf, buf);
         read_binary(n, buf);
-        LOG(INFO) << "In AggregateFunctionContextNgramsData::deserialize(), k = " << k << " pf = " << pf << " n = " << n;
-        
+        LOG(INFO) << "In AggregateFunctionContextNgramsData::deserialize(), k = " << k
+                  << " pf = " << pf << " n = " << n;
+
         // deserialize context
         size_t context_size;
         read_binary(context_size, buf);
-        LOG(INFO) << "In AggregateFunctionContextNgramsData::deserialize(), context contains " << context_size << " strings";
+        LOG(INFO) << "In AggregateFunctionContextNgramsData::deserialize(), context contains " 
+                  << context_size << " strings";
         context.clear();
         context.reserve(context_size);
         for (size_t i = 0; i < context_size; ++i) {
@@ -218,11 +220,12 @@ struct AggregateFunctionContextNgramsData {
             LOG(INFO) << str.to_string();
             context.push_back(str);
         }
-        
+
         // deserialize n-grams
         size_t ngrams_size;
         read_binary(ngrams_size, buf);
-        LOG(INFO) << "In AggregateFunctionContextNgramsData::deserialize(), contains " << ngrams_size << " ngrams";
+        LOG(INFO) << "In AggregateFunctionContextNgramsData::deserialize(), contains "
+                  << ngrams_size << " ngrams";
         ngrams.clear();
         for (size_t i = 0; i < ngrams_size; ++i) {
             std::vector<StringRef> ngram;
@@ -243,51 +246,57 @@ struct AggregateFunctionContextNgramsData {
 };
 
 class AggregateFunctionContextNgrams
-        : public IAggregateFunctionDataHelper<
-                  AggregateFunctionContextNgramsData, AggregateFunctionContextNgrams> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionContextNgramsData,
+                                              AggregateFunctionContextNgrams> {
 public:
     AggregateFunctionContextNgrams(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper(argument_types_) {
         LOG(INFO) << "In AggregateFunctionContextNgrams::AggregateFunctionContextNgrams()";
         // check argument number
         if (argument_types_.size() != 3 && argument_types_.size() != 4) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                "Function {} requires 3 or 4 arguments", get_name());
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Function {} requires 3 or 4 arguments",
+                            get_name());
         }
 
         // check first argument is array<array<string>>
         WhichDataType which1(remove_nullable(argument_types_[0]));
         if (which1.idx != TypeIndex::Array) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
-                "First argument of function {} must be array<array<string>>", get_name());
+                            "First argument of function {} must be array<array<string>>",
+                            get_name());
         }
-        const auto* array_type = assert_cast<const DataTypeArray*>(remove_nullable(argument_types_[0]).get());
+        const auto* array_type =
+                assert_cast<const DataTypeArray*>(remove_nullable(argument_types_[0]).get());
 
         WhichDataType which2(remove_nullable(array_type->get_nested_type()));
         if (which2.idx != TypeIndex::Array) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
-                "First argument of function {} must be array<array<string>>", get_name());
+                            "First argument of function {} must be array<array<string>>",
+                            get_name());
         }
 
-        const auto* inner_array_type = assert_cast<const DataTypeArray*>(remove_nullable(array_type->get_nested_type()).get());
+        const auto* inner_array_type = assert_cast<const DataTypeArray*>(
+                remove_nullable(array_type->get_nested_type()).get());
         WhichDataType which3(remove_nullable(inner_array_type->get_nested_type()));
         if (which3.idx != TypeIndex::String && which3.idx != TypeIndex::FixedString) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
-                "First argument of function {} must be array<array<string>>", get_name());
+                            "First argument of function {} must be array<array<string>>",
+                            get_name());
         }
 
         // check second argument is array<string> or int
         WhichDataType which4(remove_nullable(argument_types_[1]));
         if (which4.idx == TypeIndex::Array) {
-            const auto* context_array_type = assert_cast<const DataTypeArray*>(remove_nullable(argument_types_[1]).get());
+            const auto* context_array_type =
+                    assert_cast<const DataTypeArray*>(remove_nullable(argument_types_[1]).get());
             WhichDataType which5(remove_nullable(context_array_type->get_nested_type()));
             if (which5.idx != TypeIndex::String && which5.idx != TypeIndex::FixedString) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
-                    "Second argument must be array<string> or int");
+                                "Second argument must be array<string> or int");
             }
         } else if (!which4.is_int_or_uint()) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
-                "Second argument must be array<string> or int");
+                            "Second argument must be array<string> or int");
         }
 
         // check remaining arguments must be integer
@@ -295,12 +304,12 @@ public:
             WhichDataType which(remove_nullable(argument_types_[i]));
             if (!which.is_int_or_uint()) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
-                    "Argument {} of function {} must be integer", i + 1, get_name());
+                                "Argument {} of function {} must be integer", i + 1, get_name());
             }
         }
     }
 
-    String get_name() const override { 
+    String get_name() const override {
         LOG(INFO) << "In AggregateFunctionContextNgrams::get_name()";
         return "context_ngrams";
     }
@@ -327,11 +336,12 @@ public:
             }
             col = nullable_col->get_nested_column_ptr().get();
         }
-        const ColumnArray* array = assert_cast<const ColumnArray*>(col); // array<array<string>> column
-        LOG(INFO) << "In AggregateFunctionContextNgrams::add(), array<array<string>>'s size is " << array -> size();
-        const IColumn* inner_col = array->get_data_ptr().get(); // array<string> ?
+        const ColumnArray* array = assert_cast<const ColumnArray*>(col);
+        LOG(INFO) << "In AggregateFunctionContextNgrams::add(), array<array<string>>'s size is "
+                  << array -> size();
+        const IColumn* inner_col = array->get_data_ptr().get();
         if (const auto* nullable_inner = typeid_cast<const ColumnNullable*>(inner_col)) {
-            inner_col = nullable_inner -> get_nested_column_ptr().get();
+            inner_col = nullable_inner->get_nested_column_ptr().get();
         }
         const ColumnArray* inner_array = assert_cast<const ColumnArray*>(inner_col);
         const IColumn* string_col = inner_array->get_data_ptr().get();
@@ -339,9 +349,10 @@ public:
             string_col = nullable_string->get_nested_column_ptr().get();
         }
         const ColumnString* strings = assert_cast<const ColumnString*>(string_col);
-        LOG(INFO) << "In AggregateFunctionContextNgrams::add(), sequence contains " << strings -> size() << " strings: ";
-        for (size_t i = 0; i < strings -> size(); ++i) {
-            LOG(INFO) << strings -> get_data_at(i);
+        LOG(INFO) << "In AggregateFunctionContextNgrams::add(), sequence contains "
+                  << strings -> size() << " strings: ";
+        for (size_t i = 0; i < strings->size(); ++i) {
+            LOG(INFO) << strings->get_data_at(i);
         }
 
         // get second argument(context pattern or n)
@@ -350,18 +361,20 @@ public:
             // context_ngrams(array<array<string>>, array<string>, int k [, int pf])
             const IColumn* context_col = columns[1];
 
-            // 处理 Nullable 数组
-            if (const auto* nullable_array = typeid_cast<const ColumnNullable*>(context_col)) {
+            // Nullable Array
+            if (const auto* nullable_array =
+                        typeid_cast<const ColumnNullable*>(context_col)) {
                 context_col = nullable_array->get_nested_column_ptr().get();
             }
             const ColumnArray* context_array = assert_cast<const ColumnArray*>(context_col);
 
-            // 处理 Nullable 字符串
+            // Nullable String
             const IColumn* context_string_col = context_array->get_data_ptr().get();
             if (const auto* nullable_string = typeid_cast<const ColumnNullable*>(context_string_col)) {
                 context_string_col = nullable_string->get_nested_column_ptr().get();
             }
-            const ColumnString* context_strings = assert_cast<const ColumnString*>(context_string_col);
+            const ColumnString* context_strings =
+                    assert_cast<const ColumnString*>(context_string_col);
 
             // initialize context pattern
             if (data.context.empty()) {
@@ -373,10 +386,11 @@ public:
                 for (size_t i = start; i < end; ++i) {
                     StringRef str;
 
-                    // 如果是 Nullable 列，检查是否为 null
-                    if (const auto* nullable_array = typeid_cast<const ColumnNullable*>(context_col)) {
+                    // Nullable Column
+                    if (const auto* nullable_array =
+                                typeid_cast<const ColumnNullable*>(context_col)) {
                         if (nullable_array->is_null_at(i)) {
-                            str = StringRef();  // 使用空字符串表示 null
+                            str = StringRef(); // null
                         } else {
                             str = context_strings->get_data_at(i);
                         }
@@ -394,20 +408,20 @@ public:
 
                 if (data.context.empty()) {
                     throw Exception(ErrorCode::INVALID_ARGUMENT, 
-                        "context_ngrams requires non-empty context pattern");
+                                    "context_ngrams requires non-empty context pattern");
                 }
                 if (data.n == 0) {
                     throw Exception(ErrorCode::INVALID_ARGUMENT, 
-                        "context_ngrams requires at least one null in context pattern");
+                                    "context_ngrams requires at least one null in context pattern");
                 }
             }
         } else {
             // context_ngrams(array<array<string>>, int n, int k [, int pf])
-            //get n
+            // get n
             data.n = get_int_value(columns[1], row_num);
             if (data.n <= 0) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT, 
-                    "context_ngrams requires n parameter must greater than zero");
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "context_ngrams requires n parameter must greater than zero");
             }
             LOG(INFO) << "In AggregateFunctionContextNgrams::add(), n = " << data.n;
             // create full null context for n-gram length
@@ -422,18 +436,19 @@ public:
         // get k and pf
         data.k = get_int_value(columns[2], row_num);
         if (data.k <= 0) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, 
-                "context_ngrams requires the third parameter must greater than zero");
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "context_ngrams requires the third parameter must greater than zero");
         }
         if (argument_types.size() > 3) {
             data.pf = get_int_value(columns[3], row_num);
         } else {
             data.pf = 1;
         }
-        LOG(INFO) << "In AggregateFunctionContextNgrams::add(), k = " << data.k << " pf = " << data.pf;
+        LOG(INFO) << "In AggregateFunctionContextNgrams::add(), k = " << data.k
+                  << " pf = " << data.pf;
         if (data.pf <= 0) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, 
-                "context_ngrams requires the fourth parameter must greater than zero");
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "context_ngrams requires the fourth parameter must greater than zero");
         }
 
         // collect and process input sequence
@@ -444,8 +459,8 @@ public:
         }
         size_t start = row_num == 0 ? 0 : offsets[row_num - 1];
         size_t end = offsets[row_num];
-        
-        const auto& inner_offsets = inner_array -> get_offsets();
+
+        const auto& inner_offsets = inner_array->get_offsets();
         LOG(INFO) << "In AggregateFunctionContextNgrams::add(), check inner offsets:";
         for (size_t i = 0; i < inner_offsets.size(); ++i) {
             LOG(INFO) << inner_offsets[i];
@@ -462,9 +477,7 @@ public:
         data.add(sequence);
     }
 
-    void reset(AggregateDataPtr __restrict place) const override {
-        this->data(place).reset();
-    }
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
@@ -485,7 +498,9 @@ public:
         LOG(INFO) << "In AggregateFunctionContextNgrams::insert_result_into(), data is " << &data;
 
         // final trim, only keep top-k results
-        LOG(INFO) << "In AggregateFunctionContextNgrams::insert_result_into(), before final trim, data contains " << data.ngrams.size() << " ngrams";
+        LOG(INFO) << "In AggregateFunctionContextNgrams::insert_result_into(), before final trim, "
+                     "data contains "
+                  << data.ngrams.size() << " ngrams";
         for (const auto& pair : data.ngrams) {
             std::string s = "";
             for (const auto& str : pair.first) {
@@ -494,7 +509,9 @@ public:
             LOG(INFO) << s << "occurs " << pair.second << " times";
         }
         const_cast<AggregateFunctionContextNgramsData&>(data).trim(true);
-        LOG(INFO) << "In AggregateFunctionContextNgrams::insert_result_into(), after final trim, data contains " << data.ngrams.size() << " ngrams";
+        LOG(INFO) << "In AggregateFunctionContextNgrams::insert_result_into(), after final trim, "
+                     "data contains "
+                  << data.ngrams.size() << " ngrams";
         for (const auto& pair : data.ngrams) {
             std::string s = "";
             for (const auto& str : pair.first) {
@@ -533,15 +550,14 @@ public:
         auto& inner_null_map = inner_nullable.get_null_map_data();
 
         // sort results by frequency in descending order
-        std::vector<std::pair<std::vector<StringRef>, double>> sorted_ngrams(
-            data.ngrams.begin(), data.ngrams.end());
-        std::sort(sorted_ngrams.begin(), sorted_ngrams.end(),
-                [](const auto& a, const auto& b) {
-                    if (a.second != b.second) {
-                        return a.second > b.second;
-                    }
-                    return a.first < b.first;
-                });
+        std::vector<std::pair<std::vector<StringRef>, double>> sorted_ngrams(data.ngrams.begin(),
+                                                                             data.ngrams.end());
+        std::sort(sorted_ngrams.begin(), sorted_ngrams.end(), [](const auto& a, const auto& b) {
+            if (a.second != b.second) {
+                return a.second > b.second;
+            }
+            return a.first < b.first;
+        });
 
         for (const auto& pair : sorted_ngrams) {
             LOG(INFO) << "Inserting n-gram with " << pair.first.size() << " elements";

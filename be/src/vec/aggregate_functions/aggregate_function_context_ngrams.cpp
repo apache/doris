@@ -19,8 +19,8 @@
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
 
@@ -32,8 +32,9 @@ AggregateFunctionPtr create_context_ngrams_with_pattern(const DataTypes& argumen
     if (which4.idx != TypeIndex::Array) {
         return nullptr;
     }
-    const auto* context_type = assert_cast<const DataTypeArray*>(remove_nullable(argument_types[1]).get());
-    
+    const auto* context_type =
+            assert_cast<const DataTypeArray*>(remove_nullable(argument_types[1]).get());
+
     WhichDataType which5(remove_nullable(context_type->get_nested_type()));
     if (which5.idx != TypeIndex::String && which5.idx != TypeIndex::FixedString) {
         return nullptr;
@@ -55,15 +56,16 @@ AggregateFunctionPtr create_context_ngrams_with_n(const DataTypes& argument_type
 }
 
 AggregateFunctionPtr create_aggregate_function_context_ngrams(const String& name,
-                                                            const DataTypes& argument_types,
-                                                            const bool result_is_nullable,
-                                                            const AggregateFunctionAttr& attr) {
+                                                              const DataTypes& argument_types,
+                                                              const bool result_is_nullable,
+                                                              const AggregateFunctionAttr& attr) {
     LOG(INFO) << "In create_aggregate_function_context_ngrams(), name is " << name;
     // check argument number
     if (argument_types.size() != 3 && argument_types.size() != 4) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-            "Number of arguments for function {} doesn't match: passed {}, should be 3 or 4",
-            name, argument_types.size());
+        throw Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                "Number of arguments for function {} doesn't match: passed {}, should be 3 or 4",
+                name, argument_types.size());
     }
 
     // check first argument is array<array<string>>
@@ -71,12 +73,14 @@ AggregateFunctionPtr create_aggregate_function_context_ngrams(const String& name
     if (which1.idx != TypeIndex::Array) {
         return nullptr;
     }
-    const auto* array_type = assert_cast<const DataTypeArray*>(remove_nullable(argument_types[0]).get());
+    const auto* array_type =
+            assert_cast<const DataTypeArray*>(remove_nullable(argument_types[0]).get());
     WhichDataType which2(remove_nullable(array_type->get_nested_type()));
     if (which2.idx != TypeIndex::Array) {
         return nullptr;
     }
-    const auto* inner_array_type = assert_cast<const DataTypeArray*>(remove_nullable(array_type->get_nested_type()).get());
+    const auto* inner_array_type =
+            assert_cast<const DataTypeArray*>(remove_nullable(array_type->get_nested_type()).get());
     WhichDataType which3(remove_nullable(inner_array_type->get_nested_type()));
     if (which3.idx != TypeIndex::String && which3.idx != TypeIndex::FixedString) {
         return nullptr;
@@ -87,7 +91,7 @@ AggregateFunctionPtr create_aggregate_function_context_ngrams(const String& name
         WhichDataType which(remove_nullable(argument_types[i]));
         if (!which.is_int_or_uint()) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
-                "Argument {} of function {} must be integer", i + 1, name);
+                            "Argument {} of function {} must be integer", i + 1, name);
         }
     }
 
