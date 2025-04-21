@@ -24,19 +24,24 @@
 #include <ostream>
 #include <string>
 
+#include "agg_function_test.h"
 #include "common/logging.h"
 #include "gtest/gtest_pred_impl.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -204,6 +209,74 @@ TEST_F(VAggCollectTest, test_complex_data_type) {
 
     test_agg_collect<DataTypeString>("collect_list", 10, true);
     test_agg_collect<DataTypeString>("array_agg", 5, true);
+}
+
+struct AggregateFunctionCollectTest : public AggregateFunctiontest {};
+
+TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64) {
+    create_agg("collect_list", false, {std::make_shared<DataTypeInt64>()});
+
+    auto data_type = std::make_shared<DataTypeInt64>();
+    auto array_data_type = std::make_shared<DataTypeArray>(data_type);
+
+    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto data_column = ColumnInt64::create();
+    std::vector<ColumnArray::Offset64> offs = {0, 3};
+    std::vector<int64_t> vals = {1, 2, 3};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    for (auto& v : vals) {
+        data_column->insert_data((const char*)(&v), 0);
+    }
+    auto array_column = ColumnArray::create(std::move(data_column), std::move(off_column));
+
+    execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
+            ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
+}
+
+TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64) {
+    create_agg("collect_set", false, {std::make_shared<DataTypeInt64>()});
+
+    auto data_type = std::make_shared<DataTypeInt64>();
+    auto array_data_type = std::make_shared<DataTypeArray>(data_type);
+
+    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto data_column = ColumnInt64::create();
+    std::vector<ColumnArray::Offset64> offs = {0, 3};
+    std::vector<int64_t> vals = {2, 1, 3};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    for (auto& v : vals) {
+        data_column->insert_data((const char*)(&v), 0);
+    }
+    auto array_column = ColumnArray::create(std::move(data_column), std::move(off_column));
+
+    execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
+            ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
+}
+
+TEST_F(AggregateFunctionCollectTest, test_array_agg_aint64) {
+    create_agg("array_agg", false, {std::make_shared<DataTypeInt64>()});
+
+    auto data_type = std::make_shared<DataTypeInt64>();
+    auto array_data_type = std::make_shared<DataTypeArray>(data_type);
+
+    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto data_column = ColumnInt64::create();
+    std::vector<ColumnArray::Offset64> offs = {0, 3};
+    std::vector<int64_t> vals = {1, 2, 3};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    for (auto& v : vals) {
+        data_column->insert_data((const char*)(&v), 0);
+    }
+    auto array_column = ColumnArray::create(std::move(data_column), std::move(off_column));
+
+    execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
+            ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
 }
 
 } // namespace doris::vectorized
