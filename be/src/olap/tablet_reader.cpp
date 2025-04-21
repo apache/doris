@@ -262,6 +262,23 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
+    //vector index params
+    _reader_context.k = read_params.k;
+    _reader_context.query_vector = &read_params.query_vector;
+    _reader_context.query_vector_id = &read_params.query_vector_id;
+    _reader_context.use_vector_index = read_params.use_vector_index;
+    _reader_context.vector_distance_column_name = read_params.vector_distance_column_name;
+    _reader_context.vector_column_id = read_params.vector_column_id;
+    _reader_context.vector_slot_id = read_params.vector_slot_id;
+    _reader_context.query_params = &read_params.query_params;
+    _reader_context.vector_range = read_params.vector_range;
+    _reader_context.result_order = read_params.result_order;
+    _reader_context.pq_refine_factor = read_params.pq_refine_factor;
+    _reader_context.k_factor = read_params.k_factor;
+    _reader_context.use_vector_range = read_params.use_vector_range;
+
+    // topn index push down
+    _reader_context.topn_index_push_down_params = read_params.topn_index_push_down_params;
 
     return Status::OK();
 }
@@ -379,6 +396,39 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
     }
 
     std::sort(_key_cids.begin(), _key_cids.end(), std::greater<uint32_t>());
+
+    RETURN_IF_ERROR(_init_return_v_proj_columns(read_params));
+
+    return Status::OK();
+}
+
+Status TabletReader::_init_return_v_proj_columns(const ReaderParams& read_params) {
+    if (!read_params.virtual_proj_func_descs || read_params.virtual_proj_func_descs->empty()) {
+        return Status::OK();
+    }
+
+    _v_proj_col_iters_initializers =
+            std::make_shared<std::vector<v_proj::VirtualProjColItersInitializer>>();
+    _v_proj_col_iters_initializers->reserve(read_params.virtual_proj_func_descs->size());
+    for (const auto& v_proj_func_desc : *read_params.virtual_proj_func_descs) {
+        _v_proj_col_iters_initializers->emplace_back(v_proj_func_desc);
+    }
+    _reader_context.virtual_proj_col_initializers = _v_proj_col_iters_initializers;
+
+    _ordered_v_proj_cols = std::make_shared<std::vector<const v_proj::VirtualProjColDesc*>>();
+    for (const auto& initializer : *_v_proj_col_iters_initializers) {
+        for (const auto& v_col : initializer.get_v_cols()) {
+            _ordered_v_proj_cols->emplace_back(&v_col);
+        }
+    }
+    std::sort(_ordered_v_proj_cols->begin(), _ordered_v_proj_cols->end(),
+              [](const v_proj::VirtualProjColDesc* a, const v_proj::VirtualProjColDesc* b) {
+                  return a->result_col_id < b->result_col_id;
+              });
+
+    if (_ordered_v_proj_cols->empty()) {
+        return Status::OK();
+    }
 
     return Status::OK();
 }

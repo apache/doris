@@ -21,6 +21,8 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <olap/topn_index_push_down.h>
+#include <vec/functions/function_string.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
@@ -53,6 +55,7 @@
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/mindann/mindann_id_filter.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
@@ -90,7 +93,9 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/functions/array/function_array_index.h"
 #include "vec/json/path_in_data.h"
+#include "mindann/mindann_index_utils.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -261,6 +266,7 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _column_iterators(_schema->num_columns()),
           _bitmap_index_iterators(_schema->num_columns()),
           _inverted_index_iterators(_schema->num_columns()),
+          _vector_index_iterators(_schema->num_columns()),
           _cur_rowid(0),
           _lazy_materialization_read(false),
           _lazy_inited(false),
@@ -393,13 +399,42 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
         }
     }
 
+    // vector index
+    _use_vector_index = _opts.use_vector_index;
+    if (_use_vector_index) {
+        // The K in front of Fe is long, which can be changed to uint32. This can be a problem,
+        // but this k is wasted memory allocation, so it should not exceed the accuracy of uint32
+        // options. query_vector is a string, passed to tenann as a float string, see if you need
+        // to use the stof function to conver and consider precision loss
+        _vector_distance_column_name = _opts.vector_distance_column_name;
+        _vector_column_id = _opts.vector_column_id;
+        _vector_slot_id = _opts.vector_slot_id;
+        _vector_range = _opts.vector_range;
+        _result_order = _opts.result_order;
+        _use_vector_range = _opts.use_vector_range;
+        _k = static_cast<int64_t>(static_cast<double>(_opts.k) * _opts.k_factor);
+        for (const auto& str : *_opts.query_vector) {
+            // convert item type from string to float must success, promise in FE.
+            _float_query_vector.push_back(std::stof(str));
+        }
+        for (const auto& str : *_opts.query_vector_id) {
+            // convert item type from string to int32 must success, promise in FE.
+            _int_query_vector_id.push_back(std::stoi(str));
+        }
+    }
+
+    // topn index push down
+    _topn_index_push_down_params = opts.topn_index_push_down_params;
+
     return Status::OK();
 }
 
 Status SegmentIterator::init_iterators() {
     RETURN_IF_ERROR(_init_return_column_iterators());
+    RETURN_IF_ERROR(_init_v_proj_cols_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
     RETURN_IF_ERROR(_init_inverted_index_iterators());
+    RETURN_IF_ERROR(_init_vector_index_iterators());
     return Status::OK();
 }
 
@@ -413,7 +448,7 @@ Status SegmentIterator::_lazy_init() {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
-    RETURN_IF_ERROR(_vec_init_lazy_materialization());
+
     // Remove rows that have been marked deleted
     if (_opts.delete_bitmap.count(segment_id()) > 0 &&
         _opts.delete_bitmap.at(segment_id()) != nullptr) {
@@ -428,6 +463,13 @@ Status SegmentIterator::_lazy_init() {
     if (!_opts.row_ranges.is_empty()) {
         _row_bitmap &= RowRanges::ranges_to_roaring(_opts.row_ranges);
     }
+
+    RETURN_IF_ERROR(_maybe_get_row_ranges_by_topn_bm25());
+    // vector index must in last one, after all others index filter and delete bitmap.
+    RETURN_IF_ERROR(_get_row_ranges_by_vector_index());
+
+    RETURN_IF_ERROR(_vec_init_lazy_materialization());
+
     if (_opts.read_orderby_key_reverse) {
         _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
     } else {
@@ -584,6 +626,269 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
     // TODO(hkp): calculate filter rate to decide whether to
     // use zone map/bloom filter/secondary index or not.
+    return Status::OK();
+}
+
+Status SegmentIterator::_remove_target_expr_match_vector_range_search() {
+    if (!_use_vector_index || !_use_vector_range) {
+        return Status::OK();
+    }
+
+    for (auto it = _common_expr_ctxs_push_down.begin();
+             it != _common_expr_ctxs_push_down.end();) {
+        vectorized::VExprSPtr expr = (*it)->root();
+        if (!expr || expr->node_type() != TExprNodeType::BINARY_PRED) {
+            return Status::OK();
+        }
+
+        string expr_name = expr->expr_name();
+        if (expr_name.find("approx_inner_product") != std::string::npos ||
+                expr_name.find("approx_cosine_similarity") != std::string::npos ||
+                expr_name.find("approx_l2_distance") != std::string::npos) {
+            _delete_expr_from_conjunct_roots(expr, _remaining_conjunct_roots);
+            it = _common_expr_ctxs_push_down.erase(it);
+            VLOG_DEBUG << "delete expr from _remaining_conjunct_roots "
+                       << (*it)->root()->debug_string();
+        } else {
+            ++it;
+        }
+    }
+
+    return Status::OK();
+}
+Status SegmentIterator::_maybe_get_row_ranges_by_topn_bm25() {
+    SCOPED_RAW_TIMER(&_opts.stats->bm25_topn_apply_timer);
+    if (!_topn_index_push_down_params
+            || !_topn_index_push_down_params->is_push_down
+            || _topn_index_push_down_params->limit <= 0) {
+        return Status::OK();
+    }
+
+    if (_row_bitmap.isEmpty() || _row_bitmap.cardinality() <= _topn_index_push_down_params->limit) {
+        return Status::OK();
+    }
+
+    auto root = _topn_index_push_down_params->proj_expr_ptr->root();
+
+    if (root == nullptr) {
+        return Status::OK();
+    }
+
+    auto func_name = root->fn().name.function_name;
+    if (func_name != "bm25") {
+        // if not bm25 push down then return
+        return Status::OK();
+    }
+    SCOPED_RAW_TIMER(&_opts.stats->bm25_topn_search_timer);
+    auto bm25_proj = std::dynamic_pointer_cast<vectorized::VectorizedFnCall>(root);
+    for (auto& pd_func_desc : _pd_func_descs) {
+        if (pd_func_desc.func.get() != bm25_proj.get()) { continue; }
+        auto bm25_v_proj_col_iter =std::dynamic_pointer_cast<v_proj::BM25VirtualProjColumnIterator>(
+                            (*pd_func_desc.v_proj_col_iters)[0]);
+        auto& bm25_scores = bm25_v_proj_col_iter->get_bm25_scores();
+        std::vector<phmap::flat_hash_map<segment_v2::rowid_t, float>::const_iterator> score_pointers;
+        // size is 0 means no line match bm25
+        if (bm25_scores.size() == 0) {
+            return Status::OK();
+        }
+        phmap::flat_hash_map<segment_v2::rowid_t, float> bm25_zero_scores;
+        score_pointers.reserve(_row_bitmap.cardinality());
+        for (auto rowid : _row_bitmap) {
+            auto find_iter = bm25_scores.find(rowid);
+            if (find_iter != bm25_scores.end()) {
+                score_pointers.push_back(find_iter);
+            } else {
+                // if not exist in bm25_scores, then should add rowid into score_pointers
+                bm25_zero_scores.emplace(rowid, 0.0F);
+                find_iter = bm25_zero_scores.find(rowid);
+                score_pointers.push_back(find_iter);
+            }
+        }
+        size_t n = _topn_index_push_down_params->limit;
+        bool is_asc = _topn_index_push_down_params->is_asc;
+        std::nth_element(score_pointers.begin(), score_pointers.begin() + n, score_pointers.end(),
+                         [&is_asc](
+                                 phmap::flat_hash_map<segment_v2::rowid_t, float>::const_iterator a,
+                                 phmap::flat_hash_map<segment_v2::rowid_t, float>::const_iterator b) {
+                             return is_asc ? a->second < b->second: a->second > b->second;
+                         });
+        std::vector<int64_t> result_ids;
+        for (int i = 0; i < n; i++) {
+            result_ids.emplace_back(score_pointers.at(i)->first);
+        }
+
+        if (result_ids.size() != 0) {
+            std::sort(result_ids.begin(), result_ids.end());
+
+            RowRanges r = RowRanges();
+            RETURN_IF_ERROR(_get_row_ranges_by_row_ids(&result_ids, &r));
+
+            size_t pre_size = _row_bitmap.cardinality();
+            _row_bitmap &= RowRanges::ranges_to_roaring(r);
+            _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
+        }
+        break;
+    }
+    return Status::OK();
+
+}
+Status SegmentIterator::_get_row_ranges_by_vector_index() {
+    SCOPED_RAW_TIMER(&_opts.stats->vector_index_apply_timer);
+
+    if (!_use_vector_index) {
+        return Status::OK();
+    }
+
+    if (_row_bitmap.isEmpty()) {
+        return Status::OK();
+    }
+
+    if (_row_bitmap.cardinality() <= config::vector_index_short_circuit_count) {
+        // When the remaining amount of data is relatively small, the computational cost of the vector index is greater.
+        // When the number of candidate rows is greater than the threshold, use vector index to filter the results,
+        // otherwise, skip the vector index.
+        // For topn limit only.
+        _opts.stats->vector_index_short_circuit_counter += 1;
+        return Status::OK();
+    }
+
+    VectorIndexIterator* vector_iterator = _vector_cid >= 0 ? _vector_index_iterators[_vector_cid].get() : nullptr;
+    if (vector_iterator == nullptr) {
+        LOG(WARNING) << "Vector iterator is not loaded. column_id: " << _vector_cid;
+        return Status::OK();
+    }
+
+    // In some case, vector index will not be built so that index iterator is empty.
+    // For example, datamind will not build hnswpq index for tiny data.
+    if (vector_iterator->is_empty_index_iterator()) {
+        return Status::OK();
+    }
+
+    // change _k for quantization index
+    auto k = _k;
+    if (vector_iterator->is_dense_vector_index() &&
+        (vector_iterator->get_index_type() == tenann::IndexType::kFaissHnswPq || vector_iterator->get_index_type() == tenann::IndexType::kFaissIvfPq)) {
+        k = static_cast<int64_t>(static_cast<double>(_opts.k) * _opts.pq_refine_factor);
+    }
+
+    Status st;
+    std::unordered_map<rowid_t, float> id2distance_map;
+    std::vector<int64_t> result_ids;
+    std::vector<float> result_distances;
+
+    bool is_dense_index = vector_iterator->is_dense_vector_index();
+
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->vector_index_search_timer);
+
+        if (_use_vector_range) {
+            RETURN_IF_ERROR(_remove_target_expr_match_vector_range_search());
+
+            float vector_range_float = static_cast<float>(_vector_range);
+
+            if (is_dense_index) {
+                st = vector_iterator->range_search(&_int_query_vector_id,
+                                                   &_float_query_vector,
+                                                   k,
+                                                   &result_ids,
+                                                   &result_distances,
+                                                   _row_bitmap,
+                                                   vector_range_float,
+                                                   _result_order);
+            }
+
+            // dense vector index fail or sparse vector index
+            if (!st.ok() || !is_dense_index) {
+                if (!st.ok()) {
+                    // dense vector index fall over to normal search
+                    LOG(WARNING) << "dense vector index search failed with range_serach: " << st.to_string();
+                }
+
+                result_ids.resize(k);
+                result_distances.resize(k);
+                st = vector_iterator->search(&_int_query_vector_id,
+                                             &_float_query_vector,
+                                             k,
+                                             result_ids.data(),
+                                             reinterpret_cast<uint8_t*>(result_distances.data()),
+                                             _row_bitmap);
+
+                // check vector range again, result_ids is ordered by result_distances.
+                for (size_t i = 0; i < result_ids.size() && result_ids[i] != -1; i++) {
+                    if (_result_order == 0 && result_distances[i] > vector_range_float) {
+                        result_ids[i] = -1;
+                    } else if (_result_order == 1 && result_distances[i] < vector_range_float) {
+                        result_ids[i] = -1;
+                    }
+                }
+            }
+        } else {
+            result_ids.resize(k);
+            result_distances.resize(k);
+            st = vector_iterator->search(&_int_query_vector_id,
+                                         &_float_query_vector,
+                                         k,
+                                         result_ids.data(),
+                                         reinterpret_cast<uint8_t*>(result_distances.data()),
+                                         _row_bitmap);
+        }
+    }
+
+    if (!st.ok()) {
+        LOG(WARNING) << "Vector index search failed: " << st.to_string();
+        return Status::InternalError(st.to_string());
+    }
+
+    for (size_t i = 0; i < result_ids.size() && result_ids[i] != -1; i++) {
+        id2distance_map[result_ids[i]] = result_distances[i];
+    }
+    // The distance computed from pq index [hnswpq/ivfpq] is inaccurate.
+    // We will compute distance by origin column data.
+    if (!is_pq_index(vector_iterator->get_index_type())) {
+        vector_iterator->set_rowid_to_distance_map(std::move(id2distance_map));
+    }
+    std::sort(result_ids.begin(), result_ids.end());
+
+    RowRanges r = RowRanges();
+
+    RETURN_IF_ERROR(_get_row_ranges_by_row_ids(&result_ids, &r));
+
+    size_t pre_size = _row_bitmap.cardinality();
+    _row_bitmap &= RowRanges::ranges_to_roaring(r);
+    _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
+
+    return Status::OK();
+}
+
+Status SegmentIterator::_get_row_ranges_by_row_ids(std::vector<int64_t>* result_ids, RowRanges* r) {
+    if (result_ids->empty()) {
+        return Status::OK();
+    }
+
+    // filter -1 above
+    size_t first_valid_id = 0;
+    for (; first_valid_id < result_ids->size() && (*result_ids)[first_valid_id] < 0; first_valid_id++);
+
+    // all row_ids are -1
+    if (first_valid_id >= result_ids->size()) {
+        return Status::OK();
+    }
+
+    int64_t range_start = (*result_ids)[first_valid_id];
+    int64_t range_end = range_start + 1;
+
+    for (size_t i = first_valid_id + 1; i < result_ids->size(); ++i) {
+        if ((*result_ids)[i] == range_end) {
+            ++range_end;
+        } else {
+            r->add(RowRange(range_start, range_end));
+            range_start = (*result_ids)[i];
+            range_end = range_start + 1;
+        }
+    }
+
+    r->add(RowRange(range_start, range_end));
+
     return Status::OK();
 }
 
@@ -1366,9 +1671,35 @@ Status SegmentIterator::_init_bitmap_index_iterators() {
 }
 
 Status SegmentIterator::_init_inverted_index_iterators() {
+    SCOPED_RAW_TIMER(&_opts.stats->inverted_index_init_timer);
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
+
+    // Set up the BM25 virtual projection column iterator for the full-text index.
+    std::shared_ptr<std::vector<std::shared_ptr<v_proj::BM25VirtualProjColumnIterator>>>
+            bm25_v_proj_col_iters = nullptr;
+    if (!_pd_func_descs.empty()) {
+        for (const auto& pd_func_desc : _pd_func_descs) {
+            if (pd_func_desc.func->fn().name.function_name == "bm25") {
+                // BM25 should only have one input virtual column.
+                if (pd_func_desc.v_proj_col_iters->size() != 1) {
+                    throw doris::Exception(
+                            ErrorCode::INTERNAL_ERROR,
+                            "Expected one virtual column for BM25, but found {}.",
+                            pd_func_desc.v_proj_col_iters->size());
+                }
+                if (!bm25_v_proj_col_iters) {
+                    bm25_v_proj_col_iters = std::make_shared<
+                            std::vector<std::shared_ptr<v_proj::BM25VirtualProjColumnIterator>>>();
+                }
+                bm25_v_proj_col_iters->emplace_back(
+                        std::dynamic_pointer_cast<v_proj::BM25VirtualProjColumnIterator>(
+                                (*pd_func_desc.v_proj_col_iters)[0]));
+            }
+        }
+    }
+
     for (auto cid : _schema->column_ids()) {
         if (_inverted_index_iterators[cid] == nullptr) {
             // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
@@ -1377,7 +1708,106 @@ Status SegmentIterator::_init_inverted_index_iterators() {
                     _segment->_tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid)),
                     _opts, &_inverted_index_iterators[cid]));
         }
+        if (bm25_v_proj_col_iters && _column_has_fulltext_index(cid)) {
+            _inverted_index_iterators[cid]->set_bm25_proj_iterators(bm25_v_proj_col_iters);
+        }
     }
+    return Status::OK();
+}
+
+Status SegmentIterator::_init_vector_index_iterators() {
+    if (!_opts.use_vector_index) {
+        return Status::OK();
+    }
+    SCOPED_RAW_TIMER(&_opts.stats->vector_index_init_timer);
+
+    if (_cur_rowid >= num_rows()) {
+        return Status::OK();
+    }
+
+    // Set up the approx distance virtual projection column iterator for the vector index.
+    std::shared_ptr<v_proj::ApproxDistanceVirtualProjColumnIterator> approx_distance_v_proj_col_iter;
+    if (!_pd_func_descs.empty()) {
+        for (const auto& pd_func_desc : _pd_func_descs) {
+            // We assume only one approx distance function will be pushed down to the BE.
+            // Therefore, find the first approx distance projection and then break.
+            if (pd_func_desc.func->fn().name.function_name == "approx_cosine_similarity" ||
+                pd_func_desc.func->fn().name.function_name == "approx_inner_product" ||
+                pd_func_desc.func->fn().name.function_name == "approx_l2_distance") {
+                // approx distance should have only one virtual column.
+                if (pd_func_desc.v_proj_col_iters->size() != 1) {
+                    throw doris::Exception(
+                            ErrorCode::INTERNAL_ERROR,
+                            "Expected one virtual column for {}, but found {}",
+                            pd_func_desc.func->fn().name.function_name,
+                            pd_func_desc.v_proj_col_iters->size());
+                }
+
+                approx_distance_v_proj_col_iter =
+                        std::dynamic_pointer_cast<v_proj::ApproxDistanceVirtualProjColumnIterator>(
+                                (*pd_func_desc.v_proj_col_iters)[0]);
+                break;
+            }
+        }
+    }
+
+    // only push down one vector index in one query now, just load one vector index.
+    int cid = -1;
+
+    for (size_t i = 0; i < _opts.tablet_schema->columns().size(); i++) {
+        const TabletColumn& col = _opts.tablet_schema->column(i);
+        int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
+        if (col_unique_id == _opts.vector_column_id) {
+            cid = i;
+            break;
+        }
+    }
+
+    if (cid < 0) {
+        return Status::OK();
+    }
+
+    if (_vector_index_iterators[cid] == nullptr) {
+        // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
+        RETURN_IF_ERROR(_segment->new_vector_index_iterator(
+                _opts.tablet_schema->column(cid),
+                _segment->_tablet_schema->get_vector_index(_opts.vector_column_id),
+                _opts,
+                &_vector_index_iterators[cid]));
+    }
+
+    if (_vector_index_iterators[cid] != nullptr) {
+        _vector_cid = cid;
+    }
+
+    if (approx_distance_v_proj_col_iter && _vector_index_iterators[cid] != nullptr) {
+        _vector_index_iterators[cid]->set_approx_vector_distance_proj_iterator(
+            approx_distance_v_proj_col_iter);
+    }
+
+    return Status::OK();
+}
+
+Status SegmentIterator::_init_v_proj_cols_iterators() {
+    if (!_opts.virtual_proj_col_iters_initializer) {
+        return Status::OK();
+    }
+
+    for (const auto& initializer : *_opts.virtual_proj_col_iters_initializer) {
+        _virtual_proj_cols_size += initializer.v_cols_size();
+        _pd_func_descs.emplace_back(initializer.create());
+        _has_non_predicate_v_proj_cols |= !initializer.is_predicate();
+        for (const auto& v_col : initializer.get_v_cols()) {
+            if (_schema->num_column_ids() - 1 >= v_col.result_col_id) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "Virtual projection columns must follow normal columns in order. "
+                        "Maximum normal column index: {}, minimum virtual projection column index: "
+                        "{}",
+                        _schema->num_column_ids() - 1, v_col.result_col_id);
+            }
+        }
+    }
+
     return Status::OK();
 }
 
@@ -1766,6 +2196,15 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             }
         }
     }
+
+    // Step 5: Add virtual projection columns to _columns_to_filter
+    for (const auto& pd_func_desc : _pd_func_descs) {
+        if (pd_func_desc.is_predicate) {
+            for (const auto& iter : *pd_func_desc.v_proj_col_iters) {
+                _columns_to_filter.emplace_back(iter->get_result_col_id());
+            }
+        }
+    }
     return Status::OK();
 }
 
@@ -1881,7 +2320,7 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
 Status SegmentIterator::_init_current_block(
         vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns,
         uint32_t nrows_read_limit) {
-    block->clear_column_data(_schema->num_column_ids());
+    block->clear_column_data(_schema->num_column_ids() + _virtual_proj_cols_size);
 
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
@@ -1923,6 +2362,26 @@ Status SegmentIterator::_init_current_block(
             }
         }
     }
+
+    if (_virtual_proj_cols_size > 0) {
+        if (_return_virtual_proj_cols.size() != _virtual_proj_cols_size) {
+            _return_virtual_proj_cols.resize(_virtual_proj_cols_size);
+        }
+        // Initialize virtual projection columns for the current block.
+        size_t v_col_idx = 0;
+        for (const auto& pd_func_desc : _pd_func_descs) {
+            for (const auto& iter : *pd_func_desc.v_proj_col_iters) {
+                if (_return_virtual_proj_cols[v_col_idx].get() == nullptr) {
+                    _return_virtual_proj_cols[v_col_idx] = iter->create_column();
+                    _return_virtual_proj_cols[v_col_idx]->reserve(nrows_read_limit);
+                } else {
+                    _return_virtual_proj_cols[v_col_idx]->clear();
+                }
+                v_col_idx++;
+            }
+        }
+    }
+
     return Status::OK();
 }
 
@@ -2036,6 +2495,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
             }
         }
     }
+
+    RETURN_IF_ERROR(_read_v_proj_cols_in_predicate(_block_rowids, nrows_read));
 
     return Status::OK();
 }
@@ -2338,7 +2799,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     if (_can_opt_topn_reads()) {
         nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
     }
-
     RETURN_IF_ERROR(_init_current_block(block, _current_return_columns, nrows_read_limit));
     _converted_column_ids.assign(_schema->columns().size(), 0);
 
@@ -2353,17 +2813,19 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _current_batch_rows_read;
-
+    _normal_columns_size = block->columns() - _virtual_proj_cols_size;
     if (_current_batch_rows_read == 0) {
         // Convert all columns in _current_return_columns to schema column
         RETURN_IF_ERROR(_convert_to_expected_type(_schema->column_ids()));
-        for (int i = 0; i < block->columns(); i++) {
+        for (int i = 0; i < _normal_columns_size; i++) {
+
             auto cid = _schema->column_id(i);
             // todo(wb) abstract make column where
             if (!_is_pred_column[cid]) {
                 block->replace_by_position(i, std::move(_current_return_columns[cid]));
             }
         }
+        RETURN_IF_ERROR(_output_all_v_proj_cols(block));
         block->clear_column_data();
         return Status::EndOfFile("no more data in segment");
     }
@@ -2378,15 +2840,24 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     })
 
     if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
-        if (_non_predicate_columns.empty()) {
+        if (_non_predicate_columns.empty() && !_has_non_predicate_v_proj_cols) {
             return Status::InternalError("_non_predicate_columns is empty");
         }
-        RETURN_IF_ERROR(_convert_to_expected_type(_first_read_column_ids));
-        RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
-        _output_non_pred_columns(block);
-        if (!_enable_common_expr_pushdown || !_remaining_conjunct_roots.empty()) {
-            _output_index_result_column(nullptr, 0, block);
+
+        if (!_non_predicate_columns.empty()) {
+            RETURN_IF_ERROR(_convert_to_expected_type(_first_read_column_ids));
+            RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
+            _output_non_pred_columns(block);
+            if (!_enable_common_expr_pushdown || !_remaining_conjunct_roots.empty()) {
+                _output_index_result_column(nullptr, 0, block);
+            }
         }
+
+        // No records will be filtered out.
+        // Read and output all virtual project columns in the projection directly.
+        RETURN_IF_ERROR(
+                _read_v_proj_cols_in_project(_block_rowids, nullptr, _current_batch_rows_read));
+        RETURN_IF_ERROR(_output_v_proj_cols_in_project(block));
     } else {
         uint16_t selected_size = _current_batch_rows_read;
         uint16_t sel_rowid_idx[selected_size];
@@ -2410,6 +2881,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // todo(wb) need to tell input columnids from output columnids
                 RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids,
                                                           sel_rowid_idx, selected_size));
+                RETURN_IF_ERROR(
+                        _output_v_proj_cols_in_predicate(block, sel_rowid_idx, selected_size));
 
                 // step 3.2: read remaining expr column and evaluate it.
                 if (_is_need_expr_eval) {
@@ -2499,7 +2972,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
         }
 
-        if (_non_predicate_columns.empty()) {
+        if (_non_predicate_columns.empty() && !_has_non_predicate_v_proj_cols) {
             // shrink char_type suffix zero data
             block->shrink_char_type_column_suffix_zero(_char_type_idx);
 
@@ -2514,11 +2987,14 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                           _schema->version_col_idx()) != _non_predicate_columns.end()) {
                 _replace_version_col(selected_size);
             }
+            RETURN_IF_ERROR(
+                    _read_v_proj_cols_in_project(_block_rowids, sel_rowid_idx, selected_size));
         }
 
         RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
         // step5: output columns
         _output_non_pred_columns(block);
+        RETURN_IF_ERROR(_output_v_proj_cols_in_project(block));
 
         if (!_is_need_expr_eval) {
             _output_index_result_column(sel_rowid_idx, selected_size, block);
@@ -2527,7 +3003,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
-
 #ifndef NDEBUG
     size_t rows = block->rows();
     for (const auto& entry : *block) {
@@ -2619,6 +3094,117 @@ void SegmentIterator::_output_index_result_column(uint16_t* sel_rowid_idx, uint1
         _build_index_result_column(sel_rowid_idx, select_size, block, iter.first,
                                    iter.second.second);
     }
+}
+
+Status SegmentIterator::_output_all_v_proj_cols(vectorized::Block* block) {
+    if (_virtual_proj_cols_size > 0) {
+        size_t v_col_idx = 0;
+        for (const auto& pd_func_desc : _pd_func_descs) {
+            for (const auto& iter : *pd_func_desc.v_proj_col_iters) {
+                RETURN_IF_ERROR(_output_v_proj_col(block, iter->get_result_col_id(), v_col_idx++));
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status SegmentIterator::_read_v_proj_cols_in_predicate(const std::vector<rowid_t>& row_ids,
+                                                       const size_t nrows_read) {
+    if (_virtual_proj_cols_size > 0 && nrows_read > 0) {
+        size_t v_col_idx = 0;
+        for (const auto& pd_func_desc : _pd_func_descs) {
+            if (pd_func_desc.is_predicate) {
+                for (const auto& iter : *pd_func_desc.v_proj_col_iters) {
+                    RETURN_IF_ERROR(iter->read_by_rowids(row_ids.data(), nrows_read,
+                                                         _return_virtual_proj_cols[v_col_idx++]));
+                }
+            } else {
+                v_col_idx += pd_func_desc.v_proj_col_iters->size();
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status SegmentIterator::_output_v_proj_cols_in_predicate(vectorized::Block* block,
+                                                         uint16_t* sel_rowid_idx,
+                                                         uint16_t select_size) {
+    if (_virtual_proj_cols_size > 0) {
+        size_t v_col_idx = 0;
+        for (const auto& pd_func_desc : _pd_func_descs) {
+            if (pd_func_desc.is_predicate) {
+                for (const auto& iter : *pd_func_desc.v_proj_col_iters) {
+                    vectorized::MutableColumnPtr output_column =
+                            block->get_by_position(iter->get_result_col_id())
+                                    .column->assume_mutable();
+                    RETURN_IF_ERROR(copy_column_data_by_selector(
+                            _return_virtual_proj_cols[v_col_idx++].get(), output_column,
+                            sel_rowid_idx, select_size, _opts.block_row_max));
+                }
+            } else {
+                v_col_idx += pd_func_desc.v_proj_col_iters->size();
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status SegmentIterator::_read_v_proj_cols_in_project(const std::vector<rowid_t>& row_ids,
+                                                     const uint16_t* sel_rowid_idx,
+                                                     const uint16_t select_size) {
+    if (_has_non_predicate_v_proj_cols) {
+        const std::vector<rowid_t>* new_row_ids = &row_ids;
+        std::optional<std::vector<rowid_t>> selected_row_ids;
+
+        if (sel_rowid_idx) {
+            selected_row_ids.emplace(select_size);
+            for (size_t i = 0; i < select_size; ++i) {
+                (*selected_row_ids)[i] = row_ids[sel_rowid_idx[i]];
+            }
+            new_row_ids = &selected_row_ids.value();
+        }
+
+        size_t v_col_idx = 0;
+        for (const auto& pd_func_desc : _pd_func_descs) {
+            if (!pd_func_desc.is_predicate) {
+                for (const auto& iter : *pd_func_desc.v_proj_col_iters) {
+                    RETURN_IF_ERROR(iter->read_by_rowids(new_row_ids->data(), select_size,
+                                                         _return_virtual_proj_cols[v_col_idx++]));
+                }
+            } else {
+                v_col_idx += pd_func_desc.v_proj_col_iters->size();
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
+Status SegmentIterator::_output_v_proj_cols_in_project(vectorized::Block* block) {
+    if (_has_non_predicate_v_proj_cols) {
+        size_t v_col_idx = 0;
+        for (const auto& pd_func_desc : _pd_func_descs) {
+            if (!pd_func_desc.is_predicate) {
+                for (const auto& iter : *pd_func_desc.v_proj_col_iters) {
+                    RETURN_IF_ERROR(_output_v_proj_col(block, iter->get_result_col_id(), v_col_idx++));
+                }
+            } else {
+                v_col_idx += pd_func_desc.v_proj_col_iters->size();
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status SegmentIterator::_output_v_proj_col(vectorized::Block* block, const size_t v_col_id,
+                                           const size_t v_col_idx) {
+    if (UNLIKELY(v_col_id >= block->columns())) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "Block out of range: columns {}, virtual proj col id {}", block->columns(),
+                v_col_id);
+    }
+    block->replace_by_position(v_col_id, std::move(_return_virtual_proj_cols[v_col_idx]));
+    return Status::OK();
 }
 
 void SegmentIterator::_build_index_result_column(const uint16_t* sel_rowid_idx,
@@ -2860,6 +3446,75 @@ bool SegmentIterator::_can_opt_topn_reads() const {
     }
 
     return true;
+}
+
+Status SegmentIterator::collect_index_stats(
+        std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors,
+        doris::StorageReadOptions& read_options) {
+    RETURN_IF_ERROR(init(read_options));
+    //
+    // Collect index stats at tablet-level. Currenlty, we support collect the follwing stats:
+    // 1. Text similarity stats in full-text indexes (CLucene).
+    //
+
+    // Collect segment-level statistics.
+    index_stats::SegmentStats segment_stats;
+    segment_stats.row_cnt = _segment->num_rows();
+    tablet_index_stats_collectors->collect(segment_stats);
+
+    // Set up TabletIndexStatsCollectors for full-text indexes.
+    index_stats::FullSegmentId full_segment_id {_segment->rowset_id(), _segment->id()};
+
+    for (auto cid : _schema->column_ids()) {
+        if (_column_has_fulltext_index(cid)) {
+            if (!_inverted_index_iterators[cid]) {
+                throw doris::Exception(ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS,
+                                       "_inverted_index_iterators[{}] is null", cid);
+            }
+            _inverted_index_iterators[cid]->set_tablet_index_stats_collectors(
+                    full_segment_id, tablet_index_stats_collectors);
+        }
+    }
+
+    // Search full-text index in advance. (Refer to the implementation of _apply_inverted_index)
+    std::vector<ColumnPredicate*> remaining_predicates;
+    std::set<const ColumnPredicate*> no_need_to_pass_column_predicate_set;
+
+    for (auto pred : _col_predicates) {
+        if (_is_match_predicate_on_fulltext_index(pred)) {
+            Status res = pred->pre_evaluate(_storage_name_and_type[pred->column_id()],
+                                            _inverted_index_iterators[pred->column_id()].get());
+        }
+    }
+
+    for (auto pred : _col_preds_except_leafnode_of_andnode) {
+        if (_is_match_predicate_on_fulltext_index(pred)) {
+            if (!config::enable_index_apply_preds_except_leafnode_of_andnode) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                        "MATCH predicates with 'OR' operations are not supported. "
+                        "Please set 'enable_index_apply_preds_except_leafnode_of_andnode' to "
+                        "'true' in this case.");
+            }
+
+            if (!_check_apply_by_inverted_index(pred, true)) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                        "This predicate does not support collecting index statistics.");
+            }
+
+            Status res = pred->pre_evaluate(_storage_name_and_type[pred->column_id()],
+                                            _inverted_index_iterators[pred->column_id()].get());
+        }
+    }
+
+    return Status::OK();
+}
+
+bool SegmentIterator::_is_match_predicate_on_fulltext_index(ColumnPredicate* predicate) {
+    if (predicate->type() == PredicateType::MATCH) {
+        return _column_has_fulltext_index(predicate->column_id());
+    }
+
+    return false;
 }
 
 } // namespace segment_v2

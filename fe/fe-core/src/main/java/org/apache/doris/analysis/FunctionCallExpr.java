@@ -318,6 +318,10 @@ public class FunctionCallExpr extends Expr {
         return fnParams;
     }
 
+    public void setFnParams(FunctionParams fnParams) {
+        this.fnParams = fnParams;
+    }
+
     // only used restore from readFields.
     private FunctionCallExpr() {
         super();

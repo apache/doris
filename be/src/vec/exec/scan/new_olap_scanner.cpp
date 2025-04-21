@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <array>
 #include <iterator>
+#include <memory>
 #include <ostream>
 #include <set>
 #include <shared_mutex>
@@ -47,6 +48,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_cache.h"
+#include "olap/virtual_proj_col.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -369,6 +371,21 @@ Status NewOlapScanner::_init_tablet_reader_params(
         }
     }
 
+    // For projection pushdown optimization
+    if (_virtual_proj_cols) {
+        if (UNLIKELY(_tablet_reader_params.return_columns.size() <
+                     _tablet_reader_params.origin_return_columns->size())) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "Unexpected size of columns, return_columns.size={} "
+                    "origin_return_columns.size={},",
+                    _tablet_reader_params.return_columns.size(),
+                    _tablet_reader_params.origin_return_columns->size());
+                     }
+        RETURN_IF_ERROR(
+                _init_tablet_v_proj_columns(_tablet_reader_params.return_columns.size() -
+                                            _tablet_reader_params.origin_return_columns->size()));
+    }
+
     _tablet_reader_params.use_page_cache = _state->enable_page_cache();
 
     if (tablet->enable_unique_key_merge_on_write() && !_state->skip_delete_bitmap()) {
@@ -402,6 +419,37 @@ Status NewOlapScanner::_init_tablet_reader_params(
         } else if (_tablet_reader_params.use_topn_opt) {
             _tablet_reader_params.topn_filter_source_node_ids = {0};
         }
+        // topn index push down
+        if (olap_scan_node.topn_index_push_down) {
+            _tablet_reader_params.topn_index_push_down_params = std::make_unique<TopnIndexPushDownParams>();
+            _tablet_reader_params.topn_index_push_down_params->is_push_down = olap_scan_node.topn_index_push_down;
+            _tablet_reader_params.topn_index_push_down_params->is_asc = olap_scan_node.topn_index_push_down_is_asc;
+            if (olap_scan_node.__isset.topn_index_push_down_proj_slot_offset
+                    && olap_scan_node.topn_index_push_down_proj_slot_offset != -1) {
+                _tablet_reader_params.topn_index_push_down_params->proj_expr_ptr =
+                        _projections.at(olap_scan_node.topn_index_push_down_proj_slot_offset);
+                    }
+            if (olap_scan_node.__isset.topn_index_push_down_limit
+            && olap_scan_node.topn_index_push_down_limit >= 0) {
+                _tablet_reader_params.topn_index_push_down_params->limit =
+                        olap_scan_node.topn_index_push_down_limit;
+            }
+        }
+
+        // vector index
+        _tablet_reader_params.k = olap_scan_node.k;
+        _tablet_reader_params.query_vector = olap_scan_node.query_vector;
+        _tablet_reader_params.query_vector_id = olap_scan_node.query_vector_id;
+        _tablet_reader_params.use_vector_index = olap_scan_node.use_vector_index;
+        _tablet_reader_params.vector_distance_column_name = olap_scan_node.vector_distance_column_name;
+        _tablet_reader_params.vector_column_id = olap_scan_node.vector_column_id;
+        _tablet_reader_params.vector_slot_id = olap_scan_node.vector_slot_id;
+        _tablet_reader_params.query_params = olap_scan_node.query_params;
+        _tablet_reader_params.vector_range = olap_scan_node.vector_range;
+        _tablet_reader_params.result_order = olap_scan_node.result_order;
+        _tablet_reader_params.pq_refine_factor = olap_scan_node.pq_refine_factor;
+        _tablet_reader_params.k_factor = olap_scan_node.k_factor;
+        _tablet_reader_params.use_vector_range = olap_scan_node.use_vector_range;
     }
 
     // If this is a Two-Phase read query, and we need to delay the release of Rowset
@@ -471,6 +519,17 @@ Status NewOlapScanner::_init_return_columns() {
         }
 
         if (index < 0) {
+            if (slot->col_name().starts_with(BeConsts::VIRTUAL_PROJ_COL_PREFIX)) {
+                // This is a virtual column for a projection.
+                if (!_virtual_proj_cols) {
+                    _virtual_proj_cols =
+                            std::make_shared<ColumnsWithTypeAndName>();
+                    _virtual_proj_cols->reserve(_output_tuple_desc->slots().size());
+                }
+                _virtual_proj_cols->emplace_back(slot->get_empty_mutable_column(),
+                                                 slot->get_data_type_ptr(), slot->col_name());
+                continue;
+            }
             return Status::InternalError(
                     "field name is invalid. field={}, field_name_to_index={}, col_unique_id={}",
                     slot->col_name(), tablet_schema->get_all_field_names(), slot->col_unique_id());
@@ -490,6 +549,66 @@ Status NewOlapScanner::_init_return_columns() {
     if (_return_columns.empty()) {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
     }
+    return Status::OK();
+}
+
+Status NewOlapScanner::_init_tablet_v_proj_columns(size_t blk_v_col_id_offset) {
+    v_proj::VirtualProjFuncDescs virtual_proj_func_descs;
+    bool is_predicate;
+
+    auto predicate = [](const VExprSPtr& e) {
+        if (e) {
+            auto& v = *e;
+            return typeid(v) == typeid(VectorizedFnCall);
+        }
+        return false;
+    };
+
+    auto consumer = [&virtual_proj_func_descs, &is_predicate, &blk_v_col_id_offset,
+                     this](const std::shared_ptr<VectorizedFnCall>& func) {
+        if (LIKELY(!v_proj::REGISTERED_V_PROJ_ITER_FACTORIES.contains(
+                    func->fn().name.function_name))) {
+            return;
+        }
+        if (v_proj::has_v_proj_col(func.get())) {
+            virtual_proj_func_descs.emplace_back(
+                    std::make_shared<v_proj::VirtualProjFuncDesc>(func, is_predicate));
+            auto& v_cols = virtual_proj_func_descs.back()->v_cols;
+            for (auto& v_col : *_virtual_proj_cols) {
+                int col_id = v_proj::find_v_proj_col(func.get(), v_col);
+                if (col_id != -1) {
+                    v_cols.emplace_back(col_id + blk_v_col_id_offset, col_id, v_col.clone_empty());
+                }
+            }
+            if (v_cols.empty()) {
+                throw doris::Exception(
+                        ErrorCode::INTERNAL_ERROR,
+                        "Can not find any virtual projection column in the function {}.",
+                        func->debug_string());
+            }
+        }
+    };
+
+    is_predicate = true;
+    for (const auto& vexpr_ctx : _conjuncts) {
+        vexpr_ctx->visitIfMatch<VectorizedFnCall>(predicate, consumer);
+    }
+
+    is_predicate = true;
+    for (const auto& vexpr_ctx : _common_expr_ctxs_push_down) {
+        vexpr_ctx->visitIfMatch<VectorizedFnCall>(predicate, consumer);
+    }
+
+    is_predicate = false;
+    for (const auto& vexpr_ctx : _projections) {
+        vexpr_ctx->visitIfMatch<VectorizedFnCall>(predicate, consumer);
+    }
+
+    if (!virtual_proj_func_descs.empty()) {
+        _tablet_reader_params.virtual_proj_func_descs =
+            std::make_shared<v_proj::VirtualProjFuncDescs>(virtual_proj_func_descs);
+    }
+
     return Status::OK();
 }
 
@@ -634,6 +753,7 @@ void NewOlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_query_cache_hit);                                         \
     COUNTER_UPDATE(Parent->_inverted_index_query_cache_miss_counter,                              \
                    stats.inverted_index_query_cache_miss);                                        \
+    COUNTER_UPDATE(Parent->_inverted_index_init_timer, stats.inverted_index_init_timer);          \
     COUNTER_UPDATE(Parent->_inverted_index_query_timer, stats.inverted_index_query_timer);        \
     COUNTER_UPDATE(Parent->_inverted_index_query_bitmap_copy_timer,                               \
                    stats.inverted_index_query_bitmap_copy_timer);                                 \
@@ -643,6 +763,16 @@ void NewOlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_open_timer);                                     \
     COUNTER_UPDATE(Parent->_inverted_index_searcher_search_timer,                                 \
                    stats.inverted_index_searcher_search_timer);                                   \
+    COUNTER_UPDATE(Parent->_bm25_topn_apply_timer, stats.bm25_topn_apply_timer);                  \
+    COUNTER_UPDATE(Parent->_bm25_topn_search_timer, stats.bm25_topn_search_timer);                \
+    COUNTER_UPDATE(Parent->_vector_index_init_timer,                                              \
+                   stats.vector_index_init_timer);                                                \
+    COUNTER_UPDATE(Parent->_vector_index_apply_timer,                                             \
+                   stats.vector_index_apply_timer);                                               \
+    COUNTER_UPDATE(Parent->_vector_index_search_timer,                                            \
+                   stats.vector_index_search_timer);                                              \
+    COUNTER_UPDATE(Parent->_vector_index_short_circuit_counter,                                   \
+                   stats.vector_index_short_circuit_counter);                                     \
     if (config::enable_file_cache) {                                                              \
         io::FileCacheProfileReporter cache_profile(Parent->_segment_profile.get());               \
         cache_profile.update(&stats.file_cache_stats);                                            \

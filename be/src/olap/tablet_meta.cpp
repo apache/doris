@@ -263,6 +263,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
             case TIndexType::NGRAM_BF:
                 index_pb->set_index_type(IndexType::NGRAM_BF);
                 break;
+            case TIndexType::VECTOR:
+                index_pb->set_index_type(IndexType::VECTOR);
+                break;
             }
 
             if (index.__isset.properties) {

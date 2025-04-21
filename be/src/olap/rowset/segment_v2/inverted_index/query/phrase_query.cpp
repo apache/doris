@@ -155,6 +155,9 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
         query->setSlop(_slop);
         _matcher = std::move(query);
     }
+
+    _bm25_v_proj_col_iters = query_info._bm25_v_proj_col_iters;
+    _tablet_index_stats_collectors = query_info.tablet_index_stats_collectors;
 }
 
 void PhraseQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
@@ -162,24 +165,32 @@ void PhraseQuery::add(const std::wstring& field_name, const std::vector<std::str
         _CLTHROWA(CL_ERR_IllegalArgument, "PhraseQuery::add: terms empty");
     }
 
+    const bool pre_searched = !_term_docs.empty();
+    _field_name = field_name;
+
     if (terms.size() == 1) {
         std::wstring ws_term = StringUtil::string_to_wstring(terms[0]);
         Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         _terms.push_back(t);
-        TermDocs* term_doc = _searcher->getReader()->termDocs(t);
-        _term_docs.push_back(term_doc);
-        _lead1 = TermIterator(term_doc);
+        TermDocs* term_doc = pre_searched ? _term_docs[0] : _searcher->getReader()->termDocs(t);
+        if (!pre_searched) {
+            _term_docs.push_back(term_doc);
+        }
+        _lead1 = DocTermIterator(term_doc, terms[0]);
         return;
     }
 
-    std::vector<TermIterator> iterators;
-    auto ensureTermPosition = [this, &iterators, &field_name](const std::string& term) {
+    std::vector<DocTermIterator> iterators;
+    auto ensureTermPosition = [this, &iterators, &field_name, &pre_searched](const std::string& term, const size_t term_i) {
         std::wstring ws_term = StringUtil::string_to_wstring(term);
         Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         _terms.push_back(t);
-        TermPositions* term_pos = _searcher->getReader()->termPositions(t);
-        _term_docs.push_back(term_pos);
-        iterators.emplace_back(term_pos);
+        TermPositions* term_pos = pre_searched ? dynamic_cast<TermPositions*>(_term_docs[term_i])
+                                               : _searcher->getReader()->termPositions(t);
+        if (!pre_searched) {
+            _term_docs.push_back(term_pos);
+        }
+        iterators.emplace_back(term_pos, term);
         return term_pos;
     };
 
@@ -187,7 +198,7 @@ void PhraseQuery::add(const std::wstring& field_name, const std::vector<std::str
         ExactPhraseMatcher matcher;
         for (size_t i = 0; i < terms.size(); i++) {
             const auto& term = terms[i];
-            auto* term_pos = ensureTermPosition(term);
+            auto* term_pos = ensureTermPosition(term, i);
             matcher._postings.emplace_back(term_pos, i);
         }
         _matcher = matcher;
@@ -195,7 +206,7 @@ void PhraseQuery::add(const std::wstring& field_name, const std::vector<std::str
         OrderedSloppyPhraseMatcher matcher;
         for (size_t i = 0; i < terms.size(); i++) {
             const auto& term = terms[i];
-            auto* term_pos = ensureTermPosition(term);
+            auto* term_pos = ensureTermPosition(term, i);
             matcher._postings.emplace_back(term_pos, i);
         }
         matcher._allowed_slop = _slop;
@@ -214,6 +225,20 @@ void PhraseQuery::add(const std::wstring& field_name, const std::vector<std::str
 }
 
 void PhraseQuery::search(roaring::Roaring& roaring) {
+    index_stats::FullTextSimilarityCollector* full_text_similarity_collector = nullptr;
+
+    if (_tablet_index_stats_collectors) {
+        full_text_similarity_collector = dynamic_cast<index_stats::FullTextSimilarityCollector*>(
+                _tablet_index_stats_collectors
+                        ->get_tablet_index_stats_collector_by_name(
+                                index_stats::FULL_TEXT_SIMILARITY_STATS_COLLECTOR)
+                        .get());
+        if (UNLIKELY(!full_text_similarity_collector)) {
+            _CLTHROWA(CL_ERR_IllegalArgument,
+                      "DisjunctionQuery::search: FullTextSimilarityCollector is null");
+        }
+    }
+
     if (std::holds_alternative<PhraseQueryPtr>(_matcher)) {
         _searcher->_search(
                 std::get<PhraseQueryPtr>(_matcher).get(),
@@ -223,29 +248,123 @@ void PhraseQuery::search(roaring::Roaring& roaring) {
             return;
         }
         if (_lead2.isEmpty()) {
-            search_by_bitmap(roaring);
+            search_by_bitmap(roaring, full_text_similarity_collector);
             return;
         }
-        search_by_skiplist(roaring);
+        search_by_skiplist(roaring, full_text_similarity_collector);
     }
 }
 
-void PhraseQuery::search_by_bitmap(roaring::Roaring& roaring) {
+void PhraseQuery::search_by_bitmap(roaring::Roaring& roaring,
+    index_stats::FullTextSimilarityCollector* full_text_similarity_collector) {
     DocRange doc_range;
+    const float idf =
+            _bm25_v_proj_col_iters
+                    ? full_text_similarity_collector->get_or_calculate_idf(_field_name, _lead1.term())
+                    : 0;
+    const float avg_dl =
+            _bm25_v_proj_col_iters
+                    ? full_text_similarity_collector->get_or_calculate_avg_dl(_field_name)
+                    : 0;
+
     while (_lead1.readRange(&doc_range)) {
         if (doc_range.type_ == DocRangeType::kMany) {
             roaring.addMany(doc_range.doc_many_size_, doc_range.doc_many->data());
+            if (_bm25_v_proj_col_iters) {
+                CHECK_EQ(doc_range.doc_many_size_, doc_range.freq_many_size_);
+                for (size_t i = 0; i < doc_range.doc_many_size_; i++) {
+                    segment_v2::rowid_t row_id = (*doc_range.doc_many)[i];
+                    std::for_each(
+                            _bm25_v_proj_col_iters->begin(), _bm25_v_proj_col_iters->end(),
+                            [&](auto& iter) {
+                                iter->cal_and_add_bm25_score(
+                                        row_id,
+                                        (*doc_range.freq_many)[i],
+                                        (*doc_range.norm_many)[i],
+                                        idf,
+                                        avg_dl);
+                            });
+                }
+            }
         } else {
             roaring.addRange(doc_range.doc_range.first, doc_range.doc_range.second);
+            if (_bm25_v_proj_col_iters) {
+                const uint32_t docs_size =
+                    doc_range.doc_range.second - doc_range.doc_range.first;
+                CHECK_EQ(docs_size, doc_range.freq_many_size_);
+                for (uint32_t i = 0; i < docs_size; i++) {
+                    segment_v2::rowid_t row_id = doc_range.doc_range.first + i;
+                    std::for_each(
+                            _bm25_v_proj_col_iters->begin(), _bm25_v_proj_col_iters->end(),
+                            [&](auto& iter) {
+                                iter->cal_and_add_bm25_score(
+                                        row_id,
+                                        (*doc_range.freq_many)[i],
+                                        (*doc_range.norm_many)[i],
+                                        idf,
+                                        avg_dl);
+                            });
+                }
+            }
         }
     }
 }
 
-void PhraseQuery::search_by_skiplist(roaring::Roaring& roaring) {
+void PhraseQuery::search_by_skiplist(roaring::Roaring& roaring,
+    index_stats::FullTextSimilarityCollector* full_text_similarity_collector) {
     int32_t doc = 0;
+    const float avg_dl =
+            _bm25_v_proj_col_iters
+                    ? full_text_similarity_collector->get_or_calculate_avg_dl(_field_name)
+                    : 0;
     while ((doc = do_next(_lead1.nextDoc())) != INT32_MAX) {
         if (matches(doc)) {
             roaring.add(doc);
+
+            // All TermIterators now refer to the same rowId, proceed to calculate BM25.
+            if (_bm25_v_proj_col_iters) {
+                std::for_each(_bm25_v_proj_col_iters->begin(), _bm25_v_proj_col_iters->end(),
+                              [&](auto& iter) {
+                                  iter->cal_and_add_bm25_score(
+                                          doc,
+                                          _lead1.freq(),
+                                          _lead1.norm(),
+                                          full_text_similarity_collector->get_or_calculate_idf(
+                                                  _field_name, _lead1.term()),
+                                          avg_dl);
+                              });
+
+                if (!_lead2.isEmpty()) {
+                    std::for_each(
+                            _bm25_v_proj_col_iters->begin(), _bm25_v_proj_col_iters->end(),
+                            [&](auto& iter) {
+                                iter->cal_and_add_bm25_score(
+                                        doc,
+                                        _lead2.freq(),
+                                        _lead2.norm(),
+                                        full_text_similarity_collector->get_or_calculate_idf(
+                                                _field_name, _lead2.term()),
+                                        avg_dl);
+                            });
+                }
+
+                for (auto& other : _others) {
+                    if (other.isEmpty()) {
+                        continue;
+                    }
+                    std::for_each(
+                            _bm25_v_proj_col_iters->begin(), _bm25_v_proj_col_iters->end(),
+                            [&](auto& iter) {
+                                iter->cal_and_add_bm25_score(
+                                        doc,
+                                        other.freq(),
+                                        other.norm(),
+                                        full_text_similarity_collector->get_or_calculate_idf(
+                                                _field_name, other.term()),
+                                        avg_dl);
+                            });
+                }
+            }
         }
     }
 }
@@ -341,6 +460,37 @@ void PhraseQuery::parser_slop(std::string& query, InvertedIndexQueryInfo& query_
             } while (false);
         }
     }
+}
+
+void PhraseQuery::pre_search(
+        const InvertedIndexQueryInfo& query_info) {
+    if (!query_info.tablet_index_stats_collectors) {
+        throw doris::Exception(ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS,
+            "tablet_index_stats_collectors is null");
+    }
+
+    index_stats::SegmentColIndexStats stats;
+    stats.full_segment_id = query_info.full_segment_id;
+    stats.lucene_col_name = &query_info.field_name;
+    _term_docs.reserve(query_info.terms.size());
+
+    stats.total_term_cnt +=
+        _searcher->sumTotalTermFreq(query_info.field_name.c_str()).value_or(0);
+
+    bool invoke_term_docs = query_info.terms.size() == 1;
+
+    for (const auto& term : query_info.terms) {
+        std::wstring ws_term = StringUtil::string_to_wstring(term);
+        auto term_ptr =
+                CLuceneUniquePtr<Term>(_CLNEW Term(query_info.field_name.c_str(), ws_term.c_str()));
+        TermDocs* term_docs = invoke_term_docs
+                                      ? _searcher->getReader()->termDocs(term_ptr.get(), true)
+                                      : _searcher->getReader()->termPositions(term_ptr.get(), true);
+        _term_docs.emplace_back(term_docs);
+        stats.term_doc_freqs[term] += term_docs->docFreq();
+    }
+
+    query_info.tablet_index_stats_collectors->collect(stats);
 }
 
 template class PhraseMatcherBase<ExactPhraseMatcher>;

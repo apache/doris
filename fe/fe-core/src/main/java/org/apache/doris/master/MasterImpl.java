@@ -35,7 +35,7 @@ import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.task.AlterInvertedIndexTask;
+import org.apache.doris.task.AlterIndexTask;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CheckConsistencyTask;
 import org.apache.doris.task.ClearAlterTask;
@@ -194,7 +194,7 @@ public class MasterImpl {
                 case ALTER:
                     finishAlterTask(task, request);
                     break;
-                case ALTER_INVERTED_INDEX:
+                case ALTER_INDEX:
                     finishAlterInvertedIndexTask(task, request);
                     break;
                 case UPDATE_TABLET_META_INFO:
@@ -634,14 +634,14 @@ public class MasterImpl {
             return;
         }
 
-        AlterInvertedIndexTask alterInvertedIndexTask = (AlterInvertedIndexTask) task;
+        AlterIndexTask alterInvertedIndexTask = (AlterIndexTask) task;
         LOG.info("beigin finish AlterInvertedIndexTask: {}, tablet: {}, toString: {}",
                 alterInvertedIndexTask.getSignature(),
                 alterInvertedIndexTask.getTabletId(),
                 alterInvertedIndexTask.toString());
         // TODO: more check
         alterInvertedIndexTask.setFinished(true);
-        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER_INVERTED_INDEX, task.getSignature());
+        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER_INDEX, task.getSignature());
     }
 
     private void finishPushCooldownConfTask(AgentTask task) {

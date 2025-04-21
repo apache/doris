@@ -32,8 +32,10 @@
 #include "olap/field.h"    // for Field
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "olap/rowset/segment_v2/vector_index_writer.h"
 #include "util/bitmap.h" // for BitmapChange
 #include "util/slice.h"  // for OwnedSlice
+#include "olap/rowset/segment_v2/vector_index_file_writer.h"
 
 namespace doris {
 
@@ -61,11 +63,14 @@ struct ColumnWriterOptions {
     bool need_bloom_filter = false;
     bool is_ngram_bf_index = false;
     bool need_inverted_index = false;
+    bool need_vector_index = false;
     uint8_t gram_size;
     uint16_t gram_bf_size;
     std::vector<const TabletIndex*> indexes;
     const TabletIndex* inverted_index = nullptr;
     InvertedIndexFileWriter* inverted_index_file_writer;
+    const TabletIndex* vector_index = nullptr;
+    VectorIndexFileWriter* vector_index_file_writer;
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()
@@ -146,6 +151,8 @@ public:
 
     virtual size_t get_inverted_index_size() = 0;
 
+    virtual Status write_vector_index() = 0;
+
     virtual Status write_bloom_filter_index() = 0;
 
     virtual ordinal_t get_next_rowid() const = 0;
@@ -197,6 +204,7 @@ public:
     Status write_bitmap_index() override;
     Status write_inverted_index() override;
     size_t get_inverted_index_size() override;
+    Status write_vector_index() override;
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
@@ -261,6 +269,7 @@ private:
     std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder;
     std::unique_ptr<BitmapIndexWriter> _bitmap_index_builder;
     std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<VectorIndexWriter> _vector_index_builder;
     std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
 
     // call before flush data page.
@@ -323,6 +332,7 @@ public:
     }
     Status write_inverted_index() override;
     size_t get_inverted_index_size() override;
+    Status write_vector_index() override;
     Status write_bloom_filter_index() override {
         if (_opts.need_bloom_filter) {
             return Status::NotSupported("struct not support bloom filter index");
@@ -375,6 +385,9 @@ public:
     }
     Status write_inverted_index() override;
     size_t get_inverted_index_size() override;
+
+    Status write_vector_index() override;
+
     Status write_bloom_filter_index() override {
         if (_opts.need_bloom_filter) {
             return Status::NotSupported("array not support bloom filter index");
@@ -392,6 +405,8 @@ private:
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
     std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<VectorIndexWriter> _vector_index_builder;
+
     ColumnWriterOptions _opts;
 };
 
@@ -414,6 +429,7 @@ public:
     Status write_ordinal_index() override;
     Status write_inverted_index() override;
     size_t get_inverted_index_size() override;
+    Status write_vector_index() override;
     Status append_nulls(size_t num_rows) override;
 
     Status finish_current_page() override;
@@ -447,6 +463,7 @@ private:
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<OffsetColumnWriter> _offsets_writer;
     std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<VectorIndexWriter> _vector_index_builder;
     ColumnWriterOptions _opts;
 };
 

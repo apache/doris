@@ -47,6 +47,7 @@
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
+#include "olap/rowset/segment_v2/vector_index_reader.h"
 
 namespace doris {
 
@@ -128,6 +129,11 @@ public:
                                        const StorageReadOptions& read_options,
                                        std::unique_ptr<InvertedIndexIterator>* iterator);
 
+    Status new_vector_index_iterator(std::shared_ptr<VectorIndexFileReader> index_file_reader,
+                                     const TabletIndex* index_meta,
+                                     const StorageReadOptions& read_options,
+                                     std::unique_ptr<VectorIndexIterator>* iterator);
+
     // Seek to the first entry in the column.
     Status seek_to_first(OrdinalPageIndexIterator* iter);
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter);
@@ -200,11 +206,23 @@ private:
         return Status::OK();
     }
 
+    // Read column vector indexes into memory
+    // May be called multiple times, subsequent calls will no op.
+    Status _ensure_vector_index_loaded(std::shared_ptr<VectorIndexFileReader> index_file_reader,
+                                       const TabletIndex* index_meta) {
+        // load vector index only if not loaded or index_id is changed
+        RETURN_IF_ERROR(_load_vector_index_index(index_file_reader, index_meta));
+        return Status::OK();
+    }
+
     [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory);
     [[nodiscard]] Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory);
     [[nodiscard]] Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
     [[nodiscard]] Status _load_inverted_index_index(
             std::shared_ptr<InvertedIndexFileReader> index_file_reader,
+            const TabletIndex* index_meta);
+    [[nodiscard]] Status _load_vector_index_index(
+            std::shared_ptr<VectorIndexFileReader> index_file_reader,
             const TabletIndex* index_meta);
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory);
 
@@ -254,6 +272,7 @@ private:
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
     std::shared_ptr<InvertedIndexReader> _inverted_index;
+    std::shared_ptr<VectorIndexReader> _vector_index;
     std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;

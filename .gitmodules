@@ -22,5 +22,5 @@
 	branch = orc
 [submodule "be/src/clucene"]
 	path = be/src/clucene
-	url = https://github.com/apache/doris-thirdparty.git
+	url = https://code.byted.org/flow/clucene.git
 	branch = clucene

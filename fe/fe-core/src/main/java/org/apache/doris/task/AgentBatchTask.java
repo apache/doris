@@ -24,7 +24,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TAgentTaskRequest;
-import org.apache.doris.thrift.TAlterInvertedIndexReq;
+import org.apache.doris.thrift.TAlterIndexReq;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TCleanTrashReq;
@@ -349,13 +349,13 @@ public class AgentBatchTask implements Runnable {
                 tAgentTaskRequest.setAlterTabletReqV2(request);
                 return tAgentTaskRequest;
             }
-            case ALTER_INVERTED_INDEX: {
-                AlterInvertedIndexTask alterInvertedIndexTask = (AlterInvertedIndexTask) task;
-                TAlterInvertedIndexReq request = alterInvertedIndexTask.toThrift();
+            case ALTER_INDEX: {
+                AlterIndexTask alterInvertedIndexTask = (AlterIndexTask) task;
+                TAlterIndexReq request = alterInvertedIndexTask.toThrift();
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setAlterInvertedIndexReq(request);
+                tAgentTaskRequest.setAlterIndexReq(request);
                 return tAgentTaskRequest;
             }
             case COMPACTION: {

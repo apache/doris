@@ -966,13 +966,13 @@ public class EditLog {
                     env.getQueryStats().clear(info);
                     break;
                 }
-                case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
-                    final TableAddOrDropInvertedIndicesInfo info =
-                            (TableAddOrDropInvertedIndicesInfo) journal.getData();
+                case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INDEX_INDICES: {
+                    final TableAddOrDropIndexIndicesInfo info =
+                            (TableAddOrDropIndexIndicesInfo) journal.getData();
                     env.getSchemaChangeHandler().replayModifyTableAddOrDropInvertedIndices(info);
                     break;
                 }
-                case OperationType.OP_INVERTED_INDEX_JOB: {
+                case OperationType.OP_INDEX_JOB: {
                     IndexChangeJob indexChangeJob = (IndexChangeJob) journal.getData();
                     env.getSchemaChangeHandler().replayIndexChangeJob(indexChangeJob);
                     break;
@@ -1977,12 +1977,12 @@ public class EditLog {
         Env.getCurrentEnv().getBinlogManager().addModifyTableAddOrDropColumns(info, logId);
     }
 
-    public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {
-        logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES, info);
+    public void logModifyTableAddOrDropIndexIndices(TableAddOrDropIndexIndicesInfo info) {
+        logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INDEX_INDICES, info);
     }
 
     public void logIndexChangeJob(IndexChangeJob indexChangeJob) {
-        logEdit(OperationType.OP_INVERTED_INDEX_JOB, indexChangeJob);
+        logEdit(OperationType.OP_INDEX_JOB, indexChangeJob);
     }
 
     public void logCleanLabel(CleanLabelOperationLog log) {

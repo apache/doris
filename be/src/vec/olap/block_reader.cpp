@@ -433,6 +433,21 @@ Status BlockReader::_insert_data_normal(MutableColumns& columns) {
                                                            _next_row.row_pos);
         }
     });
+    RETURN_IF_ERROR(_insert_data_v_proj(columns, block));
+
+    return Status::OK();
+}
+
+Status BlockReader::_insert_data_v_proj(MutableColumns& columns, Block* block) {
+    if (!_ordered_v_proj_cols) {
+        return Status::OK();
+    }
+
+    for (const auto* v_proj_col : *_ordered_v_proj_cols) {
+        columns[v_proj_col->return_col_id]->insert_from(
+                *block->get_by_position(v_proj_col->result_col_id).column, _next_row.row_pos);
+    }
+
     return Status::OK();
 }
 

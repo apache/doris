@@ -416,6 +416,9 @@ public class SessionVariable implements Serializable, Writable {
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
 
+    // load balance replica. choose load balanced replica for tablets
+    public static final String USE_FIX_LOAD_BALANCE_REPLICA = "use_fix_load_balance_replica";
+
     public static final String DRY_RUN_QUERY = "dry_run_query";
 
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
@@ -603,6 +606,11 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS = "fetch_remote_schema_timeout_seconds";
 
     public static final String MAX_FETCH_REMOTE_TABLET_COUNT = "max_fetch_remote_schema_tablet_count";
+
+    public static final String ENABLE_DELETE_FOR_DUPLICATE_TABLE_WITH_VECTOR_INDEX
+            = "enable_delete_for_duplicate_table_with_vector_index";
+
+    public static final String ENABLE_SCAN_VECTOR_COLUMN = "enable_scan_vector_column";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -1467,6 +1475,13 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
     public int useFixReplica = -1;
 
+    @VariableMgr.VarAttr(name = USE_FIX_LOAD_BALANCE_REPLICA)
+    public boolean useFixLoadBalanceReplica = false;
+
+    public void setUseFixLoadBalanceReplica(boolean useFixLoadBalanceReplica) {
+        this.useFixLoadBalanceReplica = useFixLoadBalanceReplica;
+    }
+
     @VariableMgr.VarAttr(name = DUMP_NEREIDS_MEMO)
     public boolean dumpNereidsMemo = false;
 
@@ -1978,6 +1993,26 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableESParallelScroll() {
         return enableESParallelScroll;
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_DELETE_FOR_DUPLICATE_TABLE_WITH_VECTOR_INDEX, needForward = true, description = {
+        "控制包含vector index的duplicate表的删除行为",
+        "Control the deletion behavior of the duplicate table containing the vector index."
+    })
+    public boolean enableDeleteForDuplicateTableWithVectorIndex = false;
+
+    public boolean isEnableDeleteForDuplicateTableWithVectorIndex() {
+        return enableDeleteForDuplicateTableWithVectorIndex;
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_SCAN_VECTOR_COLUMN, description = {
+        "当向量索引下推时，是否读取向量距离函数中的向量列数据",
+        "Whether to read vector column when the vector index is pushed down."
+    })
+    public boolean enableScanVectorColumn = true;
+
+    public boolean isEnableScanVectorColumn() {
+        return enableScanVectorColumn;
     }
 
     public boolean isEnableJoinSpill() {

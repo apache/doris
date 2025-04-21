@@ -238,6 +238,23 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         _read_options.io_ctx.read_file_cache =
                 _read_context->runtime_state->query_options().enable_file_cache;
     }
+    // vector index params
+    _read_options.k = _read_context->k;
+    _read_options.query_vector = _read_context->query_vector;
+    _read_options.query_vector_id = _read_context->query_vector_id;
+    _read_options.use_vector_index = _read_context->use_vector_index;
+    _read_options.vector_distance_column_name = _read_context->vector_distance_column_name;
+    _read_options.vector_column_id = _read_context->vector_column_id;
+    _read_options.vector_slot_id = _read_context->vector_slot_id;
+    _read_options.query_params = _read_context->query_params;
+    _read_options.vector_range = _read_context->vector_range;
+    _read_options.result_order = _read_context->result_order;
+    _read_options.pq_refine_factor = _read_context->pq_refine_factor;
+    _read_options.k_factor = _read_context->k_factor;
+    _read_options.use_vector_range = _read_context->use_vector_range;
+
+    // topn index push down
+    _read_options.topn_index_push_down_params = _read_context->topn_index_push_down_params;
 
     // load segments
     bool should_use_cache = use_cache || _read_context->reader_type == ReaderType::READER_QUERY;
@@ -257,6 +274,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         seg_start = 0;
         seg_end = segments.size();
     }
+
+    // For projection pushdown optimization
+    RETURN_IF_ERROR(_init_v_proj_col_iters_params());
 
     const bool is_merge_iterator = _is_merge_iterator();
     const bool use_lazy_init_iterators =
@@ -311,6 +331,12 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
 }
 
 Status BetaRowsetReader::init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) {
+    // Check if the BetaRowsetReader has already been initialized.
+    if (_read_context &&
+        read_context == _read_context) {
+        return Status::OK();
+    }
+
     _read_context = read_context;
     _read_context->rowset_id = _rowset->rowset_id();
     _segment_offsets = rs_splits.segment_offsets;
@@ -357,6 +383,16 @@ Status BetaRowsetReader::_init_iterator() {
         _iterator.reset();
         return Status::Error<ROWSET_READER_INIT>(s.to_string());
     }
+    return Status::OK();
+}
+
+Status BetaRowsetReader::_init_v_proj_col_iters_params() {
+    if (!_read_context->virtual_proj_col_initializers) {
+        return Status::OK();
+    }
+
+    _read_options.virtual_proj_col_iters_initializer = _read_context->virtual_proj_col_initializers;
+
     return Status::OK();
 }
 
@@ -410,6 +446,12 @@ bool BetaRowsetReader::_should_push_down_value_predicates() const {
 Status BetaRowsetReader::get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) {
     segment_num_rows->assign(_segments_rows.cbegin(), _segments_rows.cend());
     return Status::OK();
+}
+
+Status BetaRowsetReader::collect_rowset_index_stats(
+        std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors) {
+    RETURN_IF_ERROR(_init_iterator_once());
+    return _iterator->collect_index_stats(tablet_index_stats_collectors, _read_options);
 }
 
 } // namespace doris

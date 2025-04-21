@@ -135,6 +135,12 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                 _file_writer->path().filename(),
                 _tablet_schema->get_inverted_index_storage_format());
     }
+    if (_tablet_schema->has_vector_index()) {
+        _vector_index_file_writer = std::make_unique<VectorIndexFileWriter>(
+                _file_writer->fs(),
+                _file_writer->path().parent_path(),
+                _file_writer->path().filename());
+    }
 }
 
 SegmentWriter::~SegmentWriter() {
@@ -229,6 +235,30 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
                 opts.inverted_index = index;
                 opts.need_inverted_index = true;
                 // TODO support multiple inverted index
+                break;
+            }
+        }
+
+        bool skip_vector_index = false;
+        if (_opts.rowset_ctx != nullptr) {
+            // skip write vector index for index compaction
+            skip_vector_index =
+                    _opts.rowset_ctx->skip_vector_index.count(column.unique_id()) > 0;
+        }
+        // skip write vector index on load if skip_write_index_on_load is true
+        if (_opts.write_type == DataWriteType::TYPE_DIRECT &&
+            _tablet_schema->skip_write_index_on_load()) {
+            skip_vector_index = true;
+            }
+        // indexes for this column
+        opts.indexes = std::move(_tablet_schema->get_indexes_for_column(column));
+
+        opts.vector_index_file_writer = _vector_index_file_writer.get();
+        for (auto index : opts.indexes) {
+            if (!skip_vector_index && index->index_type() == IndexType::VECTOR) {
+                opts.vector_index = index;
+                opts.need_vector_index = true;
+                // TODO support multiple vector index
                 break;
             }
         }
@@ -1019,6 +1049,7 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_inverted_index());
+    RETURN_IF_ERROR(_write_vector_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
 
     *index_size = _file_writer->bytes_appended() - index_start;
@@ -1125,6 +1156,13 @@ Status SegmentWriter::_write_bitmap_index() {
 Status SegmentWriter::_write_inverted_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_inverted_index());
+    }
+    return Status::OK();
+}
+
+Status SegmentWriter::_write_vector_index() {
+    for (auto& column_writer : _column_writers) {
+        RETURN_IF_ERROR(column_writer->write_vector_index());
     }
     return Status::OK();
 }

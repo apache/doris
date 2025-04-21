@@ -64,6 +64,9 @@ public:
                     InvertedIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override;
 
+    Status pre_evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
+                        InvertedIndexIterator* iterator) const override;
+
     bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
         return is_string_type(input_type);
     }

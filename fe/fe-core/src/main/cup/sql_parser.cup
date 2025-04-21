@@ -658,6 +658,7 @@ terminal String
     KW_VARCHAR,
     KW_VARIABLE,
     KW_VARIABLES,
+    KW_VECTOR,
     KW_VERBOSE,
     KW_VERSION,
     KW_VIEW,
@@ -3858,6 +3859,10 @@ opt_index_type ::=
     | KW_USING KW_INVERTED
     {:
         RESULT = IndexDef.IndexType.INVERTED;
+    :}
+    | KW_USING KW_VECTOR
+    {:
+        RESULT = IndexDef.IndexType.VECTOR;
     :}
     ;
 
@@ -8075,6 +8080,8 @@ keyword ::=
     | KW_VARIABLES:id
     {: RESULT = id; :}
     | KW_VALUE:id
+    {: RESULT = id; :}
+    | KW_VECTOR:id
     {: RESULT = id; :}
     | KW_VERBOSE:id
     {: RESULT = id; :}

@@ -28,6 +28,7 @@
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/tablet_schema.h"
 #include "runtime/runtime_state.h"
+#include "tablet_index_stats_collector.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 
@@ -39,6 +40,7 @@ class ColumnPredicate;
 
 namespace vectorized {
 struct IteratorRowRef;
+struct TopnIndexPushDownParams;
 };
 
 namespace segment_v2 {
@@ -121,6 +123,26 @@ public:
     std::map<std::string, PrimitiveType> target_cast_type_for_variants;
     RowRanges row_ranges;
     size_t topn_limit = 0;
+    // vector index params
+    int64_t k;
+    const std::vector<std::string>* query_vector;
+    const std::vector<std::string>* query_vector_id;
+    bool use_vector_index = false;
+    std::string vector_distance_column_name;
+    int vector_column_id;
+    SlotId vector_slot_id;
+    const std::map<std::string, std::string>* query_params;
+    double vector_range;
+    int result_order;
+    double pq_refine_factor;
+    double k_factor;
+    bool use_vector_range;
+    // For projection pushdown optimization
+    std::shared_ptr<v_proj::VirtualProjColItersInitializers> virtual_proj_col_iters_initializer;
+
+    // topn index push down
+    std::shared_ptr<vectorized::TopnIndexPushDownParams> topn_index_push_down_params;
+
 };
 
 struct CompactionSampleInfo {
@@ -190,6 +212,12 @@ public:
 
     // return if it's an empty iterator
     virtual bool empty() const { return false; }
+
+    virtual Status collect_index_stats(
+            std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors,
+            doris::StorageReadOptions& read_options) {
+        return Status::NotSupported("to be implemented.");
+    }
 };
 
 } // namespace doris

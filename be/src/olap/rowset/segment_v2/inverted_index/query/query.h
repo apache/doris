@@ -27,6 +27,8 @@
 #include <memory>
 
 #include "common/status.h"
+#include "olap/virtual_proj_col.h"
+#include "olap/tablet_index_stats_collector.h"
 #include "roaring/roaring.hh"
 
 CL_NS_USE(index)
@@ -40,6 +42,10 @@ struct InvertedIndexQueryInfo {
     std::vector<std::string> terms;
     int32_t slop = 0;
     bool ordered = false;
+    std::vector<std::shared_ptr<v_proj::BM25VirtualProjColumnIterator>>* _bm25_v_proj_col_iters =
+            nullptr;
+    index_stats::TabletIndexStatsCollectors* tablet_index_stats_collectors = nullptr;
+    index_stats::FullSegmentId* full_segment_id = nullptr;
 };
 
 class Query {
@@ -48,6 +54,8 @@ public:
 
     virtual void add(const InvertedIndexQueryInfo& query_info) {
         add(query_info.field_name, query_info.terms);
+        _bm25_v_proj_col_iters = query_info._bm25_v_proj_col_iters;
+        _tablet_index_stats_collectors = query_info.tablet_index_stats_collectors;
     }
 
     // a unified data preparation interface that provides the field names to be queried and the terms for the query.
@@ -58,6 +66,61 @@ public:
     // a unified query interface for retrieving the ids obtained from the search.
     // @param roaring a Roaring bitmap to be populated with the search results,
     virtual void search(roaring::Roaring& roaring) = 0;
+
+    virtual void pre_search(const InvertedIndexQueryInfo& query_info) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemented yet.");
+    }
+protected:
+    std::vector<std::shared_ptr<v_proj::BM25VirtualProjColumnIterator>>*
+        _bm25_v_proj_col_iters = nullptr;
+    index_stats::TabletIndexStatsCollectors* _tablet_index_stats_collectors = nullptr;
+};
+
+template <typename T>
+class CLuceneUniquePtr {
+public:
+    explicit CLuceneUniquePtr(T* ptr = nullptr) : _ptr(ptr) {}
+
+    CLuceneUniquePtr(const CLuceneUniquePtr&) = delete;
+    CLuceneUniquePtr& operator=(const CLuceneUniquePtr&) = delete;
+
+    CLuceneUniquePtr(CLuceneUniquePtr&& other) noexcept : _ptr(other._ptr) {
+        other._ptr = nullptr;
+    }
+
+    ~CLuceneUniquePtr() {
+        reset();
+    }
+
+    CLuceneUniquePtr& operator=(CLuceneUniquePtr&& other) noexcept {
+        if (this != &other) {
+            reset();
+            _ptr = other._ptr;
+            other._ptr = nullptr;
+        }
+        return *this;
+    }
+
+    T& operator*() const {
+        return *_ptr;
+    }
+
+    T* operator->() const {
+        return _ptr;
+    }
+
+    void reset(T* ptr = nullptr) {
+        if (_ptr) {
+            _CLDELETE(_ptr);
+        }
+        _ptr = ptr;
+    }
+
+    T* get() const {
+        return _ptr;
+    }
+private:
+    T* _ptr;
 };
 
 } // namespace doris::segment_v2

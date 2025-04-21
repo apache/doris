@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.CreateMTMVStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
@@ -126,6 +127,13 @@ public class OlapTableFactory {
         Preconditions.checkState(params instanceof OlapTableParams, "Invalid argument for "
                 + params.getClass().getSimpleName());
         OlapTableParams olapTableParams = (OlapTableParams) params;
+        // set built=true when vector index built by create table clause,
+        // so that we can push down vector index opts to BE when query
+        for (Index index : indexes.getIndexes()) {
+            if (index.getIndexType() == IndexDef.IndexType.VECTOR) {
+                index.setVectorIndexOnBuilding(false);
+            }
+        }
         olapTableParams.indexes = indexes;
         return this;
     }

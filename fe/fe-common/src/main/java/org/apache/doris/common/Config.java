@@ -2724,7 +2724,7 @@ public class Config extends ConfigBase {
     public static boolean enable_create_inverted_index_for_array = false;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_create_bitmap_index_as_inverted_index = true;
+    public static boolean enable_create_bitmap_index_as_inverted_index = false;
 
     // The original meta read lock is not enough to keep a snapshot of partition versions,
     // so the execution of `createScanRangeLocations` are delayed to `Coordinator::exec`,
@@ -2754,5 +2754,27 @@ public class Config extends ConfigBase {
 
     //==========================================================================
     //                      end of cloud config
+    //==========================================================================
+
+    //==========================================================================
+    //                    begin of vector index
+    //==========================================================================
+    @ConfField(mutable = true)
+    public static int vector_index_k = 100;
+
+    @ConfField(mutable = true)
+    public static double vector_index_pq_refine_factor = 1.0;
+
+    @ConfField(mutable = true)
+    public static double vector_index_k_factor = 1.0;
+
+    @ConfField(mutable = true, description = {
+        "控制包含vector index的duplicate表的删除行为",
+        "Control the deletion behavior of the duplicate table containing the vector index."})
+    public static boolean enable_delete_for_duplicate_table_with_vector_index = false;
+
+
+    //==========================================================================
+    //                     end of vector index
     //==========================================================================
 }

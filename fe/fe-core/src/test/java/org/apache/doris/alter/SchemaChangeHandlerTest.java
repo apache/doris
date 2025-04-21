@@ -450,7 +450,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         try {
             Assertions.assertNotNull(tbl);
             Assertions.assertEquals("Doris", tbl.getEngine());
-            Assertions.assertEquals(0, tbl.getIndexes().size());
+            Assertions.assertEquals(1, tbl.getIndexes().size());
         } finally {
             tbl.readUnlock();
         }
@@ -468,7 +468,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         tbl.readLock();
         try {
-            Assertions.assertEquals(1, tbl.getIndexes().size());
+            Assertions.assertEquals(2, tbl.getIndexes().size());
             String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
             Assertions.assertEquals(baseIndexName, tbl.getName());
             MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
@@ -488,7 +488,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
 
         tbl.readLock();
         try {
-            Assertions.assertEquals(0, tbl.getIndexes().size());
+            Assertions.assertEquals(1, tbl.getIndexes().size());
             String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
             Assertions.assertEquals(baseIndexName, tbl.getName());
             MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());

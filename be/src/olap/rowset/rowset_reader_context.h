@@ -21,6 +21,7 @@
 #include "io/io_common.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/topn_index_push_down.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -84,6 +85,26 @@ struct RowsetReaderContext {
     // slots that cast may be eliminated in storage layer
     std::map<std::string, PrimitiveType> target_cast_type_for_variants;
     size_t topn_limit = 0;
+    // vector index params
+    int64_t k;
+    const std::vector<string>* query_vector = nullptr;
+    const std::vector<string>* query_vector_id = nullptr;
+    bool use_vector_index = false;
+    std::string vector_distance_column_name;
+    int vector_column_id;
+    SlotId vector_slot_id;
+    const std::map<std::string, std::string>* query_params = nullptr;
+    double vector_range;
+    int result_order;
+    double pq_refine_factor;
+    double k_factor;
+    bool use_vector_range = false;
+
+    // For projection pushdown optimization
+    std::shared_ptr<v_proj::VirtualProjColItersInitializers> virtual_proj_col_initializers;
+
+    // topn index push down
+    std::shared_ptr<vectorized::TopnIndexPushDownParams> topn_index_push_down_params;
 };
 
 } // namespace doris

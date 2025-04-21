@@ -53,6 +53,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -446,6 +447,20 @@ public class CreateTableStmt extends DdlStmt {
                 && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
             if (enableUniqueKeyMergeOnWrite) {
                 columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.NONE));
+                // add index for delete flag because of vector index
+                if (indexDefs == null) {
+                    indexDefs = new ArrayList<>();
+                }
+                boolean shouldAdd = true;
+                for (IndexDef idx : indexDefs) {
+                    if (idx.getIndexName().equals(Index.DELETE_SIGN_INDEX)) {
+                        shouldAdd = false;
+                        break;
+                    }
+                }
+                if (shouldAdd) {
+                    indexDefs.add(IndexDef.newDeleteSignIndex());
+                }
             } else {
                 columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
             }

@@ -21,6 +21,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <vec/exprs/vectorized_fn_call.h>
 
 #include <memory>
 #include <set>
@@ -43,6 +44,8 @@
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/tablet_fwd.h"
+#include "topn_index_push_down.h"
+#include "virtual_proj_col.h"
 
 namespace doris {
 
@@ -181,6 +184,27 @@ public:
 
         std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = nullptr;
 
+        // vector index params
+        int64_t k;
+        std::vector<string> query_vector;
+        std::vector<string> query_vector_id;
+        bool use_vector_index = false;
+        std::string vector_distance_column_name;
+        int vector_column_id;
+        SlotId vector_slot_id;
+        std::map<std::string, std::string> query_params;
+        double vector_range;
+        int result_order;
+        double pq_refine_factor;
+        double k_factor;
+        bool use_vector_range = false;
+
+        // For projection pushdown optimization
+        std::shared_ptr<v_proj::VirtualProjFuncDescs> virtual_proj_func_descs;
+
+        // topn index push down
+        std::shared_ptr<vectorized::TopnIndexPushDownParams> topn_index_push_down_params;
+
         void check_validation() const;
 
         std::string to_string() const;
@@ -261,6 +285,8 @@ protected:
 
     Status _init_return_columns(const ReaderParams& read_params);
 
+    Status _init_return_v_proj_columns(const ReaderParams& read_params);
+
     const BaseTabletSPtr& tablet() { return _tablet; }
     // If original column is a variant type column, and it's predicate is normalized
     // so in order to get the real type of column predicate, we need to reset type
@@ -305,6 +331,10 @@ protected:
 
     uint64_t _merged_rows = 0;
     OlapReaderStatistics _stats;
+
+    // For project push-down optimization
+    std::shared_ptr<v_proj::VirtualProjColItersInitializers> _v_proj_col_iters_initializers;
+    std::shared_ptr<std::vector<const v_proj::VirtualProjColDesc*>> _ordered_v_proj_cols;
 };
 
 } // namespace doris

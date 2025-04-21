@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "doc_term_iterator.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
 
 CL_NS_USE(index)
@@ -32,10 +33,13 @@ public:
 
     void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
     void search(roaring::Roaring& roaring) override;
-
+    void pre_search(const InvertedIndexQueryInfo& query_info) override;
 private:
-    void search_by_bitmap(roaring::Roaring& roaring);
-    void search_by_skiplist(roaring::Roaring& roaring);
+    void search_by_bitmap(roaring::Roaring& roaring,
+                          index_stats::FullTextSimilarityCollector* full_text_similarity_collector);
+    void search_by_skiplist(
+            roaring::Roaring& roaring,
+            index_stats::FullTextSimilarityCollector* full_text_similarity_collector);
 
     int32_t do_next(int32_t doc);
 
@@ -46,12 +50,14 @@ public:
     int32_t _conjunction_ratio = 1000;
     bool _use_skip = false;
 
-    TermIterator _lead1;
-    TermIterator _lead2;
-    std::vector<TermIterator> _others;
+    DocTermIterator _lead1;
+    DocTermIterator _lead2;
+    std::vector<DocTermIterator> _others;
 
     std::vector<Term*> _terms;
     std::vector<TermDocs*> _term_docs;
+
+    std::wstring _field_name;
 };
 
 } // namespace doris::segment_v2

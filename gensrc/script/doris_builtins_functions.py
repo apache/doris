@@ -835,6 +835,39 @@ visible_functions = {
 
         [['array_zip'], 'ARRAY', ['ARRAY<T>', '...'], '', ['T']],
 
+        # vector function
+        [['approx_l2_distance'], 'DOUBLE', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
+        [['approx_l2_distance'], 'DOUBLE', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
+        [['approx_l2_distance'], 'DOUBLE', ['ARRAY_INT', 'ARRAY_INT'], 'ALWAYS_NULLABLE'],
+        [['approx_l2_distance'], 'DOUBLE', ['ARRAY_BIGINT', 'ARRAY_BIGINT'], 'ALWAYS_NULLABLE'],
+        [['approx_l2_distance'], 'DOUBLE', ['ARRAY_LARGEINT', 'ARRAY_LARGEINT'], 'ALWAYS_NULLABLE'],
+        [['approx_l2_distance'], 'DOUBLE', ['ARRAY_FLOAT', 'ARRAY_FLOAT'], 'ALWAYS_NULLABLE'],
+        [['approx_l2_distance'], 'DOUBLE', ['ARRAY_DOUBLE', 'ARRAY_DOUBLE'], 'ALWAYS_NULLABLE'],
+
+        [['approx_cosine_distance'], 'DOUBLE', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
+        [['approx_cosine_distance'], 'DOUBLE', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
+        [['approx_cosine_distance'], 'DOUBLE', ['ARRAY_INT', 'ARRAY_INT'], 'ALWAYS_NULLABLE'],
+        [['approx_cosine_distance'], 'DOUBLE', ['ARRAY_BIGINT', 'ARRAY_BIGINT'], 'ALWAYS_NULLABLE'],
+        [['approx_cosine_distance'], 'DOUBLE', ['ARRAY_LARGEINT', 'ARRAY_LARGEINT'], 'ALWAYS_NULLABLE'],
+        [['approx_cosine_distance'], 'DOUBLE', ['ARRAY_FLOAT', 'ARRAY_FLOAT'], 'ALWAYS_NULLABLE'],
+        [['approx_cosine_distance'], 'DOUBLE', ['ARRAY_DOUBLE', 'ARRAY_DOUBLE'], 'ALWAYS_NULLABLE'],
+
+        [['approx_cosine_similarity'], 'DOUBLE', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
+        [['approx_cosine_similarity'], 'DOUBLE', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
+        [['approx_cosine_similarity'], 'DOUBLE', ['ARRAY_INT', 'ARRAY_INT'], 'ALWAYS_NULLABLE'],
+        [['approx_cosine_similarity'], 'DOUBLE', ['ARRAY_BIGINT', 'ARRAY_BIGINT'], 'ALWAYS_NULLABLE'],
+        [['approx_cosine_similarity'], 'DOUBLE', ['ARRAY_LARGEINT', 'ARRAY_LARGEINT'], 'ALWAYS_NULLABLE'],
+        [['approx_cosine_similarity'], 'DOUBLE', ['ARRAY_FLOAT', 'ARRAY_FLOAT'], 'ALWAYS_NULLABLE'],
+        [['approx_cosine_similarity'], 'DOUBLE', ['ARRAY_DOUBLE', 'ARRAY_DOUBLE'], 'ALWAYS_NULLABLE'],
+
+        [['approx_inner_product'], 'DOUBLE', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
+        [['approx_inner_product'], 'DOUBLE', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
+        [['approx_inner_product'], 'DOUBLE', ['ARRAY_INT', 'ARRAY_INT'], 'ALWAYS_NULLABLE'],
+        [['approx_inner_product'], 'DOUBLE', ['ARRAY_BIGINT', 'ARRAY_BIGINT'], 'ALWAYS_NULLABLE'],
+        [['approx_inner_product'], 'DOUBLE', ['ARRAY_LARGEINT', 'ARRAY_LARGEINT'], 'ALWAYS_NULLABLE'],
+        [['approx_inner_product'], 'DOUBLE', ['ARRAY_FLOAT', 'ARRAY_FLOAT'], 'ALWAYS_NULLABLE'],
+        [['approx_inner_product'], 'DOUBLE', ['ARRAY_DOUBLE', 'ARRAY_DOUBLE'], 'ALWAYS_NULLABLE'],
+        [['approx_inner_product'], 'DOUBLE', ['MAP<K, V>', 'MAP<K, V>'], 'ALWAYS_NULLABLE', ['K', 'V']],
 
         # reverse function for string builtin
         [['reverse'], 'VARCHAR', ['VARCHAR'], ''],
@@ -2025,6 +2058,11 @@ visible_functions = {
     # tokenizer functions
     "Tokenize": [
         [['tokenize'],'ARRAY_VARCHAR',['STRING','STRING'], ''],
+    ],
+
+    # bm25 functions
+    "BM25": [
+        [['bm25'], 'FLOAT', [], 'DEPEND_ON_ARGUMENT'],
     ],
 
     "UUID": [

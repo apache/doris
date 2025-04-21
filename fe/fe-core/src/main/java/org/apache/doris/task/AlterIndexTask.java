@@ -19,7 +19,7 @@ package org.apache.doris.task;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
-import org.apache.doris.thrift.TAlterInvertedIndexReq;
+import org.apache.doris.thrift.TAlterIndexReq;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TTaskType;
@@ -36,27 +36,29 @@ import java.util.List;
  * The new replica should be created before.
  * The new replica can be a rollup replica, or a shadow replica of schema change.
  */
-public class AlterInvertedIndexTask extends AgentTask {
-    private static final Logger LOG = LogManager.getLogger(AlterInvertedIndexTask.class);
+public class AlterIndexTask extends AgentTask {
+    private static final Logger LOG = LogManager.getLogger(AlterIndexTask.class);
     private long tabletId;
     private int schemaHash;
     private List<Index> alterInvertedIndexes;
+    private List<Index> alterVectorIndexes;
     private List<Column> schemaColumns;
     private List<Index> existIndexes;
     private boolean isDropOp = false;
     private long jobId;
 
-    public AlterInvertedIndexTask(long backendId, long dbId, long tableId,
-            long partitionId, long indexId, long tabletId, int schemaHash,
-            List<Index> existIndexes, List<Index> alterInvertedIndexes,
-            List<Column> schemaColumns, boolean isDropOp, long taskSignature,
-            long jobId) {
-        super(null, backendId, TTaskType.ALTER_INVERTED_INDEX, dbId, tableId,
+    public AlterIndexTask(long backendId, long dbId, long tableId,
+                          long partitionId, long indexId, long tabletId, int schemaHash,
+                          List<Index> existIndexes, List<Index> alterInvertedIndexes,
+                          List<Index> alterVectorIndexes, List<Column> schemaColumns,
+                          boolean isDropOp, long taskSignature, long jobId) {
+        super(null, backendId, TTaskType.ALTER_INDEX, dbId, tableId,
                 partitionId, indexId, tabletId, taskSignature);
         this.tabletId = tabletId;
         this.schemaHash = schemaHash;
         this.existIndexes = existIndexes;
         this.alterInvertedIndexes = alterInvertedIndexes;
+        this.alterVectorIndexes = alterVectorIndexes;
         this.schemaColumns = schemaColumns;
         this.isDropOp = isDropOp;
         this.jobId = jobId;
@@ -92,8 +94,8 @@ public class AlterInvertedIndexTask extends AgentTask {
         return sb.toString();
     }
 
-    public TAlterInvertedIndexReq toThrift() {
-        TAlterInvertedIndexReq req = new TAlterInvertedIndexReq();
+    public TAlterIndexReq toThrift() {
+        TAlterIndexReq req = new TAlterIndexReq();
         req.setTabletId(tabletId);
         req.setSchemaHash(schemaHash);
         req.setIsDropOp(isDropOp);
@@ -106,6 +108,14 @@ public class AlterInvertedIndexTask extends AgentTask {
                 tIndexes.add(index.toThrift());
             }
             req.setAlterInvertedIndexes(tIndexes);
+        }
+
+        if (!alterVectorIndexes.isEmpty()) {
+            List<TOlapTableIndex> tIndexes = new ArrayList<>();
+            for (Index index : alterVectorIndexes) {
+                tIndexes.add(index.toThrift());
+            }
+            req.setAlterVectorIndexes(tIndexes);
         }
 
         if (existIndexes != null) {

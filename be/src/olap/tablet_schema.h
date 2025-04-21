@@ -44,6 +44,7 @@
 #include "vec/common/string_utils/string_utils.h"
 #include "vec/core/types.h"
 #include "vec/json/path_in_data.h"
+#include "virtual_proj_col.h"
 
 namespace doris {
 namespace vectorized {
@@ -99,6 +100,7 @@ public:
                _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
                _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
+
     // Such columns are not exist in frontend schema info, so we need to
     // add them into tablet_schema for later column indexing.
     static TabletColumn create_materialized_variant_column(const std::string& root,
@@ -351,6 +353,7 @@ public:
     std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
     bool has_inverted_index(const TabletColumn& col) const;
     bool has_inverted_index_with_index_id(int64_t index_id, const std::string& suffix_path) const;
+    bool has_vector_index_with_index_id(int64_t index_id, const std::string& suffix_path) const;
     const TabletIndex* get_inverted_index_with_index_id(int64_t index_id,
                                                         const std::string& suffix_name) const;
     // check_valid: check if this column supports inverted index
@@ -361,6 +364,17 @@ public:
                                           const std::string& suffix_path) const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
+    bool has_vector_index(int32_t col_unique_id) const;
+    bool has_vector_index() const {
+        for (const auto& index : _indexes) {
+            if (index.index_type() == IndexType::VECTOR) {
+                return true;
+            }
+        }
+        return false;
+    }
+    const TabletIndex* get_vector_index(const TabletColumn& col) const;
+    const TabletIndex* get_vector_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
     // If schema version is not set, it should be -1
     int32_t schema_version() const { return _schema_version; }
@@ -369,6 +383,10 @@ public:
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
     vectorized::Block create_block(bool ignore_dropped_col = true) const;
+    vectorized::Block create_block_with_virtual_columns(
+        const std::vector<uint32_t>& return_columns,
+        const std::vector<const v_proj::VirtualProjColDesc*>* ordered_v_proj_cols,
+        const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
     void set_schema_version(int32_t version) { _schema_version = version; }
     void set_auto_increment_column(const std::string& auto_increment_column) {
         _auto_increment_column = auto_increment_column;

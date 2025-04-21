@@ -1029,6 +1029,17 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
+
+// vector index
+// Enable caching index blocks for IVF-family vector indexes
+DEFINE_mBool(enable_vector_index_block_cache, "true");
+// concurrency of building index
+DEFINE_mInt32(config_vector_index_build_concurrency, "8");
+// Used by vector query cache, 500MB in default
+DEFINE_Int64(vector_index_query_cache_capacity, "536870912");
+// Determine whether the vector index should execute or not by remaining row nums.
+DEFINE_mInt64(vector_index_short_circuit_count, "20");
+
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");

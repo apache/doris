@@ -27,6 +27,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupByClause.GroupingType;
 import org.apache.doris.analysis.GroupingInfo;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.OrderByElement;
@@ -42,6 +43,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -81,6 +83,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -93,6 +96,13 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxCosineSimilarity;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxInnerProduct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxL2Distance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ApproxVectorDistanceFunc;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -1250,6 +1260,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (!(filter.child(0) instanceof AbstractPhysicalJoin)) {
                 addConjunctsToPlanNode(filter, planNode, context);
                 updateLegacyPlanIdToPhysicalPlan(inputFragment.getPlanRoot(), filter);
+                if ((planNode instanceof OlapScanNode) && isPredicatesAllHitIndexOrKey(planNode.getConjuncts(),
+                        ((OlapScanNode) planNode).getOlapTable())) {
+                    ((OlapScanNode) planNode).setVectorIndexOptions(filter.getConjuncts());
+                }
             }
         }
         // in ut, filter.stats may be null
@@ -1879,10 +1893,29 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return inputFragment;
         }
 
+        boolean enableScanVectorColumn = context.getSessionVariable() == null
+                || context.getSessionVariable().isEnableScanVectorColumn();
+
         List<Expr> conjuncts = inputPlanNode.getConjuncts();
         Set<SlotId> requiredSlotIdSet = Sets.newHashSet();
         for (Expr expr : allProjectionExprs) {
-            Expr.extractSlots(expr, requiredSlotIdSet);
+            if (enableScanVectorColumn) {
+                Expr.extractSlots(expr, requiredSlotIdSet);
+            } else {
+                PushProjToOlapScanNodeTranslator.BooleanHolder matchPushProjExtract =
+                        new PushProjToOlapScanNodeTranslator.BooleanHolder(false);
+                if (inputPlanNode instanceof OlapScanNode) {
+                    expr.visitIfMatch(
+                            FunctionCallExpr.class::isInstance,
+                            (FunctionCallExpr func) -> PushProjToOlapScanNodeTranslator.extractSlots(
+                                    func, project, (OlapScanNode) inputPlanNode, context, matchPushProjExtract)
+                    );
+                }
+
+                if (!matchPushProjExtract.getValue()) {
+                    Expr.extractSlots(expr, requiredSlotIdSet);
+                }
+            }
         }
         Set<SlotId> requiredByProjectSlotIdSet = Sets.newHashSet(requiredSlotIdSet);
         for (Expr expr : conjuncts) {
@@ -1970,6 +2003,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     requiredSlotIdSet.add(lastSlot.getId());
                 }
                 ((OlapScanNode) inputPlanNode).updateRequiredSlots(context, requiredByProjectSlotIdSet);
+
+                // Projection pushdown optimization.
+                // Push down specific functions to OlapScanNode, such as BM25().
+                for (SlotRef slotRef : PushProjToOlapScanNodeTranslator.rewriteSpecificProjs(
+                        project, (OlapScanNode) inputPlanNode, context)) {
+                    if (projectionTuple != null) {
+                        requiredByProjectSlotIdSet.add(slotRef.getSlotId());
+                    } else {
+                        slotIdsByOrder.add(slotRef.getSlotId());
+                    }
+                    requiredSlotIdSet.add(slotRef.getSlotId());
+                }
             }
             updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
                     requiredByProjectSlotIdSet, slotIdsByOrder, context);
@@ -2137,6 +2182,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // push sort to scan opt
             if (sortNode.getChild(0) instanceof OlapScanNode) {
                 OlapScanNode scanNode = ((OlapScanNode) sortNode.getChild(0));
+                // topn index push down
+                checkAndPushDownIndex(topN, sortNode, scanNode, context);
+                // vector index
+                if (checkPushVectorIndex(topN, sortNode, scanNode.getOlapTable(), context)) {
+                    // set options BE needed for vector index query
+                    scanNode.setVectorIndexOptions(sortNode);
+                }
                 if (checkPushSort(sortNode, scanNode.getOlapTable())) {
                     SortInfo sortInfo = sortNode.getSortInfo();
                     scanNode.setSortInfo(sortInfo);
@@ -2457,6 +2509,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .forEach(planNode::addConjunct);
         updateLegacyPlanIdToPhysicalPlan(planNode, filter);
+
+        // Push down projections in filter.
+        if (planNode instanceof OlapScanNode) {
+            // Push down specific functions to OlapScanNode, such as BM25().
+            PushProjToOlapScanNodeTranslator.rewriteSpecificProjsInFilter(
+                    filter, (OlapScanNode) planNode, context);
+        }
     }
 
     private TupleDescriptor generateTupleDesc(List<Slot> slotList, TableIf table, PlanTranslatorContext context) {
@@ -2661,6 +2720,178 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         slotDesc.setIsMaterialized(true);
     }
 
+    /***
+     *  optimize topn query when topn index push down
+     *  TODO: vector index push down in topn will move to here in future
+     */
+    private void checkAndPushDownIndex(PhysicalTopN<? extends Plan> topN,
+                                  SortNode sortNode, OlapScanNode scanNode, PlanTranslatorContext context) {
+        OlapTable olapTable = scanNode.getOlapTable();
+        List<Expr> conjucts = scanNode.getConjuncts();
+        if (!isPredicatesAllHitIndexOrKey(conjucts, olapTable)) {
+            return;
+        }
+
+        // push down to BE when query hits bm25
+        List<Expr> orderExprList = sortNode.getSortInfo().getOrderingExprs();
+        if (orderExprList.isEmpty()) {
+            return;
+        }
+
+        List<Boolean> isAscOrderList = sortNode.getSortInfo().getIsAscOrder();
+        Expr firstOrderExpr = orderExprList.get(0);
+        Boolean isAsc = isAscOrderList.get(0);
+        if (!(firstOrderExpr instanceof SlotRef)) {
+            return;
+        }
+        SlotRef slotRef = (SlotRef) firstOrderExpr;
+        int slotOffset = slotRef.getDesc().getSlotOffset();
+        List<Expr> projectList = scanNode.getProjectList();
+        if (projectList == null || projectList.isEmpty()) {
+            return;
+        }
+        Expr sortKeyExpr = projectList.get(slotOffset);
+        if (sortKeyExpr instanceof FunctionCallExpr) {
+            String funcName = ((FunctionCallExpr) sortKeyExpr).getFnName().getFunction();
+            // judge bm25 push down
+            if (funcName.equalsIgnoreCase(PushProjToOlapScanNodeTranslator.BM25PDFuncRewriter.NAME)) {
+                if (PushProjToOlapScanNodeTranslator.BM25PDFuncRewriter.containsMatchPredicate(scanNode)) {
+                    scanNode.setTopnIndexPushDown(true);
+                }
+            }
+        }
+
+        if (scanNode.getTopnIndexPushDown()) {
+            scanNode.setTopnIndexPushDownLimit(sortNode.getLimit());
+            scanNode.setTopnIndexPushDownProjSlotOffset(slotOffset);
+            scanNode.setTopnIndexPushDownIsAsc(isAsc);
+        }
+    }
+
+    /***
+     *  optimize topn query when hit vector index
+     */
+    private boolean checkPushVectorIndex(PhysicalTopN<? extends Plan> topN,
+                                         SortNode sortNode, OlapTable olapTable, PlanTranslatorContext context) {
+        // when predicates columns all have index / key, can do topn push down for vector index
+        for (ScanNode scanNode : context.getScanNodes()) {
+            if (!isPredicatesAllHitIndexOrKey(scanNode.getConjuncts(), olapTable)) {
+                return false;
+            }
+        }
+        // Push approx function down to BE when query hits vector index.
+        List<Expr> orderExprList = sortNode.getSortInfo().getOrderingExprs();
+        List<Boolean> isAscOrderList = sortNode.getSortInfo().getIsAscOrder();
+        for (int i = 0; i < orderExprList.size(); i++) {
+            Expr expr = orderExprList.get(i);
+            if (!(expr instanceof SlotRef)) {
+                continue;
+            }
+            SlotRef slotRef = (SlotRef) expr;
+            SlotId slotId = slotRef.getDesc().getId();
+            ExprId exprId = context.findExprId(slotId);
+            boolean isAscOrder = isAscOrderList.get(i);
+            List<Index> indexList = olapTable.getIndexes();
+            List<? extends Expression> expressions = topN.child(0).getExpressions();
+            List<ApproxVectorDistanceFunc> approxExpressions = new ArrayList<>();
+            for (Expression expression : expressions) {
+                if (expression instanceof ApproxVectorDistanceFunc) {
+                    approxExpressions.add((ApproxVectorDistanceFunc) expression);
+                } else if (expression instanceof Alias && ((Alias) expression).getExprId() == exprId) {
+                    // consider alias expression
+                    for (Expression child : expression.children()) {
+                        // alias must be approx vector distance as xxx
+                        if (child instanceof ApproxVectorDistanceFunc) {
+                            approxExpressions.add((ApproxVectorDistanceFunc) child);
+                        }
+                    }
+                }
+            }
+            for (Expression expression : approxExpressions) {
+                if (expression instanceof ApproxVectorDistanceFunc) {
+                    if ((expression instanceof ApproxL2Distance)
+                            && !isAscOrder) {
+                        continue;
+                    }
+
+                    if ((expression instanceof ApproxCosineSimilarity || expression instanceof ApproxInnerProduct)
+                            && isAscOrder) {
+                        continue;
+                    }
+
+                    // params need one is const vector, another is vector index column
+                    SlotReference indexVector;
+                    ArrayLiteral constVector = null;  // for dense vector
+                    MapLiteral constSparseVector = null;  // for sparse vector
+                    if (expression.child(0) instanceof ArrayLiteral
+                            && expression.child(1) instanceof SlotReference) {
+                        indexVector = (SlotReference) expression.child(1);
+                        constVector = (ArrayLiteral) expression.child(0);
+                    } else if (expression.child(1) instanceof ArrayLiteral
+                                && expression.child(0) instanceof SlotReference) {
+                        indexVector = (SlotReference) expression.child(0);
+                        constVector = (ArrayLiteral) expression.child(1);
+                    } else if (expression.child(0) instanceof MapLiteral
+                                && expression.child(1) instanceof SlotReference) {
+                        indexVector = (SlotReference) expression.child(1);
+                        constSparseVector = (MapLiteral) expression.child(0);
+                    } else if (expression.child(1) instanceof MapLiteral
+                                && expression.child(0) instanceof SlotReference) {
+                        indexVector = (SlotReference) expression.child(0);
+                        constSparseVector = (MapLiteral) expression.child(1);
+                    } else {
+                        continue;
+                    }
+
+                    if (indexVector == null || !indexVector.getColumn().isPresent()) {
+                        continue;
+                    }
+
+                    String funcIndexColumnName = indexVector.getColumn().get().getName();
+                    int funcIndexColumnUniqueId = indexVector.getColumn().get().getUniqueId();
+                    for (Index index : indexList) {
+                        if (index.getIndexType() == IndexDef.IndexType.VECTOR
+                                && index.getColumns().contains(funcIndexColumnName)) {
+                            ArrayList<String> valRecord = new ArrayList<>();  // dense vector or sparse vector values
+                            ArrayList<String> idRecord = new ArrayList<>(); // sparse vector ids
+                            if (constVector != null) {
+                                String[] arr = constVector.toString().split(",");
+                                boolean flag = false;
+                                for (String s : arr) {
+                                    if (s.contains("[")) {
+                                        flag = true;
+                                        valRecord.add(s.substring(1));
+                                    } else if (s.contains("]")) {
+                                        valRecord.add(s.substring(0, s.length() - 1));
+                                        break;
+                                    } else if (flag) {
+                                        valRecord.add(s);
+                                    }
+                                }
+                            } else if (constSparseVector != null) {
+                                List<List<Literal>> mapVal = constSparseVector.getValue();
+                                List<Literal> keys = mapVal.get(0);
+                                List<Literal> values = mapVal.get(1);
+                                for (int k = 0; k < keys.size(); k++) {
+                                    idRecord.add(keys.get(k).getStringValue());
+                                    valRecord.add(values.get(k).getStringValue());
+                                }
+                            }
+
+                            sortNode.setUseVectorIndex(true);
+                            sortNode.setVectorDistanceColumnName(funcIndexColumnName);
+                            sortNode.setVectorDistanceColumnID(funcIndexColumnUniqueId);
+                            sortNode.setVectorString(valRecord);
+                            sortNode.setVectorIdString(idRecord);
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     /**
      * topN opt: using storage data ordering to accelerate topn operation.
      * refer pr: optimize topn query if order by columns is prefix of sort keys of table (#10694)
@@ -2787,5 +3018,38 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return partitionExprs;
         }
         return Lists.newArrayList();
+    }
+
+    private boolean isPredicatesAllHitIndexOrKey(List<Expr> conjuncts, OlapTable olapTable) {
+        return conjuncts.stream().noneMatch(expr -> {
+            for (Expr child : expr.getChildren()) {
+                if (child instanceof SlotRef) {
+                    String colName = ((SlotRef) child).getColumnName();
+                    if (colName == null) {
+                        colName = "";
+                    }
+                    Column col = olapTable.getColumn(colName);
+                    // is key column
+                    if (col != null && col.isKey()) {
+                        return false;
+                    }
+                    // is index column
+                    for (Index index : olapTable.getIndexes()) {
+                        for (String columnName : index.getColumns()) {
+                            if (columnName.equals(colName)) {
+                                return false;
+                            }
+                        }
+                    }
+                    // is hidden column
+                    if (col != null && !col.isVisible()) {
+                        return false;
+                    }
+                    return true;
+                }
+            }
+            // no slot found
+            return false;
+        });
     }
 }

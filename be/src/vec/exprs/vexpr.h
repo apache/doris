@@ -227,7 +227,6 @@ public:
 
     std::string gen_predicate_result_sign(Block& block, const ColumnNumbers& arguments,
                                           const std::string& function_name);
-
 protected:
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {

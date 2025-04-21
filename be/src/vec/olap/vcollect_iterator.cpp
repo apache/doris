@@ -120,6 +120,9 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
     } else if (_merge) {
         DCHECK(!rs_readers.empty());
         bool have_multiple_child = false;
+
+        RETURN_IF_ERROR(_collect_tablet_index_stats_if_needed(nullptr));
+
         for (auto [c_iter, r_iter] = std::pair {_children.begin(), rs_readers.begin()};
              c_iter != _children.end();) {
             auto s = (*c_iter)->init(have_multiple_child);
@@ -183,6 +186,7 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
                                                             _is_reverse, _skip_same);
         _children.clear();
         level1_iter->init_level0_iterators_for_union();
+        RETURN_IF_ERROR(_collect_tablet_index_stats_if_needed(level1_iter.get()));
         RETURN_IF_ERROR(level1_iter->ensure_first_row_ref());
         _inner_iter = std::move(level1_iter);
     }
@@ -285,6 +289,8 @@ Status VCollectIterator::_topn_next(Block* block) {
     if (_is_reverse) {
         std::reverse(_rs_splits.begin(), _rs_splits.end());
     }
+
+    RETURN_IF_ERROR(_collect_tablet_index_stats_if_needed(nullptr));
 
     for (size_t i = 0; i < _rs_splits.size(); i++) {
         const auto& rs_split = _rs_splits[i];
@@ -450,6 +456,61 @@ Status VCollectIterator::_topn_next(Block* block) {
     return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>("");
 }
 
+bool VCollectIterator::_should_collect_tablet_index_stats() const {
+    if (_tablet_index_stats_collected) {
+        return false;
+    }
+
+    bool collect = false;
+
+    if (_reader->_v_proj_col_iters_initializers) {
+        for (auto& v_iter : *_reader->_v_proj_col_iters_initializers) {
+            if (v_iter.get_func()->fn().name.function_name == "bm25") {
+                collect = true;
+            }
+            if (collect) {
+                break;
+            }
+        }
+    }
+
+    return collect;
+}
+
+Status VCollectIterator::_collect_tablet_index_stats_if_needed(
+        LevelIterator* top_level_iterator) {
+    if (!_should_collect_tablet_index_stats()) {
+        return Status::OK();
+    }
+
+    _tablet_index_stats_collectors = std::make_shared<index_stats::TabletIndexStatsCollectors>();
+
+    std::shared_ptr<index_stats::TabletIndexStatsCollector> fulltext_collector =
+            std::make_shared<index_stats::FullTextSimilarityCollector>();
+    _tablet_index_stats_collectors->add_tablet_index_stats_collector(fulltext_collector);
+
+    if (use_topn_next()) { // topn read path
+        for (size_t i = 0; i < _rs_splits.size(); i++) {
+            const auto& rs_split = _rs_splits[i];
+            RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader->_reader_context, rs_split));
+            RETURN_IF_ERROR(
+                    rs_split.rs_reader->collect_rowset_index_stats(_tablet_index_stats_collectors));
+        }
+    } else if (_merge) {
+        for (auto& child : _children) {
+            RETURN_IF_ERROR(child->collect_index_stats(_tablet_index_stats_collectors));
+        }
+    } else if (top_level_iterator) { // normal read path
+        RETURN_IF_ERROR(top_level_iterator->collect_index_stats(_tablet_index_stats_collectors));
+    } else {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>("Unknown read path.");
+    }
+
+    _tablet_index_stats_collected = true;
+
+    return Status::OK();
+}
+
 bool VCollectIterator::BlockRowPosComparator::operator()(const size_t& lpos,
                                                          const size_t& rpos) const {
     int ret = _mutable_block->compare_at(lpos, rpos, _compare_columns, *_mutable_block, -1);
@@ -465,8 +526,10 @@ VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader
 Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
     _get_data_by_ref = get_data_by_ref && _rs_reader->support_return_data_by_ref();
     if (!_get_data_by_ref) {
-        _block = std::make_shared<Block>(_schema.create_block(
-                _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+        _block = std::make_shared<Block>(_schema.create_block_with_virtual_columns(
+                _reader->_return_columns,
+                _reader->_ordered_v_proj_cols.get(),
+                _reader->_tablet_columns_convert_to_null_set));
     }
 
     auto st = refresh_current_row();
@@ -500,11 +563,18 @@ int64_t VCollectIterator::Level0Iterator::version() const {
     return _rs_reader->version().second;
 }
 
+Status VCollectIterator::Level0Iterator::collect_index_stats(
+        std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors) {
+    return _rs_reader->collect_rowset_index_stats(tablet_index_stats_collectors);
+}
+
 Status VCollectIterator::Level0Iterator::refresh_current_row() {
     do {
         if (_block == nullptr && !_get_data_by_ref) {
-            _block = std::make_shared<Block>(_schema.create_block(
-                    _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+            _block = std::make_shared<Block>(_schema.create_block_with_virtual_columns(
+                    _reader->_return_columns,
+                    _reader->_ordered_v_proj_cols.get(),
+                    _reader->_tablet_columns_convert_to_null_set));
         }
 
         if (!_is_empty() && _current_valid()) {
@@ -711,6 +781,14 @@ void VCollectIterator::Level1Iterator::init_level0_iterators_for_union() {
         have_multiple_child = true;
         ++iter;
     }
+}
+
+Status VCollectIterator::Level1Iterator::collect_index_stats(
+        std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors) {
+    for (auto iter = _children.begin(); iter != _children.end(); ++iter) {
+        RETURN_IF_ERROR(iter->get()->collect_index_stats(tablet_index_stats_collectors));
+    }
+    return Status::OK();
 }
 
 Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {

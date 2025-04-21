@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -40,7 +41,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.task.AlterInvertedIndexTask;
+import org.apache.doris.task.AlterIndexTask;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TTaskType;
 
@@ -57,6 +58,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 
 public class IndexChangeJob implements Writable {
@@ -105,10 +107,12 @@ public class IndexChangeJob implements Writable {
     private boolean isDropOp = false;
     @SerializedName(value = "alterInvertedIndexes")
     private List<Index> alterInvertedIndexes = null;
+    @SerializedName(value = "alterVectorIndexes")
+    private List<Index> alterVectorIndexes = null;
     @SerializedName(value = "originIndexId")
     private long originIndexId;
-    @SerializedName(value = "invertedIndexBatchTask")
-    AgentBatchTask invertedIndexBatchTask = new AgentBatchTask();
+    @SerializedName(value = "indexBatchTask")
+    AgentBatchTask indexBatchTask = new AgentBatchTask();
     // save failed task after retry three times, tablet -> backends
     @SerializedName(value = "failedTabletBackends")
     protected Map<Long, List<Long>> failedTabletBackends = Maps.newHashMap();
@@ -166,15 +170,23 @@ public class IndexChangeJob implements Writable {
         this.originIndexId = originIndexId;
     }
 
-    public void setAlterInvertedIndexInfo(boolean isDropOp, List<Index> alterInvertedIndexes) {
+    public void setAlterIndexInfo(boolean isDropOp, List<Index> alterIndexes) {
         this.isDropOp = isDropOp;
-        this.alterInvertedIndexes = alterInvertedIndexes;
+        this.alterInvertedIndexes = alterIndexes.stream().filter(idx ->
+            idx.getIndexType() == IndexDef.IndexType.INVERTED).collect(Collectors.toList());
+        this.alterVectorIndexes = alterIndexes.stream().filter(idx ->
+            idx.getIndexType() == IndexDef.IndexType.VECTOR).collect(Collectors.toList());
     }
 
-    public boolean hasSameAlterInvertedIndex(boolean isDropOp, List<Index> inputAlterInvertedIndexes) {
+    public boolean hasSameAlterIndex(boolean isDropOp, List<Index> inputAlterIndexes) {
         if (this.isDropOp == isDropOp) {
-            for (Index inputIndex : inputAlterInvertedIndexes) {
+            for (Index inputIndex : inputAlterIndexes) {
                 for (Index existIndex : this.alterInvertedIndexes) {
+                    if (inputIndex.getIndexId() == existIndex.getIndexId()) {
+                        return true;
+                    }
+                }
+                for (Index existIndex : this.alterVectorIndexes) {
                     if (inputIndex.getIndexId() == existIndex.getIndexId()) {
                         return true;
                     }
@@ -297,7 +309,7 @@ public class IndexChangeJob implements Writable {
             throw new AlterCancelException(e.getMessage());
         }
 
-        LOG.info("previous transactions are all finished, begin to send build or delete inverted index file tasks."
+        LOG.info("previous transactions are all finished, begin to send build or delete index file tasks."
                 + "job: {}, is delete: {}", jobId, isDropOp);
         Database db = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
@@ -332,24 +344,24 @@ public class IndexChangeJob implements Writable {
                         throw new AlterCancelException("originReplica:" + originReplica.getId()
                                 + " backendId < 0");
                     }
-                    AlterInvertedIndexTask alterInvertedIndexTask = new AlterInvertedIndexTask(
+                    AlterIndexTask alterIndexTask = new AlterIndexTask(
                             originReplica.getBackendId(), db.getId(), olapTable.getId(),
                             partitionId, originIndexId, originTabletId,
                             originSchemaHash, olapTable.getIndexes(),
-                            alterInvertedIndexes, originSchemaColumns,
+                            alterInvertedIndexes, alterVectorIndexes, originSchemaColumns,
                             isDropOp, taskSignature, jobId);
-                    invertedIndexBatchTask.addTask(alterInvertedIndexTask);
+                    indexBatchTask.addTask(alterIndexTask);
                 }
             } // end for tablet
 
-            LOG.info("invertedIndexBatchTask:{}", invertedIndexBatchTask);
-            AgentTaskQueue.addBatchTask(invertedIndexBatchTask);
-            AgentTaskExecutor.submit(invertedIndexBatchTask);
+            LOG.info("IndexBatchTask:{}", indexBatchTask);
+            AgentTaskQueue.addBatchTask(indexBatchTask);
+            AgentTaskExecutor.submit(indexBatchTask);
         } finally {
             olapTable.readUnlock();
         }
         this.jobState = JobState.RUNNING;
-        LOG.info("transfer inverted index job {} state to {}", jobId, this.jobState);
+        LOG.info("transfer inverted/vector index job {} state to {}", jobId, this.jobState);
     }
 
     protected void runRunningJob() throws AlterCancelException {
@@ -366,12 +378,12 @@ public class IndexChangeJob implements Writable {
             throw new AlterCancelException(e.getMessage());
         }
 
-        if (!invertedIndexBatchTask.isFinished()) {
-            LOG.info("inverted index tasks not finished. job: {}, partitionId: {}", jobId, partitionId);
-            List<AgentTask> tasks = invertedIndexBatchTask.getUnfinishedTasks(2000);
+        if (!indexBatchTask.isFinished()) {
+            LOG.info("index tasks not finished. job: {}, partitionId: {}", jobId, partitionId);
+            List<AgentTask> tasks = indexBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() > 3) {
-                    LOG.warn("alter inverted index task failed: " + task.getErrorMsg());
+                    LOG.warn("alter index task failed: " + task.getErrorMsg());
                     List<Long> failedBackends = failedTabletBackends.computeIfAbsent(task.getTabletId(),
                             k -> Lists.newArrayList());
                     failedBackends.add(task.getBackendId());
@@ -379,7 +391,7 @@ public class IndexChangeJob implements Writable {
                             .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
                     int failedTaskCount = failedBackends.size();
                     if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
-                        throw new AlterCancelException("inverted index tasks failed on same tablet reach threshold "
+                        throw new AlterCancelException("index tasks failed on same tablet reach threshold "
                             + failedTaskCount);
                     }
                 }
@@ -390,8 +402,22 @@ public class IndexChangeJob implements Writable {
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = System.currentTimeMillis();
 
+        // set vector index status to built
+        tbl.writeLock();
+        try {
+            for (Index alteredIndex : alterVectorIndexes) {
+                for (Index index : tbl.getIndexes()) {
+                    if (index.getIndexId() == alteredIndex.getIndexId()) {
+                        index.setVectorIndexOnBuilding(false);
+                    }
+                }
+            }
+        } finally {
+            tbl.writeUnlock();
+        }
+
         Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
-        LOG.info("inverted index job finished: {}", jobId);
+        LOG.info("index job finished: {}", jobId);
     }
 
     /**
@@ -415,7 +441,7 @@ public class IndexChangeJob implements Writable {
 
     private void cancelInternal() {
         // clear tasks if has
-        AgentTaskQueue.removeBatchTask(invertedIndexBatchTask, TTaskType.ALTER_INVERTED_INDEX);
+        AgentTaskQueue.removeBatchTask(indexBatchTask, TTaskType.ALTER_INDEX);
         // TODO maybe delete already build index files
     }
 
@@ -436,21 +462,45 @@ public class IndexChangeJob implements Writable {
                     break;
             }
         } catch (MetaNotFoundException e) {
-            LOG.warn("[INCONSISTENT META] replay inverted index job failed {}", replayedJob.getJobId(), e);
+            LOG.warn("[INCONSISTENT META] replay index job failed {}", replayedJob.getJobId(), e);
         }
     }
 
     private void replayCreateJob(IndexChangeJob replayedJob) throws MetaNotFoundException {
-        // do nothing, resend inverted index task to be
+        // do nothing, resend inverted/vector index task to be
         this.watershedTxnId = replayedJob.watershedTxnId;
         this.jobState = JobState.WAITING_TXN;
         LOG.info("replay waiting_txn inverted index job: {}, table id: {}", jobId, tableId);
     }
 
-    private void replayRunningJob(IndexChangeJob replayedJob) {
-        // do nothing, finish inverted index task
+    private void replayRunningJob(IndexChangeJob replayedJob) throws MetaNotFoundException {
+        // finish inverted index task
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
+
+        Database db = Env.getCurrentInternalCatalog()
+                .getDbOrException(dbId, s -> new MetaNotFoundException("Database " + s + " does not exist"));
+        OlapTable tbl;
+        try {
+            tbl = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new MetaNotFoundException(e.getMessage());
+        }
+
+        // set vector index status to built
+        tbl.writeLock();
+        try {
+            for (Index alteredIndex : alterVectorIndexes) {
+                for (Index index : tbl.getIndexes()) {
+                    if (index.getIndexId() == alteredIndex.getIndexId()) {
+                        index.setVectorIndexOnBuilding(false);
+                    }
+                }
+            }
+        } finally {
+            tbl.writeUnlock();
+        }
+
         LOG.info("replay finished inverted index job: {} table id: {}", jobId, tableId);
     }
 
@@ -498,24 +548,36 @@ public class IndexChangeJob implements Writable {
             watershedTxnId = in.readLong();
             isDropOp = in.readBoolean();
             alterInvertedIndexes = Lists.newArrayList();
+            alterVectorIndexes = Lists.newArrayList();
             int alterInvertedIndexesSize = in.readInt();
             for (int i = 0; i < alterInvertedIndexesSize; ++i) {
                 Index alterIndex = Index.read(in);
-                alterInvertedIndexes.add(alterIndex);
+                if (alterIndex.getIndexType() == IndexDef.IndexType.INVERTED) {
+                    alterInvertedIndexes.add(alterIndex);
+                } else if (alterIndex.getIndexType() == IndexDef.IndexType.VECTOR) {
+                    alterVectorIndexes.add(alterIndex);
+                }
             }
             originIndexId = in.readLong();
-            invertedIndexBatchTask = new AgentBatchTask();
+            indexBatchTask = new AgentBatchTask();
         }
     }
 
-    public String getAlterInvertedIndexesInfo() {
+    public String getAlterIndexesInfo() {
         String info = null;
         List<String> infoList = Lists.newArrayList();
-        String invertedIndexChangeInfo = "";
-        for (Index invertedIndex : alterInvertedIndexes) {
-            invertedIndexChangeInfo += "[" + (isDropOp ? "DROP " : "ADD ") + invertedIndex.toString() + "], ";
+        String indexChangeInfo = "";
+        if (!alterInvertedIndexes.isEmpty()) {
+            for (Index invertedIndex : alterInvertedIndexes) {
+                indexChangeInfo += "[" + (isDropOp ? "DROP " : "ADD ") + invertedIndex.toString() + "], ";
+            }
         }
-        infoList.add(invertedIndexChangeInfo);
+        if (!alterVectorIndexes.isEmpty()) {
+            for (Index vectorIndex : alterVectorIndexes) {
+                indexChangeInfo += "[" + (isDropOp ? "DROP " : "ADD ") + vectorIndex.toString() + "], ";
+            }
+        }
+        infoList.add(indexChangeInfo);
         info = Joiner.on(", ").join(infoList.subList(0, infoList.size()));
         return info;
     }
@@ -523,15 +585,15 @@ public class IndexChangeJob implements Writable {
     public void getInfo(List<List<Comparable>> infos) {
         // calc progress first. all index share the same process
         String progress = FeConstants.null_string;
-        if (jobState == JobState.RUNNING && invertedIndexBatchTask.getTaskNum() > 0) {
-            progress = invertedIndexBatchTask.getFinishedTaskNum() + "/" + invertedIndexBatchTask.getTaskNum();
+        if (jobState == JobState.RUNNING && indexBatchTask.getTaskNum() > 0) {
+            progress = indexBatchTask.getFinishedTaskNum() + "/" + indexBatchTask.getTaskNum();
         }
 
         List<Comparable> info = Lists.newArrayList();
         info.add(jobId);
         info.add(tableName);
         info.add(partitionName);
-        info.add(getAlterInvertedIndexesInfo());
+        info.add(getAlterIndexesInfo());
         info.add(TimeUtils.longToTimeStringWithms(createTimeMs));
         info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
         info.add(watershedTxnId);

@@ -109,6 +109,12 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                 _file_writer->path().filename(),
                 _tablet_schema->get_inverted_index_storage_format());
     }
+    if (_tablet_schema->has_vector_index()) {
+        _vector_index_file_writer = std::make_unique<VectorIndexFileWriter>(
+                _file_writer->fs(),
+                _file_writer->path().parent_path(),
+                _file_writer->path().filename());
+    }
 }
 
 VerticalSegmentWriter::~VerticalSegmentWriter() {
@@ -188,6 +194,27 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         }
     }
     opts.inverted_index_file_writer = _inverted_index_file_writer.get();
+
+    //vector index
+    bool skip_vector_index = false;
+    if (_opts.rowset_ctx != nullptr) {
+        // skip write vector index for index compaction
+        skip_vector_index = _opts.rowset_ctx->skip_vector_index.count(column.unique_id()) > 0;
+    }
+    // skip write vector index on load if skip_write_index_on_load is true
+    if (_opts.write_type == DataWriteType::TYPE_DIRECT &&
+        tablet_schema->skip_write_index_on_load()) {
+        skip_vector_index = true;
+    }
+    for (auto index : opts.indexes) {
+        if (!skip_vector_index && index->index_type() == IndexType::VECTOR) {
+            opts.vector_index = index;
+            opts.need_vector_index = true;
+            // TODO support multiple inverted index
+            break;
+        }
+    }
+    opts.vector_index_file_writer = _vector_index_file_writer.get();
 
 #define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
@@ -1026,6 +1053,7 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_bitmap_index());
     RETURN_IF_ERROR(_write_inverted_index());
+    RETURN_IF_ERROR(_write_vector_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
 
     *index_size = _file_writer->bytes_appended() - index_start;
@@ -1115,6 +1143,13 @@ Status VerticalSegmentWriter::_write_inverted_index() {
     }
     if (_inverted_index_file_writer != nullptr) {
         RETURN_IF_ERROR(_inverted_index_file_writer->close());
+    }
+    return Status::OK();
+}
+
+Status VerticalSegmentWriter::_write_vector_index() {
+    for (auto& column_writer : _column_writers) {
+        RETURN_IF_ERROR(column_writer->write_vector_index());
     }
     return Status::OK();
 }

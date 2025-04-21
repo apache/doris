@@ -156,6 +156,7 @@ std::string to_string(const TUniqueId& id) {
     return std::to_string(id.hi).append(std::to_string(id.lo));
 }
 
+// add vector index
 bool _has_inverted_index_or_partial_update(TOlapTableSink sink) {
     OlapTableSchemaParam schema;
     if (!schema.init(sink.schema).ok()) {
@@ -166,7 +167,7 @@ bool _has_inverted_index_or_partial_update(TOlapTableSink sink) {
     }
     for (const auto& index_schema : schema.indexes()) {
         for (const auto& index : index_schema->indexes) {
-            if (index->index_type() == INVERTED) {
+            if (index->index_type() == INVERTED || index->index_type() == VECTOR) {
                 return true;
             }
         }

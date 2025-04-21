@@ -22,28 +22,38 @@
 namespace doris {
 
 EngineIndexChangeTask::EngineIndexChangeTask(
-        const TAlterInvertedIndexReq& alter_inverted_index_request)
-        : _alter_inverted_index_req(alter_inverted_index_request) {
+        const TAlterIndexReq& alter_index_request)
+        : _alter_index_req(alter_index_request) {
     _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::SCHEMA_CHANGE,
             fmt::format("EngineIndexChangeTask#tabletId={}",
-                        std::to_string(_alter_inverted_index_req.tablet_id)),
+                        std::to_string(_alter_index_req.tablet_id)),
             config::memory_limitation_per_thread_for_schema_change_bytes);
 }
 
 Status EngineIndexChangeTask::execute() {
-    DorisMetrics::instance()->alter_inverted_index_requests_total->increment(1);
+    if (!_alter_index_req.alter_inverted_indexes.empty()) {
+        DorisMetrics::instance()->alter_inverted_index_requests_total->increment(1);
+    }
+    if (!_alter_index_req.alter_vector_indexes.empty()) {
+        DorisMetrics::instance()->alter_vector_index_requests_total->increment(1);
+    }
     uint64_t start = std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
-    Status res = StorageEngine::instance()->process_index_change_task(_alter_inverted_index_req);
+    Status res = StorageEngine::instance()->process_index_change_task(_alter_index_req);
 
     if (!res.ok()) {
         LOG(WARNING) << "failed to do index change task. res=" << res
-                     << " tablet_id=" << _alter_inverted_index_req.tablet_id
-                     << ", job_id=" << _alter_inverted_index_req.job_id
-                     << ", schema_hash=" << _alter_inverted_index_req.schema_hash;
-        DorisMetrics::instance()->alter_inverted_index_requests_failed->increment(1);
+                     << " tablet_id=" << _alter_index_req.tablet_id
+                     << ", job_id=" << _alter_index_req.job_id
+                     << ", schema_hash=" << _alter_index_req.schema_hash;
+        if (!_alter_index_req.alter_inverted_indexes.empty()) {
+            DorisMetrics::instance()->alter_inverted_index_requests_failed->increment(1);
+        }
+        if (!_alter_index_req.alter_vector_indexes.empty()) {
+            DorisMetrics::instance()->alter_vector_index_requests_failed->increment(1);
+        }
         return res;
     }
 
@@ -51,9 +61,9 @@ Status EngineIndexChangeTask::execute() {
                            std::chrono::system_clock::now().time_since_epoch())
                            .count();
     LOG(INFO) << "success to execute index change task. res=" << res
-              << " tablet_id=" << _alter_inverted_index_req.tablet_id
-              << ", job_id=" << _alter_inverted_index_req.job_id
-              << ", schema_hash=" << _alter_inverted_index_req.schema_hash
+              << " tablet_id=" << _alter_index_req.tablet_id
+              << ", job_id=" << _alter_index_req.job_id
+              << ", schema_hash=" << _alter_index_req.schema_hash
               << ", start time=" << start << ", end time=" << end
               << ", cost time=" << (end - start);
     return res;

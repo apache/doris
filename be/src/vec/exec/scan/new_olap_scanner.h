@@ -94,6 +94,7 @@ private:
 
     [[nodiscard]] Status _init_return_columns();
     [[nodiscard]] Status _init_variant_columns();
+    [[nodiscard]] Status _init_tablet_v_proj_columns(size_t blk_v_col_id_offset);
 
     std::vector<OlapScanRange*> _key_ranges;
 
@@ -108,6 +109,9 @@ private:
     int64_t _compressed_bytes_read = 0;
     int64_t _raw_rows_read = 0;
     bool _profile_updated = false;
+
+    // For projection pushdown optimization
+    std::shared_ptr<ColumnsWithTypeAndName> _virtual_proj_cols;
 };
 } // namespace vectorized
 } // namespace doris

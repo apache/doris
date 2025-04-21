@@ -42,6 +42,7 @@
 #include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
+#include "olap/rowset/segment_v2/vector_index_file_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
@@ -77,6 +78,7 @@ namespace segment_v2 {
 
 bvar::Adder<size_t> g_total_segment_num("doris_total_segment_num");
 class InvertedIndexIterator;
+class VectorIndexIterator;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                      RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
@@ -143,6 +145,14 @@ Status Segment::_open_inverted_index() {
         return Status::OK();
     }
     return st;
+}
+
+Status Segment::_open_vector_index() {
+    _vector_index_file_reader = std::make_shared<VectorIndexFileReader>(
+            _file_reader->fs(), _file_reader->path().parent_path(),
+            _file_reader->path().filename().native());
+
+    return Status::OK();
 }
 
 Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
@@ -685,6 +695,25 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                     _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
         }
         RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader, index_meta,
+                                                            read_options, iter));
+        return Status::OK();
+    }
+    return Status::OK();
+}
+
+Status Segment::new_vector_index_iterator(const TabletColumn& tablet_column,
+                                          const TabletIndex* index_meta,
+                                          const StorageReadOptions& read_options,
+                                          std::unique_ptr<VectorIndexIterator>* iter) {
+
+    RETURN_IF_ERROR(_create_column_readers_once());
+    ColumnReader* reader = _get_column_reader(tablet_column);
+    if (reader != nullptr && index_meta) {
+        if (_vector_index_file_reader == nullptr) {
+            RETURN_IF_ERROR(
+                    _vector_index_file_reader_open.call([&] { return _open_vector_index(); }));
+        }
+        RETURN_IF_ERROR(reader->new_vector_index_iterator(_vector_index_file_reader, index_meta,
                                                             read_options, iter));
         return Status::OK();
     }

@@ -183,6 +183,13 @@ public:
                 "Not Implemented evaluate with inverted index, please check the predicate");
     }
 
+    // Pre-evaluate the predicate using the inverted index to collect statistics
+    virtual Status pre_evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
+                                InvertedIndexIterator* iterator) const {
+        return Status::NotSupported(
+                "Not Implemented pre_evaluate with inverted index, please check the predicate");
+    }
+
     virtual double get_ignore_threshold() const {
         return vectorized::VRuntimeFilterWrapper::EXPECTED_FILTER_RATE;
     }

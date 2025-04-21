@@ -219,6 +219,7 @@ enum IndexType {
     INVERTED = 1;
     BLOOMFILTER = 2;
     NGRAM_BF = 3;
+    VECTOR = 4;
 }
 
 enum InvertedIndexStorageFormatPB {

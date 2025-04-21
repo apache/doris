@@ -288,6 +288,8 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new IPv4Literal(desc);
         } else if (targetType.isIPv6Type()) {
             return new IPv6Literal(desc);
+        } else if (targetType.isArrayType()) {
+            return new ArrayLiteral(desc);
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }

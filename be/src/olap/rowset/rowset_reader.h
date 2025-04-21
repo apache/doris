@@ -26,6 +26,7 @@
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
+#include "olap/tablet_index_stats_collector.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -92,6 +93,10 @@ public:
     virtual RowsetReaderSharedPtr clone() = 0;
 
     virtual void set_topn_limit(size_t topn_limit) = 0;
+
+    virtual Status collect_rowset_index_stats(
+            std::shared_ptr<index_stats::TabletIndexStatsCollectors>&
+                    tablet_index_stats_collectors) = 0;
 };
 
 } // namespace doris

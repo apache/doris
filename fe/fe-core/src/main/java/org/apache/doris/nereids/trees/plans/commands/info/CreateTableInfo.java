@@ -404,6 +404,16 @@ public class CreateTableInfo {
             if (Config.enable_batch_delete_by_default && keysType.equals(KeysType.UNIQUE_KEYS)) {
                 if (isEnableMergeOnWrite) {
                     columns.add(ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.NONE));
+                    // add index for delete flag because of vector index
+                    boolean shouldAdd = true;
+                    for (IndexDefinition idx : indexes) {
+                        if (idx.getIndexName().equals(Index.DELETE_SIGN_INDEX)) {
+                            shouldAdd = false;
+                        }
+                    }
+                    if (shouldAdd) {
+                        indexes.add(IndexDefinition.newDeleteSignIndex());
+                    }
                 } else {
                     columns.add(
                             ColumnDefinition.newDeleteSignColumnDefinition(AggregateType.REPLACE));

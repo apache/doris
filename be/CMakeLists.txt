@@ -189,6 +189,7 @@ set(BUILD_CONTRIBS_LIB ON)
 set(BOOST_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
+set(Opencc_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(USE_STAT64 0)
 
 # disable clucene bthread supported.
@@ -364,7 +365,7 @@ endif()
 # For CMAKE_BUILD_TYPE=Debug
 if (OS_MACOSX AND ARCH_ARM)
     # Using -O0 may meet ARM64 branch out of range errors when linking with tcmalloc.
-    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Og")
+    set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -g -O0 -fno-inline")
 else()
     set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
 endif()

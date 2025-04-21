@@ -85,7 +85,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
-import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
+import org.apache.doris.persist.TableAddOrDropIndexIndicesInfo;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
@@ -144,7 +144,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
     public final Map<Long, AlterJobV2> runnableSchemaChangeJobV2 = Maps.newConcurrentMap();
 
-    // queue of inverted index job
+    // queue of index job
     public ConcurrentMap<Long, IndexChangeJob> indexChangeJobs = Maps.newConcurrentMap();
 
     public final Map<Long, IndexChangeJob> activeIndexChangeJob = Maps.newConcurrentMap();
@@ -1983,14 +1983,25 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                     lightSchemaChange = false;
 
-                    if (indexDef.isInvertedIndex()) {
+                    if (indexDef.isInvertedIndex() || indexDef.isVectorIndex()) {
+                        if (indexDef.isVectorIndex()) {
+                            index.setVectorIndexOnBuilding(true);
+                        }
                         alterIndexes.add(index);
                         isDropIndex = false;
-                        // now only support light index change for inverted index
+                        // now only support light index change for inverted/vector index
                         lightIndexChange = true;
                     }
                 } else if (alterClause instanceof BuildIndexClause) {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
+                    // correct index type according to db schema.
+                    // cup parser will set all index type of build index clauses to inverted.
+                    for (Index index : olapTable.getIndexes()) {
+                        if (index.getIndexName().equals(buildIndexClause.getIndexDef().getIndexName())) {
+                            buildIndexClause.getIndexDef().setIndexType(index.getIndexType());
+                            buildIndexClause.getIndex().setIndexType(index.getIndexType());
+                        }
+                    }
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
                     if (!olapTable.isPartitionedTable()) {
@@ -2022,7 +2033,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                 + " not exist, cannot build it with defferred.");
                     }
 
-                    if (indexDef.isInvertedIndex()) {
+                    if (indexDef.isInvertedIndex() || indexDef.isVectorIndex()) {
                         alterIndexes.add(index);
                     }
                     buildIndexChange = true;
@@ -2043,7 +2054,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         }
                     }
                     IndexDef.IndexType indexType = found.getIndexType();
-                    if (indexType == IndexType.INVERTED) {
+                    if (indexType == IndexType.INVERTED || indexType == indexType.VECTOR) {
                         alterIndexes.add(found);
                         isDropIndex = true;
                         lightIndexChange = true;
@@ -2067,11 +2078,11 @@ public class SchemaChangeHandler extends AlterHandler {
                                              null, isDropIndex, jobId, false);
             } else if (lightIndexChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
-                //for schema change add/drop inverted index optimize, direct modify table meta firstly.
+                //for schema change add/drop inverted/vector index optimize, direct modify table meta firstly.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                                              alterIndexes, isDropIndex, jobId, false);
             } else if (buildIndexChange) {
-                buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
+                buildOrDeleteTableIndexIndices(db, olapTable, indexSchemaMap,
                                                   alterIndexes, invertedIndexOnPartitions, false);
             } else {
                 createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
@@ -2756,12 +2767,12 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (alterIndexes != null) {
             if (!isReplay) {
-                TableAddOrDropInvertedIndicesInfo info = new TableAddOrDropInvertedIndicesInfo(rawSql, db.getId(),
+                TableAddOrDropIndexIndicesInfo info = new TableAddOrDropIndexIndicesInfo(rawSql, db.getId(),
                         olapTable.getId(), indexSchemaMap, indexes, alterIndexes, isDropIndex, jobId);
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
+                    LOG.debug("logModifyTableAddOrDropIndexIndices info:{}", info);
                 }
-                Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
+                Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropIndexIndices(info);
 
                 if (isDropIndex) {
                     // send drop rpc to be
@@ -2770,7 +2781,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         invertedIndexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
                     }
                     try {
-                        buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
+                        buildOrDeleteTableIndexIndices(db, olapTable, indexSchemaMap,
                                               alterIndexes, invertedIndexOnPartitions, true);
                     } catch (Exception e) {
                         throw new DdlException(e.getMessage());
@@ -2778,7 +2789,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
 
-            LOG.info("finished modify table's meta for add or drop inverted index. table: {}, job: {}, is replay: {}",
+            LOG.info("finished modify table's meta for add or drop index. table: {}, job: {}, is replay: {}",
                     olapTable.getName(), jobId, isReplay);
         } else {
             if (!isReplay) {
@@ -2929,7 +2940,7 @@ public class SchemaChangeHandler extends AlterHandler {
         olapTable.rebuildFullSchema();
     }
 
-    public void replayModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info)
+    public void replayModifyTableAddOrDropInvertedIndices(TableAddOrDropIndexIndicesInfo info)
             throws MetaNotFoundException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("info:{}", info);
@@ -2939,6 +2950,7 @@ public class SchemaChangeHandler extends AlterHandler {
         Map<Long, LinkedList<Column>> indexSchemaMap = info.getIndexSchemaMap();
         List<Index> newIndexes = info.getIndexes();
         List<Index> alterIndexes = info.getAlterInvertedIndexes();
+        alterIndexes.addAll(info.getAlterVectorIndexes());
         boolean isDropIndex = info.getIsDropInvertedIndex();
         long jobId = info.getJobId();
 
@@ -2956,15 +2968,16 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    public void buildOrDeleteTableInvertedIndices(Database db, OlapTable olapTable,
-            Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> alterIndexes,
-            Map<Long, Set<String>> invertedIndexOnPartitions, boolean isDropOp) throws UserException {
-        LOG.info("begin to build table's inverted index. table: {}", olapTable.getName());
+    public void buildOrDeleteTableIndexIndices(Database db, OlapTable olapTable,
+                                               Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> alterIndexes,
+                                               Map<Long, Set<String>> invertedIndexOnPartitions,
+                                               boolean isDropOp) throws UserException {
+        LOG.info("begin to build table's inverted/vector index. table: {}", olapTable.getName());
 
         // for now table's state can only be NORMAL
         Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
 
-        // remove the index which is not the base index, only base index can be built inverted index
+        // remove the index which is not the base index, only base index can be built inverted/vector index
         indexSchemaMap.entrySet().removeIf(entry -> !entry.getKey().equals(olapTable.getBaseIndexId()));
         // begin checking each table
         Map<Long, List<Column>> changedIndexIdToSchema = Maps.newHashMap();
@@ -2987,7 +3000,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 IndexChangeJob indexChangeJob = new IndexChangeJob(
                         jobId, db.getId(), olapTable.getId(), olapTable.getName(), timeoutSecond * 1000);
                 indexChangeJob.setOriginIndexId(originIndexId);
-                indexChangeJob.setAlterInvertedIndexInfo(isDropOp, alterIndexes);
+                indexChangeJob.setAlterIndexInfo(isDropOp, alterIndexes);
                 long partitionId = partition.getId();
                 String partitionName = partition.getName();
                 boolean found = false;
@@ -3014,7 +3027,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
                 // write edit log
                 Env.getCurrentEnv().getEditLog().logIndexChangeJob(indexChangeJob);
-                LOG.info("finish create table's inverted index job. table: {}, partition: {}, job: {}",
+                LOG.info("finish create table's inverted/vector index job. table: {}, partition: {}, job: {}",
                         olapTable.getName(), partitionName, jobId);
             } // end for partition
         } // end for index
@@ -3029,7 +3042,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     && indexChangeJob.getDbId() == dbId
                     && indexChangeJob.getTableId() == tableId
                     && indexChangeJob.getPartitionName().equals(partitionName)
-                    && indexChangeJob.hasSameAlterInvertedIndex(isDrop, alterIndexes)
+                    && indexChangeJob.hasSameAlterIndex(isDrop, alterIndexes)
                     && !indexChangeJob.isDone()) {
                 // if JobState is done (CANCELLED or FINISHED), also allow user to create job again
                 return true;

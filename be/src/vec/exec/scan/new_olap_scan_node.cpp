@@ -169,6 +169,7 @@ Status NewOlapScanNode::_init_profile() {
     _inverted_index_filter_counter =
             ADD_COUNTER(_segment_profile, "RowsInvertedIndexFiltered", TUnit::UNIT);
     _inverted_index_filter_timer = ADD_TIMER(_segment_profile, "InvertedIndexFilterTime");
+    _inverted_index_init_timer =  ADD_TIMER(_segment_profile, "InvertedIndexInitTime");
     _inverted_index_query_cache_hit_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexQueryCacheHit", TUnit::UNIT);
     _inverted_index_query_cache_miss_counter =
@@ -182,6 +183,20 @@ Status NewOlapScanNode::_init_profile() {
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherOpenTime");
     _inverted_index_searcher_search_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherSearchTime");
+
+    _bm25_topn_apply_timer =
+            ADD_TIMER(_segment_profile, "BM25TopnApplyTime");
+    _bm25_topn_search_timer =
+            ADD_TIMER(_segment_profile, "BM25TopnSearchTime");
+
+    _vector_index_init_timer =
+            ADD_TIMER(_segment_profile, "VectorIndexInitTime");
+    _vector_index_apply_timer =
+            ADD_TIMER(_segment_profile, "VectorIndexApplyTime");
+    _vector_index_search_timer =
+            ADD_TIMER(_segment_profile, "VectorIndexSearchTime");
+    _vector_index_short_circuit_counter =
+            ADD_COUNTER(_segment_profile, "VectorIndexShortCircuitCount", TUnit::UNIT);
 
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTimer");
 

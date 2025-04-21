@@ -730,6 +730,25 @@ struct TOlapScanNode {
   16: optional list<i32> distribute_column_ids
   17: optional i32 schema_version
   18: optional list<i32> topn_filter_source_node_ids
+  // vector index options
+  19: optional bool use_vector_index
+  20: optional i64 k
+  21: optional list<string> query_vector
+  22: optional string vector_distance_column_name
+  23: optional i64 vector_column_id
+  24: optional Types.TSlotId vector_slot_id
+  25: optional map<string,string> query_params
+  26: optional double vector_range
+  27: optional i32 result_order
+  28: optional double pq_refine_factor
+  29: optional double k_factor
+  30: optional bool use_vector_range
+  31: optional list<string> query_vector_id
+  // for topn index push down to scan node
+  101: optional bool topn_index_push_down
+  102: optional bool topn_index_push_down_is_asc
+  103: optional i64 topn_index_push_down_limit
+  104: optional i32 topn_index_push_down_proj_slot_offset
 }
 
 struct TEqJoinCondition {

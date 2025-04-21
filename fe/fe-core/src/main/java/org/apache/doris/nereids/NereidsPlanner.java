@@ -324,6 +324,7 @@ public class NereidsPlanner extends Planner {
         if (cascadesContext.getConnectContext().getSessionVariable().isPlayNereidsDump()) {
             return;
         }
+
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
 
         scanNodeList.addAll(planTranslatorContext.getScanNodes());

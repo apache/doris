@@ -30,11 +30,11 @@ public:
     Status execute() override;
 
 public:
-    EngineIndexChangeTask(const TAlterInvertedIndexReq& alter_inverted_index_request);
+    EngineIndexChangeTask(const TAlterIndexReq& alter_index_request);
     ~EngineIndexChangeTask() = default;
 
 private:
-    const TAlterInvertedIndexReq& _alter_inverted_index_req;
+    const TAlterIndexReq& _alter_index_req;
 }; // EngineTask
 
 } // namespace doris

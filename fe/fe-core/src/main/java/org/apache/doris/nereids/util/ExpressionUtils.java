@@ -86,6 +86,8 @@ public class ExpressionUtils {
 
     public static final List<Expression> EMPTY_CONDITION = ImmutableList.of();
 
+    public static final String VIRTUAL_PROJ_COL_PREFIX = "__DORIS_V_PROJ_COL__";
+
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
     }
@@ -920,5 +922,18 @@ public class ExpressionUtils {
             }
         }
         return result.build();
+    }
+
+    /**
+     * Checks if an expression is a special SlotReference referring to a virtual projection column in a certain table.
+     */
+    public static boolean isVirtualProjCol(Expression expr) {
+        if (expr instanceof SlotReference) {
+            SlotReference slotRef = (SlotReference) expr;
+            if (slotRef.getColumn().isPresent()) {
+                return slotRef.getColumn().get().getName().startsWith(VIRTUAL_PROJ_COL_PREFIX);
+            }
+        }
+        return false;
     }
 }

@@ -178,7 +178,8 @@ public:
         return Status::OK();
     }
 
-    Status create_index_writer(std::unique_ptr<lucene::index::IndexWriter>& index_writer) {
+    Status create_index_writer(std::unique_ptr<lucene::index::IndexWriter>& index_writer,
+                              std::unique_ptr<lucene::search::Similarity>& index_similarity) {
         bool create_index = true;
         bool close_dir_on_shutdown = true;
         index_writer = std::make_unique<lucene::index::IndexWriter>(
@@ -188,7 +189,9 @@ public:
         index_writer->setMaxFieldLength(MAX_FIELD_LEN);
         index_writer->setMergeFactor(MERGE_FACTOR);
         index_writer->setUseCompoundFile(false);
-
+        // use doc length as norm
+        index_similarity = std::make_unique<lucene::search::LengthSimilarity>();
+        index_writer->setSimilarity(index_similarity.get());
         return Status::OK();
     }
 
@@ -199,9 +202,17 @@ public:
                                 ? int(lucene::document::Field::INDEX_UNTOKENIZED)
                                 : int(lucene::document::Field::INDEX_TOKENIZED);
         *field = new lucene::document::Field(_field_name.c_str(), field_config);
+
         (*field)->setOmitTermFreqAndPositions(
                 !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
                   INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
+
+        // have parser means we need norms and termFreqAndPositions
+        if (_parser_type != InvertedIndexParserType::PARSER_NONE) {
+            (*field)->setOmitNorms(false);
+            (*field)->setOmitTermFreqAndPositions(false);
+        }
+
         return Status::OK();
     }
 
@@ -253,7 +264,7 @@ public:
         RETURN_IF_ERROR(open_index_directory());
         RETURN_IF_ERROR(create_char_string_reader(_char_string_reader));
         RETURN_IF_ERROR(create_analyzer(_analyzer));
-        RETURN_IF_ERROR(create_index_writer(_index_writer));
+        RETURN_IF_ERROR(create_index_writer(_index_writer, _index_similarity));
         _doc = std::make_unique<lucene::document::Document>();
         if (_single_field) {
             RETURN_IF_ERROR(create_field(&_field));
@@ -641,6 +652,7 @@ private:
     lucene::document::Field* _field = nullptr;
     bool _single_field = true;
     std::unique_ptr<lucene::index::IndexWriter> _index_writer = nullptr;
+    std::unique_ptr<lucene::search::Similarity> _index_similarity = nullptr;
     std::unique_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
     std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;

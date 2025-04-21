@@ -76,6 +76,8 @@ private:
 
     Status _insert_data_normal(MutableColumns& columns);
 
+    Status _insert_data_v_proj(MutableColumns& columns, Block* block);
+
     void _append_agg_data(MutableColumns& columns);
 
     void _update_agg_data(MutableColumns& columns);

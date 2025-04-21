@@ -23,7 +23,7 @@
 #include "olap/task/engine_task.h"
 
 namespace doris {
-class TAlterInvertedIndexReq;
+class TAlterIndexReq;
 class TAlterTabletReqV2;
 
 // base class for storage engine

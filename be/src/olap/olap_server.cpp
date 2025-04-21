@@ -1152,7 +1152,7 @@ Status StorageEngine::submit_seg_compaction_task(std::shared_ptr<SegcompactionWo
             &StorageEngine::_handle_seg_compaction, this, worker, segments, submission_time));
 }
 
-Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {
+Status StorageEngine::process_index_change_task(const TAlterIndexReq& request) {
     auto tablet_id = request.tablet_id;
     TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
     if (tablet == nullptr) {
@@ -1161,7 +1161,8 @@ Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& re
     }
 
     IndexBuilderSharedPtr index_builder = std::make_shared<IndexBuilder>(
-            tablet, request.columns, request.alter_inverted_indexes, request.is_drop_op);
+            tablet, request.columns, request.alter_inverted_indexes, request.alter_vector_indexes,
+            request.is_drop_op);
     RETURN_IF_ERROR(_handle_index_change(index_builder));
     return Status::OK();
 }
@@ -1169,6 +1170,7 @@ Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& re
 Status StorageEngine::_handle_index_change(IndexBuilderSharedPtr index_builder) {
     RETURN_IF_ERROR(index_builder->init());
     RETURN_IF_ERROR(index_builder->do_build_inverted_index());
+    RETURN_IF_ERROR(index_builder->do_build_vector_index());
     return Status::OK();
 }
 

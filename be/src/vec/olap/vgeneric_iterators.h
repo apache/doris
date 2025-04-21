@@ -216,6 +216,9 @@ public:
         return false;
     }
 
+    Status collect_index_stats(
+            std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors,
+            doris::StorageReadOptions& read_options) override;
 private:
     int _get_size(Block* block) { return block->rows(); }
     int _get_size(BlockView* block_view) { return block_view->size(); }
@@ -282,6 +285,7 @@ private:
 
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIteratorUPtr> _origin_iters;
+    std::vector<RowwiseIterator*> _origin_iters_for_collecting_index_stats;
 
     const Schema* _schema = nullptr;
 
@@ -305,6 +309,7 @@ private:
     uint64_t* _merged_rows = nullptr;
     bool _record_rowids = false;
     std::vector<RowLocation> _block_row_locations;
+    bool _inited = false;
 };
 
 // Create a merge iterator for input iterators. Merge iterator will merge

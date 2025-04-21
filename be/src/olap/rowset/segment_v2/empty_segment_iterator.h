@@ -37,6 +37,11 @@ public:
     Status next_batch(vectorized::Block* block) override;
     bool empty() const override { return true; }
 
+    Status collect_index_stats(
+            std::shared_ptr<index_stats::TabletIndexStatsCollectors>& tablet_index_stats_collectors,
+            StorageReadOptions& read_options) override {
+        return Status::OK();
+    }
 private:
     const Schema& _schema;
 };
