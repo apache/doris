@@ -313,7 +313,7 @@ public class Config extends ConfigBase {
     public static long bdbje_cache_size_bytes = 10 * 1024 * 1024; // 10 MB
 
     @ConfField(description = {"BDBJE Message 大小限制。", "Max message size of BDBJE. "})
-    public static long bdbje_max_message_size_bytes = 2 * 1024 * 1024 * 1024; // 2 GB
+    public static long bdbje_max_message_size_bytes = Integer.MAX_VALUE; // 2 GB
 
     @ConfField(masterOnly = true, description = {"心跳线程池的线程数",
             "Num of thread to handle heartbeat events"})
