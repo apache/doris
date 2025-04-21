@@ -109,10 +109,10 @@ TEST_F(EncloseCsvLineReaderTest, CsvBasic) {
                      {"\"a,x\",b,c", "\"d,y\",e,f"}, {{5, 7}, {5, 7}});
 
     verify_csv_split("\"a\"\"x\",b,c\n\"d\\\"y\",e,f", "\n", ",", '"', '\\', false,
-                     {"\"a\"\"x\",b,c", "\"d\\\"y\",e,f"}, {{6, 8}, {7, 9}});
+                     {R"("a""x",b,c)", R"("d\"y",e,f)"}, {{6, 8}, {6, 8}});
 
     verify_csv_split("a||b||c\nd||e||f", "\n", "||", '"', '\\', false, {"a||b||c", "d||e||f"},
-                     {{2, 5}, {2, 5}});
+                     {{1, 4}, {1, 4}});
 }
 
 // Edge cases and corner scenarios
@@ -125,7 +125,14 @@ TEST_F(EncloseCsvLineReaderTest, EdgeCases) {
     verify_csv_split("a,b\r\nc,d\ne,f", "\r\n", ",", '"', '\\', false, {"a,b", "c,d\ne,f"},
                      {{1}, {1, 3}});
 
-    verify_csv_split("\\,\\\"\\n,b,c", "\n", ",", '"', '\\', false, {"\\,\\\"\\n,b,c"}, {{9, 11}});
+    verify_csv_split(R"(\,\"\n,b,c)", "\n", ",", '"', '\\', false, {R"(\,\"\n,b,c)"}, {{9, 11}});
+}
+
+TEST_F(EncloseCsvLineReaderTest, QuoteEscaping) {
+    // Test multiple quoted fields with double-quote escaping in one line
+    verify_csv_split(R"("hello ""world""","foo ""bar""","test ""quote"" here")", "\n", ",", '"',
+                     '\\', false, {R"("hello ""world""","foo ""bar""","test ""quote"" here")"},
+                     {{17, 31}});
 }
 
 } // namespace doris::vectorized
