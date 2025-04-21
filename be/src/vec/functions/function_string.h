@@ -1815,15 +1815,22 @@ public:
         bool part_num_const = false;
         std::tie(part_num_column_ptr, part_num_const) =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
-        const auto* part_num_col = part_num_column_ptr.get();
+        const ColumnVector<Int32>* part_num_col = assert_cast<const ColumnVector<Int32>*>(part_num_column_ptr.get());
+
+        // For constant multi-character delimiters, create StringRef and StringSearch only once
+        std::optional<StringRef> const_delimiter_ref;
+        std::optional<StringSearch> const_search;
+        if (delimiter_const && delimiter_col->get_data_at(0).size > 1) {
+            const_delimiter_ref.emplace(delimiter_col->get_data_at(0));
+            const_search.emplace(&const_delimiter_ref.value());
+        }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto str = str_col->get_data_at(i);
             auto delimiter = delimiter_col->get_data_at(delimiter_const ? 0 : i);
             int32_t delimiter_size = delimiter.size;
 
-            const auto* part_num_data = part_num_col->get_data_at(part_num_const ? 0 : i).data;
-            auto part_number = *reinterpret_cast<const int*>(part_num_data);
+            auto part_number = part_num_col->get_element(part_num_const ? 0 : i);
 
             if (part_number == 0 || delimiter_size == 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
@@ -1859,14 +1866,20 @@ public:
                     }
                 } else {
                     // For multi-character delimiters
-                    StringRef delimiter_ref(delimiter);
-                    StringSearch search(&delimiter_ref);
+                    // Use pre-created StringRef and StringSearch for constant delimiters
+                    StringRef delimiter_ref = const_delimiter_ref ? const_delimiter_ref.value() : StringRef(delimiter);
+                    const StringSearch* search_ptr = const_search ? &const_search.value() : nullptr;
+                    StringSearch local_search(&delimiter_ref);
+                    if (!search_ptr) {
+                        search_ptr = &local_search;
+                    }
+
                     int32_t offset = -delimiter_size;
                     int32_t num = 0;
                     while (num < part_number) {
                         size_t n = str.size - offset - delimiter_size;
                         // search first match delimter_ref index from src string among str_offset to end
-                        const char* pos = search.search(str.data + offset + delimiter_size, n);
+                        const char* pos = search_ptr->search(str.data + offset + delimiter_size, n);
                         if (pos < str.data + str.size) {
                             offset = pos - str.data;
                             num++;
@@ -1895,8 +1908,10 @@ public:
                 int32_t num = 0;
                 auto substr = str_str;
 
-                StringRef delimiter_str(reinterpret_cast<const char*>(delimiter.data),
-                                        delimiter.size);
+                // Use pre-created StringRef for constant delimiters
+                StringRef delimiter_str = const_delimiter_ref ? const_delimiter_ref.value() :
+                                          StringRef(reinterpret_cast<const char*>(delimiter.data), delimiter.size);
+
                 while (num <= neg_part_number && offset >= 0) {
                     offset = (int)substr.rfind(delimiter_str, offset);
                     if (offset != -1) {
