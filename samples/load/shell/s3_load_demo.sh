@@ -20,6 +20,49 @@
 # Can specify the partition range or a specific date partition, 
 # And it supports setting the maximum number of S3 Load tasks to be submitted, so as to control the resource consumption.
 
+#####################################################################
+# Description:
+# This script is used to load Parquet format data from an S3 bucket into a Doris database.
+# It supports batch load by date range or specific dates, automatically controls the number of concurrent tasks,
+# and checks for failures after all tasks are completed, making it easy to re-run failed tasks.
+#
+# How to Use:
+# Run: ./loadsnowflakev2.sh
+#
+# Configuration Instructions:
+# 1. Load Date Range
+#    - Modify the START_DATE and END_DATE variables, format is "YYYY-MM-DD"
+#    - For example: START_DATE="2025-04-01" END_DATE="2025-04-05"
+#
+# 2. Load Specific Dates:
+#    - Modify the SPECIFIC_DATES array in the script, add the dates to be processed
+#    - For example: SPECIFIC_DATES=("2025-04-01" "2025-04-05")
+#    - When the SPECIFIC_DATES array is not empty, only these specified dates will be processed
+#
+# 3. Concurrency Control:
+#    - MAX_RUNNING_JOB: Controls the maximum number of concurrently running tasks (default is 10)
+#    - CHECK_INTERVAL: Interval time for checking task status, in seconds (default is 10)
+#
+# 4. Doris Connection Configuration:
+#    - DORIS_HOST, DORIS_QUERY_PORT: Doris server address and port
+#    - DORIS_USER, DORIS_PASSWORD: Database username and password
+#    - DORIS_DATABASE, DORIS_TABLE: Target database and table name
+#
+# 5. S3 Configuration:
+#    - S3_PREFIX: S3 bucket path prefix
+#    - AWS_ACCESS_KEY, AWS_SECRET_KEY: S3 access credentials
+#    - The script will automatically add the date path after S3_PREFIX, for example: s3://bucket/path/2025-04-01/*
+#
+# 6. Other Configurations:
+#    - LABEL_PREFIX: Label prefix for each task load, used to distinguish different load tasks
+#
+# Precautions:
+# - Ensure that the mysql client tool is installed before execution
+# - Ensure that the database table structure matches the S3 data format, the columns used in the example are: order_id, order_date, customer_name, amount, country
+# - After all tasks are completed, the Labels of failed tasks will be listed, you can re-run these specific tasks by setting SPECIFIC_DATES
+# - If the load fails, you can use the SHOW LOAD command to view detailed error information
+#####################################################################
+
 # Specify the partition range to import
 START_DATE="2025-04-08"
 END_DATE="2025-04-10"
