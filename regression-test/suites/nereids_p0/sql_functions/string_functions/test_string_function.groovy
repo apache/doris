@@ -189,29 +189,81 @@ suite("test_string_function") {
     qt_sql "select elt(2, \"hello\", \"doris\");"
     qt_sql "select elt(3, \"hello\", \"doris\");"
     qt_sql """
-    SELECT t1.no
-      ,t1.sub_str
-      ,t1.str
-      ,substring_index(t1.str, t1.sub_str, -1)
-      ,t2.rst2
-      FROM (
-       SELECT 1 AS no, 'BBB' AS sub_str, 'AAA_01|BBB_02|CCC_03|DDD_04|EEE_05|FFF_06' AS str UNION ALL
-       SELECT 2 AS no, 'ccc' AS sub_str, 'zyz_01|zyz_02|CCC_03|qwe_04|qwe_05|qwe_06' AS str UNION ALL
-       SELECT 3 AS no, 'DDD' AS sub_str, 'AAA_01|BBB_02|CCC_03|DDD_04|EEE_05|FFF_06' AS str UNION ALL
-       SELECT 4 AS no, 'DDD' AS sub_str, 'sgr_01|wsc_02|CCC_03|DDD_04|rfv_05|rgb_06' AS str UNION ALL
-       SELECT 5 AS no, 'eee' AS sub_str, 'cdr_01|vfr_02|dfc_03|DDD_04|EEE_05|FFF_06' AS str UNION ALL
-       SELECT 6 AS no, 'A_01' AS sub_str, 'AAA_01|dsd_02|ert_03|bgt_04|fgh_05|hyb_06' AS str
-     ) t1
-      LEFT JOIN (
-       SELECT 1 AS no, 'BBB' AS sub_str,  substring_index('AAA_01|BBB_02|CCC_03|DDD_04|EEE_05|FFF_06', 'BBB', -1) AS rst2 UNION ALL
-       SELECT 2 AS no, 'ccc' AS sub_str,  substring_index('zyz_01|zyz_02|CCC_03|qwe_04|qwe_05|qwe_06', 'ccc', -1) AS rst2 UNION ALL
-       SELECT 3 AS no, 'DDD' AS sub_str,  substring_index('AAA_01|BBB_02|CCC_03|DDD_04|EEE_05|FFF_06', 'DDD', -1) AS rst2 UNION ALL
-       SELECT 4 AS no, 'DDD' AS sub_str,  substring_index('sgr_01|wsc_02|CCC_03|DDD_04|rfv_05|rgb_06', 'DDD', -1) AS rst2 UNION ALL
-       SELECT 5 AS no, 'eee' AS sub_str,  substring_index('cdr_01|vfr_02|dfc_03|DDD_04|EEE_05|FFF_06', 'eee', -1) AS rst2 UNION ALL
-       SELECT 6 AS no, 'A_01' AS sub_str, substring_index('AAA_01|dsd_02|ert_03|bgt_04|fgh_05|hyb_06', 'A_01', -1) AS rst2
-     ) t2
-    ON t1.no = t2.no AND t1.sub_str = t2.sub_str
-    ORDER BY t1.no;
+    SELECT
+    t1.str AS original_string,
+    t1.delimiter AS delimiter,
+    substring_index(t1.str, t1.delimiter, -1) AS dynamic_result,
+    t2.expected_result
+    FROM
+    (
+        SELECT
+            'AAA|BBB|CCC' AS str,
+            'BBB' AS delimiter
+        UNION
+        ALL
+        SELECT
+            'XXX|YYY|ZZZ' AS str,
+            'YYY' AS delimiter
+    ) t1
+    LEFT JOIN (
+        SELECT
+            'AAA|BBB|CCC' AS str,
+            'BBB' AS delimiter,
+            substring_index('AAA|BBB|CCC', 'BBB', -1) AS expected_result
+        UNION
+        ALL
+        SELECT
+            'XXX|YYY|ZZZ' AS str,
+            'YYY' AS delimiter,
+            substring_index('XXX|YYY|ZZZ', 'YYY', -1) AS expected_result
+    ) t2 ON t1.str = t2.str
+    AND t1.delimiter = t2.delimiter;
+    """
+
+    sql """ DROP TABLE IF EXISTS test_substring_index; """
+
+    sql """
+    CREATE TABLE test_substring_index (
+    id int NULL,
+    str varchar(150) NULL,
+    delimiter varchar(150) NULL
+    ) ENGINE = OLAP UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 3 PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+    INSERT INTO test_substring_index VALUES
+    (1, 'AAA_01|BBB_02|CCC_03|DDD_04|EEE_05|FFF_06', 'DDD'),
+    (2, 'sgr_01|wsc_02|CCC_03|DDD_04|rfv_05|rgb_06', 'DDD'),
+    (3, 'AAA_01|dsd_02|ert_03|bgt_04|fgh_05|hyb_06', 'A_01');
+    """
+
+    qt_sql """
+    SELECT
+    id,
+    str,
+    delimiter,
+    substring_index(str, delimiter, -1) AS dynamic_result,
+    CASE
+        WHEN id = 1 THEN substring_index(
+            'AAA_01|BBB_02|CCC_03|DDD_04|EEE_05|FFF_06',
+            'DDD',
+            -1
+        )
+        WHEN id = 2 THEN substring_index(
+            'sgr_01|wsc_02|CCC_03|DDD_04|rfv_05|rgb_06',
+            'DDD',
+            -1
+        )
+        WHEN id = 3 THEN substring_index(
+            'AAA_01|dsd_02|ert_03|bgt_04|fgh_05|hyb_06',
+            'A_01',
+            -1
+        )
+    END AS expected_result
+    FROM
+    test_substring_index order by id;
     """
 
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
