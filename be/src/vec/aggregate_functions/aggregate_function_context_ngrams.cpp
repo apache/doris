@@ -26,6 +26,7 @@ namespace doris::vectorized {
 
 // create context_ngrams function with context pattern
 AggregateFunctionPtr create_context_ngrams_with_pattern(const DataTypes& argument_types) {
+    LOG(INFO) << "In create_context_ngrams_with_pattern()";
     // check second argument is array<string>
     WhichDataType which4(remove_nullable(argument_types[1]));
     if (which4.idx != TypeIndex::Array) {
@@ -43,12 +44,10 @@ AggregateFunctionPtr create_context_ngrams_with_pattern(const DataTypes& argumen
 
 // create context_ngrams function with n parameter
 AggregateFunctionPtr create_context_ngrams_with_n(const DataTypes& argument_types) {
+    LOG(INFO) << "In create_context_ngrams_with_n()";
     // check second argument is integer
     WhichDataType which4(remove_nullable(argument_types[1]));
-    if (!(which4.idx == TypeIndex::Int8 || which4.idx == TypeIndex::Int16 ||
-        which4.idx == TypeIndex::Int32 || which4.idx == TypeIndex::Int64 ||
-        which4.idx == TypeIndex::UInt8 || which4.idx == TypeIndex::UInt16 ||
-        which4.idx == TypeIndex::UInt32 || which4.idx == TypeIndex::UInt64)) {
+    if (!which4.is_int_or_uint()) {
         return nullptr;
     }
 
@@ -59,6 +58,7 @@ AggregateFunctionPtr create_aggregate_function_context_ngrams(const String& name
                                                             const DataTypes& argument_types,
                                                             const bool result_is_nullable,
                                                             const AggregateFunctionAttr& attr) {
+    LOG(INFO) << "In create_aggregate_function_context_ngrams(), name is " << name;
     // check argument number
     if (argument_types.size() != 3 && argument_types.size() != 4) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -66,19 +66,17 @@ AggregateFunctionPtr create_aggregate_function_context_ngrams(const String& name
             name, argument_types.size());
     }
 
-    // check first argument is array<array<string>> or array<array<text>>
+    // check first argument is array<array<string>>
     WhichDataType which1(remove_nullable(argument_types[0]));
     if (which1.idx != TypeIndex::Array) {
         return nullptr;
     }
     const auto* array_type = assert_cast<const DataTypeArray*>(remove_nullable(argument_types[0]).get());
-    
-    WhichDataType which2(array_type->get_nested_type());
+    WhichDataType which2(remove_nullable(array_type->get_nested_type()));
     if (which2.idx != TypeIndex::Array) {
         return nullptr;
     }
-    const auto* inner_array_type = assert_cast<const DataTypeArray*>(array_type->get_nested_type().get());
-    
+    const auto* inner_array_type = assert_cast<const DataTypeArray*>(remove_nullable(array_type->get_nested_type()).get());
     WhichDataType which3(remove_nullable(inner_array_type->get_nested_type()));
     if (which3.idx != TypeIndex::String && which3.idx != TypeIndex::FixedString) {
         return nullptr;
@@ -87,10 +85,7 @@ AggregateFunctionPtr create_aggregate_function_context_ngrams(const String& name
     // check last argument is integer
     for (size_t i = 2; i < argument_types.size(); ++i) {
         WhichDataType which(remove_nullable(argument_types[i]));
-        if (!(which.idx == TypeIndex::Int8 || which.idx == TypeIndex::Int16 ||
-            which.idx == TypeIndex::Int32 || which.idx == TypeIndex::Int64 ||
-            which.idx == TypeIndex::UInt8 || which.idx == TypeIndex::UInt16 ||
-            which.idx == TypeIndex::UInt32 || which.idx == TypeIndex::UInt64)) {
+        if (!which.is_int_or_uint()) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                 "Argument {} of function {} must be integer", i + 1, name);
         }
@@ -106,6 +101,7 @@ AggregateFunctionPtr create_aggregate_function_context_ngrams(const String& name
 }
 
 void register_aggregate_function_context_ngrams(AggregateFunctionSimpleFactory& factory) {
+    LOG(INFO) << "register_aggregate_function_context_ngrams";
     factory.register_function_both("context_ngrams", create_aggregate_function_context_ngrams);
 }
 

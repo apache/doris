@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
@@ -38,14 +39,18 @@ import java.util.List;
 public class ContextNgrams extends NullableAggregateFunction implements ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE)).args(ArrayType.of(ArrayType.of(
-                    StringType.INSTANCE)), IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE)).args(ArrayType.of(ArrayType.of(
-                    StringType.INSTANCE)), IntegerType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE)).args(ArrayType.of(ArrayType.of(
-                    StringType.INSTANCE)), ArrayType.of(StringType.INSTANCE), IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE)).args(ArrayType.of(ArrayType.of(StringType.INSTANCE
-                    )), ArrayType.of(StringType.INSTANCE), IntegerType.INSTANCE, IntegerType.INSTANCE)
+            FunctionSignature.ret(ArrayType.of(ArrayType.of(StringType.INSTANCE))).args(
+                ArrayType.of(ArrayType.of(StringType.INSTANCE)),
+                IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(ArrayType.of(StringType.INSTANCE))).args(
+                ArrayType.of(ArrayType.of(StringType.INSTANCE)),
+                IntegerType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(ArrayType.of(StringType.INSTANCE))).args(
+                ArrayType.of(ArrayType.of(StringType.INSTANCE)),
+                ArrayType.of(StringType.INSTANCE), IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(ArrayType.of(StringType.INSTANCE))).args(
+                ArrayType.of(ArrayType.of(StringType.INSTANCE)),
+                ArrayType.of(StringType.INSTANCE), IntegerType.INSTANCE, IntegerType.INSTANCE)
     );
 
     /**
@@ -64,7 +69,12 @@ public class ContextNgrams extends NullableAggregateFunction implements Explicit
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new ContextNgrams(children.get(0), children.get(1), children.get(2));
+        if (children.size() == 3) {
+            return new ContextNgrams(children.get(0), children.get(1), children.get(2));
+        } else if (children.size() == 4) {
+            return new ContextNgrams(children.get(0), children.get(1), children.get(2), children.get(3));
+        }
+        throw new AnalysisException("Invalid number of arguments for context_ngrams: " + children.size());
     }
 
     @Override
@@ -90,7 +100,8 @@ public class ContextNgrams extends NullableAggregateFunction implements Explicit
             DataType secondType = children.get(1).getDataType();
             if (secondType instanceof ArrayType) {
                 // Check array<string> for core words
-                if (!(((ArrayType) secondType).getItemType() instanceof StringType)) {
+                DataType itemType = ((ArrayType) secondType).getItemType();
+                if (!(itemType instanceof StringType || itemType instanceof NullType)) {
                     throw new AnalysisException(
                         "context_ngrams requires array<string> for second parameter when using core words: " + toSql());
                 }

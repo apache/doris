@@ -660,8 +660,8 @@ public class FunctionSet<T> {
 
         // context_ngrams(array<array<string>>, int, int)
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.CONTEXT_NGRAMS,
-                Lists.newArrayList(new ArrayType(new ArrayType(Type.STRING)), Type.INT, Type.INT), 
-                new ArrayType(Type.STRING), Type.VARCHAR,
+                Lists.newArrayList(new ArrayType(new ArrayType(Type.STRING)), Type.INT, Type.INT),
+                new ArrayType(new ArrayType(Type.STRING)), Type.VARCHAR,
                 "",
                 "",
                 "",
@@ -670,8 +670,8 @@ public class FunctionSet<T> {
                 null, false, true, false, true));
         // context_ngrams(array<array<string>>, int, int, int)
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.CONTEXT_NGRAMS,
-                Lists.newArrayList(new ArrayType(new ArrayType(Type.STRING)), Type.INT, Type.INT, Type.INT), 
-                new ArrayType(Type.STRING), Type.VARCHAR,
+                Lists.newArrayList(new ArrayType(new ArrayType(Type.STRING)), Type.INT, Type.INT, Type.INT),
+                new ArrayType(new ArrayType(Type.STRING)), Type.VARCHAR,
                 "",
                 "",
                 "",
@@ -680,8 +680,8 @@ public class FunctionSet<T> {
                 null, false, true, false, true));
         // context_ngrams(array<array<string>>, array<string>, int)
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.CONTEXT_NGRAMS,
-                Lists.newArrayList(new ArrayType(new ArrayType(Type.STRING)), new ArrayType(Type.STRING), Type.INT), 
-                new ArrayType(Type.STRING), Type.VARCHAR,
+                Lists.newArrayList(new ArrayType(new ArrayType(Type.STRING)), new ArrayType(Type.STRING), Type.INT),
+                new ArrayType(new ArrayType(Type.STRING)), Type.VARCHAR,
                 "",
                 "",
                 "",
@@ -691,8 +691,8 @@ public class FunctionSet<T> {
         // context_ngrams(array<array<string>>, array<string>, int, int)
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.CONTEXT_NGRAMS,
                 Lists.newArrayList(new ArrayType(new ArrayType(Type.STRING)),
-                    new ArrayType(Type.STRING), Type.INT, Type.INT),
-                new ArrayType(Type.STRING), Type.VARCHAR,
+                new ArrayType(Type.STRING), Type.INT, Type.INT),
+                new ArrayType(new ArrayType(Type.STRING)), Type.VARCHAR,
                 "",
                 "",
                 "",
