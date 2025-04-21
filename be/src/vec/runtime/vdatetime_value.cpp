@@ -3865,9 +3865,9 @@ template void VecDateTimeValue::create_from_date_v2<DateTimeV2ValueType>(
 template void VecDateTimeValue::create_from_date_v2<DateTimeV2ValueType>(
         DateV2Value<DateTimeV2ValueType>&& value, TimeType type);
 
-template int64_t VecDateTimeValue::second_diff<DateV2Value<DateV2ValueType>>(
+template int64_t VecDateTimeValue::datetime_diff_in_seconds<DateV2Value<DateV2ValueType>>(
         const DateV2Value<DateV2ValueType>& rhs) const;
-template int64_t VecDateTimeValue::second_diff<DateV2Value<DateTimeV2ValueType>>(
+template int64_t VecDateTimeValue::datetime_diff_in_seconds<DateV2Value<DateTimeV2ValueType>>(
         const DateV2Value<DateTimeV2ValueType>& rhs) const;
 
 #define DELARE_DATE_ADD_INTERVAL(DateValueType1, DateValueType2)                                   \

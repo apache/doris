@@ -235,7 +235,7 @@ struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>> {
         }                                                                                     \
     };
 
-DECLARE_DATE_FUNCTIONS(DateDiffImpl, datediff, TYPE_INT, (ts0.daynr() - ts1.daynr()));
+DECLARE_DATE_FUNCTIONS(DateDiffImpl, datediff, DataTypeInt32, (ts0.daynr() - ts1.daynr()));
 // DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeTime, ts0.datetime_diff_in_seconds(ts1));
 // Expands to below here because it use Time type which need some special deal.
 template <PrimitiveType DateType1, PrimitiveType DateType2>
