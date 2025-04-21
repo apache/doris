@@ -22,8 +22,13 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
@@ -31,6 +36,7 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -47,6 +53,62 @@ public class IndexDefinitionTest {
             org.junit.jupiter.api.Assertions.assertInstanceOf(
                     org.apache.doris.nereids.exceptions.AnalysisException.class, e);
             Assertions.assertTrue(e.getMessage().contains("not supported in inverted index format V1"));
+        }
+    }
+
+    void testArrayTypeSupport() throws AnalysisException {
+        IndexDefinition def = new IndexDefinition("array_index", false, Lists.newArrayList("col1"),
+                "INVERTED", null, "array test");
+
+        // Test array of supported types
+        def.checkColumn(new ColumnDefinition("col1",
+                ArrayType.of(StringType.INSTANCE), false, AggregateType.NONE, true, null, "comment"),
+                KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.V1);
+
+        def.checkColumn(new ColumnDefinition("col1",
+                ArrayType.of(IntegerType.INSTANCE), false, AggregateType.NONE, true, null, "comment"),
+                KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.V1);
+
+        def.checkColumn(new ColumnDefinition("col1",
+                    ArrayType.of(ArrayType.of(StringType.INSTANCE)), false,
+                    AggregateType.NONE, true, null, "comment"),
+                    KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.V1);
+
+        // Test array of unsupported types
+        try {
+            // Array<Float>
+            def.checkColumn(new ColumnDefinition("col1",
+                    ArrayType.of(FloatType.INSTANCE), false,
+                    AggregateType.NONE, true, null, "comment"),
+                    KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.V1);
+            Assertions.fail("No exception throws for unsupported array element type (Float).");
+        } catch (AnalysisException e) {
+            Assertions.assertTrue(e.getMessage().contains("is not supported in"));
+        }
+
+        try {
+            // Array<Map<String, Int>>
+            def.checkColumn(new ColumnDefinition("col1",
+                    ArrayType.of(MapType.of(StringType.INSTANCE, IntegerType.INSTANCE)), false,
+                    AggregateType.NONE, true, null, "comment"),
+                    KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.V1);
+            Assertions.fail("No exception throws for array of map type.");
+        } catch (AnalysisException e) {
+            Assertions.assertTrue(e.getMessage().contains("is not supported in"));
+        }
+
+        try {
+            // Array<Struct<name:String, age:Int>>
+            ArrayList<StructField> fields = new ArrayList<>();
+            fields.add(new StructField("name", StringType.INSTANCE, true, null));
+            fields.add(new StructField("age", IntegerType.INSTANCE, true, null));
+            def.checkColumn(new ColumnDefinition("col1",
+                    ArrayType.of(new StructType(fields)), false,
+                    AggregateType.NONE, true, null, "comment"),
+                    KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.V1);
+            Assertions.fail("No exception throws for array of struct type.");
+        } catch (AnalysisException e) {
+            Assertions.assertTrue(e.getMessage().contains("is not supported in"));
         }
     }
 
