@@ -21,31 +21,30 @@
 
 #include <gtest/gtest.h>
 
-namespace doris {
+namespace doris::vectorized {
 
 // Base test class for text line reader tests
 class PlainTextLineReaderTest : public testing::Test {
 protected:
     // Helper function to verify line splitting results
-    void verify_split_result(TextLineReaderContextIf* ctx, const std::string& input,
+    void verify_split_result(const std::string& input, const std::string& line_delim, bool keep_cr,
                              const std::vector<std::string>& expected_lines) {
+        PlainTextLineReaderCtx ctx(line_delim, line_delim.size(), keep_cr);
         const auto* data = reinterpret_cast<const uint8_t*>(input.c_str());
         size_t pos = 0;
         size_t size = input.size();
         std::vector<std::string> actual_lines;
 
-        // Split input into lines and collect results
         while (pos < size) {
-            ctx->refresh();
-            const uint8_t* line_end = ctx->read_line(data + pos, size - pos);
+            ctx.refresh();
+            const auto* line_end = ctx.read_line(data + pos, size - pos);
             if (!line_end) {
-                // Handle the last line when no delimiter is found
                 actual_lines.emplace_back(reinterpret_cast<const char*>(data + pos), size - pos);
                 break;
             }
             size_t line_len = line_end - (data + pos);
             actual_lines.emplace_back(reinterpret_cast<const char*>(data + pos), line_len);
-            pos += line_len + ctx->line_delimiter_length();
+            pos += line_len + ctx.line_delimiter_length();
         }
 
         ASSERT_EQ(expected_lines, actual_lines);
@@ -54,35 +53,15 @@ protected:
 
 // Test cases for PlainTextLineReaderCtx
 TEST_F(PlainTextLineReaderTest, PlainTextBasic) {
-    // Test case 1: Default newline delimiter (\n)
-    {
-        PlainTextLineReaderCtx ctx("\n", 1, false);
-        verify_split_result(&ctx, "line1\nline2\nline3", {"line1", "line2", "line3"});
-    }
+    verify_split_result("line1\nline2\nline3", "\n", false, {"line1", "line2", "line3"});
 
-    // Test case 2: CRLF delimiter (\r\n)
-    {
-        PlainTextLineReaderCtx ctx("\r\n", 2, false);
-        verify_split_result(&ctx, "line1\r\nline2\r\nline3", {"line1", "line2", "line3"});
-    }
+    verify_split_result("line1\r\nline2\r\nline3", "\r\n", false, {"line1", "line2", "line3"});
 
-    // Test case 3: Keep CR option enabled
-    {
-        PlainTextLineReaderCtx ctx("\n", 1, true);
-        verify_split_result(&ctx, "line1\r\nline2\r\nline3", {"line1\r", "line2\r", "line3"});
-    }
+    verify_split_result("line1\r\nline2\r\nline3", "\n", true, {"line1\r", "line2\r", "line3"});
 
-    // Test case 4: Empty lines
-    {
-        PlainTextLineReaderCtx ctx("\n", 1, false);
-        verify_split_result(&ctx, "line1\n\nline3", {"line1", "", "line3"});
-    }
+    verify_split_result("line1\n\nline3", "\n", false, {"line1", "", "line3"});
 
-    // Test case 5: Custom delimiter
-    {
-        PlainTextLineReaderCtx ctx("||", 2, false);
-        verify_split_result(&ctx, "line1||line2||line3", {"line1", "line2", "line3"});
-    }
+    verify_split_result("line1||line2||line3", "||", false, {"line1", "line2", "line3"});
 }
 
 // Test class for CSV line reader with enclosure support
@@ -102,7 +81,6 @@ protected:
         std::vector<std::string> actual_lines;
         std::vector<std::vector<size_t>> actual_col_positions;
 
-        // Process input line by line
         while (pos < size) {
             ctx.refresh();
             const uint8_t* line_end = ctx.read_line(data + pos, size - pos);
@@ -124,78 +102,30 @@ protected:
 
 // Basic CSV format test cases
 TEST_F(EncloseCsvLineReaderTest, CsvBasic) {
-    // Test case 1: Simple CSV format
-    {
-        verify_csv_split("a,b,c\nd,e,f",              // input
-                         "\n", ",", '"', '\\', false, // config
-                         {"a,b,c", "d,e,f"},          // expected lines
-                         {{1, 3}, {1, 3}}             // expected column positions
-        );
-    }
+    verify_csv_split("a,b,c\nd,e,f", "\n", ",", '"', '\\', false, {"a,b,c", "d,e,f"},
+                     {{1, 3}, {1, 3}});
 
-    // Test case 2: Fields with enclosure
-    {
-        verify_csv_split("\"a,x\",b,c\n\"d,y\",e,f",     // input
-                         "\n", ",", '"', '\\', false,    // config
-                         {"\"a,x\",b,c", "\"d,y\",e,f"}, // expected lines
-                         {{5, 7}, {5, 7}}                // expected column positions
-        );
-    }
+    verify_csv_split("\"a,x\",b,c\n\"d,y\",e,f", "\n", ",", '"', '\\', false,
+                     {"\"a,x\",b,c", "\"d,y\",e,f"}, {{5, 7}, {5, 7}});
 
-    // Test case 3: Escaped quotes
-    {
-        verify_csv_split("\"a\"\"x\",b,c\n\"d\\\"y\",e,f", // input with both escape types
-                         "\n", ",", '"', '\\', false, {R"("a""x",b,c)", R"("d\"y",e,f)"},
-                         {{6, 8}, {7, 9}});
-    }
+    verify_csv_split("\"a\"\"x\",b,c\n\"d\\\"y\",e,f", "\n", ",", '"', '\\', false,
+                     {"\"a\"\"x\",b,c", "\"d\\\"y\",e,f"}, {{6, 8}, {7, 9}});
 
-    // Test case 4: Custom column separator
-    {
-        verify_csv_split("a||b||c\nd||e||f",           // input
-                         "\n", "||", '"', '\\', false, // config
-                         {"a||b||c", "d||e||f"},       // expected lines
-                         {{2, 5}, {2, 5}}              // expected column positions
-        );
-    }
+    verify_csv_split("a||b||c\nd||e||f", "\n", "||", '"', '\\', false, {"a||b||c", "d||e||f"},
+                     {{2, 5}, {2, 5}});
 }
 
 // Edge cases and corner scenarios
 TEST_F(EncloseCsvLineReaderTest, EdgeCases) {
-    // Test case 1: Empty lines
-    {
-        verify_csv_split("\n\na,b,c",                 // input
-                         "\n", ",", '"', '\\', false, // config
-                         {"", "", "a,b,c"},           // expected lines
-                         {{}, {}, {1, 3}}             // expected column positions
-        );
-    }
+    verify_csv_split("\n\na,b,c", "\n", ",", '"', '\\', false, {"", "", "a,b,c"}, {{}, {}, {1, 3}});
 
-    // Test case 2: Unclosed quotes
-    {
-        verify_csv_split("\"abc,def\nghi,jkl",        // input
-                         "\n", ",", '"', '\\', false, // config
-                         {"\"abc,def", "ghi,jkl"},    // expected lines
-                         {{3}, {3}}                   // expected column positions
-        );
-    }
+    verify_csv_split("\"abc,def\nghi,jkl", "\n", ",", '"', '\\', false, {"\"abc,def", "ghi,jkl"},
+                     {{3}, {3}});
 
-    // Test case 3: Mixed delimiters
-    {
-        verify_csv_split("a,b\r\nc,d\ne,f",             // input
-                         "\r\n", ",", '"', '\\', false, // config
-                         {"a,b", "c,d\ne,f"},           // expected lines
-                         {{1}, {1, 3}}                  // expected column positions
-        );
-    }
+    verify_csv_split("a,b\r\nc,d\ne,f", "\r\n", ",", '"', '\\', false, {"a,b", "c,d\ne,f"},
+                     {{1}, {1, 3}});
 
-    // Test case 4: Escape character edge cases
-    {
-        verify_csv_split(R"(\,\"\n,b,c)",             // input
-                         "\n", ",", '"', '\\', false, // config
-                         {R"(\,\"\n,b,c)"},           // expected lines
-                         {{9, 11}}                    // expected column positions
-        );
-    }
+    verify_csv_split("\\,\\\"\\n,b,c", "\n", ",", '"', '\\', false, {"\\,\\\"\\n,b,c"}, {{9, 11}});
 }
 
-} // namespace doris
+} // namespace doris::vectorized
