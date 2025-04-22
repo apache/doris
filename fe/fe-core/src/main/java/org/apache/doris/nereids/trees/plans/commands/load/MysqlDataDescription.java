@@ -212,7 +212,7 @@ public class MysqlDataDescription {
         }
 
         if (partitionNamesInfo != null) {
-            partitionNamesInfo.validate(null);
+            partitionNamesInfo.validate();
         }
     }
 
