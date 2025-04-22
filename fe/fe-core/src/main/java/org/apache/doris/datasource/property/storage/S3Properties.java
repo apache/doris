@@ -21,36 +21,42 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang3.StringUtils;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-public class S3Properties extends AbstractObjectStorageProperties {
+public class S3Properties extends AbstractS3CompatibleProperties {
 
 
+    @Setter
+    @Getter
     @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
             required = false,
             description = "The endpoint of S3.")
-    protected String s3Endpoint = "";
+    protected String endpoint = "";
 
+    @Setter
+    @Getter
     @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION"},
             required = false,
             description = "The region of S3.")
-    protected String s3Region = "";
+    protected String region = "";
 
+    @Getter
     @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
             description = "The access key of S3.")
-    protected String s3AccessKey = "";
+    protected String accessKey = "";
 
+    @Getter
     @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
             description = "The secret key of S3.")
-    protected String s3SecretKey = "";
+    protected String secretKey = "";
 
 
     @ConnectorProperty(names = {"s3.connection.maximum",
@@ -95,12 +101,21 @@ public class S3Properties extends AbstractObjectStorageProperties {
             description = "The external id of S3.")
     protected String s3ExternalId = "";
 
-    private static final Pattern REGION_PATTERN = Pattern.compile(
-            "s3[.-](?:dualstack[.-])?([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?"
+
+    /**
+     * Pattern to match various AWS S3 endpoint formats and extract the region part.
+     * <p>
+     * Supported formats:
+     * - s3.us-west-2.amazonaws.com                => region = us-west-2
+     * - s3.dualstack.us-east-1.amazonaws.com      => region = us-east-1
+     * - s3-fips.us-east-2.amazonaws.com           => region = us-east-2
+     * - s3-fips.dualstack.us-east-2.amazonaws.com => region = us-east-2
+     * <p>
+     * Group(1) in the pattern captures the region part if available.
+     */
+    private static final Pattern ENDPOINT_PATTERN = Pattern.compile(
+            "^(?:https?://)?s3(?:[-.]fips)?(?:[-.]dualstack)?(?:[-.]([a-z0-9-]+))?\\.amazonaws\\.com$"
     );
-
-
-    private static Pattern ENDPOINT_PATTERN = Pattern.compile("^s3(\\.[a-z0-9-]+)?\\.amazonaws\\.com$");
 
     public S3Properties(Map<String, String> origProps) {
         super(Type.S3, origProps);
@@ -120,15 +135,13 @@ public class S3Properties extends AbstractObjectStorageProperties {
                 .findFirst()
                 .orElse(null);
         if (!Strings.isNullOrEmpty(endpoint)) {
-            return endpoint.contains("amazonaws.com");
+            return ENDPOINT_PATTERN.matcher(endpoint).matches();
         }
         if (!origProps.containsKey("uri")) {
             return false;
         }
         String uri = origProps.get("uri");
         return uri.contains("amazonaws.com");
-
-
     }
 
     @Override
@@ -166,10 +179,10 @@ public class S3Properties extends AbstractObjectStorageProperties {
 
     public void toIcebergS3FileIOProperties(Map<String, String> catalogProps) {
         // See S3FileIOProperties.java
-        catalogProps.put("s3.endpoint", s3Endpoint);
-        catalogProps.put("s3.access-key-id", s3AccessKey);
-        catalogProps.put("s3.secret-access-key", s3SecretKey);
-        catalogProps.put("client.region", s3Region);
+        catalogProps.put("s3.endpoint", endpoint);
+        catalogProps.put("s3.access-key-id", accessKey);
+        catalogProps.put("s3.secret-access-key", secretKey);
+        catalogProps.put("client.region", region);
         catalogProps.put("s3.path-style-access", usePathStyle);
     }
 
@@ -177,54 +190,5 @@ public class S3Properties extends AbstractObjectStorageProperties {
     public Map<String, String> getBackendConfigProperties() {
         return generateBackendS3Configuration(s3ConnectionMaximum,
                 s3ConnectionRequestTimeoutS, s3ConnectionTimeoutS, String.valueOf(usePathStyle));
-    }
-
-    /**
-     * Initializes the s3Region field based on the S3 endpoint if it's not already set.
-     * <p>
-     * This method extracts the region from Amazon S3-compatible endpoints using a predefined regex pattern.
-     * The endpoint is first converted to lowercase before matching.
-     * <p>
-     * Example:
-     * - "s3.us-west-2.amazonaws.com" → s3Region = "us-west-2"
-     * - "s3.cn-north-1.amazonaws.com.cn" → s3Region = "cn-north-1"
-     * <p>
-     * Note: REGION_PATTERN must be defined to capture the region from the S3 endpoint.
-     * Example pattern:
-     * Pattern.compile("s3[.-]([a-z0-9-]+)\\.")
-     */
-    @Override
-    protected void initRegionIfNecessary() {
-        if (StringUtils.isBlank(s3Region) && StringUtils.isNotBlank(s3Endpoint)) {
-            Matcher matcher = REGION_PATTERN.matcher(s3Endpoint.toLowerCase());
-            if (matcher.find()) {
-                this.s3Region = matcher.group(1);
-            }
-        }
-    }
-
-    @Override
-    public String getEndpoint() {
-        return s3Endpoint;
-    }
-
-    @Override
-    public String getRegion() {
-        return s3Region;
-    }
-
-    @Override
-    public String getAccessKey() {
-        return s3AccessKey;
-    }
-
-    @Override
-    public String getSecretKey() {
-        return s3SecretKey;
-    }
-
-    @Override
-    public void setEndpoint(String endpoint) {
-        this.s3Endpoint = endpoint;
     }
 }
