@@ -70,7 +70,8 @@ const std::unordered_map<std::string, std::string> TableFunctionFactory::_functi
         {"explode", "explode_old"}};
 
 Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, ObjectPool* pool,
-                                    TableFunction** fn, int be_version = BeExecVersionManager::get_newest_version()) {
+                                    TableFunction** fn,
+                                    int be_version = BeExecVersionManager::get_newest_version()) {
     bool is_outer = match_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER);
     std::string fn_name_real =
             is_outer ? remove_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER) : fn_name_raw;

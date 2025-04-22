@@ -56,8 +56,8 @@ Status VExplodeV2TableFunction::process_init(Block* block, RuntimeState* state) 
     for (int i = 0; i < _expr_context->root()->children().size(); i++) {
         RETURN_IF_ERROR(_expr_context->root()->children()[i]->execute(_expr_context.get(), block,
                                                                       &value_column_idx));
-        _array_columns[i] = block->get_by_position(value_column_idx)
-                                    .column->convert_to_full_column_if_const();
+        _array_columns[i] =
+                block->get_by_position(value_column_idx).column->convert_to_full_column_if_const();
         if (!extract_column_array_info(*_array_columns[i], _multi_detail[i])) {
             return Status::NotSupported(
                     "column type {} not supported now",

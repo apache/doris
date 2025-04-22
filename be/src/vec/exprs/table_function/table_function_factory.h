@@ -34,7 +34,7 @@ class TableFunctionFactory {
 public:
     TableFunctionFactory() = delete;
     static Status get_fn(const std::string& fn_name_raw, ObjectPool* pool, TableFunction** fn,
-                        int be_version);
+                         int be_version);
 
     const static std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
             _function_map;
