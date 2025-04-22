@@ -132,42 +132,35 @@ Status PriorityTaskQueue::push(PipelineTask* task) {
 
 MultiCoreTaskQueue::~MultiCoreTaskQueue() = default;
 
-MultiCoreTaskQueue::MultiCoreTaskQueue(int core_size) : TaskQueue(core_size), _closed(false) {
-    _prio_task_queue_list =
-            std::make_shared<std::vector<std::unique_ptr<PriorityTaskQueue>>>(core_size);
-    for (int i = 0; i < core_size; i++) {
-        (*_prio_task_queue_list)[i] = std::make_unique<PriorityTaskQueue>();
-    }
-}
+MultiCoreTaskQueue::MultiCoreTaskQueue(int core_size)
+        : TaskQueue(core_size), _prio_task_queue_list(core_size), _closed(false) {}
 
 void MultiCoreTaskQueue::close() {
     if (_closed) {
         return;
     }
     _closed = true;
-    for (int i = 0; i < _core_size; ++i) {
-        (*_prio_task_queue_list)[i]->close();
-    }
-    std::atomic_store(&_prio_task_queue_list,
-                      std::shared_ptr<std::vector<std::unique_ptr<PriorityTaskQueue>>>(nullptr));
+    // close all priority task queue
+    std::ranges::for_each(_prio_task_queue_list,
+                          [](auto& prio_task_queue) { prio_task_queue.close(); });
 }
 
 PipelineTask* MultiCoreTaskQueue::take(int core_id) {
     PipelineTask* task = nullptr;
     while (!_closed) {
-        DCHECK(_prio_task_queue_list->size() > core_id)
-                << " list size: " << _prio_task_queue_list->size() << " core_id: " << core_id
+        DCHECK(_prio_task_queue_list.size() > core_id)
+                << " list size: " << _prio_task_queue_list.size() << " core_id: " << core_id
                 << " _core_size: " << _core_size << " _next_core: " << _next_core.load();
-        task = (*_prio_task_queue_list)[core_id]->try_take(false);
+        task = _prio_task_queue_list[core_id].try_take(false);
         if (task) {
             task->set_core_id(core_id);
             break;
         }
-        task = _steal_take(core_id, *_prio_task_queue_list);
+        task = _steal_take(core_id);
         if (task) {
             break;
         }
-        task = (*_prio_task_queue_list)[core_id]->take(WAIT_CORE_TASK_TIMEOUT_MS /* timeout_ms */);
+        task = _prio_task_queue_list[core_id].take(WAIT_CORE_TASK_TIMEOUT_MS /* timeout_ms */);
         if (task) {
             task->set_core_id(core_id);
             break;
@@ -179,8 +172,7 @@ PipelineTask* MultiCoreTaskQueue::take(int core_id) {
     return task;
 }
 
-PipelineTask* MultiCoreTaskQueue::_steal_take(
-        int core_id, std::vector<std::unique_ptr<PriorityTaskQueue>>& prio_task_queue_list) {
+PipelineTask* MultiCoreTaskQueue::_steal_take(int core_id) {
     DCHECK(core_id < _core_size);
     int next_id = core_id;
     for (int i = 1; i < _core_size; ++i) {
@@ -189,7 +181,7 @@ PipelineTask* MultiCoreTaskQueue::_steal_take(
             next_id = 0;
         }
         DCHECK(next_id < _core_size);
-        auto task = prio_task_queue_list[next_id]->try_take(true);
+        auto task = _prio_task_queue_list[next_id].try_take(true);
         if (task) {
             task->set_core_id(next_id);
             return task;
@@ -209,7 +201,7 @@ Status MultiCoreTaskQueue::push_back(PipelineTask* task) {
 Status MultiCoreTaskQueue::push_back(PipelineTask* task, int core_id) {
     DCHECK(core_id < _core_size);
     task->put_in_runnable_queue();
-    return (*_prio_task_queue_list)[core_id]->push(task);
+    return _prio_task_queue_list[core_id].push(task);
 }
 
 } // namespace pipeline
