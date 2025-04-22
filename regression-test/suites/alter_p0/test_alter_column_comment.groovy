@@ -15,12 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_alter_column_comment') {
+suite('test_alter_column_comment', 'nonConcurrent') {
     def tbl = 'test_alter_column_comment_tbl'
     def cmt = '0123456789012345678901234567890123456789012345678901234567890123456789'
 
-    def config_row = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'column_comment_length_limit'; """
-    String old_limit = config_row[0][1]
     sql "ADMIN SET FRONTEND CONFIG ('column_comment_length_limit' = '64')"
 
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
@@ -102,6 +100,6 @@ suite('test_alter_column_comment') {
     qt_select1 """ SELECT TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME,COLUMN_COMMENT FROM information_schema.columns where TABLE_SCHEMA='${context.dbName}' and table_name='${tbl}' order by TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME """
 
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
-    // restore old_limit to old_value
-    sql """ ADMIN SET FRONTEND CONFIG ("column_comment_length_limit" = "${old_limit}"); """
+    // restore column_comment_length_limit
+    sql """ ADMIN SET FRONTEND CONFIG ("column_comment_length_limit" = "-1"); """
 }
