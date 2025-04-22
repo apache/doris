@@ -254,6 +254,8 @@ CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 
+CONF_Bool(enable_cloud_txn_lazy_commit_fuzzy_test, "false");
+
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
 

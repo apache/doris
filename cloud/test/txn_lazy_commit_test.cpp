@@ -41,6 +41,7 @@
 #include "meta-service/mem_txn_kv.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-service/meta_service_txn.cpp"
 #include "meta-service/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
@@ -1899,5 +1900,37 @@ TEST(TxnLazyCommitTest, RowsetMetaSizeExceedTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::PROTOBUF_PARSE_ERR);
     }
 }
+TEST(TxnLazyCommitTest, FuzzyRandom) {
+    int counter = 0;
+    for (size_t i = 0; i < 10000; i++) {
+        if (fuzzy_random()) {
+            counter++;
+        }
+    }
+    LOG(INFO) << "fuzzy_random counter: " << counter;
+    ASSERT_GT(counter, 0);
+}
 
+TEST(TxnLazyCommitTest, ForceTxnLazyCommit) {
+    int counter = 0;
+    config::enable_cloud_txn_lazy_commit_fuzzy_test = false;
+    for (size_t i = 0; i < 10000; i++) {
+        if (force_txn_lazy_commit()) {
+            counter++;
+        }
+    }
+    LOG(INFO) << "fuzzy_random counter: " << counter;
+    ASSERT_EQ(counter, 10000);
+
+    config::enable_cloud_txn_lazy_commit_fuzzy_test = true;
+    counter = 0;
+    for (size_t i = 0; i < 10000; i++) {
+        if (!force_txn_lazy_commit()) {
+            counter++;
+        }
+    }
+    LOG(INFO) << "force_txn_lazy_commit counter: " << counter;
+    ASSERT_GT(counter, 0);
+    config::enable_cloud_txn_lazy_commit_fuzzy_test = false;
+}
 } // namespace doris::cloud

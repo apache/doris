@@ -2514,6 +2514,23 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     response->mutable_txn_info()->CopyFrom(txn_info);
 } // end commit_txn_with_sub_txn
 
+static bool fuzzy_random() {
+    std::mt19937 gen {std::random_device {}()};
+    auto p = 0.5;
+    std::bernoulli_distribution bd {p};
+    if (bd(gen)) {
+        return true;
+    }
+    return false;
+}
+
+static bool force_txn_lazy_commit() {
+    if (config::enable_cloud_txn_lazy_commit_fuzzy_test && fuzzy_random()) [[unlikely]] {
+        return false;
+    }
+    return true;
+}
+
 void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                  const CommitTxnRequest* request, CommitTxnResponse* response,
                                  ::google::protobuf::Closure* done) {
@@ -2549,16 +2566,18 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     }
 
     TxnErrorCode err = TxnErrorCode::TXN_OK;
-    bool allow_txn_lazy_commit =
+    bool enable_txn_lazy_commit_feature =
             (request->has_is_2pc() && !request->is_2pc() && request->has_enable_txn_lazy_commit() &&
              request->enable_txn_lazy_commit() && config::enable_cloud_txn_lazy_commit);
 
-    if (!allow_txn_lazy_commit ||
-        (tmp_rowsets_meta.size() <= config::txn_lazy_commit_rowsets_thresold)) {
+    if (force_txn_lazy_commit() &&
+        (!enable_txn_lazy_commit_feature ||
+         (tmp_rowsets_meta.size() <= config::txn_lazy_commit_rowsets_thresold))) {
         commit_txn_immediately(request, response, txn_kv_, txn_lazy_committer_, code, msg,
                                instance_id, db_id, tmp_rowsets_meta, err);
+
         if ((MetaServiceCode::OK == code) || (TxnErrorCode::TXN_BYTES_TOO_LARGE != err) ||
-            !allow_txn_lazy_commit) {
+            !enable_txn_lazy_commit_feature) {
             if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
                 msg += ", likely due to committing too many tablets. "
                        "Please reduce the number of partitions involved in the load.";
@@ -2566,7 +2585,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
             return;
         }
         DCHECK(code != MetaServiceCode::OK);
-        DCHECK(allow_txn_lazy_commit);
+        DCHECK(enable_txn_lazy_commit_feature);
         DCHECK(err == TxnErrorCode::TXN_BYTES_TOO_LARGE);
         LOG(INFO) << "txn_id=" << txn_id << " fallthrough commit_txn_eventually";
     }
