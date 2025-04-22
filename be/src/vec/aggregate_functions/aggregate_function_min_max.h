@@ -617,7 +617,6 @@ public:
             change(to, nullptr);
         }
     }
-
 };
 
 template <typename Data>
