@@ -4070,7 +4070,13 @@ static std::string generate_random_string(int length) {
 
 std::string instance_id = "concurrent_recycle_txn_label_test_" + generate_random_string(10);
 
-// aaa
+/**
+ * Creates key-value pairs for a single transaction
+ * Includes key-value pairs for RecycleTxnKeyInfo, TxnIndexKey, TxnInfoKey, SubTxnIndex, and TxnLabel
+ * @param txn_kv Transaction key-value storage object
+ * @param i Index number used to generate unique IDs
+ * @param expired_kv_num Number of expired key-value pairs
+ */
 void make_single_txn_related_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t i,
                                  int64_t expired_kv_num) {
     std::unique_ptr<Transaction> txn;
@@ -4168,7 +4174,13 @@ void make_single_txn_related_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t i
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
-// bbb
+/**
+ * Creates multiple transaction info key-value pairs in batches
+ * Processes in batches of 2000 entries
+ * @param txn_kv Transaction key-value storage object
+ * @param total_kv_num Total number of key-value pairs to create
+ * @param expired_kv_num Number of expired key-value pairs
+ */
 void make_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t total_kv_num,
                                 int64_t expired_kv_num) {
     using namespace doris::cloud;
@@ -4179,7 +4191,13 @@ void make_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t to
     }
 }
 
-// ccc
+/**
+ * Verifies key-value pairs related to a single transaction
+ * Validates existence and format of RecycleTxnInfo, TxnIndex, TxnInfo, SubTxnIndex, and TxnLabel
+ * @param k Key
+ * @param v Value
+ * @param txn_kv Transaction key-value storage object
+ */
 void check_single_txn_info_kvs(const std::string_view& k, const std::string_view& v,
                                std::shared_ptr<cloud::TxnKv> txn_kv) {
     std::unique_ptr<Transaction> txn;
@@ -4226,7 +4244,12 @@ void check_single_txn_info_kvs(const std::string_view& k, const std::string_view
                            txn_info.label(), hex(label_key));
 }
 
-// ddd
+/**
+ * Verifies multiple transaction info key-value pairs
+ * Uses an iterator to traverse and validate key-value pairs within a specified range
+ * @param txn_kv Transaction key-value storage object
+ * @param size Expected number of key-value pairs
+ */
 void check_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t size) {
     using namespace doris::cloud;
     std::unique_ptr<Transaction> txn;
@@ -4266,7 +4289,7 @@ void check_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t s
 
 TEST(RecyclerTest, concurrent_recycle_txn_label_test) {
     doris::cloud::RecyclerThreadPoolGroup recycle_txn_label_thread_group;
-    config::recycle_pool_parallelism = 20;
+    config::recycle_pool_parallelism = 10;
     auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     s3_producer_pool->start();
     auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
@@ -4281,11 +4304,11 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_test) {
 
     auto mem_txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
 
-    cloud::config::fdb_cluster_file_path = "/mnt/disk2/lianyukang/doris/fdb_cluster";
-    auto fdb_txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
-    fdb_txn_kv->init();
+    // cloud::config::fdb_cluster_file_path = "fdb.cluster";
+    // auto fdb_txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
+    // fdb_txn_kv->init();
 
-    auto txn_kv = fdb_txn_kv.get() ? fdb_txn_kv : mem_txn_kv;
+    auto txn_kv = mem_txn_kv;
     ASSERT_TRUE(txn_kv.get()) << "exit get MemTxnKv error" << std::endl;
     make_multiple_txn_info_kvs(txn_kv, 10000, 8000);
     check_multiple_txn_info_kvs(txn_kv, 10000);
@@ -4303,5 +4326,4 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_test) {
               << "ms" << std::endl;
     check_multiple_txn_info_kvs(txn_kv, 2000);
 }
-
 } // namespace doris::cloud
