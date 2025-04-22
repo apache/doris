@@ -4071,13 +4071,16 @@ static std::string generate_random_string(int length) {
 std::string instance_id = "concurrent_recycle_txn_label_test_" + generate_random_string(10);
 
 // aaa
-int make_single_txn_related_kvs(const std::unique_ptr<Transaction>& txn, int64_t i,
-                                int64_t expired_kv_num) {
+void make_single_txn_related_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t i,
+                                 int64_t expired_kv_num) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
     std::string recycle_txn_info_key;
     std::string recycle_txn_info_val;
     int64_t db_id = i;
-    int64_t txn_id = 100000 + i;
-    int64_t sub_txn_id = 200000 + i;
+    int64_t txn_id = 1000000 + i;
+    int64_t sub_txn_id = 2000000 + i;
     int64_t current_time = duration_cast<std::chrono::milliseconds>(
                                    std::chrono::system_clock::now().time_since_epoch())
                                    .count();
@@ -4097,7 +4100,7 @@ int make_single_txn_related_kvs(const std::unique_ptr<Transaction>& txn, int64_t
                 .tag("key", hex(recycle_txn_info_key))
                 .tag("db_id", db_id)
                 .tag("txn_id", txn_id);
-        return -1;
+        return;
     }
     LOG(INFO) << fmt::format("instance_id: {}, db_id: {}, label: {}, k: {}", instance_id, db_id,
                              recycle_txn_pb.label(), hex(recycle_txn_info_key));
@@ -4112,7 +4115,7 @@ int make_single_txn_related_kvs(const std::unique_ptr<Transaction>& txn, int64_t
                 .tag("key", hex(txn_idx_key))
                 .tag("db_id", db_id)
                 .tag("txn_id", txn_id);
-        return -1;
+        return;
     }
     txn->put(txn_idx_key, txn_idx_val);
 
@@ -4127,7 +4130,7 @@ int make_single_txn_related_kvs(const std::unique_ptr<Transaction>& txn, int64_t
                 .tag("key", hex(info_key))
                 .tag("db_id", db_id)
                 .tag("txn_id", txn_id);
-        return -1;
+        return;
     }
     txn->put(info_key, info_val);
 
@@ -4140,7 +4143,7 @@ int make_single_txn_related_kvs(const std::unique_ptr<Transaction>& txn, int64_t
                 .tag("key", hex(idx_key))
                 .tag("db_id", db_id)
                 .tag("txn_id", txn_id);
-        return -1;
+        return;
     }
     txn->put(idx_key, idx_val);
 
@@ -4157,24 +4160,23 @@ int make_single_txn_related_kvs(const std::unique_ptr<Transaction>& txn, int64_t
                 .tag("key", hex(label_key))
                 .tag("db_id", db_id)
                 .tag("txn_id", txn_id);
-        return -1;
+        return;
     }
     MemTxnKv::gen_version_timestamp(123456790, 0, &label_val);
     txn->put(label_key, label_val);
 
-    return 0;
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
 // bbb
 void make_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t total_kv_num,
                                 int64_t expired_kv_num) {
     using namespace doris::cloud;
-    std::unique_ptr<Transaction> txn;
-    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    for (int64_t i = 0; i < total_kv_num; i++) {
-        make_single_txn_related_kvs(txn, i, expired_kv_num);
+    for (int64_t i = 0; i < total_kv_num; i += 2000) {
+        for (int64_t j = i; j < i + 2000; j++) {
+            make_single_txn_related_kvs(txn_kv, j, expired_kv_num);
+        }
     }
-    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
 // ccc
@@ -4263,17 +4265,35 @@ void check_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t s
 }
 
 TEST(RecyclerTest, concurrent_recycle_txn_label_test) {
-    config::recycle_pool_parallelism = 32;
+    doris::cloud::RecyclerThreadPoolGroup recycle_txn_label_thread_group;
+    config::recycle_pool_parallelism = 20;
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    s3_producer_pool->start();
+    auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_tablet_pool->start();
+    auto group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    group_recycle_function_pool->start();
+    recycle_txn_label_thread_group =
+            RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
+                                    std::move(group_recycle_function_pool));
     cloud::config::init(nullptr, true);
+
     auto mem_txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
-    ASSERT_TRUE(mem_txn_kv.get()) << "exit get MemTxnKv error" << std::endl;
-    make_multiple_txn_info_kvs(mem_txn_kv, 10000, 8000);
-    check_multiple_txn_info_kvs(mem_txn_kv, 10000);
+
+    cloud::config::fdb_cluster_file_path = "/mnt/disk2/lianyukang/doris/fdb_cluster";
+    auto fdb_txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
+    fdb_txn_kv->init();
+
+    auto txn_kv = fdb_txn_kv.get() ? fdb_txn_kv : mem_txn_kv;
+    ASSERT_TRUE(txn_kv.get()) << "exit get MemTxnKv error" << std::endl;
+    make_multiple_txn_info_kvs(txn_kv, 10000, 8000);
+    check_multiple_txn_info_kvs(txn_kv, 10000);
 
     InstanceInfoPB instance;
     instance.set_instance_id(instance_id);
-    InstanceRecycler recycler(mem_txn_kv, instance, thread_group,
-                              std::make_shared<TxnLazyCommitter>(mem_txn_kv));
+    InstanceRecycler recycler(txn_kv, instance, recycle_txn_label_thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     auto start = std::chrono::steady_clock::now();
     ASSERT_EQ(recycler.recycle_expired_txn_label(), 0);
@@ -4281,7 +4301,7 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_test) {
     std::cout << "recycle expired txn label cost="
               << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
               << "ms" << std::endl;
-    check_multiple_txn_info_kvs(mem_txn_kv, 2000);
+    check_multiple_txn_info_kvs(txn_kv, 2000);
 }
 
 } // namespace doris::cloud
