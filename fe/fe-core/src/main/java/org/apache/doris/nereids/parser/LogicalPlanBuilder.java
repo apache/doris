@@ -709,6 +709,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCom
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseSetQuotaCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterRepositoryCommand;
@@ -809,6 +810,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -6623,5 +6625,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String password = stripQuotes(ctx.STRING_LITERAL().getText());
         boolean isPlain = ctx.PASSWORD() == null;
         return new UserDesc(userIdentity, new PassVar(password, isPlain));
+    }
+
+    @Override
+    public LogicalPlan visitWarmUpCluster(DorisParser.WarmUpClusterContext ctx) {
+        String srcCluster = ctx.destination.getText();
+        String dstCluster = ctx.source.getText();
+        boolean isWarmUpWithTable = false;
+        List<WarmUpItem> warmUpItems = new ArrayList<>();
+        if (ctx.warmUpItem() != null && !ctx.warmUpItem().isEmpty()) {
+            for (DorisParser.WarmUpItemContext warmUpItemContext : ctx.warmUpItem()) {
+                TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(warmUpItemContext.tableName));
+                String partitionName = warmUpItemContext.partitionName.getText();
+                WarmUpItem warmUpItem = new WarmUpItem(tableNameInfo, partitionName);
+                warmUpItems.add(warmUpItem);
+            }
+            isWarmUpWithTable = true;
+        }
+        boolean isForce = false;
+        if (ctx.FORCE() != null) {
+            isForce = true;
+        }
+        return new WarmUpClusterCommand(warmUpItems, srcCluster, dstCluster, isForce, isWarmUpWithTable);
     }
 }
