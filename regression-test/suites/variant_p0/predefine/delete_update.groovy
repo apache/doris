@@ -17,18 +17,20 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("regression_test_variant_delete_and_update", "variant_type"){
+suite("regression_test_variant_predefine_delete_and_update", "variant_type"){
     // MOR
     def table_name = "var_delete_update"
     sql "DROP TABLE IF EXISTS ${table_name}"
+    int max_subcolumns_count = Math.floor(Math.random() * 5) 
+    def var = "variant <'a' : largeint, 'b' : array<int>, 'c' : double, 'd' : text>"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant<'a' : int, 'b' : array<int>, 'c' : double>
+            v ${var}
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 3
-        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false", "variant_enable_flatten_nested" = "false");
+        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false", "variant_enable_flatten_nested" = "false", "variant_max_subcolumns_count" = "${max_subcolumns_count}");
     """
     // test mor table
 
@@ -50,12 +52,12 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v  variant<'a' : int, 'b' : array<int>, 'c' : double>,
+            v ${var},
             vs string 
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4
-        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
+        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "variant_max_subcolumns_count" = "${max_subcolumns_count}");
     """
     sql "insert into var_delete_update_mow select k, cast(v as string), cast(v as string) from var_delete_update"
     sql "delete from ${table_name} where k = 1"
@@ -109,7 +111,7 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
                 `score` int(11) NOT NULL COMMENT "用户得分",
                 `test` int(11) NULL COMMENT "null test",
                 `dft` int(11) DEFAULT "4321",
-                `var` variant NULL)
+                `var` variant<'id' : int, 'name' : string, 'score' : int, 'test' : int, 'dft' : int> NULL)
                 UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "disable_auto_compaction" = "true", "store_row_column" = "true")
     """

@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_hirachinal", "variant_type"){
+suite("regression_test_variant_predefine_hirachinal", "variant_type"){
     def table_name = "var_rs"
     sql "DROP TABLE IF EXISTS ${table_name}"
 
     sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
-                v variant
+                v variant<'a' : largeint, 'c.d' : text>
             )
             DUPLICATE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 1
