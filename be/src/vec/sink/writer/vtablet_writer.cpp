@@ -582,7 +582,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
 }
 
 static void injection_full_gc_fn() {
-    MemoryReclamation::process_full_gc();
+    MemoryReclamation::revoke_process_memory("injection_full_gc_fn");
 }
 
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
