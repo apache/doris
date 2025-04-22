@@ -211,7 +211,7 @@ public class MysqlDataDescription {
             lineDelimiter.analyze(true);
         }
 
-        if (partitionNamesInfo != null) {
+        if (partitionNamesInfo.getPartitionNames() != null && !partitionNamesInfo.getPartitionNames().isEmpty()) {
             partitionNamesInfo.validate();
         }
     }
