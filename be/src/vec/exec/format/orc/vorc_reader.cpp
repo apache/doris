@@ -994,10 +994,6 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
 }
 
 bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
-    if (!_enable_filter_by_min_max) {
-        return false;
-    }
-
     // build search argument, if any expr can not be pushed down, return false
     auto builder = orc::SearchArgumentFactory::newBuilder();
     bool at_least_one_can_push_down = false;
@@ -1145,12 +1141,19 @@ Status OrcReader::set_fill_columns(
 
     if (_lazy_read_ctx.conjuncts.empty()) {
         _lazy_read_ctx.can_lazy_read = false;
-    } else {
+    } else if (_enable_filter_by_min_max) {
         auto res = _init_search_argument(_lazy_read_ctx.conjuncts);
         if (_state->query_options().check_orc_init_sargs_success && !res) {
+            std::stringstream ss;
+            for (const auto& conjunct : _lazy_read_ctx.conjuncts) {
+                ss << conjunct->root()->debug_string() << "\n";
+            }
+            std::string conjuncts_str = ss.str();
             return Status::InternalError(
                     "Session variable check_orc_init_sargs_success is set, but "
-                    "_init_search_argument returns false");
+                    "_init_search_argument returns false because all exprs can not be pushed "
+                    "down:\n " +
+                    conjuncts_str);
         }
     }
     try {
