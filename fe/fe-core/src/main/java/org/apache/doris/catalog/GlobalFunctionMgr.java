@@ -61,7 +61,7 @@ public class GlobalFunctionMgr extends MetaObject implements GsonPostProcessable
     @Override
     public void write(DataOutput out) throws IOException {
         // write functions
-        Text.writeString(out, GsonUtils.GSON.toJson(name2Function));
+        Text.writeString(out, GsonUtils.GSON.toJson(this, GlobalFunctionMgr.class));
     }
 
     @Override
