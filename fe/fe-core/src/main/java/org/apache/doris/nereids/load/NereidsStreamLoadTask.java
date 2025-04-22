@@ -346,31 +346,14 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     /**
      * setMultiTableBaseTaskInfo
      */
-    public void setMultiTableBaseTaskInfo(NereidsLoadTaskInfo task) {
-        this.mergeType = task.getMergeType();
-        this.columnSeparator = task.getColumnSeparator();
-        this.whereExpr = task.getWhereExpr();
-        this.partitions = task.getPartitions();
-        this.deleteCondition = task.getDeleteCondition();
-        this.lineDelimiter = task.getLineDelimiter();
-        this.strictMode = task.isStrictMode();
-        this.timezone = task.getTimezone();
-        this.formatType = task.getFormatType();
-        this.stripOuterArray = task.isStripOuterArray();
-        this.jsonRoot = task.getJsonRoot();
-        this.sendBatchParallelism = task.getSendBatchParallelism();
-        this.loadToSingleTablet = task.isLoadToSingleTablet();
-    }
-
-    /**
-     * setMultiTableBaseTaskInfo
-     */
     public void setMultiTableBaseTaskInfo(LoadTaskInfo task) throws UserException {
         this.mergeType = task.getMergeType();
         this.columnSeparator = task.getColumnSeparator();
-        this.whereExpr = parseWhereExpr(task.getWhereExpr().toSqlWithoutTbl());
+        this.whereExpr = task.getWhereExpr() != null ? parseWhereExpr(task.getWhereExpr().toSqlWithoutTbl()) : null;
         this.partitions = task.getPartitions();
-        this.deleteCondition = parseWhereExpr(task.getDeleteCondition().toSqlWithoutTbl());
+        this.deleteCondition = task.getDeleteCondition() != null
+                ? parseWhereExpr(task.getDeleteCondition().toSqlWithoutTbl())
+                : null;
         this.lineDelimiter = task.getLineDelimiter();
         this.strictMode = task.isStrictMode();
         this.timezone = task.getTimezone();
