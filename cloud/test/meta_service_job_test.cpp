@@ -1896,7 +1896,6 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         ASSERT_EQ(res_code, MetaServiceCode::OK);
         // 3 sc、load、compaction get and remove lock in new or old way
         bool load_or_sc_succeed = false;
-        bool compaction_succeed = false;
         std::srand(std::time(0));
         for (int i = 0; i < 10; i++) {
             int num = std::rand() % 3;
@@ -1912,8 +1911,7 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
                         load_or_sc_succeed = true;
                     }
                 }
-                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed
-                          << ",compaction_succeed=" << compaction_succeed;
+                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed;
                 break;
             }
             case 1: {
@@ -1924,8 +1922,7 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
                         load_or_sc_succeed = true;
                     }
                 }
-                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed
-                          << ",compaction_succeed=" << compaction_succeed;
+                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed;
                 break;
             }
             case 2: {
@@ -1938,8 +1935,6 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
                         compaction_succeed = true;
                     }
                 }
-                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed
-                          << ",compaction_succeed=" << compaction_succeed;
                 break;
             }
             }
@@ -1954,6 +1949,8 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 2501);
         if (load_or_sc_succeed) {
             ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+        } else {
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
     }
 
