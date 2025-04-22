@@ -255,6 +255,7 @@ add_compile_options(-g
 
 add_compile_options(-Wno-unused-parameter
                     $<$<COMPILE_LANGUAGE:CXX>:-Wno-incompatible-pointer-types>
+                    -Wno-unknown-warning-option
                     -Wno-deprecated-declarations
                     -Wno-missing-designated-field-initializers
                     -Wno-sign-compare)
