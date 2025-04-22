@@ -38,6 +38,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -49,6 +50,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import java_cup.runtime.Symbol;
 import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
@@ -800,5 +803,22 @@ public class StmtExecutorTest {
         executor.execute();
 
         Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+    }
+
+    @Test
+    public void testSetSqlHash() {
+        StmtExecutor executor = new StmtExecutor(ctx, "select * from table1");
+        new MockUp<NereidsPlanner>() {
+            @Mock
+            public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) {
+                throw new RuntimeException();
+            }
+        };
+        try {
+            executor.executeInternalQuery();
+        } catch (Exception e) {
+            // do nothing
+        }
+        Assert.assertEquals("a8ec30e5ad0820f8c5bd16a82a4491ca", executor.getContext().getSqlHash());
     }
 }
