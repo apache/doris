@@ -103,16 +103,9 @@ public:
         return _init_rows <= 0 || _blocks.back()->bytes() > INITIAL_BUFFERED_BLOCK_BYTES;
     }
 
-    size_t get_total_rows() const { return _total_rows; }
-    size_t get_topn_filter_rows() const { return _topn_filter_rows; }
-    size_t get_do_topn_count() const { return _do_partition_topn_count; }
-
     vectorized::IColumn::Selector _selector;
     std::vector<std::unique_ptr<vectorized::Block>> _blocks;
-    size_t _total_rows = 0;
     size_t _current_input_rows = 0;
-    size_t _topn_filter_rows = 0;
-    size_t _do_partition_topn_count = 0;
     int64_t _init_rows = 4096;
     bool _is_first_sorter = false;
 
