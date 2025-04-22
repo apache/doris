@@ -219,12 +219,9 @@ public class StreamLoadHandler {
             RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
                     .getRoutineLoadJobByMultiLoadTaskTxnId(txnId);
             if (routineLoadJob == null) {
-                LOG.info("buildMultiTableStreamLoadTask is called, but routineLoadJob is null");
                 return;
             }
             baseTaskInfo.setMultiTableBaseTaskInfo(routineLoadJob);
-            LOG.info("buildMultiTableStreamLoadTask is called isMultiTable: {}, isStrictMode: {}",
-                    routineLoadJob.isMultiTable(), routineLoadJob.isStrictMode());
         } catch (Exception e) {
             LOG.warn("failed to build multi table stream load task: {}", e.getMessage());
         }
