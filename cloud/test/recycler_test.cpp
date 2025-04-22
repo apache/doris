@@ -4070,9 +4070,11 @@ static std::string generate_random_string(int length) {
 
 std::string instance_id = "concurrent_recycle_txn_label_test_" + generate_random_string(10);
 
-int put_single_kv(const std::unique_ptr<Transaction>& txn, int64_t i) {
-    std::string key;
-    std::string val;
+// aaa
+int make_single_txn_related_kvs(const std::unique_ptr<Transaction>& txn, int64_t i,
+                                int64_t expired_kv_num) {
+    std::string recycle_txn_info_key;
+    std::string recycle_txn_info_val;
     int64_t db_id = i;
     int64_t txn_id = 100000 + i;
     int64_t sub_txn_id = 200000 + i;
@@ -4082,105 +4084,102 @@ int put_single_kv(const std::unique_ptr<Transaction>& txn, int64_t i) {
 
     // RecycleTxnKeyInfo -> RecycleTxnPB
     RecycleTxnKeyInfo recycle_txn_key_info {instance_id, db_id, txn_id};
-    recycle_txn_key(recycle_txn_key_info, &key);
+    recycle_txn_key(recycle_txn_key_info, &recycle_txn_info_key);
     RecycleTxnPB recycle_txn_pb;
-    if (i < 8000) {
+    if (i < expired_kv_num) {
         recycle_txn_pb.set_creation_time(current_time - 4 * 24 * 3600 * 1000L);
     } else {
         recycle_txn_pb.set_creation_time(current_time);
     }
     recycle_txn_pb.set_label("recycle_txn_key_info_label_" + std::to_string(i));
-    if (!recycle_txn_pb.SerializeToString(&val)) {
+    if (!recycle_txn_pb.SerializeToString(&recycle_txn_info_val)) {
         LOG_WARNING("failed to serialize recycle txn info")
-                .tag("key", hex(key))
+                .tag("key", hex(recycle_txn_info_key))
                 .tag("db_id", db_id)
                 .tag("txn_id", txn_id);
         return -1;
     }
     LOG(INFO) << fmt::format("instance_id: {}, db_id: {}, label: {}, k: {}", instance_id, db_id,
-                             recycle_txn_pb.label(), hex(key));
-    txn->put(key, val);
+                             recycle_txn_pb.label(), hex(recycle_txn_info_key));
+    txn->put(recycle_txn_info_key, recycle_txn_info_val);
 
     // TxnIndexKey -> TxnIndexPB
-    key.clear();
-    val.clear();
-    key = txn_index_key({instance_id, txn_id});
+    std::string txn_idx_key = txn_index_key({instance_id, txn_id});
+    std::string txn_idx_val;
     TxnIndexPB txn_index_pb;
-    if (!txn_index_pb.SerializeToString(&val)) {
+    if (!txn_index_pb.SerializeToString(&txn_idx_val)) {
         LOG_WARNING("failed to serialize txn index")
-                .tag("key", hex(key))
+                .tag("key", hex(txn_idx_key))
                 .tag("db_id", db_id)
                 .tag("txn_id", txn_id);
         return -1;
     }
-    txn->put(key, val);
+    txn->put(txn_idx_key, txn_idx_val);
 
     // TxnInfoKey -> TxnInfoPB
-    key = txn_info_key({instance_id, db_id, txn_id});
+    std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+    std::string info_val;
     TxnInfoPB txn_info_pb;
     txn_info_pb.add_sub_txn_ids(sub_txn_id);
     txn_info_pb.set_label("txn_info_label_" + std::to_string(i));
-    if (!txn_info_pb.SerializeToString(&val)) {
+    if (!txn_info_pb.SerializeToString(&info_val)) {
         LOG_WARNING("failed to serialize txn info")
-                .tag("key", hex(key))
+                .tag("key", hex(info_key))
                 .tag("db_id", db_id)
                 .tag("txn_id", txn_id);
         return -1;
     }
-    txn->put(key, val);
+    txn->put(info_key, info_val);
 
     // SubTxnIndex -> TxnIndexPB
-    key.clear();
-    val.clear();
-    key = txn_index_key({instance_id, sub_txn_id});
+    std::string idx_key = txn_index_key({instance_id, sub_txn_id});
+    std::string idx_val;
     TxnIndexPB sub_txn_index_pb;
-    if (!sub_txn_index_pb.SerializeToString(&val)) {
+    if (!sub_txn_index_pb.SerializeToString(&idx_val)) {
         LOG_WARNING("failed to serialize sub txn index")
-                .tag("key", hex(key))
+                .tag("key", hex(idx_key))
                 .tag("db_id", db_id)
                 .tag("txn_id", txn_id);
         return -1;
     }
-    txn->put(key, val);
+    txn->put(idx_key, idx_val);
 
     // TxnLabel -> TxnLabelPB
-    key.clear();
-    val.clear();
-    txn_label_key({instance_id, db_id, txn_info_pb.label()}, &key);
+    std::string label_key;
+    std::string label_val;
+    txn_label_key({instance_id, db_id, txn_info_pb.label()}, &label_key);
     TxnLabelPB txn_label_pb;
     txn_label_pb.add_txn_ids(txn_id);
     LOG(INFO) << fmt::format("instance_id: {}, db_id: {}, label: {}, k: {}", instance_id, db_id,
-                             txn_info_pb.label(), hex(key));
-    if (!txn_label_pb.SerializeToString(&val)) {
+                             txn_info_pb.label(), hex(label_key));
+    if (!txn_label_pb.SerializeToString(&label_val)) {
         LOG_WARNING("failed to serialize txn label")
-                .tag("key", hex(key))
+                .tag("key", hex(label_key))
                 .tag("db_id", db_id)
                 .tag("txn_id", txn_id);
         return -1;
     }
-    MemTxnKv::gen_version_timestamp(123456790, 0, &val);
-    txn->put(key, val);
+    MemTxnKv::gen_version_timestamp(123456790, 0, &label_val);
+    txn->put(label_key, label_val);
 
     return 0;
 }
 
-void put_kv(std::shared_ptr<cloud::TxnKv> txn_kv) {
+// bbb
+void make_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t total_kv_num,
+                                int64_t expired_kv_num) {
     using namespace doris::cloud;
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    for (int64_t i = 0; i < 5000; i++) {
-        put_single_kv(txn, i);
-    }
-    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    for (int64_t i = 5000; i < 10000; i++) {
-        put_single_kv(txn, i);
+    for (int64_t i = 0; i < total_kv_num; i++) {
+        make_single_txn_related_kvs(txn, i, expired_kv_num);
     }
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
-void check_single_kv(const std::string_view& k, const std::string_view& v,
-                     std::shared_ptr<cloud::TxnKv> txn_kv) {
+// ccc
+void check_single_txn_info_kvs(const std::string_view& k, const std::string_view& v,
+                               std::shared_ptr<cloud::TxnKv> txn_kv) {
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
 
@@ -4225,16 +4224,15 @@ void check_single_kv(const std::string_view& k, const std::string_view& v,
                            txn_info.label(), hex(label_key));
 }
 
-void check_kv(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t size) {
+// ddd
+void check_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t size) {
     using namespace doris::cloud;
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     RecycleTxnKeyInfo recycle_txn_key_info0 {instance_id, 0, 0};
     RecycleTxnKeyInfo recycle_txn_key_info1 {instance_id, INT64_MAX, INT64_MAX};
-    std::string begin;
-    std::string end;
-    recycle_txn_key(recycle_txn_key_info0, &begin);
-    recycle_txn_key(recycle_txn_key_info1, &end);
+    std::string begin = recycle_txn_key(recycle_txn_key_info0);
+    std::string end = recycle_txn_key(recycle_txn_key_info1);
     int64_t total_kv = 0;
 
     std::unique_ptr<RangeGetIterator> it;
@@ -4256,7 +4254,7 @@ void check_kv(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t size) {
                 begin = k;
                 VLOG_DEBUG << "iterator has no more kvs. key=" << hex(k);
             }
-            check_single_kv(k, v, txn_kv);
+            check_single_txn_info_kvs(k, v, txn_kv);
             total_kv++;
         }
         begin.push_back('\x00'); // Update to next smallest key for iteration
@@ -4267,20 +4265,23 @@ void check_kv(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t size) {
 TEST(RecyclerTest, concurrent_recycle_txn_label_test) {
     config::recycle_pool_parallelism = 32;
     cloud::config::init(nullptr, true);
-    cloud::config::fdb_cluster_file_path = "fdb.cluster";
-    auto fdb_txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
-    ASSERT_TRUE(fdb_txn_kv.get()) << "exit get FdbTxnKv error" << std::endl;
-    ASSERT_EQ(fdb_txn_kv->init(), 0) << "exit inti FdbTxnKv error" << std::endl;
-    put_kv(fdb_txn_kv);
-    check_kv(fdb_txn_kv, 10000);
+    auto mem_txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_TRUE(mem_txn_kv.get()) << "exit get MemTxnKv error" << std::endl;
+    make_multiple_txn_info_kvs(mem_txn_kv, 10000, 8000);
+    check_multiple_txn_info_kvs(mem_txn_kv, 10000);
 
     InstanceInfoPB instance;
     instance.set_instance_id(instance_id);
-    InstanceRecycler recycler(fdb_txn_kv, instance, thread_group,
-                              std::make_shared<TxnLazyCommitter>(fdb_txn_kv));
+    InstanceRecycler recycler(mem_txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(mem_txn_kv));
     ASSERT_EQ(recycler.init(), 0);
+    auto start = std::chrono::steady_clock::now();
     ASSERT_EQ(recycler.recycle_expired_txn_label(), 0);
-    check_kv(fdb_txn_kv, 2000);
+    auto finish = std::chrono::steady_clock::now();
+    std::cout << "recycle expired txn label cost="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
+              << "ms" << std::endl;
+    check_multiple_txn_info_kvs(mem_txn_kv, 2000);
 }
 
 } // namespace doris::cloud
