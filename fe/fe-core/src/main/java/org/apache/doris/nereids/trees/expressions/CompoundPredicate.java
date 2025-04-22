@@ -117,6 +117,14 @@ public abstract class CompoundPredicate extends Expression implements ExpectsInp
     }
 
     @Override
+    public String getFingerprint() {
+        StringBuilder sb = new StringBuilder();
+        children().forEach(c -> sb.append(c.getFingerprint()).append(","));
+        sb.deleteCharAt(sb.length() - 1);
+        return symbol + "[" + sb + "]";
+    }
+
+    @Override
     public String shapeInfo() {
         StringBuilder sb = new StringBuilder();
         children().forEach(c -> sb.append(c.shapeInfo()).append(","));
