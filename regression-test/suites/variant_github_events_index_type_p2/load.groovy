@@ -165,7 +165,8 @@ suite("test_variant_github_events_index_type_p2", "nonConcurrent,p2"){
                 MATCH_NAME 'payload.issue.number' : int,
                 MATCH_NAME 'payload.comment.body' : string,
                 MATCH_NAME 'type.name' : string
-            > NULL
+            > NULL,
+            INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true")
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
@@ -178,27 +179,11 @@ suite("test_variant_github_events_index_type_p2", "nonConcurrent,p2"){
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-2.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-3.json'}""")
 
-    
-
-    // // // build inverted index at middle of loading the data
-    // // // ADD INDEX
-    sql """ ALTER TABLE github_events ADD INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") """
-    wait_for_latest_op_on_table_finish("github_events", timeout)
-
     // // // 2022
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-16.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-10.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-22.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
-
-    if (!isCloudMode()) {
-        // BUILD INDEX and expect state is FINISHED
-        sql """ BUILD INDEX idx_var ON  github_events"""
-        def state = wait_for_last_build_index_on_table_finish("github_events", timeout)
-        assertEquals("FINISHED", state)
-    }
-
-    
 
     // // // add bloom filter at the end of loading data
 
@@ -212,7 +197,9 @@ suite("test_variant_github_events_index_type_p2", "nonConcurrent,p2"){
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""
     sql """select * from github_events order by k limit 10"""
+    qt_sql """select count()  from github_events where v["repo"]["name"] match 'xpressengine' """
     qt_sql """select count()  from github_events where v["repo"]["name"] match 'apache';"""
+
     sql "DROP TABLE IF EXISTS github_events2"
     sql """
      CREATE TABLE IF NOT EXISTS github_events2 (
@@ -244,7 +231,7 @@ suite("test_variant_github_events_index_type_p2", "nonConcurrent,p2"){
     qt_sql """select count()  from github_events2 where v["repo"]["name"] match 'apache';"""
 
 
-     sql "DROP TABLE IF EXISTS github_events3"
+    sql "DROP TABLE IF EXISTS github_events3"
     sql """
      CREATE TABLE IF NOT EXISTS github_events3 (
             k bigint,
@@ -268,7 +255,20 @@ suite("test_variant_github_events_index_type_p2", "nonConcurrent,p2"){
     sql """insert into github_events3 select * from github_events order by k"""
     // query with inverted index
     sql """ set enable_match_without_inverted_index = false """
+    qt_sql """select count()  from github_events3 where v["repo"]["name"] match 'xpressengine' """
     qt_sql """select count()  from github_events3 where v["repo"]["name"] match 'apache';"""
+    
+
+    sql """ drop table if exists github_events4 """
+    sql """ create table github_events4 like github_events """
+    sql """ insert into github_events4 select * from github_events order by k """
+    sql """ drop table github_events """
+    sql """ alter table github_events4 rename github_events """
+    sql """ alter table github_events set ("bloom_filter_columns" = "v"); """
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='github_events' ORDER BY createtime DESC LIMIT 1 """
+        time 600
+    }
 
     // specify schema
     // sql "alter table github_events2 modify column v variant<`payload.comment.id`:int,`payload.commits.url`:text,`payload.forkee.has_pages`:tinyint>"
