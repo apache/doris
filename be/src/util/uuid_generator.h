@@ -40,12 +40,16 @@ namespace doris {
 //    and storage compared to purely random UUIDs (like v4)
 // 5. Future-proof - Follows the latest UUID standard with improvements over older versions
 
+// Note: Our implementation differs slightly from the standard UUIDv7 specification by
+// using a counter instead of random bits in the "rand_a" field to further enhance
+// uniqueness when generating multiple UUIDs in rapid succession.
+
 // 0                   1                   2                   3
 // 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 // |                           unix_ts_ms                          |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-// |          unix_ts_ms           |  ver  |       rand_a          |
+// |          unix_ts_ms           |  ver  |       counter         |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 // |var|                        rand_b                             |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
