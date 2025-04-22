@@ -156,7 +156,7 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data,
     }
 
     // serially execute sync to reduce unnecessary network overhead
-    std::lock_guard lock(_sync_meta_lock);
+    std::unique_lock lock(_sync_meta_lock);
     if (query_version > 0) {
         std::shared_lock rlock(_meta_lock);
         if (_max_version >= query_version) {
@@ -164,7 +164,8 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data,
         }
     }
 
-    auto st = _engine.meta_mgr().sync_tablet_rowsets(this, warmup_delta_data, true, false, stats);
+    auto st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, warmup_delta_data, true,
+                                                              false, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
@@ -181,7 +182,7 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
     }
 
     // Serially execute sync to reduce unnecessary network overhead
-    std::lock_guard lock(_sync_meta_lock);
+    std::unique_lock lock(_sync_meta_lock);
 
     {
         std::shared_lock rlock(_meta_lock);
@@ -216,7 +217,7 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
         _max_version = -1;
     }
 
-    st = _engine.meta_mgr().sync_tablet_rowsets(this, false, true, false, stats);
+    st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, false, true, false, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }

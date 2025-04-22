@@ -63,6 +63,7 @@ CloudSchemaChangeJob::CloudSchemaChangeJob(CloudStorageEngine& cloud_storage_eng
 CloudSchemaChangeJob::~CloudSchemaChangeJob() = default;
 
 Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::process_alter_tablet.block", DBUG_BLOCK);
     // new tablet has to exist
     _new_tablet = DORIS_TRY(_cloud_storage_engine.tablet_mgr().get_tablet(request.new_tablet_id));
     if (_new_tablet->tablet_state() == TABLET_RUNNING) {
@@ -399,6 +400,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
                  _new_tablet->tablet_id());
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR>("injected retryable error");
     });
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_convert_historical_rowsets.before.commit_job",
+                    DBUG_BLOCK);
     auto st = _cloud_storage_engine.meta_mgr().commit_tablet_job(job, &finish_resp);
     if (!st.ok()) {
         if (finish_resp.status().code() == cloud::JOB_ALREADY_SUCCESS) {
@@ -416,6 +419,9 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     }
     const auto& stats = finish_resp.stats();
     {
+        // to prevent the converted historical rowsets be replaced by rowsets written on new tablet
+        // during double write phase by `CloudMetaMgr::sync_tablet_rowsets` in another thread
+        std::unique_lock lock {_new_tablet->get_sync_meta_lock()};
         std::unique_lock wlock(_new_tablet->get_header_lock());
         _new_tablet->add_rowsets(std::move(_output_rowsets), true, wlock);
         _new_tablet->set_cumulative_layer_point(_output_cumulative_point);
