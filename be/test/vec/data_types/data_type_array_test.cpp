@@ -502,6 +502,10 @@ TEST_F(DataTypeArrayTest, SerdeArrowTest) {
     CommonDataTypeSerdeTest::assert_arrow_format(array_cols, types);
 }
 
+TEST_F(DataTypeArrayTest, SerdeOrcTest) {
+    CommonDataTypeSerdeTest::assert_orc_writer(array_columns[0], serdes[0]);
+}
+
 //================== datatype for array ut test ==================
 TEST_F(DataTypeArrayTest, GetNumberOfDimensionsTest) {
     // for array-scalar

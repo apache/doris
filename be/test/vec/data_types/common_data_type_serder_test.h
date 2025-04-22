@@ -35,6 +35,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exec/format/orc/orc_memory_pool.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
@@ -437,6 +438,27 @@ public:
         EXPECT_EQ(frist_block->dump_data(), second_block->dump_data());
     }
 
+    static void assert_orc_writer(MutableColumnPtr& load_col, DataTypeSerDeSPtr serder) {
+        // Test write_column_to_orc
+        {
+            std::unique_ptr<orc::MemoryPool> orc_pool(new ORCMemoryPool());
+            orc::StringVectorBatch batch(uint64_t(1024), *orc_pool);
+            batch.notNull.resize(load_col->size());
+            NullMap null_map;
+            null_map.resize(load_col->size(), 0);
+            std::vector<StringRef> buffer_list;
+            Defer defer {[&]() {
+                for (auto& bufferRef : buffer_list) {
+                    if (bufferRef.data) {
+                        free(const_cast<char*>(bufferRef.data));
+                    }
+                }
+            }};
+            auto status = serder->write_column_to_orc("UTC", *load_col, &null_map, &batch, 0,
+                                                      load_col->size(), buffer_list);
+            EXPECT_TRUE(status.ok());
+        }
+    }
     // assert rapidjson format
     // now rapidjson write_one_cell_to_json and read_one_cell_from_json only used in column_object
     // can just be replaced by jsonb format
