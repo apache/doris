@@ -885,6 +885,16 @@ public class StatisticsUtil {
         return false;
     }
 
+    public static boolean isEnableHboInfoCollection() {
+        try {
+            return findConfigFromGlobalSessionVar(
+                    SessionVariable.ENABLE_HBO_INFO_COLLECTION).isEnableHboInfoCollection();
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of enable hbo optimization, return false by default", e);
+        }
+        return false;
+    }
+
     public static int getInsertMergeCount() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.STATS_INSERT_MERGE_ITEM_COUNT)
