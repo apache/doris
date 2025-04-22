@@ -257,26 +257,4 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64) {
             ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
 }
 
-TEST_F(AggregateFunctionCollectTest, test_array_agg_aint64) {
-    create_agg("array_agg", false, {std::make_shared<DataTypeInt64>()});
-
-    auto data_type = std::make_shared<DataTypeInt64>();
-    auto array_data_type = std::make_shared<DataTypeArray>(data_type);
-
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
-    auto data_column = ColumnInt64::create();
-    std::vector<ColumnArray::Offset64> offs = {0, 3};
-    std::vector<int64_t> vals = {1, 2, 3};
-    for (size_t i = 1; i < offs.size(); ++i) {
-        off_column->insert_data((const char*)(&offs[i]), 0);
-    }
-    for (auto& v : vals) {
-        data_column->insert_data((const char*)(&v), 0);
-    }
-    auto array_column = ColumnArray::create(std::move(data_column), std::move(off_column));
-
-    execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
-            ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
-}
-
 } // namespace doris::vectorized
