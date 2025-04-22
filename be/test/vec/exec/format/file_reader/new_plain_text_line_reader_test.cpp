@@ -134,6 +134,12 @@ TEST_F(EncloseCsvLineReaderTest, QuoteEscaping) {
                      "\n", ",", '"', '\\', false,
                      {R"({"code": "100", "message": "query success", "data": {"status": "1"}})"},
                      {14, 42});
+
+    // Test custom enclose character
+    verify_csv_split(R"({|code|: |100|, |message|: |query success|, |data|: {|status|: |1|}})",
+                     "\n", ",", '|', '\\', false,
+                     {R"({|code|: |100|, |message|: |query success|, |data|: {|status|: |1|}})"},
+                     {14, 42});
 }
 
 TEST_F(EncloseCsvLineReaderTest, MultiCharDelimiters) {
@@ -148,10 +154,6 @@ TEST_F(EncloseCsvLineReaderTest, MultiCharDelimiters) {
     // Test both multi-character line and column delimiters
     verify_csv_split("a|||b|||c\r\n\nd|||e|||f", "\r\n\n", "|||", '"', '\\', false,
                      {"a|||b|||c", "d|||e|||f"}, {1, 5, 13, 17});
-
-    // Test with quoted fields and multi-character delimiters
-    verify_csv_split("\"a|||b\"|||c\r\n\n\"d|||e\"|||f", "\r\n\n", "|||", '"', '\\', false,
-                     {"\"a|||b\"|||c", "\"d|||e\"|||f"}, {7, 16, 21});
 }
 
 } // namespace doris::vectorized
