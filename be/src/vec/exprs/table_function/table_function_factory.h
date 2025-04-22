@@ -39,9 +39,9 @@ public:
     const static std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
             _function_map;
 
-    /// @TEMPORARY: for be_exec_version=8. replace function to old version.
+    /// @TEMPORARY: for be_exec_version=7. replace function to old version.
     const static std::unordered_map<std::string, std::string> _function_to_replace;
-    const static int NEWEST_VERSION_EXPLODE_MULTI_PARAM = 8;
+    const static int NEWEST_VERSION_EXPLODE_MULTI_PARAM = 7;
 
 private:
     /// @TEMPORARY: for be_exec_version=8

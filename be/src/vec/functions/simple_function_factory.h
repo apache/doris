@@ -115,8 +115,8 @@ class SimpleFunctionFactory {
     /// @TEMPORARY: for be_exec_version=4
     constexpr static int NEWEST_VERSION_FUNCTION_SUBSTITUTE = 4;
 
-    /// @TEMPORARY: for be_exec_version=8.
-    constexpr static int NEWEST_VERSION_EXPLODE_MULTI_PARAM = 8;
+    /// @TEMPORARY: for be_exec_version=7.
+    constexpr static int NEWEST_VERSION_EXPLODE_MULTI_PARAM = 7;
 
 public:
     void register_function(const std::string& name, const Creator& ptr) {
@@ -148,7 +148,7 @@ public:
         register_function(name, &createDefaultFunction<Function>);
     }
 
-    /// @TEMPORARY: for be_exec_version=8
+    /// @TEMPORARY: for be_exec_version=7
     template <class Function>
     void register_alternative_function(std::string name) {
         static std::string suffix {"_old"};
@@ -219,7 +219,7 @@ private:
     FunctionCreators function_creators;
     FunctionIsVariadic function_variadic_set;
     std::unordered_map<std::string, std::string> function_alias;
-    /// @TEMPORARY: for be_exec_version=8. replace function to old version.
+    /// @TEMPORARY: for be_exec_version=7. replace function to old version.
     std::unordered_map<std::string, std::string> function_to_replace;
 
     template <typename Function>
@@ -227,7 +227,7 @@ private:
         return std::make_shared<DefaultFunctionBuilder>(Function::create());
     }
 
-    /// @TEMPORARY: for be_exec_version=8
+    /// @TEMPORARY: for be_exec_version=7
     void temporary_function_update(int fe_version_now, std::string& name) {
         // replace if fe is old version.
         if (fe_version_now < NEWEST_VERSION_EXPLODE_MULTI_PARAM &&

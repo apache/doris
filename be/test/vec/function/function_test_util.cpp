@@ -176,33 +176,6 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
         type = std::make_shared<DataTypeArray>(sub_type);
         return ret + 1;
     }
-    case TypeIndex::Map: {
-        desc.type = doris::PrimitiveType::TYPE_MAP;
-        ut_type::UTDataTypeDesc key_desc;
-        DataTypePtr key_type = nullptr;
-        ut_type::UTDataTypeDesc value_desc;
-        DataTypePtr value_type = nullptr;
-        ++index;
-        size_t ret = type_index_to_data_type(input_types, index, key_desc, key_type);
-        if (ret <= 0) {
-            return ret;
-        }
-        ++index;
-        ret = type_index_to_data_type(input_types, index, value_desc, value_type);
-        if (ret <= 0) {
-            return ret;
-        }
-        desc.children.push_back(key_desc.type_desc);
-        desc.children.push_back(value_desc.type_desc);
-        if (key_desc.is_nullable) {
-            key_type = make_nullable(key_type);
-        }
-        if (value_desc.is_nullable) {
-            value_type = make_nullable(value_type);
-        }
-        type = std::make_shared<DataTypeMap>(key_type, value_type);
-        return ret + 1;
-    }
     case TypeIndex::Struct: {
         desc.type = doris::PrimitiveType::TYPE_STRUCT;
         ++index;

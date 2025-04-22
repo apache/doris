@@ -37,40 +37,10 @@
 
 namespace doris::vectorized {
 
-#include "common/compile_check_begin.h"
 #include "vec/columns/column_struct.h"
 
 VExplodeV2TableFunction::VExplodeV2TableFunction() {
     _fn_name = "vexplode";
-}
-
-Status VExplodeV2TableFunction::_process_init_variant(Block* block, int value_column_idx,
-                                                      int children_column_idx) {
-    // explode variant array
-    auto column_without_nullable = remove_nullable(block->get_by_position(value_column_idx).column);
-    auto column = column_without_nullable->convert_to_full_column_if_const();
-    const auto& variant_column = assert_cast<const ColumnObject&>(*column);
-    _multi_detail[children_column_idx].output_as_variant = true;
-    if (!variant_column.is_null_root()) {
-        _array_columns[children_column_idx] = variant_column.get_root();
-        // We need to wrap the output nested column within a variant column.
-        // Otherwise the type is missmatched
-        const auto* array_type = check_and_get_data_type<DataTypeArray>(
-                remove_nullable(variant_column.get_root_type()).get());
-        if (array_type == nullptr) {
-            return Status::NotSupported("explode not support none array type {}",
-                                        variant_column.get_root_type()->get_name());
-        }
-        _multi_detail[children_column_idx].nested_type = array_type->get_nested_type();
-    } else {
-        // null root, use nothing type
-        _array_columns[children_column_idx] = ColumnNullable::create(
-                ColumnArray::create(ColumnNothing::create(0)), ColumnUInt8::create(0));
-        _array_columns[children_column_idx]->assume_mutable()->insert_many_defaults(
-                variant_column.size());
-        _multi_detail[children_column_idx].nested_type = std::make_shared<DataTypeNothing>();
-    }
-    return Status::OK();
 }
 
 Status VExplodeV2TableFunction::process_init(Block* block, RuntimeState* state) {
@@ -86,13 +56,8 @@ Status VExplodeV2TableFunction::process_init(Block* block, RuntimeState* state) 
     for (int i = 0; i < _expr_context->root()->children().size(); i++) {
         RETURN_IF_ERROR(_expr_context->root()->children()[i]->execute(_expr_context.get(), block,
                                                                       &value_column_idx));
-        if (WhichDataType(remove_nullable(block->get_by_position(value_column_idx).type))
-                    .is_variant_type()) {
-            RETURN_IF_ERROR(_process_init_variant(block, value_column_idx, i));
-        } else {
-            _array_columns[i] = block->get_by_position(value_column_idx)
-                                        .column->convert_to_full_column_if_const();
-        }
+        _array_columns[i] = block->get_by_position(value_column_idx)
+                                    .column->convert_to_full_column_if_const();
         if (!extract_column_array_info(*_array_columns[i], _multi_detail[i])) {
             return Status::NotSupported(
                     "column type {} not supported now",
@@ -240,7 +205,5 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
     forward(max_step);
     return max_step;
 }
-
-#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized
