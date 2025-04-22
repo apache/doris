@@ -645,7 +645,7 @@ struct FunctionJsonArrayImpl {
                               rapidjson::Document::AllocatorType& allocator,
                               const std::vector<const ColumnUInt8*>& nullmaps) {
         for (int i = 0; i < data_columns.size() - 1; i++) {
-            constexpr_int_match<'0', '6', Reducer>::run(type_flags[i], objects, allocator,
+            constexpr_int_match<'0', '7', Reducer>::run(type_flags[i], objects, allocator,
                                                         data_columns[i], nullmaps[i]);
         }
     }
@@ -1523,7 +1523,7 @@ public:
                               const std::vector<const ColumnUInt8*>& nullmaps,
                               std::vector<bool>& column_is_consts) {
         for (auto col = 1; col + 1 < data_columns.size() - 1; col += 2) {
-            constexpr_int_match<'0', '6', Reducer>::run(
+            constexpr_int_match<'0', '7', Reducer>::run(
                     type_flags[col + 1], objects, json_paths[col / 2], data_columns[col + 1],
                     nullmaps[col + 1], column_is_consts[col + 1]);
         }
