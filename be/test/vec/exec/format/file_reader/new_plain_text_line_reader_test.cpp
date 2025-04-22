@@ -36,6 +36,7 @@ protected:
         std::vector<std::string> actual_lines;
 
         while (pos < size) {
+            ctx.refresh();
             const auto* line_end = ctx.read_line(data + pos, size - pos);
             if (!line_end) {
                 actual_lines.emplace_back(reinterpret_cast<const char*>(data + pos), size - pos);
@@ -70,7 +71,7 @@ protected:
     void verify_csv_split(const std::string& input, const std::string& line_delim,
                           const std::string& col_sep, char enclose, char escape, bool keep_cr,
                           const std::vector<std::string>& expected_lines,
-                          const std::vector<size_t>& expected_col_positions) {
+                          const std::vector<std::vector<size_t>>& expected_col_positions) {
         EncloseCsvLineReaderContext ctx(line_delim, line_delim.size(), col_sep, col_sep.size(), 10,
                                         enclose, escape, keep_cr);
 
@@ -78,19 +79,21 @@ protected:
         size_t pos = 0;
         size_t size = input.size();
         std::vector<std::string> actual_lines;
-        std::vector<size_t> actual_col_positions;
+        std::vector<std::vector<size_t>> actual_col_positions;
 
         while (pos < size) {
-            const uint8_t* line_end = ctx.read_line(data, size);
+            ctx.refresh();
+            const uint8_t* line_end = ctx.read_line(data + pos, size - pos);
             if (!line_end) {
                 actual_lines.emplace_back(reinterpret_cast<const char*>(data + pos), size - pos);
+                actual_col_positions.push_back(ctx.column_sep_positions());
                 break;
             }
             size_t line_len = line_end - (data + pos);
             actual_lines.emplace_back(reinterpret_cast<const char*>(data + pos), line_len);
+            actual_col_positions.push_back(ctx.column_sep_positions());
             pos += line_len + ctx.line_delimiter_length();
         }
-        actual_col_positions = ctx.column_sep_positions();
 
         ASSERT_EQ(expected_lines, actual_lines);
         ASSERT_EQ(expected_col_positions, actual_col_positions);
@@ -99,61 +102,67 @@ protected:
 
 // Basic CSV format test cases
 TEST_F(EncloseCsvLineReaderTest, CsvBasic) {
-    verify_csv_split("a,b,c\nd,e,f", "\n", ",", '"', '\\', false, {"a,b,c", "d,e,f"}, {1, 3, 7, 9});
+    verify_csv_split("a,b,c\nd,e,f", "\n", ",", '"', '\\', false, {"a,b,c", "d,e,f"},
+                     {{1, 3}, {1, 3}});
 
     verify_csv_split("\"a,x\",b,c\n\"d,y\",e,f", "\n", ",", '"', '\\', false,
-                     {"\"a,x\",b,c", "\"d,y\",e,f"}, {5, 7, 12, 15, 17});
+                     {"\"a,x\",b,c", "\"d,y\",e,f"}, {{5, 7}, {5, 7}});
 
     verify_csv_split("\"a\"\"x\",b,c\n\"d\\\"y\",e,f", "\n", ",", '"', '\\', false,
-                     {R"("a""x",b,c)", R"("d\"y",e,f)"}, {6, 8, 17, 19});
+                     {R"("a""x",b,c)", R"("d\"y",e,f)"}, {{6, 8}, {6, 8}});
 
     verify_csv_split("a||b||c\nd||e||f", "\n", "||", '"', '\\', false, {"a||b||c", "d||e||f"},
-                     {1, 4, 9, 12});
+                     {{1, 4}, {1, 4}});
 }
 
 // Edge cases and corner scenarios
 TEST_F(EncloseCsvLineReaderTest, EdgeCases) {
-    verify_csv_split("\n\na,b,c", "\n", ",", '"', '\\', false, {"", "", "a,b,c"}, {3, 5});
+    verify_csv_split("\n\na,b,c", "\n", ",", '"', '\\', false, {"", "", "a,b,c"}, {{}, {}, {1, 3}});
 
-    verify_csv_split("\"abc,def\nghi,jkl", "\n", ",", '"', '\\', false, {"\"abc,def\nghi,jkl"}, {});
+    verify_csv_split("\"abc,def\nghi,jkl", "\n", ",", '"', '\\', false, {"\"abc,def\nghi,jkl"},
+                     {{}});
 
     verify_csv_split("a,b\r\nc,d\ne,f", "\r\n", ",", '"', '\\', false, {"a,b", "c,d\ne,f"},
-                     {1, 6, 10});
+                     {{1}, {1, 5}});
 
-    verify_csv_split(R"(\,\"\n,b,c)", "\n", ",", '"', '\\', false, {R"(\,\"\n,b,c)"}, {1, 6, 8});
+    verify_csv_split(R"(\,\"\n,b,c)", "\n", ",", '"', '\\', false, {R"(\,\"\n,b,c)"}, {{1, 6, 8}});
 }
 
 TEST_F(EncloseCsvLineReaderTest, QuoteEscaping) {
     // Test multiple quoted fields with double-quote escaping in one line
     verify_csv_split(R"("hello ""world\n""","foo ""bar""","test ""quote"" here")", "\n", ",", '"',
                      '\\', false, {R"("hello ""world\n""","foo ""bar""","test ""quote"" here")"},
-                     {19, 33});
+                     {{19, 33}});
 
     // Test JSON-like string with escaped quotes
-    verify_csv_split(R"({"code": "100", "message": "query success", "data": {"status": "1"}})",
-                     "\n", ",", '"', '\\', false,
-                     {R"({"code": "100", "message": "query success", "data": {"status": "1"}})"},
-                     {14, 42});
+    verify_csv_split(
+            R"({""code"": ""100"", ""message"": ""query success"", ""data"": {""status"": ""1""}})",
+            "\n", ",", '"', '\\', false,
+            {R"({""code"": ""100"", ""message"": ""query success"", ""data"": {""status"": ""1""}})"},
+            {{18, 50}});
 
     // Test custom enclose character
     verify_csv_split(R"({|code|: |100|, |message|: |query success|, |data|: {|status|: |1|}})",
                      "\n", ",", '|', '\\', false,
                      {R"({|code|: |100|, |message|: |query success|, |data|: {|status|: |1|}})"},
-                     {14, 42});
+                     {{14, 42}});
 }
 
 TEST_F(EncloseCsvLineReaderTest, MultiCharDelimiters) {
     // Test multi-character line delimiter
     verify_csv_split("a,b,c\r\n\nd,e,f", "\r\n\n", ",", '"', '\\', false, {"a,b,c", "d,e,f"},
-                     {1, 3, 9, 11});
+                     {{1, 3}, {1, 3}});
 
     // Test multi-character column delimiter
     verify_csv_split("a|||b|||c\nd|||e|||f", "\n", "|||", '"', '\\', false,
-                     {"a|||b|||c", "d|||e|||f"}, {1, 5, 11, 15});
+                     {"a|||b|||c", "d|||e|||f"}, {{1, 5}, {1, 5}});
 
     // Test both multi-character line and column delimiters
     verify_csv_split("a|||b|||c\r\n\nd|||e|||f", "\r\n\n", "|||", '"', '\\', false,
-                     {"a|||b|||c", "d|||e|||f"}, {1, 5, 13, 17});
+                     {"a|||b|||c", "d|||e|||f"}, {{1, 5}, {1, 5}});
+
+    verify_csv_split("\"a|||b\"|||c\r\n\n\"d|||e\"|||f", "\r\n\n", "|||", '"', '\\', false,
+                     {"\"a|||b\"|||c", "\"d|||e\"|||f"}, {{7}, {7}});
 }
 
 } // namespace doris::vectorized
