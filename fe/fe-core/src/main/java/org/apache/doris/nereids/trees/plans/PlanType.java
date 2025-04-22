@@ -343,5 +343,8 @@ public enum PlanType {
     TRANSACTION_ROLLBACK_COMMAND,
     KILL_ANALYZE_JOB_COMMAND,
     DROP_ANALYZE_JOB_COMMAND,
-    CREATE_USER_COMMAND
+    CREATE_USER_COMMAND,
+    Grant_Role_Command,
+    Grant_Resource_Privilege_Command,
+    Grant_Table_Privilege_Command
 }

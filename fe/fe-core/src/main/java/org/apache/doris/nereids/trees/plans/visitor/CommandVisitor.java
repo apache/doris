@@ -93,6 +93,9 @@ import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
@@ -983,5 +986,18 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateUserCommand(CreateUserCommand createUserCommand, C context) {
         return visitCommand(createUserCommand, context);
+    }
+
+    default R visitGrantRoleCommand(GrantRoleCommand grantRoleCommand, C context) {
+        return visitCommand(grantRoleCommand, context);
+    }
+
+    default R visitGrantTablePrivilegeCommand(GrantTablePrivilegeCommand grantTablePrivilegeCommand, C context) {
+        return visitCommand(grantTablePrivilegeCommand, context);
+    }
+
+    default R visitGrantResourcePrivilegeCommand(GrantResourcePrivilegeCommand grantResourcePrivilegeCommand,
+            C context) {
+        return visitCommand(grantResourcePrivilegeCommand, context);
     }
 }

@@ -28,14 +28,20 @@ import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
+import org.apache.doris.analysis.ResourcePattern;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.WorkloadGroupPattern;
+import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.catalog.BuiltinTableGeneratingFunctions;
@@ -607,6 +613,9 @@ import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
@@ -869,6 +878,7 @@ import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.system.NodeType;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
@@ -1908,6 +1918,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             return ctx.identifier().getText();
         }
+    }
+
+    @Override
+    public String visitIdentifierOrTextOrAsterisk(DorisParser.IdentifierOrTextOrAsteriskContext ctx) {
+        if (ctx.ASTERISK() != null) {
+            return stripQuotes(ctx.ASTERISK().getText());
+        } else if (ctx.STRING_LITERAL() != null) {
+            return ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
+        } else {
+            return ctx.identifier().getText();
+        }
+    }
+
+    @Override
+    public List<String> visitMultipartIdentifierOrAsterisk(DorisParser.MultipartIdentifierOrAsteriskContext ctx) {
+        return ctx.parts.stream()
+            .map(RuleContext::getText)
+            .collect(ImmutableList.toImmutableList());
     }
 
     @Override
@@ -6528,6 +6556,117 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitTransactionRollback(DorisParser.TransactionRollbackContext ctx) {
         return new TransactionRollbackCommand();
+    }
+
+    @Override
+    public LogicalPlan visitGrantTablePrivilege(DorisParser.GrantTablePrivilegeContext ctx) {
+        List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
+
+        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx.multipartIdentifierOrAsterisk());
+        int size = parts.size();
+        String tbl = parts.get(size - 1);
+        String ctl = "";
+        String db = "";
+
+        if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
+            tbl = tbl.toLowerCase();
+        }
+        if (size >= 2) {
+            db = parts.get(size - 2);
+        }
+        if (size >= 3) {
+            ctl = parts.get(size - 3);
+        }
+        TablePattern tablePattern = new TablePattern(ctl, db, tbl);
+
+        if (ctx.ROLE() != null) {
+            String role = visitIdentifierOrText(ctx.identifierOrText());
+            return new GrantTablePrivilegeCommand(accessPrivilegeWithCols,
+                tablePattern,
+                Optional.empty(),
+                Optional.of(role));
+        }
+
+        UserIdentity userIdentity = visitUserIdentify(ctx.userIdentify());
+        return new GrantTablePrivilegeCommand(accessPrivilegeWithCols,
+            tablePattern,
+            Optional.of(userIdentity),
+            Optional.empty());
+    }
+
+    @Override
+    public LogicalPlan visitGrantResourcePrivilege(DorisParser.GrantResourcePrivilegeContext ctx) {
+        List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
+
+        String name = visitIdentifierOrTextOrAsterisk(ctx.identifierOrTextOrAsterisk());
+        ResourcePattern resourcePattern = null;
+        WorkloadGroupPattern workloadGroupPattern = null;
+
+        if (ctx.CLUSTER() != null) {
+            resourcePattern = new ResourcePattern(name, ResourceTypeEnum.CLUSTER);
+        } else if (ctx.STAGE() != null) {
+            resourcePattern = new ResourcePattern(name, ResourceTypeEnum.STAGE);
+        } else if (ctx.STORAGE() != null) {
+            resourcePattern = new ResourcePattern(name, ResourceTypeEnum.STORAGE_VAULT);
+        } else if (ctx.RESOURCE() != null) {
+            resourcePattern = new ResourcePattern(name, ResourceTypeEnum.CLUSTER);
+        }
+
+        if (ctx.WORKLOAD() != null) {
+            workloadGroupPattern = new WorkloadGroupPattern(name);
+        }
+
+        if (ctx.ROLE() != null) {
+            String role = visitIdentifierOrText(ctx.identifierOrText());
+            return new GrantResourcePrivilegeCommand(
+                accessPrivilegeWithCols,
+                resourcePattern == null ? Optional.empty() : Optional.of(resourcePattern),
+                workloadGroupPattern == null ? Optional.empty() : Optional.of(workloadGroupPattern),
+                Optional.of(role),
+                Optional.empty());
+        }
+
+        UserIdentity userIdentity = visitUserIdentify(ctx.userIdentify());
+        return new GrantResourcePrivilegeCommand(
+                accessPrivilegeWithCols,
+                resourcePattern == null ? Optional.empty() : Optional.of(resourcePattern),
+                workloadGroupPattern == null ? Optional.empty() : Optional.of(workloadGroupPattern),
+                Optional.empty(),
+                Optional.of(userIdentity));
+    }
+
+    @Override
+    public LogicalPlan visitGrantRole(DorisParser.GrantRoleContext ctx) {
+        UserIdentity userIdentity = visitUserIdentify(ctx.userIdentify());
+        List<String> roles = ctx.roles.stream()
+                .map(this::visitIdentifierOrText)
+                .collect(Collectors.toList());
+
+        return new GrantRoleCommand(userIdentity, roles);
+    }
+
+    @Override
+    public AccessPrivilegeWithCols visitPrivilege(DorisParser.PrivilegeContext ctx) {
+        AccessPrivilegeWithCols accessPrivilegeWithCols;
+        if (ctx.ALL() != null) {
+            AccessPrivilege accessPrivilege = AccessPrivilege.ALL;
+            accessPrivilegeWithCols = new AccessPrivilegeWithCols(accessPrivilege, ImmutableList.of());
+        } else {
+            String privilegeName = ctx.name.strictIdentifier().getText();
+            AccessPrivilege accessPrivilege = AccessPrivilege.fromName(privilegeName);
+            List<String> columns = ctx.identifierList() == null
+                    ? ImmutableList.of() : visitIdentifierList(ctx.identifierList());
+            accessPrivilegeWithCols = new AccessPrivilegeWithCols(accessPrivilege, columns);
+        }
+
+        return accessPrivilegeWithCols;
+    }
+
+    @Override
+    public List<AccessPrivilegeWithCols> visitPrivilegeList(DorisParser.PrivilegeListContext ctx) {
+        return ctx.privilege().stream()
+                .map(this::visitPrivilege)
+                .collect(Collectors.toList());
     }
 
     public LogicalPlan visitDropAnalyzeJob(DorisParser.DropAnalyzeJobContext ctx) {
