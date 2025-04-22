@@ -17,6 +17,7 @@
 
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 
+#include "common/logging.h"
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
 #include <string.h>
