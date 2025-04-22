@@ -423,6 +423,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private boolean isKafkaPartitionsChanged() throws UserException {
         if (CollectionUtils.isNotEmpty(customKafkaPartitions)) {
+            // for the case where the currentKafkaPartitions has not been assigned,
+            // we assume that the fe master has restarted or the job has been newly created,
+            // in this case, we need to pull the saved progress from meta service once
+            if (Config.isCloudMode() && (currentKafkaPartitions == null || currentKafkaPartitions.isEmpty())) {
+                updateCloudProgress();
+            }
             currentKafkaPartitions = customKafkaPartitions;
             return false;
         }
