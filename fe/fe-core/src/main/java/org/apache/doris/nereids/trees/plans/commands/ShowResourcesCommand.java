@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
@@ -31,11 +32,11 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Like;
-import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -58,11 +59,11 @@ import java.util.Set;
  * show resources command
  */
 public class ShowResourcesCommand extends ShowCommand {
-    private Expression wildWhere;
-    private String likePattern;
-    private List<OrderKey> orderKeys;
-    private long limit;
-    private long offset;
+    private final Expression wildWhere;
+    private final String likePattern;
+    private final List<OrderKey> orderKeys;
+    private final long limit;
+    private final long offset;
     private boolean isAccurateMatch;
     private String nameValue;
     private String typeValue;
@@ -159,7 +160,7 @@ public class ShowResourcesCommand extends ShowCommand {
         boolean isValid = true;
         if (this.likePattern == null) {
             if (wildWhere instanceof CompoundPredicate) {
-                if (wildWhere instanceof Or) {
+                if (!(wildWhere instanceof And)) {
                     throw new AnalysisException("Only allow compound predicate with operator AND");
                 }
                 isValid = isWhereClauseValid(wildWhere.child(0)) && isWhereClauseValid(wildWhere.child(1));
@@ -260,5 +261,14 @@ public class ShowResourcesCommand extends ShowCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowResourcesCommand(this, context);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
     }
 }
