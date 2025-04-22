@@ -38,6 +38,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.common.util.GeneratedColumnUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
@@ -677,8 +678,10 @@ public class CreateTableInfo {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             boolean disableInvertedIndexV1ForVariant = false;
 
-            Set<Pair<IndexDef.IndexType, List<String>>> nonInvertedIndexes = new HashSet<>();
+            Set<Pair<IndexType, List<String>>> nonInvertedIndexes = new HashSet<>();
             Map<List<String>, Set<Boolean>> invertedIndexes = new HashMap<>();
+
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
             try {
                 invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
                         new HashMap<>(properties));
@@ -723,7 +726,7 @@ public class CreateTableInfo {
                                 "Duplicate inverted index with same analyzed property on columns: " + colNames);
                     }
                 } else {
-                    Pair<IndexDef.IndexType, List<String>> pair = Pair.of(indexDef.getIndexType(), colNames);
+                    Pair<IndexType, List<String>> pair = Pair.of(indexDef.getIndexType(), colNames);
                     if (!nonInvertedIndexes.add(pair)) {
                         throw new AnalysisException("Duplicate index type and columns: " + pair);
                     }

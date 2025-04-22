@@ -86,7 +86,7 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
     opt->need_zone_map = tablet_schema->keys_type() != KeysType::AGG_KEYS;
     opt->need_bloom_filter = column.is_bf_column();
     opt->need_bitmap_index = column.has_bitmap_index();
-    const auto& index = tablet_schema->inverted_index(column.parent_unique_id());
+    const auto& parent_index = tablet_schema->inverted_indexs(column.parent_unique_id());
     VLOG_DEBUG << "column: " << column.name()
                << " need_inverted_index: " << opt->need_inverted_index
                << " need_bloom_filter: " << opt->need_bloom_filter
@@ -95,15 +95,15 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
     // init inverted index
     // index denotes the index of the entire variant column
     // while subcolumn_index denotes the current subcolumn's index
-    if ((index != nullptr || subcolumn_index != nullptr) &&
+    if ((!parent_index.empty() || subcolumn_index != nullptr) &&
         segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(column)) {
         // inheriting the variant column's index when the subcolumn index is absent
         if (subcolumn_index == nullptr) {
-            subcolumn_index = std::make_unique<TabletIndex>(*index);
+            subcolumn_index = std::make_unique<TabletIndex>(*parent_index[0]);
             subcolumn_index->set_escaped_escaped_index_suffix_path(
                     column.path_info_ptr()->get_path());
+            opt->inverted_indexs.push_back(subcolumn_index.get());
         }
-        opt->inverted_index = subcolumn_index.get();
         opt->need_inverted_index = true;
         DCHECK(inverted_index_file_writer != nullptr);
         opt->inverted_index_file_writer = inverted_index_file_writer;
