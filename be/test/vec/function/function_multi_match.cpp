@@ -54,7 +54,7 @@ protected:
     std::string query_str;
     ColumnsWithTypeAndName arguments;
     std::vector<IndexFieldNameAndTypePair> data_type_with_names;
-    std::vector<segment_v2::InvertedIndexIterator*> iterators;
+    std::vector<segment_v2::IndexIterator*> iterators;
 };
 
 TEST_F(FunctionMultiMatchTest, EvaluateInvertedIndexWithNullIterator) {
