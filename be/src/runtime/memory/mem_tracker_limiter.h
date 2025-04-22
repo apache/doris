@@ -130,7 +130,6 @@ public:
     Status check_limit(int64_t bytes = 0);
     // Log the memory usage when memory limit is exceeded.
     std::string tracker_limit_exceeded_str();
-    bool is_overcommit_tracker() const { return type() == Type::QUERY || type() == Type::LOAD; }
     void set_limit(int64_t new_mem_limit) { _limit = new_mem_limit; }
 
     static void clean_tracker_limiter_group();
@@ -158,13 +157,7 @@ public:
         if (UNLIKELY(bytes == 0)) {
             return true;
         }
-        bool rt = true;
-        if (is_overcommit_tracker() && !config::enable_query_memory_overcommit) {
-            rt = _mem_counter.try_add(bytes, _limit);
-        } else {
-            _mem_counter.add(bytes);
-        }
-        return rt;
+        return _mem_counter.try_add(bytes, _limit);
     }
 
     void set_consumption(int64_t bytes) { _mem_counter.set(bytes); }
@@ -197,11 +190,12 @@ public:
     }
 
     bool try_reserve(int64_t bytes) {
-        bool rt = try_consume(bytes);
-        if (rt) {
+        if (try_consume(bytes)) {
             _reserved_counter.add(bytes);
+            return true;
+        } else {
+            return false;
         }
-        return rt;
     }
 
     void shrink_reserved(int64_t bytes) {
@@ -233,7 +227,6 @@ public:
     void add_address_sanitizers(void* buf, size_t size);
     void remove_address_sanitizers(void* buf, size_t size);
     bool is_group_commit_load {false};
-    void set_enable_reserve_memory(bool enabled) { _enable_reserve_memory = enabled; }
 
 private:
     // When the accumulated untracked memory value exceeds the upper limit,
@@ -254,8 +247,6 @@ private:
 
     MemCounter _mem_counter;
     MemCounter _reserved_counter;
-
-    bool _enable_reserve_memory = false;
 
     // Limit on memory consumption, in bytes.
     std::atomic<int64_t> _limit;
@@ -301,13 +292,7 @@ inline void MemTrackerLimiter::cache_consume(int64_t bytes) {
 }
 
 inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
-    // Do not enable check limit, because reserve process will check it.
-    // If reserve enabled, even if the reserved memory size is smaller than the actual requested memory,
-    // and the query memory consumption is larger than the limit, we do not expect the query to fail
-    // after `check_limit` returns an error, but to run as long as possible,
-    // and will enter the paused state and try to spill when the query reserves next time.
-    // If the workload group or process runs out of memory, it will be forced to cancel.
-    if (bytes <= 0 || _enable_reserve_memory) {
+    if (bytes <= 0) {
         return Status::OK();
     }
 

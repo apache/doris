@@ -159,12 +159,8 @@ DEFINE_Int64(memtable_limiter_reserved_memory_bytes, "838860800");
 DEFINE_mString(process_minor_gc_size, "5%");
 DEFINE_mString(process_full_gc_size, "10%");
 
-// If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
-// when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
-// used memory and the exec_mem_limit will be canceled.
-// If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
-DEFINE_mBool(enable_query_memory_overcommit, "true");
-
+// gc will release cache, cancel task, and task will wait for gc to release memory,
+// default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DEFINE_mBool(disable_memory_gc, "false");
 
 // for the query being canceled,

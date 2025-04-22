@@ -209,7 +209,8 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
         return;
     }
 #endif
-    if (doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0) {
+    if (doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0 ||
+        !doris::thread_context()->resource_ctx()->memory_context()->enable_check_mem_limit()) {
         return;
     }
     auto st = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(

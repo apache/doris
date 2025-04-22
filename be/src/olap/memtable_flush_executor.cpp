@@ -187,11 +187,11 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
 
         DEFER_RELEASE_RESERVED();
 
-/// FIXME: support UT
-#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
         auto reserve_size = memtable->get_flush_reserve_memory_size();
-        RETURN_IF_ERROR(_try_reserve_memory(memtable->resource_ctx(), reserve_size));
-#endif
+        if (memtable->resource_ctx()->task_controller()->is_enable_reserve_memory() &&
+            reserve_size > 0) {
+            RETURN_IF_ERROR(_try_reserve_memory(memtable->resource_ctx(), reserve_size));
+        }
 
         Defer defer {[&]() {
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();

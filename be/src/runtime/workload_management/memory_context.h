@@ -82,6 +82,9 @@ public:
         mem_tracker_ = mem_tracker;
         _user_set_mem_limit = mem_tracker_->limit();
         _adjusted_mem_limit = mem_tracker_->limit();
+        if (_user_set_mem_limit > 0) {
+            _enable_check_mem_limit = true;
+        }
     }
 
     // This method is called by workload group manager to set query's memlimit using slot
@@ -96,6 +99,11 @@ public:
     // Expected mem limit is the limit when workload group reached limit.
     int64_t adjusted_mem_limit() { return _adjusted_mem_limit; }
     void effect_adjusted_mem_limit() { set_mem_limit(_adjusted_mem_limit); }
+
+    bool enable_check_mem_limit() const { return _enable_check_mem_limit; }
+    void set_enable_check_mem_limit(bool enable_check_mem_limit) {
+        _enable_check_mem_limit = enable_check_mem_limit;
+    }
 
     int64_t current_memory_bytes() const { return mem_tracker_->consumption(); }
     int64_t peak_memory_bytes() const { return mem_tracker_->peak_consumption(); }
@@ -120,6 +128,7 @@ protected:
 
     int64_t _user_set_mem_limit = 0;
     std::atomic<int64_t> _adjusted_mem_limit = 0;
+    bool _enable_check_mem_limit = false;
 };
 
 #include "common/compile_check_end.h"
