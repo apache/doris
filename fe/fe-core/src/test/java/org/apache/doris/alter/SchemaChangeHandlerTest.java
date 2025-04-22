@@ -883,10 +883,6 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         AlterTableStmt dropNgramBfIndexStmt = (AlterTableStmt) parseAndAnalyzeStmt(dropNgramBfIndexStmtStr);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(dropNgramBfIndexStmt);
         jobSize++;
-        jobSize++;
-        // process drop ngram bf index stmt will add two schema_change jobs
-        // 1. FE.LIGHT_SCHEMA_CHANGE to change fe meta
-        // 2. real drop ngram bf index schema_change job to convert data in backends
         Assertions.assertEquals(jobSize, alterJobs.size());
         waitAlterJobDone(alterJobs);
 
