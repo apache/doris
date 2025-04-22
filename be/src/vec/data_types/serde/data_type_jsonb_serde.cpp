@@ -139,7 +139,7 @@ Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, cons
     return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
 }
 
-static void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
+void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
                                        rapidjson::Document::AllocatorType& allocator) {
     // convert type of jsonb to rapidjson::Value
     switch (val.type()) {

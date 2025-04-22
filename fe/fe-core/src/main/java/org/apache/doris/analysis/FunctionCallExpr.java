@@ -488,6 +488,8 @@ public class FunctionCallExpr extends Expr {
             return 3;
         } else if (type.isTime()) {
             return 4;
+        } else if (type.isComplexType() || type.isJsonbType()) {
+            return 7;
         } else {
             return 6;
         }
