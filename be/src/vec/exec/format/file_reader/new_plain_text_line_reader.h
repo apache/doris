@@ -220,6 +220,7 @@ public:
     inline void refresh_impl() {
         _idx = 0;
         _should_escape = false;
+        _quote_escape = false;
         _result = nullptr;
         _column_sep_positions.clear();
         _state.reset();
