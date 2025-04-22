@@ -289,17 +289,18 @@ public:
     class ConditionCounter : public Counter {
     public:
         ConditionCounter(TUnit::type type, const ConditionCounterFunction& condition_func,
-                         int64_t condition = 0, int64_t value = 0, int64_t level = 2)
+                         int64_t level = 2, int64_t condition = 0, int64_t value = 0)
                 : Counter(type, value, level),
                   _condition(condition),
                   _value(value),
                   _condition_func(condition_func) {}
 
-        virtual Counter* clone() const override {
+        Counter* clone() const override {
+            std::lock_guard<std::mutex> l(_mutex);
             return new ConditionCounter(type(), _condition_func, _condition, value(), level());
         }
 
-        virtual int64_t value() const override {
+        int64_t value() const override {
             std::lock_guard<std::mutex> l(_mutex);
             return _value;
         }
@@ -435,7 +436,8 @@ public:
 
     ConditionCounter* add_conditition_counter(const std::string& name, TUnit::type type,
                                               const ConditionCounterFunction& counter_fn,
-                                              const std::string& parent_counter_name);
+                                              const std::string& parent_counter_name,
+                                              int64_t level = 2);
 
     // Gets the counter object with 'name'.  Returns nullptr if there is no counter with
     // that name.

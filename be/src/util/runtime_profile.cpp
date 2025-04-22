@@ -475,15 +475,20 @@ void RuntimeProfile::add_description(const std::string& name, const std::string&
 
 RuntimeProfile::ConditionCounter* RuntimeProfile::add_conditition_counter(
         const std::string& name, TUnit::type type, const ConditionCounterFunction& counter_fn,
-        const std::string& parent_counter_name) {
+        const std::string& parent_counter_name, int64_t level) {
     std::lock_guard<std::mutex> l(_counter_map_lock);
 
     if (_counter_map.find(name) != _counter_map.end()) {
-        DCHECK(dynamic_cast<ConditionCounter*>(_counter_map[name]));
-        return static_cast<ConditionCounter*>(_counter_map[name]);
+        RuntimeProfile::ConditionCounter* contition_counter =
+            dynamic_cast<ConditionCounter*>(_counter_map[name]);
+        if (contition_counter == nullptr) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "Failed to add a conditition counter that is duplicate and of a different type for {}.", name);
+        }
+        return contition_counter;
     }
 
-    ConditionCounter* counter = _pool->add(new ConditionCounter(type, counter_fn));
+    ConditionCounter* counter = _pool->add(new ConditionCounter(type, counter_fn, level));
     _counter_map[name] = counter;
     std::set<std::string>* child_counters =
             find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
