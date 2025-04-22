@@ -25,6 +25,7 @@
 #include "util/pretty_printer.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 /*
  * A counter that keeps track of the current and peak memory usage seen.
@@ -92,4 +93,5 @@ private:
     std::atomic<int64_t> _peak_value {0};
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

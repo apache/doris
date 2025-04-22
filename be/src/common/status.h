@@ -606,6 +606,12 @@ public:
         return true;
     }
 
+    void reset() {
+        std::lock_guard l(mutex_);
+        error_st_ = Status::OK();
+        error_code_ = 0;
+    }
+
     // will copy a new status object to avoid concurrency
     // This stauts could only be called when ok==false
     Status status() const {

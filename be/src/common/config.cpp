@@ -167,6 +167,13 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
+// for the query being canceled,
+// if (current time - cancel start time) < revoke_memory_max_tolerance_ms, the query memory is counted in `freed_memory`,
+// and the query memory is expected to be released soon.
+// if > revoke_memory_max_tolerance_ms, the query memory will not be counted in `freed_memory`,
+// and the query may be blocked during the cancel process. skip this query and continue to cancel other queries.
+DEFINE_mInt64(revoke_memory_max_tolerance_ms, "3000");
+
 DEFINE_mBool(enable_stacktrace, "true");
 
 DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
@@ -648,8 +655,7 @@ DEFINE_Bool(ignore_broken_disk, "false");
 // Sleep time in milliseconds between memory maintenance iterations
 DEFINE_mInt32(memory_maintenance_sleep_time_ms, "50");
 
-// After full gc, no longer full gc and minor gc during sleep.
-// After minor gc, no minor gc during sleep, but full gc is possible.
+// Memory gc are expensive, wait a while to avoid too frequent.
 DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 
 // max write buffer size before flush, default 200MB
@@ -1261,8 +1267,6 @@ DEFINE_mBool(enable_be_proc_monitor, "false");
 DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
 
 DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
-
-DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 

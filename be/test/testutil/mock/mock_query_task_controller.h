@@ -16,20 +16,25 @@
 // under the License.
 
 #pragma once
-#include "runtime/workload_group/workload_group_manager.h"
+#include "runtime/workload_management/query_task_controller.h"
 
 namespace doris {
 
-class MockWorkloadGroupMgr : public WorkloadGroupMgr {
-public:
-    MockWorkloadGroupMgr() : WorkloadGroupMgr() {}
-    void add_paused_query(const std::shared_ptr<ResourceContext>& resource_ctx,
-                          int64_t reserve_size, const Status& status) override {
-        _paused = true;
+struct MockQueryTaskController : public QueryTaskController {
+    ENABLE_FACTORY_CREATOR(MockQueryTaskController);
+
+    MockQueryTaskController(const std::shared_ptr<QueryContext>& query_ctx)
+            : QueryTaskController(query_ctx) {}
+
+    static std::unique_ptr<MockQueryTaskController> create(QueryTaskController* controller) {
+        auto ctx = MockQueryTaskController::create_unique(controller->query_ctx_.lock());
+        ctx->set_task_id(controller->task_id());
+        ctx->set_fe_addr(controller->fe_addr());
+        ctx->set_query_type(controller->query_type());
+        return ctx;
     }
 
-private:
-    bool _paused = false;
+    void set_cancelled_time(int64_t ctime) { cancelled_time_ = ctime; }
 };
 
 } // namespace doris

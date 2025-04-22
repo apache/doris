@@ -294,7 +294,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 if (first_read) {
                     free_block = ctx->get_free_block(first_read);
                 } else {
-                    if (state->get_query_ctx()->enable_reserve_memory()) {
+                    if (state->get_query_ctx()
+                                ->resource_ctx()
+                                ->task_controller()
+                                ->is_enable_reserve_memory()) {
                         size_t block_avg_bytes = scanner->get_block_avg_bytes();
                         auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(
                                 block_avg_bytes);

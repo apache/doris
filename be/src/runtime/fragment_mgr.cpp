@@ -744,7 +744,8 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                         _set_scan_concurrency(params, query_ctx.get());
 
                         if (workload_group_ptr != nullptr) {
-                            RETURN_IF_ERROR(workload_group_ptr->add_query(query_id, query_ctx));
+                            RETURN_IF_ERROR(workload_group_ptr->add_resource_ctx(
+                                    query_id, query_ctx->resource_ctx()));
                             query_ctx->set_workload_group(workload_group_ptr);
                         } else {
                             auto dummy_wg = _exec_env->workload_group_mgr()->dummy_workload_group();
