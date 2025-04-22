@@ -46,7 +46,7 @@ public class OSSPropertiesTest {
         origProps = new HashMap<>();
         origProps.put("oss.endpoint", "https://oss.aliyuncs.com");
         Map<String, String> finalOrigProps2 = origProps;
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createPrimary(finalOrigProps2));
+        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createPrimary(finalOrigProps2));
 
     }
 
@@ -78,7 +78,7 @@ public class OSSPropertiesTest {
 
         s3Props = ossProperties.generateBackendS3Configuration();
         Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("cn-beijing-internal", s3Props.get("AWS_REGION"));
+        Assertions.assertEquals("cn-beijing", s3Props.get("AWS_REGION"));
         Assertions.assertEquals("myOSSAccessKey", s3Props.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("myOSSSecretKey", s3Props.get("AWS_SECRET_KEY"));
         Assertions.assertEquals("88", s3Props.get("AWS_MAX_CONNECTIONS"));
@@ -102,6 +102,8 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("myCOSAccessKey", ossProperties.getAccessKey());
         Assertions.assertEquals("myCOSSecretKey", ossProperties.getSecretKey());
         Assertions.assertEquals("oss-cn-hangzhou.aliyuncs.com", ossProperties.getEndpoint());
+        origProps.put("oss.endpoint", "oss-cn-hangzhou-internal.aliyuncs.com");
+        Assertions.assertEquals("cn-hangzhou", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
     }
 
     @Test
