@@ -1931,9 +1931,6 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
                     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
                     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE,
                                                6600 + i);
-                    if (res.status().code() == MetaServiceCode::OK) {
-                        compaction_succeed = true;
-                    }
                 }
                 break;
             }
