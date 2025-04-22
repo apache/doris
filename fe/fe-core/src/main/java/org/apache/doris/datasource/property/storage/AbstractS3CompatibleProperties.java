@@ -24,9 +24,9 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 
-import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -38,7 +38,7 @@ import java.util.regex.Pattern;
  * The properties include connection settings (e.g., timeouts and maximum connections) and a flag to
  * determine if path-style URLs should be used for the storage system.
  */
-public abstract class AbstractObjectStorageProperties extends StorageProperties implements ObjectStorageProperties {
+public abstract class AbstractS3CompatibleProperties extends StorageProperties implements ObjectStorageProperties {
 
     /**
      * The maximum number of concurrent connections that can be made to the object storage system.
@@ -86,7 +86,7 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
      * @param type      the type of object storage system.
      * @param origProps the original properties map.
      */
-    protected AbstractObjectStorageProperties(Type type, Map<String, String> origProps) {
+    protected AbstractS3CompatibleProperties(Type type, Map<String, String> origProps) {
         super(type, origProps);
     }
 
@@ -158,32 +158,31 @@ public abstract class AbstractObjectStorageProperties extends StorageProperties 
         }
     }
 
+    private void initRegionIfNecessary() {
+        if (StringUtils.isNotBlank(getRegion())) {
+            return;
+        }
+        String endpoint = getEndpoint();
+        if (endpoint == null || endpoint.isEmpty()) {
+            throw new IllegalArgumentException("endpoint is required");
+        }
+        Matcher matcher = endpointPattern().matcher(endpoint.toLowerCase());
+        if (matcher.find()) {
+            String region = matcher.group(1);
+            if (StringUtils.isBlank(region)) {
+                throw new IllegalArgumentException("Invalid endpoint format: " + endpoint);
+            }
+            setRegion(region);
+            return;
+        }
+        throw new IllegalArgumentException("Not a valid region, and cannot be parsed from endpoint: " + endpoint);
+    }
+
     protected abstract Pattern endpointPattern();
 
     private boolean isValidEndpoint(String endpoint) {
-        if (endpoint == null || endpoint.isEmpty()) {
-            return false;
-        }
-
-        String host = extractHost(endpoint);
-        if (host == null || host.isEmpty()) {
-            return false;
-        }
-        host = host.replaceFirst("\\.internal$", "");
-        return endpointPattern().matcher(host).matches();
+        return endpointPattern().matcher(endpoint).matches();
     }
-
-    private String extractHost(String endpoint) {
-        try {
-            String url = endpoint.matches("^[a-zA-Z][a-zA-Z0-9+.-]*://.*") ? endpoint : "http://" + endpoint;
-            URI uri = new URI(url);
-            return uri.getHost();
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Invalid endpoint format: " + endpoint, e);
-        }
-    }
-
-    protected abstract void initRegionIfNecessary();
 
     private void setEndpointIfNotSet() throws UserException {
         if (StringUtils.isNotBlank(getEndpoint())) {
