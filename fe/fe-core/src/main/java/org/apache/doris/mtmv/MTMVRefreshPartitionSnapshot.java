@@ -20,8 +20,8 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
 import com.google.common.collect.Maps;
@@ -91,6 +91,10 @@ public class MTMVRefreshPartitionSnapshot {
         if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
             return;
         }
+        // Only olapTable has historical data issues that require compatibility
+        if (mtmv.getMvPartitionInfo().getRelatedTableInfo().getCtlId() != InternalCatalog.INTERNAL_CATALOG_ID) {
+            return;
+        }
         MTMVRelatedTableIf relatedTableIf = mtmv.getMvPartitionInfo().getRelatedTable();
         // Only olapTable has historical data issues that require compatibility
         if (!(relatedTableIf instanceof OlapTable)) {
@@ -122,23 +126,14 @@ public class MTMVRefreshPartitionSnapshot {
         return false;
     }
 
-    private void compatibleTablesSnapshot() throws Exception {
+    private void compatibleTablesSnapshot() {
         if (!checkHasDataWithoutTableId()) {
             return;
         }
         for (Entry<BaseTableInfo, MTMVSnapshotIf> entry : tablesInfo.entrySet()) {
             MTMVVersionSnapshot versionSnapshot = (MTMVVersionSnapshot) entry.getValue();
             if (versionSnapshot.getId() == 0) {
-                try {
-                    TableIf table = MTMVUtil.getTable(entry.getKey());
-                    versionSnapshot.setId(table.getId());
-                } catch (AnalysisException e) {
-                    String msg = String.format(
-                            "Failed to get table info based on table info during compatibility process, table info: %s",
-                            entry.getKey());
-                    LOG.warn(msg);
-                    throw new Exception(msg);
-                }
+                versionSnapshot.setId(entry.getKey().getTableId());
             }
         }
     }
