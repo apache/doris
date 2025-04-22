@@ -74,20 +74,12 @@ struct FunctionExplodeV2 {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         DataTypes fieldTypes(arguments.size());
         for (int i = 0; i < arguments.size(); i++) {
-            if (arguments[i]->get_type_id() == TypeIndex::VARIANT) {
-                if (arguments[i]->is_nullable()) {
-                    fieldTypes[i] = arguments[i];
-                } else {
-                    fieldTypes[i] = make_nullable(arguments[i]);
-                }
+            auto nestedType = check_and_get_data_type<DataTypeArray>(arguments[i].get())
+                                      ->get_nested_type();
+            if (nestedType->is_nullable()) {
+                fieldTypes[i] = nestedType;
             } else {
-                auto nestedType = check_and_get_data_type<DataTypeArray>(arguments[i].get())
-                                          ->get_nested_type();
-                if (nestedType->is_nullable()) {
-                    fieldTypes[i] = nestedType;
-                } else {
-                    fieldTypes[i] = make_nullable(nestedType);
-                }
+                fieldTypes[i] = make_nullable(nestedType);
             }
         }
 
