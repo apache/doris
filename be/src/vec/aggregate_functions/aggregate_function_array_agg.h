@@ -309,7 +309,6 @@ class AggregateFunctionArrayAgg
             std::is_same_v<Data, AggregateFunctionArrayAggData<void>>;
 
 public:
-
     AggregateFunctionArrayAgg(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>>(
                       {argument_types_}),
