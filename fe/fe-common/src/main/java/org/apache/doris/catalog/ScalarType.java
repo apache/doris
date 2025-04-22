@@ -1221,12 +1221,4 @@ public class ScalarType extends Type {
         result = 31 * result + scale;
         return result;
     }
-
-    public void setPrecision(int precision) {
-        this.precision = precision;
-    }
-
-    public void setScale(int scale) {
-        this.scale = scale;
-    }
 }
