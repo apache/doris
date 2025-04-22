@@ -445,19 +445,19 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
 
     // 2. inverted index
     std::vector<TabletIndex> indexes_to_update;
-    auto source_indexes = target_schema->inverted_indexs(source.unique_id());
+    auto source_indexes = (*target_schema)->inverted_indexs(source.unique_id());
     for (const auto& source_index_meta : source_indexes) {
         TabletIndex index_info = *source_index_meta;
         index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
         indexes_to_update.emplace_back(std::move(index_info));
     }
-    auto target_indexes = target_schema->inverted_indexs(target.parent_unique_id(),
+    auto target_indexes = (*target_schema)->inverted_indexs(target.parent_unique_id(),
                                                          target.path_info_ptr()->get_path());
     if (!target_indexes.empty()) {
-        target_schema->update_index(target, IndexType::INVERTED, std::move(indexes_to_update));
+        (*target_schema)->update_index(target, IndexType::INVERTED, std::move(indexes_to_update));
     } else {
         for (auto& index_info : indexes_to_update) {
-            target_schema->append_index(std::move(index_info));
+            (*target_schema)->append_index(std::move(index_info));
         }
     }
 
@@ -1198,9 +1198,9 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                     sub_column_info->column.path_info_ptr()->get_path());
         }
         // 2. find parent column's index
-        else if (const auto* parent_index = schema.inverted_index(col_unique_id);
-                 parent_index != nullptr) {
-            sub_column_info->index = std::make_shared<TabletIndex>(*parent_index);
+        else if (const auto parent_index = schema.inverted_indexs(col_unique_id);
+                 !parent_index.empty()) {
+            sub_column_info->index = std::make_shared<TabletIndex>(*parent_index[0]);
             sub_column_info->index->set_escaped_escaped_index_suffix_path(
                     sub_column_info->column.path_info_ptr()->get_path());
         } else {

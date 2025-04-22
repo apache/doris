@@ -1543,7 +1543,7 @@ TabletIndexPtr TabletSchema::inverted_index_by_field_pattern(
     return pattern_to_index_map->second;
 }
 
-std::vector<const TabletIndex*> TabletSchema::inverted_index(const TabletColumn& col) const {
+std::vector<const TabletIndex*> TabletSchema::inverted_indexs(const TabletColumn& col) const {
     // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index
     if (!segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
         return {};
@@ -1552,7 +1552,7 @@ std::vector<const TabletIndex*> TabletSchema::inverted_index(const TabletColumn&
     // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     std::vector<const TabletIndex*> result;
-    if (result = inverted_index(col_unique_id, escape_for_path_name(col.suffix_path()));
+    if (result = inverted_indexs(col_unique_id, escape_for_path_name(col.suffix_path()));
         !result.empty()) {
         return result;
     }
@@ -1560,12 +1560,12 @@ std::vector<const TabletIndex*> TabletSchema::inverted_index(const TabletColumn&
     else if (col.is_extracted_column()) {
         std::string relative_path = col.path_info_ptr()->copy_pop_front().get_path();
         if (_path_set_info_map.find(col_unique_id) == _path_set_info_map.end()) {
-            return nullptr;
+            return result;
         }
         const auto& path_set_info = _path_set_info_map.at(col_unique_id);
         if (path_set_info.typed_path_set.find(relative_path) ==
             path_set_info.typed_path_set.end()) {
-            return nullptr;
+            return result;
         }
         result.push_back(path_set_info.typed_path_set.at(relative_path).index.get());
         return result;
