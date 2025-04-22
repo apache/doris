@@ -40,8 +40,8 @@ Status safe_stoi(const std::string& input, int* output) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT>(std::string("Invalid  format: ") +
                                                           e.what());
     } catch (const std::out_of_range& e) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>("value out of range: " +
-                                                          std::string(e.what()));
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>(std::string("value out of range: ") +
+                                                          e.what());
     }
 }
 } // namespace doris

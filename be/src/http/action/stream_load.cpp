@@ -330,13 +330,12 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     }
 
     if (!http_req->header(HTTP_TIMEOUT).empty()) {
-        try {
-            ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT));
-        } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid timeout format, {}", e.what());
-        } catch (const std::out_of_range& e) {
-            return Status::InvalidArgument("Timeout value out of range: {}", e.what());
+        int timeout = 0;
+        Status status = safe_stoi(http_req->header(HTTP_TIMEOUT), &timeout);
+        if (!status.ok()) {
+            return status;
         }
+        ctx->timeout_second = timeout;
     }
     if (!http_req->header(HTTP_COMMENT).empty()) {
         ctx->load_comment = http_req->header(HTTP_COMMENT);
@@ -568,15 +567,12 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     }
 
     if (!http_req->header(HTTP_SEND_BATCH_PARALLELISM).empty()) {
-        try {
-            request.__set_send_batch_parallelism(
-                    std::stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
-        } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("send_batch_parallelism must be an integer, {}",
-                                           e.what());
-        } catch (const std::out_of_range& e) {
-            return Status::InvalidArgument("send_batch_parallelism out of range, {}", e.what());
+        int parallelism = 0;
+        Status status = safe_stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM), &parallelism);
+        if (!status.ok()) {
+            return status;
         }
+        request.__set_send_batch_parallelism(parallelism);
     }
 
     if (!http_req->header(HTTP_LOAD_TO_SINGLE_TABLET).empty()) {
@@ -632,14 +628,12 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
     if (!http_req->header(HTTP_SKIP_LINES).empty()) {
-        try {
-            int skip_lines = std::stoi(http_req->header(HTTP_SKIP_LINES));
-            request.__set_skip_lines(skip_lines);
-        } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid HTTP_SKIP_LINES format:{}", e.what());
-        } catch (const std::out_of_range& e) {
-            return Status::InvalidArgument("HTTP_SKIP_LINES value out of range: {} ", e.what());
+        int skip_lines = 0;
+        Status status = safe_stoi(http_req->header(HTTP_SKIP_LINES), &skip_lines);
+        if (!status.ok()) {
+            return status;
         }
+        request.__set_skip_lines(skip_lines);
     }
     if (!http_req->header(HTTP_ENABLE_PROFILE).empty()) {
         if (iequal(http_req->header(HTTP_ENABLE_PROFILE), "true")) {
@@ -722,14 +716,12 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_memtable_on_sink_node(value);
     }
     if (!http_req->header(HTTP_LOAD_STREAM_PER_NODE).empty()) {
-        try {
-            int value = std::stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE));
-            request.__set_stream_per_node(value);
-        } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid stream_per_node format: {}", e.what());
-        } catch (const std::out_of_range& e) {
-            return Status::InvalidArgument("stream_per_node value out of range: {}", e.what());
+        int stream_per_node = 0;
+        Status status = safe_stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE), &stream_per_node);
+        if (!status.ok()) {
+            return status;
         }
+        request.__set_stream_per_node(stream_per_node);
     }
     if (ctx->group_commit) {
         if (!http_req->header(HTTP_GROUP_COMMIT).empty()) {
