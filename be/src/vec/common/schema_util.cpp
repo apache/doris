@@ -692,7 +692,6 @@ Status collect_path_stats(
             }
 
             for (const auto& [path, size] : source_stats->sparse_column_non_null_size) {
-                CHECK(!path.empty());
                 uid_to_path_stats[column->unique_id()][path] += size;
             }
 

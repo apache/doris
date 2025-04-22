@@ -204,9 +204,6 @@ Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::st
                 it->second += size;
             }
             for (const auto& [path, size] : source_statistics->sparse_column_non_null_size) {
-                if (path.empty()) {
-                    CHECK(false);
-                }
                 auto it = path_to_total_number_of_non_null_values.find(path);
                 if (it == path_to_total_number_of_non_null_values.end()) {
                     it = path_to_total_number_of_non_null_values.emplace(path, 0).first;

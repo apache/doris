@@ -18,7 +18,7 @@
 suite("regression_test_variant_column_name", "variant_type"){
     def table_name = "var_column_name"
     sql "DROP TABLE IF EXISTS ${table_name}"
-    int max_subcolumns_count = Math.floor(Math.random() * (3 - 1 + 1)) + 1
+    int max_subcolumns_count = Math.floor(Math.random() * 4) + 1
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
