@@ -130,6 +130,8 @@ public class BDBEnvironment {
             replicationConfig.setNodeType(NodeType.SECONDARY);
             replicationConfig.setConsistencyPolicy(new NoConsistencyRequiredPolicy());
         }
+        replicationConfig.setConfigParam(ReplicationConfig.MAX_MESSAGE_SIZE,
+                                         String.valueOf(Config.bdbje_max_message_size_bytes));
 
         // set environment config
         environmentConfig = new EnvironmentConfig();
