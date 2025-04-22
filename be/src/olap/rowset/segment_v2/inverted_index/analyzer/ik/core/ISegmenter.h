@@ -14,18 +14,24 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Common/HashTable/HashTableAllocator.h
-// and modified by Doris
 
 #pragma once
 
-#include "vec/common/allocator.h"
-#include "vec/common/allocator_fwd.h"
+#include "AnalyzeContext.h"
+#include "CLucene/_ApiHeader.h"
 
-/**
-  * We are going to use the entire memory we allocated when resizing a hash
-  * table, so it makes sense to pre-fault the pages so that page faults don't
-  * interrupt the resize loop. Set the allocator parameter accordingly.
-  */
-using HashTableAllocator = Allocator<true /* clear_memory */, true /* mmap_populate */>;
+namespace doris::segment_v2 {
+
+class ISegmenter {
+public:
+    virtual ~ISegmenter() {}
+
+    // Read the next possible token from the analyzer
+    // param context Segmentation algorithm context
+    virtual void analyze(AnalyzeContext& context) = 0;
+
+    // Reset the sub-analyzer state
+    virtual void reset() = 0;
+};
+
+} // namespace doris::segment_v2

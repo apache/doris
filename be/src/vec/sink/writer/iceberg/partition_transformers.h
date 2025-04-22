@@ -21,6 +21,7 @@
 #include "util/bit_util.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/functions/function_string.h"
+#include "vec/utils/stringop_substring.h"
 
 namespace doris {
 

@@ -14,21 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Commom/StringUtils/StringUtils.cpp
-// and modified by Doris
 
-#include "vec/common/string_utils/string_utils.h"
+package org.apache.doris.alter;
 
-namespace doris::vectorized::detail {
 
-bool starts_with(const std::string& s, const char* prefix, size_t prefix_size) {
-    return s.size() >= prefix_size && 0 == memcmp(s.data(), prefix, prefix_size);
+public enum AlterUserOpType {
+    SET_PASSWORD,
+    SET_ROLE,
+    SET_PASSWORD_POLICY,
+    LOCK_ACCOUNT,
+    UNLOCK_ACCOUNT,
+    MODIFY_COMMENT
 }
-
-bool ends_with(const std::string& s, const char* suffix, size_t suffix_size) {
-    return s.size() >= suffix_size &&
-           0 == memcmp(s.data() + s.size() - suffix_size, suffix, suffix_size);
-}
-
-} // namespace doris::vectorized::detail

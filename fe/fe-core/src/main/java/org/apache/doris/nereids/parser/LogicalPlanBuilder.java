@@ -330,6 +330,7 @@ import org.apache.doris.nereids.DorisParser.ShowEncryptKeysContext;
 import org.apache.doris.nereids.DorisParser.ShowEventsContext;
 import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
 import org.apache.doris.nereids.DorisParser.ShowFunctionsContext;
+import org.apache.doris.nereids.DorisParser.ShowGlobalFunctionsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsForUserContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
@@ -544,6 +545,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemRenameComputeGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
@@ -728,6 +730,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVReplaceInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMultiPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterSystemOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BuildIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
@@ -5402,6 +5405,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowGlobalFunctions(ShowGlobalFunctionsContext ctx) {
+        boolean isVerbose = ctx.FULL() != null;
+
+        String wild = null;
+        if (ctx.STRING_LITERAL() != null) {
+            wild = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+        return new ShowFunctionsCommand(isVerbose, wild, true);
+    }
+
+    @Override
     public LogicalPlan visitShowCreateDatabase(ShowCreateDatabaseContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         String databaseName = "";
@@ -6385,6 +6399,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitAlterUser(DorisParser.AlterUserContext ctx) {
+        boolean ifExist = ctx.EXISTS() != null;
+        UserDesc userDesc = visitGrantUserIdentify(ctx.grantUserIdentify());
+        PasswordOptions passwordOptions = visitPasswordOption(ctx.passwordOption());
+        String comment = ctx.STRING_LITERAL() != null ? stripQuotes(ctx.STRING_LITERAL().getText()) : null;
+        AlterUserInfo alterUserInfo = new AlterUserInfo(ifExist, userDesc, passwordOptions, comment);
+        return new AlterUserCommand(alterUserInfo);
+    }
+
+    @Override
     public LogicalPlan visitShowTableStats(DorisParser.ShowTableStatsContext ctx) {
         if (ctx.tableId != null) {
             return new ShowTableStatsCommand(Long.parseLong(ctx.tableId.getText()));
@@ -6517,9 +6541,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new KillAnalyzeJobCommand(jobId);
     }
 
-    /**
-     * PasswordOption
-     */
+    @Override
     public PasswordOptions visitPasswordOption(DorisParser.PasswordOptionContext ctx) {
         int historyPolicy = PasswordOptions.UNSET;
         long expirePolicySecond = PasswordOptions.UNSET;
@@ -6540,7 +6562,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             expirePolicySecond = 0;
         } else if (ctx.expireValue != null) {
             long value = Long.parseLong(ctx.expireValue.getText());
-            expirePolicySecond = getSecond(value, ctx.expireTimeUnit.getText());
+            expirePolicySecond = ParserUtils.getSecond(value, ctx.expireTimeUnit.getText());
         }
 
         if (ctx.reuseValue != null) {
@@ -6555,7 +6577,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             passwordLockSecond = -1;
         } else if (ctx.lockValue != null) {
             long value = Long.parseLong(ctx.lockValue.getText());
-            passwordLockSecond = getSecond(value, ctx.lockTimeUint.getText());
+            passwordLockSecond = ParserUtils.getSecond(value, ctx.lockTimeUint.getText());
         }
 
         if (ctx.ACCOUNT_LOCK() != null) {
@@ -6572,26 +6594,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             accountUnlocked);
     }
 
-    private long getSecond(long value, String s) {
-        long ans = 0;
-
-        switch (s) {
-            case "DAY":
-                ans = value * 24 * 60 * 60;
-                break;
-            case "HOUR":
-                ans = value * 60 * 60;
-                break;
-            default:
-                ans = value;
-        }
-        return ans;
-    }
-
     @Override
     public LogicalPlan visitCreateUser(CreateUserContext ctx) {
         String comment = visitCommentSpec(ctx.commentSpec());
-        PasswordOptions passwordOptions = (PasswordOptions) ctx.passwordOption().accept(this);
+        PasswordOptions passwordOptions = visitPasswordOption(ctx.passwordOption());
         UserDesc userDesc = (UserDesc) ctx.grantUserIdentify().accept(this);
 
         String role = null;
@@ -6610,16 +6616,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public UserDesc visitGrantUserIdentify(DorisParser.GrantUserIdentifyContext ctx) {
-        UserIdentity userIdentity = (UserIdentity) ctx.userIdentify().accept(this);
-
+        UserIdentity userIdentity = visitUserIdentify(ctx.userIdentify());
         if (ctx.IDENTIFIED() == null) {
             return new UserDesc(userIdentity);
         }
-
         String password = stripQuotes(ctx.STRING_LITERAL().getText());
-        boolean isPlain = !(ctx.PASSWORD() != null);
-
+        boolean isPlain = ctx.PASSWORD() == null;
         return new UserDesc(userIdentity, new PassVar(password, isPlain));
     }
 }
-

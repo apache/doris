@@ -81,8 +81,6 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
           _execution_dep(state->get_query_ctx()->get_execution_dependency()),
           _memory_sufficient_dependency(state->get_query_ctx()->get_memory_sufficient_dependency()),
           _pipeline_name(_pipeline->name()) {
-    _pipeline_task_watcher.start();
-
     if (!_shared_state_map.contains(_sink->dests_id().front())) {
         auto shared_state = _sink->create_shared_state();
         if (shared_state) {
@@ -452,7 +450,7 @@ Status PipelineTask::execute(bool* done) {
             break;
         }
 
-        if (time_spent > THREAD_TIME_SLICE) {
+        if (time_spent > _exec_time_slice) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }

@@ -432,6 +432,19 @@ Status SetSharedState::update_build_not_ignore_null(const vectorized::VExprConte
     return Status::OK();
 }
 
+size_t SetSharedState::get_hash_table_size() const {
+    size_t hash_table_size = 0;
+    std::visit(
+            [&](auto&& arg) {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                    hash_table_size = arg.hash_table->size();
+                }
+            },
+            hash_table_variants->method_variant);
+    return hash_table_size;
+}
+
 Status SetSharedState::hash_table_init() {
     std::vector<vectorized::DataTypePtr> data_types;
     for (size_t i = 0; i != child_exprs_lists[0].size(); ++i) {

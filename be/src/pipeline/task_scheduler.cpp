@@ -114,10 +114,10 @@ void TaskScheduler::_do_work(int index) {
         }
         auto fragment_context = task->fragment_context().lock();
         if (!fragment_context) {
-            // Fragment already finishedquery
+            // Fragment already finished
             continue;
         }
-        task->set_running(true);
+        task->set_running(true).set_task_queue(&_task_queue).set_core_id(index);
         bool done = false;
         auto status = Status::OK();
         Defer task_running_defer {[&]() {
@@ -131,9 +131,6 @@ void TaskScheduler::_do_work(int index) {
                 task->set_running(false);
             }
         }};
-        task->set_task_queue(&_task_queue);
-        task->log_detail_if_need();
-
         bool canceled = fragment_context->is_canceled();
 
         // Close task if canceled
@@ -142,7 +139,6 @@ void TaskScheduler::_do_work(int index) {
             DCHECK(!status.ok());
             continue;
         }
-        task->set_core_id(index);
 
         // Main logics of execution
         ASSIGN_STATUS_IF_CATCH_EXCEPTION(
