@@ -331,10 +331,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
 
     if (!http_req->header(HTTP_TIMEOUT).empty()) {
         int timeout = 0;
-        Status status = safe_stoi(http_req->header(HTTP_TIMEOUT), &timeout);
-        if (!status.ok()) {
-            return status;
-        }
+        RETURN_IF_ERROR(safe_stoi(http_req->header(HTTP_TIMEOUT), &timeout));
         ctx->timeout_second = timeout;
     }
     if (!http_req->header(HTTP_COMMENT).empty()) {
@@ -568,10 +565,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
 
     if (!http_req->header(HTTP_SEND_BATCH_PARALLELISM).empty()) {
         int parallelism = 0;
-        Status status = safe_stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM), &parallelism);
-        if (!status.ok()) {
-            return status;
-        }
+        RETURN_IF_ERROR(safe_stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM), &parallelism));
         request.__set_send_batch_parallelism(parallelism);
     }
 
@@ -629,10 +623,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     }
     if (!http_req->header(HTTP_SKIP_LINES).empty()) {
         int skip_lines = 0;
-        Status status = safe_stoi(http_req->header(HTTP_SKIP_LINES), &skip_lines);
-        if (!status.ok()) {
-            return status;
-        }
+        RETURN_IF_ERROR(safe_stoi(http_req->header(HTTP_SKIP_LINES), &skip_lines));
         request.__set_skip_lines(skip_lines);
     }
     if (!http_req->header(HTTP_ENABLE_PROFILE).empty()) {
@@ -717,10 +708,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     }
     if (!http_req->header(HTTP_LOAD_STREAM_PER_NODE).empty()) {
         int stream_per_node = 0;
-        Status status = safe_stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE), &stream_per_node);
-        if (!status.ok()) {
-            return status;
-        }
+        RETURN_IF_ERROR(safe_stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE), &stream_per_node));
         request.__set_stream_per_node(stream_per_node);
     }
     if (ctx->group_commit) {
