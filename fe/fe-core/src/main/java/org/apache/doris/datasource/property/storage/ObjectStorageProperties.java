@@ -34,4 +34,6 @@ public interface ObjectStorageProperties {
 
     void setEndpoint(String endpoint);
 
+    void setRegion(String region);
+
 }
