@@ -279,8 +279,13 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
     if (segments.size() > 1) {
         // calculate delete bitmap between segments
-        RETURN_IF_ERROR(_calc_delete_bitmap_token->submit(_tablet, _rowset->rowset_id(), segments,
-                                                          _delete_bitmap));
+        if (config::enable_calc_delete_bitmap_between_segments_concurrently) {
+            RETURN_IF_ERROR(_calc_delete_bitmap_token->submit(_tablet, _rowset->rowset_id(),
+                                                              segments, _delete_bitmap));
+        } else {
+            RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(),
+                                                                         segments, _delete_bitmap));
+        }
     }
 
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
