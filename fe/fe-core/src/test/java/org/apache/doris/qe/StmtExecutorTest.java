@@ -41,6 +41,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -52,6 +53,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import java_cup.runtime.Symbol;
 import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
@@ -545,16 +548,6 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testStmtWithUserInfo(@Mocked StatementBase stmt, @Mocked ConnectContext context) throws Exception {
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, stmt);
-        Deencapsulation.setField(stmtExecutor, "parsedStmt", null);
-        Deencapsulation.setField(stmtExecutor, "originStmt", new OriginStatement("show databases;", 0));
-        stmtExecutor.execute();
-        StatementBase newstmt = Deencapsulation.getField(stmtExecutor, "parsedStmt");
-        Assert.assertNotNull(newstmt.getUserInfo());
-    }
-
-    @Test
     public void testSetFail(@Mocked SetStmt setStmt, @Mocked SqlParser parser,
             @Mocked SetExecutor executor) throws Exception {
         new Expectations() {
@@ -890,5 +883,22 @@ public class StmtExecutorTest {
         executor = new StmtExecutor(ctx, "");
         executor.execute();
         Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+    }
+
+    @Test
+    public void testSetSqlHash() {
+        StmtExecutor executor = new StmtExecutor(ctx, "select * from table1");
+        new MockUp<NereidsPlanner>() {
+            @Mock
+            public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) {
+                throw new RuntimeException();
+            }
+        };
+        try {
+            executor.executeInternalQuery();
+        } catch (Exception e) {
+            // do nothing
+        }
+        Assert.assertEquals("a8ec30e5ad0820f8c5bd16a82a4491ca", executor.getContext().getSqlHash());
     }
 }

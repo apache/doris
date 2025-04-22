@@ -19,6 +19,7 @@ suite("load") {
 
     // ddl begin
     sql "drop table if exists expr_test"
+    sql "drop table if exists expr_test2"
     sql "drop table if exists expr_test_not_nullable"
 
     sql  "ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'false')"

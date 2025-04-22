@@ -28,9 +28,12 @@
 #include "common/signal_handler.h"
 #include "olap/memtable.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/storage_engine.h"
+#include "runtime/thread_context.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
+#include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 
@@ -103,7 +106,7 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
     std::shared_ptr<WorkloadGroup> wg_sptr = _wg_wptr.lock();
     ThreadPool* wg_thread_pool = nullptr;
     if (wg_sptr) {
-        wg_thread_pool = wg_sptr->get_memtable_flush_pool_ptr();
+        wg_thread_pool = wg_sptr->get_memtable_flush_pool();
     }
     Status ret = wg_thread_pool ? wg_thread_pool->submit(std::move(task))
                                 : _thread_pool->submit(std::move(task));
@@ -137,33 +140,79 @@ Status FlushToken::wait() {
     return Status::OK();
 }
 
+Status FlushToken::_try_reserve_memory(const std::shared_ptr<ResourceContext>& resource_context,
+                                       int64_t size) {
+    auto* thread_context = doris::thread_context();
+    auto* memtable_flush_executor =
+            ExecEnv::GetInstance()->storage_engine().memtable_flush_executor();
+    Status st;
+    do {
+        // only try to reserve process memory
+        st = thread_context->thread_mem_tracker_mgr->try_reserve(size, true);
+        if (st.ok()) {
+            memtable_flush_executor->inc_flushing_task();
+            break;
+        }
+        if (_is_shutdown() || resource_context->task_controller()->is_cancelled()) {
+            st = Status::Cancelled("flush memtable already cancelled");
+            break;
+        }
+        // Make sure at least one memtable is flushing even reserve memory failed.
+        if (memtable_flush_executor->check_and_inc_has_any_flushing_task()) {
+            // If there are already any flushing task, Wait for some time and retry.
+            LOG_EVERY_T(INFO, 60) << fmt::format(
+                    "Failed to reserve memory {} for flush memtable, retry after 100ms",
+                    PrettyPrinter::print_bytes(size));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        } else {
+            st = Status::OK();
+            break;
+        }
+    } while (true);
+    return st;
+}
+
 Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << memtable->tablet_id()
-                  << ", memsize: " << memtable->memory_usage()
+                  << ", memsize: " << PrettyPrinter::print_bytes(memtable->memory_usage())
                   << ", rows: " << memtable->stat().raw_rows;
     memtable->update_mem_type(MemType::FLUSH);
-    int64_t duration_ns;
-    SCOPED_RAW_TIMER(&duration_ns);
-    SCOPED_ATTACH_TASK(memtable->query_thread_context());
-    signal::set_signal_task_id(_rowset_writer->load_id());
-    signal::tablet_id = memtable->tablet_id();
+    int64_t duration_ns = 0;
     {
+        SCOPED_RAW_TIMER(&duration_ns);
+        SCOPED_ATTACH_TASK(memtable->resource_ctx());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                memtable->resource_ctx()->memory_context()->mem_tracker()->write_tracker());
         SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
+
+        DEFER_RELEASE_RESERVED();
+
+/// FIXME: support UT
+#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
+        auto reserve_size = memtable->get_flush_reserve_memory_size();
+        RETURN_IF_ERROR(_try_reserve_memory(memtable->resource_ctx(), reserve_size));
+#endif
+
+        Defer defer {[&]() {
+            ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();
+        }};
         std::unique_ptr<vectorized::Block> block;
         RETURN_IF_ERROR(memtable->to_block(&block));
         RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
+        memtable->set_flush_success();
     }
-    memtable->set_flush_success();
     _memtable_stat += memtable->stat();
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()
-                  << ", flushsize: " << *flush_size;
+                  << ", flushsize: " << PrettyPrinter::print_bytes(*flush_size);
     return Status::OK();
 }
 
 void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t segment_id,
                                  int64_t submit_task_time) {
+    signal::set_signal_task_id(_rowset_writer->load_id());
+    signal::tablet_id = memtable_ptr->tablet_id();
     Defer defer {[&]() {
         std::lock_guard<std::mutex> lock(_mutex);
         _stats.flush_running_count--;
@@ -205,11 +254,14 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t
         return;
     }
 
-    VLOG_CRITICAL << "flush memtable wait time:" << flush_wait_time_ns
-                  << "(ns), flush memtable cost: " << timer.elapsed_time()
-                  << "(ns), running count: " << _stats.flush_running_count
+    VLOG_CRITICAL << "flush memtable wait time: "
+                  << PrettyPrinter::print(flush_wait_time_ns, TUnit::TIME_NS)
+                  << ", flush memtable cost: "
+                  << PrettyPrinter::print(timer.elapsed_time(), TUnit::TIME_NS)
+                  << ", running count: " << _stats.flush_running_count
                   << ", finish count: " << _stats.flush_finish_count
-                  << ", mem size: " << memory_usage << ", disk size: " << flush_size;
+                  << ", mem size: " << PrettyPrinter::print_bytes(memory_usage)
+                  << ", disk size: " << PrettyPrinter::print_bytes(flush_size);
     _stats.flush_time_ns += timer.elapsed_time();
     _stats.flush_finish_count++;
     _stats.flush_size_bytes += memtable_ptr->memory_usage();

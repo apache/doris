@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CorrWelford;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
@@ -113,6 +114,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(CollectList.class, "collect_list", "group_array"),
             agg(CollectSet.class, "collect_set", "group_uniq_array"),
             agg(Corr.class, "corr"),
+            agg(CorrWelford.class, "corr_welford"),
             agg(Count.class, "count"),
             agg(CountByEnum.class, "count_by_enum"),
             agg(Covar.class, "covar", "covar_pop"),
@@ -145,7 +147,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(OrthogonalBitmapIntersect.class, "orthogonal_bitmap_intersect"),
             agg(OrthogonalBitmapIntersectCount.class, "orthogonal_bitmap_intersect_count"),
             agg(OrthogonalBitmapUnionCount.class, "orthogonal_bitmap_union_count"),
-            agg(Percentile.class, "percentile"),
+            agg(Percentile.class, "percentile", "percentile_cont"),
             agg(PercentileApprox.class, "percentile_approx"),
             agg(PercentileApproxWeighted.class, "percentile_approx_weighted"),
             agg(PercentileArray.class, "percentile_array"),

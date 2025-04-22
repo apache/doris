@@ -48,6 +48,8 @@ class Arena;
 template <typename T>
 class DataTypeDecimalSerDe : public DataTypeSerDe {
     static_assert(IsDecimalNumber<T>);
+    using ColumnType = ColumnDecimal<T>;
+    using FieldType = T;
 
 public:
     static constexpr PrimitiveType get_primitive_type() {
@@ -68,13 +70,12 @@ public:
         }
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "get_primitive_type __builtin_unreachable");
-        __builtin_unreachable();
     }
 
-    DataTypeDecimalSerDe(int scale_, int precision_, int nesting_level = 1)
+    DataTypeDecimalSerDe(int precision_, int scale_, int nesting_level = 1)
             : DataTypeSerDe(nesting_level),
-              scale(scale_),
               precision(precision_),
+              scale(scale_),
               scale_multiplier(decimal_scale_multiplier<typename T::NativeType>(scale)) {}
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
@@ -87,7 +88,7 @@ public:
                                           const FormatOptions& options) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized,
+                                               uint64_t* num_deserialized,
                                                const FormatOptions& options) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
@@ -102,8 +103,8 @@ public:
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override;
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
-                                int end, const cctz::time_zone& ctz) const override;
+    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                int64_t end, const cctz::time_zone& ctz) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
@@ -116,11 +117,11 @@ public:
                                int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override;
 
-    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
-                                              int* num_deserialized,
+    Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, uint64_t rows,
+                                              uint64_t* num_deserialized,
                                               const FormatOptions& options) const override;
 
-    void insert_column_last_value_multiple_times(IColumn& column, int times) const override;
+    void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override;
 
 private:
     template <bool is_binary_format>
@@ -128,8 +129,8 @@ private:
                                   int64_t row_idx, bool col_const,
                                   const FormatOptions& options) const;
 
-    int scale;
     int precision;
+    int scale;
     const typename T::NativeType scale_multiplier;
     mutable char buf[T::max_string_length()];
 };

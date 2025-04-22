@@ -66,12 +66,13 @@ namespace doris::vectorized {
 /// because all these functions(xxx_add/xxx_sub) defined in FE use Integer as the second value
 ///  so Int32 as delta is enough. For upstream(FunctionDateOrDateTimeComputation) we also could use Int32.
 
-template <TimeUnit unit, typename ArgType, typename ReturnType,
-          typename InputNativeType = ArgType::FieldType,
-          typename ReturnNativeType = ReturnType::FieldType>
-ReturnNativeType date_time_add(const InputNativeType& t, Int32 delta, bool& is_null) {
+template <TimeUnit unit, typename ArgType, typename ReturnType>
+ReturnType::FieldType date_time_add(const typename ArgType::FieldType& t, Int32 delta,
+                                    bool& is_null) {
     using DateValueType = date_cast::TypeToValueTypeV<ArgType>;
     using ResultDateValueType = date_cast::TypeToValueTypeV<ReturnType>;
+    using InputNativeType = ArgType::FieldType;
+    using ReturnNativeType = ReturnType::FieldType;
     // e.g.: for DatatypeDatetimeV2, cast from u64 to DateV2Value<DateTimeV2ValueType>
     auto ts_value = binary_cast<InputNativeType, DateValueType>(t);
     TimeInterval interval(unit, delta, false);
@@ -236,7 +237,7 @@ struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>, DateType
     };
 
 DECLARE_DATE_FUNCTIONS(DateDiffImpl, datediff, DataTypeInt32, (ts0.daynr() - ts1.daynr()));
-// DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeTime, ts0.second_diff(ts1));
+// DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeTime, ts0.datetime_diff_in_seconds(ts1));
 // Expands to below here because it use Time type which need some special deal.
 template <typename DateType1, typename DateType2>
 struct TimeDiffImpl {
@@ -259,7 +260,7 @@ struct TimeDiffImpl {
         if constexpr (UsingTimev2) {
             // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
             // the time type value between '-838:59:59' and '838:59:59', so the return value should limited
-            int64_t diff_m = ts0.microsecond_diff(ts1);
+            int64_t diff_m = ts0.datetime_diff_in_microseconds(ts1);
             if (diff_m > limit_value) {
                 return (double)limit_value;
             } else if (diff_m < -1 * limit_value) {
@@ -268,7 +269,7 @@ struct TimeDiffImpl {
                 return (double)diff_m;
             }
         } else {
-            return TimeValue::from_second(ts0.second_diff(ts1));
+            return TimeValue::from_second(ts0.datetime_diff_in_seconds(ts1));
         }
     }
     static DataTypes get_variadic_argument_types() {
@@ -449,6 +450,8 @@ public:
         // for all `xxx_add/sub`, the second arg is int32.
         // for `week/yearweek`, if it has the second arg, it's int32.
         // in these situations, the first would be any datelike type.
+        //TODO: now we use switch and if to do check in runtime.
+        // it leads to generation of a lot of useless template. try to use if constexpr to avoid this.
         if (which2.is_int32()) {
             switch (which1.idx) {
             case TypeIndex::Date:
@@ -992,6 +995,214 @@ protected:
                     CurrentDateImpl<FunctionName, DataTypeDate, Int64>>::create();
             return std::make_shared<DefaultFunction>(function, data_types, return_type);
         }
+    }
+};
+
+class FunctionMonthsBetween : public IFunction {
+public:
+    static constexpr auto name = "months_between";
+    static FunctionPtr create() { return std::make_shared<FunctionMonthsBetween>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeFloat64>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        CHECK_EQ(arguments.size(), 3);
+        auto res = ColumnFloat64::create();
+
+        bool date_consts[2];
+        date_consts[0] = is_column_const(*block.get_by_position(arguments[0]).column);
+        date_consts[1] = is_column_const(*block.get_by_position(arguments[1]).column);
+        ColumnPtr date_cols[2];
+        // convert const columns to full columns if necessary
+        default_preprocess_parameter_columns(date_cols, date_consts, {0, 1}, block, arguments);
+
+        const auto& [col3, col3_const] =
+                unpack_if_const(block.get_by_position(arguments[2]).column);
+
+        const auto& date1_col = *assert_cast<const ColumnDateV2*>(date_cols[0].get());
+        const auto& date2_col = *assert_cast<const ColumnDateV2*>(date_cols[1].get());
+        const auto& round_off_col = *assert_cast<const ColumnBool*>(col3.get());
+
+        if (date_consts[0] && date_consts[1]) {
+            execute_vector<true, false>(input_rows_count, date1_col, date2_col, round_off_col,
+                                        *res);
+        } else if (col3_const) {
+            execute_vector<false, true>(input_rows_count, date1_col, date2_col, round_off_col,
+                                        *res);
+        } else {
+            execute_vector<false, false>(input_rows_count, date1_col, date2_col, round_off_col,
+                                         *res);
+        }
+
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+
+private:
+    template <bool is_date_const, bool is_round_off_const>
+    static void execute_vector(const size_t input_rows_count, const ColumnDateV2& date1_col,
+                               const ColumnDateV2& date2_col, const ColumnBool& round_off_col,
+                               ColumnFloat64& res) {
+        res.reserve(input_rows_count);
+        double months_between;
+        bool round_off;
+
+        if constexpr (is_date_const) {
+            auto dtv1 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date1_col.get_element(0));
+            auto dtv2 = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date2_col.get_element(0));
+            months_between = calc_months_between(dtv1, dtv2);
+        }
+
+        if constexpr (is_round_off_const) {
+            round_off = round_off_col.get_element(0);
+        }
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            if constexpr (!is_date_const) {
+                auto dtv1 =
+                        binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date1_col.get_element(i));
+                auto dtv2 =
+                        binary_cast<UInt32, DateV2Value<DateV2ValueType>>(date2_col.get_element(i));
+                months_between = calc_months_between(dtv1, dtv2);
+            }
+            if constexpr (!is_round_off_const) {
+                round_off = round_off_col.get_element(i);
+            }
+            if (round_off) {
+                months_between = round_months_between(months_between);
+            }
+            res.insert_value(months_between);
+        }
+    }
+
+    static double calc_months_between(const DateV2Value<DateV2ValueType>& dtv1,
+                                      const DateV2Value<DateV2ValueType>& dtv2) {
+        auto year_between = dtv1.year() - dtv2.year();
+        auto months_between = dtv1.month() - dtv2.month();
+        auto days_in_month1 = S_DAYS_IN_MONTH[dtv1.month()];
+        if (UNLIKELY(is_leap(dtv1.year()) && dtv1.month() == 2)) {
+            days_in_month1 = 29;
+        }
+        auto days_in_month2 = S_DAYS_IN_MONTH[dtv2.month()];
+        if (UNLIKELY(is_leap(dtv2.year()) && dtv2.month() == 2)) {
+            days_in_month2 = 29;
+        }
+        double days_between = 0;
+        // if date1 and date2 are all the last day of the month, days_between is 0
+        if (UNLIKELY(dtv1.day() == days_in_month1 && dtv2.day() == days_in_month2)) {
+            days_between = 0;
+        } else {
+            days_between = (dtv1.day() - dtv2.day()) / (double)31.0;
+        }
+
+        // calculate months between
+        return year_between * 12 + months_between + days_between;
+    }
+
+    static double round_months_between(double months_between) {
+        return round(months_between * 100000000) / 100000000;
+    }
+};
+
+class FunctionNextDay : public IFunction {
+public:
+    static constexpr auto name = "next_day";
+    static FunctionPtr create() { return std::make_shared<FunctionNextDay>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return std::make_shared<DataTypeDateV2>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        CHECK_EQ(arguments.size(), 2);
+        auto res = ColumnDateV2::create();
+        res->reserve(input_rows_count);
+        const auto& [left_col, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_col, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        const auto& date_col = *assert_cast<const ColumnDateV2*>(left_col.get());
+        const auto& week_col = *assert_cast<const ColumnString*>(right_col.get());
+        Status status;
+        if (left_const && right_const) {
+            status = execute_vector<true, true>(input_rows_count, date_col, week_col, *res);
+        } else if (left_const) {
+            status = execute_vector<true, false>(input_rows_count, date_col, week_col, *res);
+        } else if (right_const) {
+            status = execute_vector<false, true>(input_rows_count, date_col, week_col, *res);
+        } else {
+            status = execute_vector<false, false>(input_rows_count, date_col, week_col, *res);
+        }
+        if (!status.ok()) {
+            return status;
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+
+private:
+    static int day_of_week(const StringRef& weekday) {
+        static const std::unordered_map<std::string, int> weekday_map = {
+                {"MO", 1}, {"MON", 1}, {"MONDAY", 1},    {"TU", 2}, {"TUE", 2}, {"TUESDAY", 2},
+                {"WE", 3}, {"WED", 3}, {"WEDNESDAY", 3}, {"TH", 4}, {"THU", 4}, {"THURSDAY", 4},
+                {"FR", 5}, {"FRI", 5}, {"FRIDAY", 5},    {"SA", 6}, {"SAT", 6}, {"SATURDAY", 6},
+                {"SU", 7}, {"SUN", 7}, {"SUNDAY", 7}};
+        auto weekday_upper = weekday.to_string();
+        std::transform(weekday_upper.begin(), weekday_upper.end(), weekday_upper.begin(),
+                       ::toupper);
+        auto it = weekday_map.find(weekday_upper);
+        if (it == weekday_map.end()) {
+            return 0;
+        }
+        return it->second;
+    }
+    static Status compute_next_day(DateV2Value<DateV2ValueType>& dtv, const int week_day) {
+        auto days_to_add = (week_day - (dtv.weekday() + 1) + 7) % 7;
+        days_to_add = days_to_add == 0 ? 7 : days_to_add;
+        dtv.date_add_interval<TimeUnit::DAY>(TimeInterval(TimeUnit::DAY, days_to_add, false));
+        return Status::OK();
+    }
+
+    template <bool left_const, bool right_const>
+    static Status execute_vector(size_t input_rows_count, const ColumnDateV2& left_col,
+                                 const ColumnString& right_col, ColumnDateV2& res_col) {
+        DateV2Value<DateV2ValueType> dtv;
+        int week_day;
+        if constexpr (left_const) {
+            dtv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(left_col.get_element(0));
+        }
+        if constexpr (right_const) {
+            auto week = right_col.get_data_at(0);
+            week_day = day_of_week(week);
+            if (week_day == 0) {
+                return Status::InvalidArgument("Function {} failed to parse weekday: {}", name,
+                                               week);
+            }
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if constexpr (!left_const) {
+                dtv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(left_col.get_element(i));
+            }
+            if constexpr (!right_const) {
+                auto week = right_col.get_data_at(i);
+                week_day = day_of_week(week);
+                if (week_day == 0) {
+                    return Status::InvalidArgument("Function {} failed to parse weekday: {}", name,
+                                                   week);
+                }
+            }
+            RETURN_IF_ERROR(compute_next_day(dtv, week_day));
+            res_col.insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dtv));
+        }
+        return Status::OK();
     }
 };
 

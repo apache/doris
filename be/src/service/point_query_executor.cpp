@@ -35,7 +35,6 @@
 #include "cloud/config.h"
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
@@ -47,6 +46,7 @@
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/key_util.h"
@@ -64,6 +64,19 @@
 
 namespace doris {
 
+class PointQueryResultBlockBuffer final : public vectorized::MySQLResultBlockBuffer {
+public:
+    PointQueryResultBlockBuffer(RuntimeState* state) : vectorized::MySQLResultBlockBuffer(state) {}
+    ~PointQueryResultBlockBuffer() override = default;
+    std::shared_ptr<TFetchDataResult> get_block() {
+        std::lock_guard<std::mutex> l(_lock);
+        DCHECK_EQ(_result_batch_queue.size(), 1);
+        auto result = std::move(_result_batch_queue.front());
+        _result_batch_queue.pop_front();
+        return result;
+    }
+};
+
 Reusable::~Reusable() = default;
 
 // get missing and include column ids
@@ -79,6 +92,8 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
     for (auto* slot : slots) {
         missing_cids.insert(slot->col_unique_id());
     }
+    // insert delete sign column id
+    missing_cids.insert(schema.columns()[schema.delete_sign_idx()]->unique_id());
     if (target_rs_column_id == -1) {
         // no row store columns
         return;
@@ -388,7 +403,9 @@ Status PointQueryExecutor::_lookup_row_key() {
     Status st;
     if (_version >= 0) {
         CHECK(config::is_cloud_mode()) << "Only cloud mode support snapshot read at present";
-        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(_version));
+        SyncOptions options;
+        options.query_version = _version;
+        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(options));
     }
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
@@ -451,8 +468,8 @@ Status PointQueryExecutor::_lookup_row_data() {
             bool use_row_cache = !config::disable_storage_row_cache;
             RETURN_IF_ERROR(_tablet->lookup_row_data(
                     _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location.value(),
-                    *(_row_read_ctxs[i]._rowset_ptr), _reusable->tuple_desc(),
-                    _profile_metrics.read_stats, value, use_row_cache));
+                    *(_row_read_ctxs[i]._rowset_ptr), _profile_metrics.read_stats, value,
+                    use_row_cache));
             // serilize value to block, currently only jsonb row formt
             vectorized::JsonbSerializeUtil::jsonb_to_block(
                     _reusable->get_data_type_serdes(), value.data(), value.size(),
@@ -517,30 +534,34 @@ Status PointQueryExecutor::_lookup_row_data() {
     }
     // filter rows by delete sign
     if (_row_hits > 0 && _reusable->delete_sign_idx() != -1) {
-        vectorized::ColumnPtr delete_filter_columns =
-                _result_block->get_columns()[_reusable->delete_sign_idx()];
-        const auto& filter =
-                assert_cast<const vectorized::ColumnInt8*>(delete_filter_columns.get())->get_data();
-        size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
-        if (count == filter.size()) {
-            _result_block->clear();
-        } else if (count > 0) {
+        size_t filtered = 0;
+        size_t total = 0;
+        {
+            // clear_column_data will check reference of ColumnPtr, so we need to release
+            // reference before clear_column_data
+            vectorized::ColumnPtr delete_filter_columns =
+                    _result_block->get_columns()[_reusable->delete_sign_idx()];
+            const auto& filter =
+                    assert_cast<const vectorized::ColumnInt8*>(delete_filter_columns.get())
+                            ->get_data();
+            filtered = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
+            total = filter.size();
+        }
+
+        if (filtered == total) {
+            _result_block->clear_column_data();
+        } else if (filtered > 0) {
             return Status::NotSupported("Not implemented since only single row at present");
         }
     }
     return Status::OK();
 }
 
-template <typename MysqlWriter>
-Status serialize_block(RuntimeState* state, MysqlWriter& mysql_writer, vectorized::Block& block,
-                       PTabletKeyLookupResponse* response) {
-    block.clear_names();
-    RETURN_IF_ERROR(mysql_writer.write(state, block));
-    assert(mysql_writer.results().size() == 1);
+Status serialize_block(std::shared_ptr<TFetchDataResult> res, PTabletKeyLookupResponse* response) {
     uint8_t* buf = nullptr;
     uint32_t len = 0;
     ThriftSerializer ser(false, 4096);
-    RETURN_IF_ERROR(ser.serialize(&(mysql_writer.results()[0])->result_batch, &len, &buf));
+    RETURN_IF_ERROR(ser.serialize(&(res->result_batch), &len, &buf));
     response->set_row_batch(std::string((const char*)buf, len));
     return Status::OK();
 }
@@ -549,19 +570,23 @@ Status PointQueryExecutor::_output_data() {
     // 4. exprs exec and serialize to mysql row batches
     SCOPED_TIMER(&_profile_metrics.output_data_ns);
     if (_result_block->rows()) {
+        RuntimeState state;
+        auto buffer = std::make_shared<PointQueryResultBlockBuffer>(&state);
         // TODO reuse mysql_writer
         if (_binary_row_format) {
-            vectorized::VMysqlResultWriter<true> mysql_writer(nullptr, _reusable->output_exprs(),
+            vectorized::VMysqlResultWriter<true> mysql_writer(buffer, _reusable->output_exprs(),
                                                               nullptr);
             RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
-            RETURN_IF_ERROR(serialize_block(_reusable->runtime_state(), mysql_writer,
-                                            *_result_block, _response));
+            _result_block->clear_names();
+            RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));
+            RETURN_IF_ERROR(serialize_block(buffer->get_block(), _response));
         } else {
-            vectorized::VMysqlResultWriter<false> mysql_writer(nullptr, _reusable->output_exprs(),
+            vectorized::VMysqlResultWriter<false> mysql_writer(buffer, _reusable->output_exprs(),
                                                                nullptr);
             RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
-            RETURN_IF_ERROR(serialize_block(_reusable->runtime_state(), mysql_writer,
-                                            *_result_block, _response));
+            _result_block->clear_names();
+            RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));
+            RETURN_IF_ERROR(serialize_block(buffer->get_block(), _response));
         }
         VLOG_DEBUG << "dump block " << _result_block->dump_data();
     } else {

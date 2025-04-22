@@ -17,6 +17,8 @@
 
 #include "cloud/cloud_tablets_channel.h"
 
+#include <mutex>
+
 #include "cloud/cloud_delta_writer.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -55,14 +57,14 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
         return Status::OK();
     }
 
-    std::unordered_map<int64_t, std::vector<uint32_t>> tablet_to_rowidxs;
+    std::unordered_map<int64_t, DorisVector<uint32_t>> tablet_to_rowidxs;
     _build_tablet_to_rowidxs(request, &tablet_to_rowidxs);
 
     std::unordered_set<int64_t> partition_ids;
     {
         // add_batch may concurrency with inc_open but not under _lock.
         // so need to protect it with _tablet_writers_lock.
-        std::lock_guard<SpinLock> l(_tablet_writers_lock);
+        std::lock_guard<std::mutex> l(_tablet_writers_lock);
         for (auto& [tablet_id, _] : tablet_to_rowidxs) {
             auto tablet_writer_it = _tablet_writers.find(tablet_id);
             if (tablet_writer_it == _tablet_writers.end()) {

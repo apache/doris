@@ -22,8 +22,8 @@
 #include <memory>
 #include <unordered_set>
 
-namespace doris {
-namespace iceberg {
+namespace doris::iceberg {
+#include "common/compile_check_begin.h"
 
 class Type;
 class StructType;
@@ -64,5 +64,5 @@ private:
     static std::unordered_set<int> _get_integer_set(const char* key, const rapidjson::Value& value);
 };
 
-} // namespace iceberg
-} // namespace doris
+#include "common/compile_check_end.h"
+} // namespace doris::iceberg

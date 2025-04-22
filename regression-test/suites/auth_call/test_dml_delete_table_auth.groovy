@@ -30,7 +30,7 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     try_sql("DROP USER ${user}")
@@ -64,15 +64,6 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
         assertTrue(del_res.size() == 0)
     }
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user, "${pwd}", context.config.jdbcUrl) {
-        test {
-            sql """DELETE FROM ${dbName}.${tableName} WHERE id = 3;"""
-            exception "denied"
-        }
-        def del_res = sql """show DELETE from ${dbName}"""
-        assertTrue(del_res.size() == 0)
-    }
-    sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """DELETE FROM ${dbName}.${tableName} WHERE id = 3;"""
         def del_res = sql """show DELETE from ${dbName}"""

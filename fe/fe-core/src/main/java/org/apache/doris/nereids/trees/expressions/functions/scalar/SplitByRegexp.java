@@ -22,7 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -77,8 +77,8 @@ public class SplitByRegexp extends ScalarFunction
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (children().size() == 3) {
-            if (!child(2).isConstant() || !(child(2) instanceof IntegerLiteral)
-                    || (((IntegerLiteral) child(2)).getValue() < 0)) {
+            if (!child(2).isConstant() || !(child(2) instanceof IntegerLikeLiteral)
+                    || (((IntegerLikeLiteral) child(2)).getIntValue() < 0)) {
                 throw new AnalysisException("the third parameter of "
                         + getName() + " function must be a positive constant: " + toSql());
             }

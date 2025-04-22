@@ -30,6 +30,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/tablet_meta.h"
 #include "service/backend_options.h"
+#include "util/debug_points.h"
 #include "util/thread.h"
 #include "util/uuid_generator.h"
 #include "vec/columns/column.h"
@@ -41,12 +42,7 @@ bvar::Adder<uint64_t> full_output_size("full_compaction", "output_size");
 
 CloudFullCompaction::CloudFullCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet)
         : CloudCompactionMixin(engine, tablet,
-                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
-    auto uuid = UUIDGenerator::instance()->next_uuid();
-    std::stringstream ss;
-    ss << uuid;
-    _uuid = ss.str();
-}
+                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CloudFullCompaction::~CloudFullCompaction() = default;
 
@@ -221,13 +217,13 @@ Status CloudFullCompaction::modify_rowsets() {
     compaction_job->set_index_size_output_rowsets(_output_rowset->index_disk_size());
     compaction_job->set_segment_size_output_rowsets(_output_rowset->data_disk_size());
 
+    DBUG_EXECUTE_IF("CloudFullCompaction::modify_rowsets.block", DBUG_BLOCK);
+
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator =
-                boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
-        RETURN_IF_ERROR(_cloud_full_compaction_update_delete_bitmap(initiator));
-        compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        RETURN_IF_ERROR(_cloud_full_compaction_update_delete_bitmap(this->initiator()));
+        compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
     }
 
     cloud::FinishTabletJobResponse resp;
@@ -268,7 +264,7 @@ Status CloudFullCompaction::modify_rowsets() {
     return Status::OK();
 }
 
-void CloudFullCompaction::garbage_collection() {
+Status CloudFullCompaction::garbage_collection() {
     //file_cache_garbage_collection();
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
@@ -283,9 +279,7 @@ void CloudFullCompaction::garbage_collection() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::FULL);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator =
-                boost::hash_range(_uuid.begin(), _uuid.end()) & std::numeric_limits<int64_t>::max();
-        compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
     }
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {
@@ -294,6 +288,7 @@ void CloudFullCompaction::garbage_collection() {
                 .tag("tablet_id", _tablet->tablet_id())
                 .error(st);
     }
+    return st;
 }
 
 void CloudFullCompaction::do_lease() {
@@ -330,7 +325,7 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
                 {_output_rowset->version().second + 1, max_version}, &tmp_rowsets));
     }
     for (const auto& it : tmp_rowsets) {
-        const int64_t& cur_version = it->rowset_meta()->start_version();
+        int64_t cur_version = it->rowset_meta()->start_version();
         RETURN_IF_ERROR(_cloud_full_compaction_calc_delete_bitmap(it, cur_version, delete_bitmap));
     }
 
@@ -340,7 +335,7 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     std::lock_guard rowset_update_lock(cloud_tablet()->get_rowset_update_lock());
     std::lock_guard header_lock(_tablet->get_header_lock());
     for (const auto& it : cloud_tablet()->rowset_map()) {
-        const int64_t& cur_version = it.first.first;
+        int64_t cur_version = it.first.first;
         const RowsetSharedPtr& published_rowset = it.second;
         if (cur_version > max_version) {
             RETURN_IF_ERROR(_cloud_full_compaction_calc_delete_bitmap(published_rowset, cur_version,
@@ -364,22 +359,28 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
 }
 
 Status CloudFullCompaction::_cloud_full_compaction_calc_delete_bitmap(
-        const RowsetSharedPtr& published_rowset, const int64_t& cur_version,
-        const DeleteBitmapPtr& delete_bitmap) {
+        const RowsetSharedPtr& published_rowset, int64_t cur_version,
+        DeleteBitmapPtr delete_bitmap) {
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    auto beta_rowset = reinterpret_cast<BetaRowset*>(published_rowset.get());
-    RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
-    std::vector<RowsetSharedPtr> specified_rowsets(1, _output_rowset);
+    RETURN_IF_ERROR(
+            std::static_pointer_cast<BetaRowset>(published_rowset)->load_segments(&segments));
+    std::vector<RowsetSharedPtr> specified_rowsets {_output_rowset};
+    DeleteBitmapPtr tmp_delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
 
     OlapStopWatch watch;
     auto token = _engine.calc_delete_bitmap_executor()->create_token();
-    RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(_tablet, published_rowset, segments,
-                                                   specified_rowsets, delete_bitmap, cur_version,
-                                                   token.get(), _output_rs_writer.get()));
+    RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(
+            _tablet, published_rowset, segments, specified_rowsets, tmp_delete_bitmap, cur_version,
+            token.get(), _output_rs_writer.get()));
     RETURN_IF_ERROR(token->wait());
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
+    for (const auto& [k, v] : tmp_delete_bitmap->delete_bitmap) {
+        if (std::get<1>(k) != DeleteBitmap::INVALID_SEGMENT_ID) {
+            delete_bitmap->merge({std::get<0>(k), std::get<1>(k), cur_version}, v);
+        }
+    }
     VLOG_DEBUG << "[Full compaction] construct delete bitmap tablet: " << _tablet->tablet_id()
                << ", published rowset version: [" << published_rowset->version().first << "-"
                << published_rowset->version().second << "]"

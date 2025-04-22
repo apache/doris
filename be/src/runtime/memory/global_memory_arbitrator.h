@@ -21,6 +21,7 @@
 #include "util/mem_info.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class GlobalMemoryArbitrator {
 public:
@@ -90,7 +91,7 @@ public:
     }
 
     static bool try_reserve_process_memory(int64_t bytes);
-    static void release_process_reserved_memory(int64_t bytes);
+    static void shrink_process_reserved(int64_t bytes);
 
     static inline int64_t process_reserved_memory() {
         return _process_reserved_memory.load(std::memory_order_relaxed);
@@ -137,8 +138,8 @@ public:
 
     static std::string process_mem_log_str() {
         return fmt::format(
-                "os physical memory {}. {}, limit {}, soft limit {}. {}, low water mark {}, "
-                "warning water mark {}.",
+                "sys physical memory {}. {}, limit {}, soft limit {}. {}, low water mark {}, "
+                "warning water mark {}",
                 PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES),
                 process_memory_used_details_str(), MemInfo::mem_limit_str(),
                 MemInfo::soft_mem_limit_str(), sys_mem_available_details_str(),
@@ -147,20 +148,7 @@ public:
                                      TUnit::BYTES));
     }
 
-    static std::string process_limit_exceeded_errmsg_str() {
-        return fmt::format(
-                "{} exceed limit {} or {} less than low water mark {}", process_memory_used_str(),
-                MemInfo::mem_limit_str(), sys_mem_available_str(),
-                PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES));
-    }
-
-    static std::string process_soft_limit_exceeded_errmsg_str() {
-        return fmt::format("{} exceed soft limit {} or {} less than warning water mark {}.",
-                           process_memory_used_str(), MemInfo::soft_mem_limit_str(),
-                           sys_mem_available_str(),
-                           PrettyPrinter::print(MemInfo::sys_mem_available_warning_water_mark(),
-                                                TUnit::BYTES));
-    }
+    static void refresh_memory_bvar();
 
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.
@@ -169,7 +157,16 @@ public:
     static std::mutex cache_adjust_capacity_lock;
     static std::condition_variable cache_adjust_capacity_cv;
     static std::atomic<bool> cache_adjust_capacity_notify;
-    static std::atomic<double> last_cache_capacity_adjust_weighted;
+    // This capacity is set by memory maintenance thread `refresh_cache_capacity`, it is running periodicity,
+    // modified when process memory changes.
+    static std::atomic<double> last_periodic_refreshed_cache_capacity_adjust_weighted;
+    // This capacity is set by memory maintenance thread `handle_paused_queries`, in workload group mgr,
+    // modified when a query enters paused state due to process memory exceed.
+    static std::atomic<double> last_memory_exceeded_cache_capacity_adjust_weighted;
+    // The value that take affect
+    static std::atomic<double> last_affected_cache_capacity_adjust_weighted;
+    static std::atomic<bool> any_workload_group_exceed_limit;
+
     static void notify_cache_adjust_capacity() {
         cache_adjust_capacity_notify.store(true, std::memory_order_relaxed);
         cache_adjust_capacity_cv.notify_all();
@@ -187,4 +184,5 @@ private:
     static std::atomic<int64_t> _process_reserved_memory;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

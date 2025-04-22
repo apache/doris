@@ -17,8 +17,10 @@
 
 #include "runtime/workload_management/workload_sched_policy_mgr.h"
 
+#include <memory>
+
 #include "runtime/fragment_mgr.h"
-#include "runtime/runtime_query_statistics_mgr.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 
@@ -75,18 +77,20 @@ void WorkloadSchedPolicyMgr::update_workload_sched_policy(
 
 void WorkloadSchedPolicyMgr::_schedule_workload() {
     while (!_stop_latch.wait_for(std::chrono::milliseconds(500))) {
-        // 1 get query info
-        std::vector<WorkloadQueryInfo> list;
+        // 1 get query resource context
+        std::vector<std::weak_ptr<ResourceContext>> list;
         _exec_env->fragment_mgr()->get_runtime_query_info(&list);
         // todo: add timer
-        if (list.size() == 0) {
+        if (list.empty()) {
             continue;
         }
 
-        for (int i = 0; i < list.size(); i++) {
-            WorkloadQueryInfo* query_info_ptr = &(list[i]);
-            _exec_env->runtime_query_statistics_mgr()->get_metric_map(query_info_ptr->query_id,
-                                                                      query_info_ptr->metric_map);
+        for (const auto& i : list) {
+            auto resource_ctx = i.lock();
+            if (resource_ctx == nullptr) {
+                continue;
+            }
+            WorkloadAction::RuntimeContext action_runtime_ctx(resource_ctx);
 
             // 2 get matched policy
             std::map<WorkloadActionType, std::shared_ptr<WorkloadSchedPolicy>> matched_policy_map;
@@ -94,7 +98,7 @@ void WorkloadSchedPolicyMgr::_schedule_workload() {
                 std::shared_lock<std::shared_mutex> read_lock(_policy_lock);
                 for (auto& entity : _id_policy_map) {
                     auto& new_policy = entity.second;
-                    if (new_policy->is_match(query_info_ptr)) {
+                    if (new_policy->is_match(&action_runtime_ctx)) {
                         WorkloadActionType new_policy_type = new_policy->get_first_action_type();
                         if (matched_policy_map.find(new_policy_type) == matched_policy_map.end() ||
                             new_policy->priority() >
@@ -105,7 +109,7 @@ void WorkloadSchedPolicyMgr::_schedule_workload() {
                 }
             }
 
-            if (matched_policy_map.size() == 0) {
+            if (matched_policy_map.empty()) {
                 continue;
             }
             LOG(INFO) << "[workload_schedule] matched policy size=" << matched_policy_map.size();
@@ -128,7 +132,7 @@ void WorkloadSchedPolicyMgr::_schedule_workload() {
 
             // 4 exec policy action
             for (const auto& [key, value] : matched_policy_map) {
-                value->exec_action(query_info_ptr);
+                value->exec_action(&action_runtime_ctx);
             }
         }
     }

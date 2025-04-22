@@ -406,6 +406,7 @@ Status SegmentIterator::_lazy_init() {
 }
 
 Status SegmentIterator::_get_row_ranges_by_keys() {
+    SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_keys_ns);
     DorisMetrics::instance()->segment_row_total->increment(num_rows());
 
     // fast path for empty segment or empty key ranges
@@ -498,7 +499,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
 }
 
 Status SegmentIterator::_get_row_ranges_by_column_conditions() {
-    SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_ns);
+    SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_column_conditions_ns);
     if (_row_bitmap.isEmpty()) {
         return Status::OK();
     }
@@ -764,9 +765,8 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
     }
 
     if (pred->type() == PredicateType::IN_LIST || pred->type() == PredicateType::NOT_IN_LIST) {
-        auto predicate_param = pred->predicate_params();
         // in_list or not_in_list predicate produced by runtime filter
-        if (predicate_param->marked_by_runtime_filter) {
+        if (pred->is_runtime_filter()) {
             return false;
         }
     }
@@ -894,7 +894,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
             remaining_predicates.emplace_back(pred);
             return Status::OK();
         }
-        if (!pred->predicate_params()->marked_by_runtime_filter) {
+        if (!pred->is_runtime_filter()) {
             _column_predicate_inverted_index_status[pred->column_id()][pred] = true;
         }
     }
@@ -1877,17 +1877,6 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     return selected_size;
 }
 
-void SegmentIterator::_collect_runtime_filter_predicate() {
-    // collect profile
-    for (auto* p : _filter_info_id) {
-        // There is a situation, such as with in or minmax filters,
-        // where intermediate conversion to a key range or other types
-        // prevents obtaining the filter id.
-        if (p->get_filter_id() >= 0) {
-            _opts.stats->filter_info[p->get_filter_id()] = p->get_filtered_info();
-        }
-    }
-}
 Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                 std::vector<rowid_t>& rowid_vector,
                                                 uint16_t* sel_rowid_idx, size_t select_size,
@@ -2147,7 +2136,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             //          In SSB test, it make no difference; So need more scenarios to test
             selected_size = _evaluate_short_circuit_predicate(_sel_rowid_idx.data(), selected_size);
 
-            _collect_runtime_filter_predicate();
             if (selected_size > 0) {
                 // step 3.1: output short circuit and predicate column
                 // when lazy materialization enables, _predicate_column_ids = distinct(_short_cir_pred_column_ids + _vec_pred_column_ids)
@@ -2299,12 +2287,14 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     DCHECK(!_remaining_conjunct_roots.empty());
     DCHECK(block->rows() != 0);
     size_t prev_columns = block->columns();
+    _opts.stats->expr_cond_input_rows += selected_size;
 
     vectorized::IColumn::Filter filter;
     RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts_and_filter_block(
             _common_expr_ctxs_push_down, block, _columns_to_filter, prev_columns, filter));
 
     selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
+    _opts.stats->rows_expr_cond_filtered += selected_size;
     return Status::OK();
 }
 
@@ -2505,7 +2495,19 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
         return false;
     }
 
-    if (!_check_all_conditions_passed_inverted_index_for_column(cid)) {
+    // seek_schema is set when get_row_ranges_by_keys, it is null when there is no primary key range
+    // in this case, we need to read data
+    if (!_seek_schema) {
+        return false;
+    }
+    // check if the column is in the seek_schema
+    if (std::none_of(_seek_schema->columns().begin(), _seek_schema->columns().end(),
+                     [&](const Field* col) {
+                         return (col && _opts.tablet_schema->field_index(col->unique_id()) == cid);
+                     })) {
+        return false;
+    }
+    if (!_check_all_conditions_passed_inverted_index_for_column(cid, true)) {
         return false;
     }
 

@@ -29,6 +29,7 @@
 #include "common/object_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "util/runtime_profile.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
@@ -179,10 +180,10 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
         dest_block.swap(new_block);
     }
 
-    _sort_description.resize(_vsort_exec_exprs.lhs_ordering_expr_ctxs().size());
+    _sort_description.resize(_vsort_exec_exprs.ordering_expr_ctxs().size());
     Block* result_block = _materialize_sort_exprs ? &dest_block : &src_block;
     for (int i = 0; i < _sort_description.size(); i++) {
-        const auto& ordering_expr = _vsort_exec_exprs.lhs_ordering_expr_ctxs()[i];
+        const auto& ordering_expr = _vsort_exec_exprs.ordering_expr_ctxs()[i];
         RETURN_IF_ERROR(ordering_expr->execute(result_block, &_sort_description[i].column_number));
 
         _sort_description[i].direction = _is_asc_order[i] ? 1 : -1;
@@ -203,18 +204,62 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
     return Status::OK();
 }
 
-FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,
+FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
           _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)) {}
 
+// check whether the unsorted block can hold more data from input block and no need to alloc new memory
+bool FullSorter::has_enough_capacity(Block* input_block, Block* unsorted_block) const {
+    DCHECK_EQ(input_block->columns(), unsorted_block->columns());
+    for (auto i = 0; i < input_block->columns(); ++i) {
+        if (!unsorted_block->get_by_position(i).column->has_enough_capacity(
+                    *input_block->get_by_position(i).column)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+size_t FullSorter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
+    size_t size_to_reserve = 0;
+    const auto rows = _state->unsorted_block()->rows();
+    if (rows != 0) {
+        const auto bytes = _state->unsorted_block()->bytes();
+        const auto allocated_bytes = _state->unsorted_block()->allocated_bytes();
+        const auto bytes_per_row = bytes / rows;
+        const auto estimated_size_of_next_block = bytes_per_row * state->batch_size();
+        auto new_block_bytes = estimated_size_of_next_block + bytes;
+        auto new_rows = rows + state->batch_size();
+        // If the new size is greater than 85% of allocalted bytes, it maybe need to realloc.
+        if ((new_block_bytes * 100 / allocated_bytes) >= 85) {
+            size_to_reserve += (size_t)(allocated_bytes * 1.15);
+        }
+        auto sort = new_rows > _buffered_block_size || new_block_bytes > _buffered_block_bytes;
+        if (sort) {
+            // new column is created when doing sort, reserve average size of one column
+            // for estimation
+            size_to_reserve += new_block_bytes / _state->unsorted_block()->columns();
+
+            // helping data structures used during sorting
+            size_to_reserve += new_rows * sizeof(IColumn::Permutation::value_type);
+
+            auto sort_columns_count = _vsort_exec_exprs.ordering_expr_ctxs().size();
+            if (1 != sort_columns_count) {
+                size_to_reserve += new_rows * sizeof(EqualRangeIterator);
+            }
+        }
+    }
+    return size_to_reserve;
+}
+
 Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
 
-    if (_reach_limit() && block->bytes() > _state->unsorted_block()->allocated_bytes() -
-                                                   _state->unsorted_block()->bytes()) {
+    // iff have reach limit and the unsorted block capacity can't hold the block data size
+    if (_reach_limit() && !has_enough_capacity(block, _state->unsorted_block().get())) {
         RETURN_IF_ERROR(_do_sort());
     }
 
@@ -260,6 +305,7 @@ Status FullSorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectori
 Status FullSorter::_do_sort() {
     Block* src_block = _state->unsorted_block().get();
     Block desc_block = src_block->clone_without_columns();
+    COUNTER_UPDATE(_partial_sort_counter, 1);
     RETURN_IF_ERROR(partial_sort(*src_block, desc_block));
 
     // dispose TOP-N logic

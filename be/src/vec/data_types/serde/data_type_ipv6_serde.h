@@ -65,8 +65,8 @@ public:
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override;
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
-                                int end, const cctz::time_zone& ctz) const override;
+    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                int64_t end, const cctz::time_zone& ctz) const override;
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriterT<JsonbOutStream>& result,
                                  Arena* mem_pool, int unique_id, int64_t row_num) const override;

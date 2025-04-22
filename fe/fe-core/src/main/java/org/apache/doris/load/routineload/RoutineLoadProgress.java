@@ -39,7 +39,7 @@ public abstract class RoutineLoadProgress {
 
     abstract void update(RLTaskTxnCommitAttachment attachment);
 
-    abstract String toJsonString();
+    public abstract String toJsonString();
 
     public static RoutineLoadProgress read(DataInput in) throws IOException {
         RoutineLoadProgress progress = null;

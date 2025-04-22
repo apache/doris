@@ -38,6 +38,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 
 /**
  * table name info
@@ -91,6 +92,22 @@ public class TableNameInfo implements Writable {
     }
 
     /**
+     * TableNameInfo
+     * @param ctl catalogName
+     * @param db dbName
+     * @param tbl tblName
+     */
+    public TableNameInfo(String ctl, String db, String tbl) {
+        Objects.requireNonNull(tbl, "require tbl object");
+        this.ctl = ctl;
+        this.tbl = tbl;
+        if (Env.isStoredTableNamesLowerCase()) {
+            this.tbl = tbl.toLowerCase();
+        }
+        this.db = db;
+    }
+
+    /**
      * analyze tableNameInfo
      * @param ctx ctx
      */
@@ -111,6 +128,14 @@ public class TableNameInfo implements Writable {
         if (Strings.isNullOrEmpty(tbl)) {
             throw new AnalysisException("Table name is null");
         }
+    }
+
+    /**
+     * Returns true if this name has a non-empty catalog and a non-empty database field
+     * and a non-empty table name.
+     */
+    public boolean isFullyQualified() {
+        return Stream.of(ctl, db, tbl).noneMatch(Strings::isNullOrEmpty);
     }
 
     /**
@@ -200,6 +225,21 @@ public class TableNameInfo implements Writable {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            stringBuilder.append("`").append(ctl).append("`.");
+        }
+        if (db != null) {
+            stringBuilder.append("`").append(db).append("`.");
+        }
+        stringBuilder.append("`").append(tbl).append("`");
+        return stringBuilder.toString();
+    }
+
+    /**
+     * toFullyQualified
+     */
+    public String toFullyQualified() {
+        StringBuilder stringBuilder = new StringBuilder();
+        if (ctl != null) {
             stringBuilder.append("`").append(ctl).append("`.");
         }
         if (db != null) {

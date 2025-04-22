@@ -17,9 +17,9 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterUserStmt;
-import org.apache.doris.analysis.AlterUserStmt.OpType;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropRoleStmt;
@@ -62,11 +62,13 @@ import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
@@ -266,7 +268,7 @@ public class Auth implements Writable {
     }
 
     // ==== Global ====
-    public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
+    protected boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
@@ -282,7 +284,7 @@ public class Auth implements Writable {
     }
 
     // ==== Catalog ====
-    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+    protected boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         if (wanted.getPrivs().containsNodePriv()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("should not check NODE priv in catalog level. user: {}, catalog: {}",
@@ -305,7 +307,7 @@ public class Auth implements Writable {
     }
 
     // ==== Database ====
-    public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
+    protected boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
         if (wanted.getPrivs().containsNodePriv()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("should not check NODE priv in Database level. user: {}, db: {}",
@@ -329,7 +331,7 @@ public class Auth implements Writable {
     }
 
     // ==== Table ====
-    public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
+    protected boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         if (wanted.getPrivs().containsNodePriv()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("should check NODE priv in GLOBAL level. user: {}, db: {}, tbl: {}", currentUser, db, tbl);
@@ -353,7 +355,7 @@ public class Auth implements Writable {
     // ==== Column ====
     // The reason why this method throws an exception instead of returning a boolean is to
     // indicate which col does not have permission
-    public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
+    protected void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
         Set<Role> roles = getRolesByUserWithLdap(currentUser);
         for (String col : cols) {
@@ -376,7 +378,7 @@ public class Auth implements Writable {
     }
 
     // ==== Resource ====
-    public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
+    protected boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
@@ -392,7 +394,7 @@ public class Auth implements Writable {
     }
 
     // ==== Storage Vault ====
-    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
+    protected boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
@@ -408,7 +410,7 @@ public class Auth implements Writable {
     }
 
     // ==== Workload Group ====
-    public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
+    protected boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
         readLock();
         try {
             // currently stream load not support ip based auth, so normal should not auth temporary
@@ -430,7 +432,7 @@ public class Auth implements Writable {
     }
 
     // ==== cloud ====
-    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
+    protected boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
             PrivPredicate wanted, ResourceTypeEnum type) {
         readLock();
         try {
@@ -482,6 +484,12 @@ public class Auth implements Writable {
         createUserInternal(stmt.getUserIdent(), stmt.getQualifiedRole(),
                 stmt.getPassword(), stmt.isIfNotExist(), stmt.getPasswordOptions(),
                 stmt.getComment(), stmt.getUserId(), false);
+    }
+
+    public void createUser(CreateUserInfo info) throws DdlException {
+        createUserInternal(info.getUserIdent(), info.getRole(),
+                info.getPassword(), info.isIfNotExist(), info.getPasswordOptions(),
+                info.getComment(), info.getUserId(), false);
     }
 
     public void replayCreateUser(PrivInfo privInfo) {
@@ -563,8 +571,12 @@ public class Auth implements Writable {
         dropUserInternal(stmt.getUserIdentity(), stmt.isSetIfExists(), false);
     }
 
-    public void replayDropUser(UserIdentity userIdent) throws DdlException {
-        dropUserInternal(userIdent, false, true);
+    public void replayDropUser(UserIdentity userIdent) {
+        try {
+            dropUserInternal(userIdent, false, true);
+        } catch (DdlException e) {
+            LOG.error("should not happen", e);
+        }
     }
 
     private void dropUserInternal(UserIdentity userIdent, boolean ignoreIfNonExists, boolean isReplay)
@@ -1141,8 +1153,12 @@ public class Auth implements Writable {
         updateUserPropertyInternal(stmt.getUser(), properties, false /* is replay */);
     }
 
-    public void replayUpdateUserProperty(UserPropertyInfo propInfo) throws UserException {
-        updateUserPropertyInternal(propInfo.getUser(), propInfo.getProperties(), true /* is replay */);
+    public void replayUpdateUserProperty(UserPropertyInfo propInfo) {
+        try {
+            updateUserPropertyInternal(propInfo.getUser(), propInfo.getProperties(), true /* is replay */);
+        } catch (UserException e) {
+            LOG.error("should not happened", e);
+        }
     }
 
     public void updateUserPropertyInternal(String user, List<Pair<String, String>> properties, boolean isReplay)
@@ -1229,19 +1245,10 @@ public class Auth implements Writable {
         }
     }
 
-    public Set<Tag> getResourceTags(String qualifiedUser) {
+    public ComputeGroup getComputeGroup(String qualifiedUser) {
         readLock();
         try {
-            return propertyMgr.getResourceTags(qualifiedUser);
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public boolean isAllowResourceTagDowngrade(String qualifiedUser) {
-        readLock();
-        try {
-            return propertyMgr.isAllowResourceTagDowngrade(qualifiedUser);
+            return propertyMgr.getComputeGroup(qualifiedUser);
         } finally {
             readUnlock();
         }
@@ -1251,6 +1258,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getExecMemLimit(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public String getInitCatalog(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getInitCatalog(qualifiedUser);
         } finally {
             readUnlock();
         }
@@ -1848,6 +1864,11 @@ public class Auth implements Writable {
                 stmt.getPasswordOptions(), stmt.getComment(), false);
     }
 
+    public void alterUser(AlterUserInfo info) throws DdlException {
+        alterUserInternal(info.isIfExist(), info.getOpType(), info.getUserIdent(), info.getPassword(),
+                null, info.getPasswordOptions(), info.getComment(), false);
+    }
+
     public void replayAlterUser(AlterUserOperationLog log) {
         try {
             alterUserInternal(true, log.getOp(), log.getUserIdent(), log.getPassword(), log.getRole(),
@@ -1857,8 +1878,9 @@ public class Auth implements Writable {
         }
     }
 
-    private void alterUserInternal(boolean ifExists, OpType opType, UserIdentity userIdent, byte[] password,
-            String role, PasswordOptions passwordOptions, String comment, boolean isReplay) throws DdlException {
+    private void alterUserInternal(boolean ifExists, AlterUserOpType opType, UserIdentity userIdent, byte[] password,
+                                   String role, PasswordOptions passwordOptions, String comment,
+                                   boolean isReplay) throws DdlException {
         writeLock();
         try {
             if (!doesUserExist(userIdent)) {
@@ -1886,7 +1908,7 @@ public class Auth implements Writable {
                 default:
                     throw new DdlException("Unknown alter user operation type: " + opType.name());
             }
-            if (opType != OpType.SET_PASSWORD && !isReplay) {
+            if (opType != AlterUserOpType.SET_PASSWORD && !isReplay) {
                 // For SET_PASSWORD:
                 //      the edit log is wrote in "setPasswordInternal"
                 AlterUserOperationLog log = new AlterUserOperationLog(opType, userIdent, password, role,

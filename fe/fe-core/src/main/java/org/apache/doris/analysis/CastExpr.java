@@ -335,6 +335,10 @@ public class CastExpr extends Expr {
             if ((type.isMapType() || type.isStructType()) && childType.isStringType()) {
                 return;
             }
+            // same with Type.canCastTo() can be cast to jsonb
+            if (childType.isComplexType() && type.isJsonbType()) {
+                return;
+            }
             if (childType.isNull() && Type.canCastTo(childType, type)) {
                 return;
             } else {
@@ -573,8 +577,13 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return children.get(0).getStringValueForArray(options);
+    public String getStringValueForStreamLoad(FormatOptions options) {
+        return children.get(0).getStringValueForStreamLoad(options);
+    }
+
+    @Override
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return children.get(0).getStringValueInComplexTypeForQuery(options);
     }
 
     public void setNotFold(boolean notFold) {

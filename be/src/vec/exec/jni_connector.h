@@ -93,7 +93,7 @@ public:
     struct ScanPredicate {
         ScanPredicate() = default;
         ~ScanPredicate() = default;
-        const std::string column_name;
+        std::string column_name;
         SQLFilterOp op;
         std::vector<const CppType*> values;
         int scale;

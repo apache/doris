@@ -137,6 +137,7 @@ void ColumnMap::insert_data(const char*, size_t) {
 }
 
 void ColumnMap::insert(const Field& x) {
+    DCHECK_EQ(x.get_type(), Field::Types::Map);
     const auto& map = doris::vectorized::get<const Map&>(x);
     CHECK_EQ(map.size(), 2);
     const auto& k_f = doris::vectorized::get<const Array&>(map[0]);
@@ -531,10 +532,37 @@ size_t ColumnMap::allocated_bytes() const {
            get_offsets().allocated_bytes();
 }
 
+bool ColumnMap::has_enough_capacity(const IColumn& src) const {
+    const auto& src_concrete = assert_cast<const ColumnMap&>(src);
+    return keys_column->has_enough_capacity(*src_concrete.keys_column) &&
+           values_column->has_enough_capacity(*src_concrete.values_column) &&
+           offsets_column->has_enough_capacity(*src_concrete.offsets_column);
+}
+
 ColumnPtr ColumnMap::convert_to_full_column_if_const() const {
     return ColumnMap::create(keys_column->convert_to_full_column_if_const(),
                              values_column->convert_to_full_column_if_const(),
                              offsets_column->convert_to_full_column_if_const());
+}
+
+void ColumnMap::erase(size_t start, size_t length) {
+    if (start >= size() || length == 0) {
+        return;
+    }
+    length = std::min(length, size() - start);
+
+    const auto& offsets_data = get_offsets();
+    auto entry_start = offsets_data[start - 1];
+    auto entry_end = offsets_data[start + length - 1];
+    auto entry_length = entry_end - entry_start;
+
+    keys_column->erase(entry_start, entry_length);
+    values_column->erase(entry_start, entry_length);
+    offsets_column->erase(start, length);
+
+    for (auto i = start; i < size(); ++i) {
+        get_offsets()[i] -= entry_length;
+    }
 }
 
 } // namespace doris::vectorized

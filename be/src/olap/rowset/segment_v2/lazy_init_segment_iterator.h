@@ -54,11 +54,10 @@ public:
         return _inner_iterator->current_block_row_locations(locations);
     }
 
-    bool update_profile(RuntimeProfile* profile) override {
+    void update_profile(RuntimeProfile* profile) override {
         if (_inner_iterator != nullptr) {
-            return _inner_iterator->update_profile(profile);
+            _inner_iterator->update_profile(profile);
         }
-        return false;
     }
 
 private:

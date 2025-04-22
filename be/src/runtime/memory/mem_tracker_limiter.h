@@ -35,11 +35,12 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/memory/mem_counter.h"
-#include "runtime/query_statistics.h"
+#include "runtime/memory/mem_tracker.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class RuntimeProfile;
 class MemTrackerLimiter;
@@ -72,9 +73,6 @@ public:
     /*
     * Part 1, Type definition
     */
-
-    // TODO There are more and more GC codes and there should be a separate manager class.
-    enum class GCType { PROCESS = 0, WORK_LOAD_GROUP = 1 };
 
     enum class Type {
         GLOBAL = 0,        // Life cycle is the same as the process, except cache and metadata.
@@ -112,19 +110,6 @@ public:
         __builtin_unreachable();
     }
 
-    static std::string gc_type_string(GCType type) {
-        switch (type) {
-        case GCType::PROCESS:
-            return "process";
-        case GCType::WORK_LOAD_GROUP:
-            return "work load group";
-        default:
-            LOG(FATAL) << "not match gc type:" << static_cast<int>(type);
-        }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }
-
     /*
     * Part 2, Constructors and property methods
     */
@@ -134,12 +119,10 @@ public:
                                                             int64_t byte_limit = -1);
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
     MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit);
-
     ~MemTrackerLimiter();
 
     Type type() const { return _type; }
     const std::string& label() const { return _label; }
-    std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
     int64_t group_num() const { return _group_num; }
     bool has_limit() const { return _limit >= 0; }
     int64_t limit() const { return _limit; }
@@ -148,8 +131,7 @@ public:
     // Log the memory usage when memory limit is exceeded.
     std::string tracker_limit_exceeded_str();
     bool is_overcommit_tracker() const { return type() == Type::QUERY || type() == Type::LOAD; }
-    bool is_query_cancelled() { return _is_query_cancelled; }
-    void set_is_query_cancelled(bool is_cancelled) { _is_query_cancelled.store(is_cancelled); }
+    void set_limit(int64_t new_mem_limit) { _limit = new_mem_limit; }
 
     static void clean_tracker_limiter_group();
 
@@ -166,13 +148,7 @@ public:
 
     // Use carefully! only memory that cannot be allocated using Doris Allocator needs to be consumed manually.
     // Ideally, all memory should use Doris Allocator.
-    void consume(int64_t bytes) {
-        _mem_counter.add(bytes);
-        if (_query_statistics) {
-            _query_statistics->set_max_peak_memory_bytes(peak_consumption());
-            _query_statistics->set_current_used_memory_bytes(consumption());
-        }
-    }
+    void consume(int64_t bytes) { _mem_counter.add(bytes); }
 
     void consume_no_update_peak(int64_t bytes) { _mem_counter.add_no_update_peak(bytes); }
 
@@ -187,10 +163,6 @@ public:
             rt = _mem_counter.try_add(bytes, _limit);
         } else {
             _mem_counter.add(bytes);
-        }
-        if (rt && _query_statistics) {
-            _query_statistics->set_max_peak_memory_bytes(peak_consumption());
-            _query_statistics->set_current_used_memory_bytes(consumption());
         }
         return rt;
     }
@@ -216,6 +188,14 @@ public:
     int64_t reserved_consumption() const { return _reserved_counter.current_value(); }
     int64_t reserved_peak_consumption() const { return _reserved_counter.peak_value(); }
 
+    void reserve(int64_t bytes) {
+        if (UNLIKELY(bytes == 0)) {
+            return;
+        }
+        _mem_counter.add(bytes);
+        _reserved_counter.add(bytes);
+    }
+
     bool try_reserve(int64_t bytes) {
         bool rt = try_consume(bytes);
         if (rt) {
@@ -224,13 +204,13 @@ public:
         return rt;
     }
 
-    void release_reserved(int64_t bytes) {
+    void shrink_reserved(int64_t bytes) {
         _reserved_counter.sub(bytes);
         DCHECK(reserved_consumption() >= 0);
     }
 
     /*
-    * Part 4, Memory profile and log method
+    * Part 5, Memory profile and log method
     */
     RuntimeProfile* make_profile(RuntimeProfile* profile) const;
     std::string make_profile_str() const;
@@ -239,41 +219,12 @@ public:
     static void make_top_consumption_tasks_tracker_profile(RuntimeProfile* profile, int top_num);
     static void make_all_tasks_tracker_profile(RuntimeProfile* profile);
 
+    int64_t write_buffer_size() const { return _write_tracker->consumption(); }
+
+    std::shared_ptr<MemTrackerLimiter> write_tracker() { return _write_tracker; }
+
     void print_log_usage(const std::string& msg);
     void enable_print_log_usage() { _enable_print_log_usage = true; }
-
-    /*
-    * Part 5, Memory GC method
-    */
-
-    // Start canceling from the query with the largest memory usage until the memory of min_free_mem size is freed.
-    // cancel_reason recorded when gc is triggered, for log printing.
-    static int64_t free_top_memory_query(int64_t min_free_mem, const std::string& cancel_reason,
-                                         RuntimeProfile* profile, Type type = Type::QUERY);
-
-    static int64_t free_top_memory_query(
-            int64_t min_free_mem, Type type, std::vector<TrackerLimiterGroup>& tracker_groups,
-            const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
-            RuntimeProfile* profile, GCType gctype);
-
-    static int64_t free_top_memory_load(int64_t min_free_mem, const std::string& cancel_reason,
-                                        RuntimeProfile* profile) {
-        return free_top_memory_query(min_free_mem, cancel_reason, profile, Type::LOAD);
-    }
-    // Start canceling from the query with the largest memory overcommit ratio until the memory
-    // of min_free_mem size is freed.
-    static int64_t free_top_overcommit_query(int64_t min_free_mem, const std::string& cancel_reason,
-                                             RuntimeProfile* profile, Type type = Type::QUERY);
-
-    static int64_t free_top_overcommit_query(
-            int64_t min_free_mem, Type type, std::vector<TrackerLimiterGroup>& tracker_groups,
-            const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
-            RuntimeProfile* profile, GCType gctype);
-
-    static int64_t free_top_overcommit_load(int64_t min_free_mem, const std::string& cancel_reason,
-                                            RuntimeProfile* profile) {
-        return free_top_overcommit_query(min_free_mem, cancel_reason, profile, Type::LOAD);
-    }
 
     /*
     * Part 6, Memory debug method
@@ -282,22 +233,9 @@ public:
     void add_address_sanitizers(void* buf, size_t size);
     void remove_address_sanitizers(void* buf, size_t size);
     bool is_group_commit_load {false};
+    void set_enable_reserve_memory(bool enabled) { _enable_reserve_memory = enabled; }
 
 private:
-    // only for Type::QUERY or Type::LOAD.
-    static TUniqueId label_to_queryid(const std::string& label) {
-        if (label.find("#Id=") == std::string::npos) {
-            return {};
-        }
-        auto queryid = split(label, "#Id=")[1];
-        TUniqueId querytid;
-        parse_id(queryid, &querytid);
-        if (querytid == TUniqueId()) {
-            LOG(WARNING) << "Task ID parsing failed, label: " << label;
-        }
-        return querytid;
-    }
-
     // When the accumulated untracked memory value exceeds the upper limit,
     // the current value is returned and set to 0.
     // Thread safety.
@@ -317,8 +255,10 @@ private:
     MemCounter _mem_counter;
     MemCounter _reserved_counter;
 
+    bool _enable_reserve_memory = false;
+
     // Limit on memory consumption, in bytes.
-    int64_t _limit;
+    std::atomic<int64_t> _limit;
 
     // Group number in mem_tracker_limiter_pool and mem_tracker_pool, generated by the timestamp.
     int64_t _group_num;
@@ -327,13 +267,10 @@ private:
     // to avoid frequent calls to consume/release of MemTracker.
     std::atomic<int64_t> _untracked_mem = 0;
 
-    // query or load
-    std::atomic<bool> _is_query_cancelled = false;
-
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
 
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
+    std::shared_ptr<MemTrackerLimiter> _write_tracker;
 
     struct AddressSanitizer {
         size_t size;
@@ -364,9 +301,21 @@ inline void MemTrackerLimiter::cache_consume(int64_t bytes) {
 }
 
 inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
-    if (bytes <= 0 || (is_overcommit_tracker() && config::enable_query_memory_overcommit)) {
+    // Do not enable check limit, because reserve process will check it.
+    // If reserve enabled, even if the reserved memory size is smaller than the actual requested memory,
+    // and the query memory consumption is larger than the limit, we do not expect the query to fail
+    // after `check_limit` returns an error, but to run as long as possible,
+    // and will enter the paused state and try to spill when the query reserves next time.
+    // If the workload group or process runs out of memory, it will be forced to cancel.
+    if (bytes <= 0 || _enable_reserve_memory) {
         return Status::OK();
     }
+
+    // If reserve not enabled, then should check limit here to kill the query when limit exceed.
+    // For insert into select or pure load job, its memtable is accounted in a seperate memtracker limiter,
+    // and its reserve is set to true. So that it will not reach this logic.
+    // Only query and load job has exec_mem_limit and the _limit > 0, other memtracker limiter's _limit is -1 so
+    // it will not take effect.
     if (_limit > 0 && consumption() + bytes > _limit) {
         return Status::MemoryLimitExceeded(fmt::format("failed alloc size {}, {}",
                                                        MemCounter::print_bytes(bytes),
@@ -375,4 +324,5 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

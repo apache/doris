@@ -80,6 +80,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -89,10 +90,12 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.thrift.TUniqueId;
@@ -104,7 +107,6 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import org.apache.commons.codec.digest.DigestUtils;
 
-import java.time.DateTimeException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -266,7 +268,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((Literal) equalTo.left()).compareTo((Literal) equalTo.right()) == 0);
+        if (equalTo.left() instanceof ComparableLiteral && equalTo.right() instanceof ComparableLiteral) {
+            return BooleanLiteral.of(((ComparableLiteral) equalTo.left())
+                    .compareTo((ComparableLiteral) equalTo.right()) == 0);
+        } else {
+            return BooleanLiteral.of(equalTo.left().equals(equalTo.right()));
+        }
     }
 
     @Override
@@ -276,7 +283,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((Literal) greaterThan.left()).compareTo((Literal) greaterThan.right()) > 0);
+        return BooleanLiteral.of(((ComparableLiteral) greaterThan.left())
+                .compareTo((ComparableLiteral) greaterThan.right()) > 0);
     }
 
     @Override
@@ -286,8 +294,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((Literal) greaterThanEqual.left())
-                .compareTo((Literal) greaterThanEqual.right()) >= 0);
+        return BooleanLiteral.of(((ComparableLiteral) greaterThanEqual.left())
+                .compareTo((ComparableLiteral) greaterThanEqual.right()) >= 0);
     }
 
     @Override
@@ -297,7 +305,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((Literal) lessThan.left()).compareTo((Literal) lessThan.right()) < 0);
+        return BooleanLiteral.of(((ComparableLiteral) lessThan.left())
+                .compareTo((ComparableLiteral) lessThan.right()) < 0);
     }
 
     @Override
@@ -307,7 +316,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (checkedExpr.isPresent()) {
             return checkedExpr.get();
         }
-        return BooleanLiteral.of(((Literal) lessThanEqual.left()).compareTo((Literal) lessThanEqual.right()) <= 0);
+        return BooleanLiteral.of(((ComparableLiteral) lessThanEqual.left())
+                .compareTo((ComparableLiteral) lessThanEqual.right()) <= 0);
     }
 
     @Override
@@ -322,7 +332,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (l.isNullLiteral() && r.isNullLiteral()) {
             return BooleanLiteral.TRUE;
         } else if (!l.isNullLiteral() && !r.isNullLiteral()) {
-            return BooleanLiteral.of(l.compareTo(r) == 0);
+            if (nullSafeEqual.left() instanceof ComparableLiteral
+                    && nullSafeEqual.right() instanceof ComparableLiteral) {
+                return BooleanLiteral.of(((ComparableLiteral) nullSafeEqual.left())
+                        .compareTo((ComparableLiteral) nullSafeEqual.right()) == 0);
+            } else {
+                return BooleanLiteral.of(l.equals(r));
+            }
         } else {
             return BooleanLiteral.FALSE;
         }
@@ -478,17 +494,14 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (child.isNullLiteral()) {
             return new NullLiteral(dataType);
         } else if (child instanceof StringLikeLiteral && dataType instanceof DateLikeType) {
+            String dateStr = ((StringLikeLiteral) child).getStringValue();
+            if (!DateTimeChecker.isValidDateTime(dateStr)) {
+                return cast;
+            }
             try {
-                return ((DateLikeType) dataType).fromString(((StringLikeLiteral) child).getStringValue());
-            } catch (AnalysisException t) {
-                if (cast.isExplicitType()) {
-                    return cast;
-                } else {
-                    // If cast is from type coercion, we don't use NULL literal and will throw exception.
-                    throw t;
-                }
-            } catch (DateTimeException e) {
-                return new NullLiteral(dataType);
+                return ((DateLikeType) dataType).fromString(dateStr);
+            } catch (Exception t) {
+                return cast;
             }
         }
         try {
@@ -527,6 +540,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitCaseWhen(CaseWhen caseWhen, ExpressionRewriteContext context) {
+        CaseWhen originCaseWhen = caseWhen;
         caseWhen = rewriteChildren(caseWhen, context);
         Expression newDefault = null;
         boolean foundNewDefault = false;
@@ -552,7 +566,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             defaultResult = newDefault;
         }
         if (whenClauses.isEmpty()) {
-            return defaultResult == null ? new NullLiteral(caseWhen.getDataType()) : defaultResult;
+            return TypeCoercionUtils.ensureSameResultType(
+                    originCaseWhen, defaultResult == null ? new NullLiteral(caseWhen.getDataType()) : defaultResult,
+                    context
+            );
         }
         if (defaultResult == null) {
             if (caseWhen.getDataType().isNullType()) {
@@ -560,21 +577,24 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 // it's safe to return null literal here
                 return new NullLiteral();
             } else {
-                return new CaseWhen(whenClauses);
+                return TypeCoercionUtils.ensureSameResultType(originCaseWhen, new CaseWhen(whenClauses), context);
             }
         }
-        return new CaseWhen(whenClauses, defaultResult);
+        return TypeCoercionUtils.ensureSameResultType(
+                originCaseWhen, new CaseWhen(whenClauses, defaultResult), context
+        );
     }
 
     @Override
     public Expression visitIf(If ifExpr, ExpressionRewriteContext context) {
+        If originIf = ifExpr;
         ifExpr = rewriteChildren(ifExpr, context);
         if (ifExpr.child(0) instanceof NullLiteral || ifExpr.child(0).equals(BooleanLiteral.FALSE)) {
-            return ifExpr.child(2);
+            return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.child(2), context);
         } else if (ifExpr.child(0).equals(BooleanLiteral.TRUE)) {
-            return ifExpr.child(1);
+            return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.child(1), context);
         }
-        return ifExpr;
+        return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr, context);
     }
 
     @Override
@@ -672,17 +692,20 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitNvl(Nvl nvl, ExpressionRewriteContext context) {
+        Nvl originNvl = nvl;
+        nvl = rewriteChildren(nvl, context);
+
         for (Expression expr : nvl.children()) {
             if (expr.isLiteral()) {
                 if (!expr.isNullLiteral()) {
-                    return expr;
+                    return TypeCoercionUtils.ensureSameResultType(originNvl, expr, context);
                 }
             } else {
-                return nvl;
+                return TypeCoercionUtils.ensureSameResultType(originNvl, nvl, context);
             }
         }
         // all nulls
-        return nvl.child(0);
+        return TypeCoercionUtils.ensureSameResultType(originNvl, nvl.child(0), context);
     }
 
     private <E extends Expression> E rewriteChildren(E expr, ExpressionRewriteContext context) {

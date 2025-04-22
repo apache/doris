@@ -239,6 +239,11 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     struct evhttp_request* ev_req = req->get_evhttp_request();
     auto evbuf = evhttp_request_get_input_buffer(ev_req);
 
+    // In HttpStreamAction::on_chunk_data
+    //      -> process_put
+    //      -> StreamLoadExecutor::execute_plan_fragment
+    //      -> exec_plan_fragment
+    // , SCOPED_SWITCH_RESOURCE_CONTEXT will be called, SCOPED_ATTACH_TASK not allow nesting.
     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
 
     int64_t start_read_data_time = MonotonicNanos();
@@ -330,6 +335,9 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     } else {
         LOG(WARNING) << "_exec_env->cluster_info not set backend_id";
     }
+    if (ctx->wal_id > 0) {
+        request.__set_partial_update(false);
+    }
 
     // plan this load
     TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
@@ -376,8 +384,8 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
         }
         ctx->put_result.pipeline_params.__set_content_length(content_length);
     }
-
-    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
+    TPipelineFragmentParamsList mocked;
+    return _exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked);
 }
 
 void HttpStreamAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,

@@ -116,6 +116,8 @@ public:
 
         size_t allocatedBytes() const;
 
+        bool has_enough_capacity(const IColumn& src) const { return false; };
+
         bool is_finalized() const;
 
         const DataTypePtr& get_least_common_type() const { return least_common_type.get(); }
@@ -233,7 +235,7 @@ public:
         // the root Node should be JSONB type when finalize
         bool is_root = false;
     };
-    using Subcolumns = SubcolumnsTree<Subcolumn>;
+    using Subcolumns = SubcolumnsTree<Subcolumn, false>;
 
 private:
     /// If true then all subcolumns are nullable.
@@ -386,6 +388,8 @@ public:
 
     size_t allocated_bytes() const override;
 
+    bool has_enough_capacity(const IColumn& src) const override { return false; }
+
     void for_each_subcolumn(ColumnCallback callback) override;
 
     // Do nothing, call try_insert instead
@@ -445,85 +449,6 @@ public:
 
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
-
-    Int64 get_int(size_t /*n*/) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_int" + get_name());
-    }
-
-    bool get_bool(size_t /*n*/) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_bool" + get_name());
-    }
-
-    void insert_many_fix_len_data(const char* pos, size_t num) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "insert_many_fix_len_data" + get_name());
-    }
-
-    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
-                               size_t data_num, uint32_t dict_num = 0) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "insert_many_dict_data" + get_name());
-    }
-
-    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
-                                            const size_t num) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "insert_many_continuous_binary_data" + get_name());
-    }
-
-    void insert_many_strings(const StringRef* strings, size_t num) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "insert_many_strings" + get_name());
-    }
-
-    void insert_many_strings_overflow(const StringRef* strings, size_t num,
-                                      size_t max_length) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "insert_many_strings_overflow" + get_name());
-    }
-
-    void insert_many_raw_data(const char* pos, size_t num) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "insert_many_raw_data" + get_name());
-    }
-
-    size_t get_max_row_byte_size() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "get_max_row_byte_size" + get_name());
-    }
-
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "serialize_vec" + get_name());
-    }
-
-    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                     const uint8_t* null_map) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "serialize_vec_with_null_map" + get_name());
-    }
-
-    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "deserialize_vec" + get_name());
-    }
-
-    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
-                                       const uint8_t* null_map) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "deserialize_vec_with_null_map" + get_name());
-    }
-
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "filter_by_selector" + get_name());
-    }
-
-    bool structure_equals(const IColumn&) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "structure_equals" + get_name());
-    }
-
-    StringRef get_raw_data() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_raw_data" + get_name());
-    }
 
     StringRef get_data_at(size_t) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_data_at" + get_name());

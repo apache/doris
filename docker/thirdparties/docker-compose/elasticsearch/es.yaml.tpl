@@ -125,7 +125,7 @@ services:
       ES_6_HOST: "doris--es_6"
       ES_7_HOST: "doris--es_7"
       ES_8_HOST: "doris--es_8"
-    command: [ "sh","-c","/mnt/scripts/es_init.sh" ]
+    command: [ "sh", "-c", "/mnt/scripts/es_init.sh" ]
     depends_on:
       doris--es_6:
         condition: service_healthy
@@ -133,6 +133,11 @@ services:
         condition: service_healthy
       doris--es_8:
         condition: service_healthy
+    healthcheck:
+      test: ls /tmp/SUCCESS
+      interval: 5s
+      timeout: 120s
+      retries: 120
     networks:
       - doris--es
 

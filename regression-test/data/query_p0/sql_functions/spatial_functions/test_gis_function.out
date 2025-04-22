@@ -15,6 +15,192 @@ true
 false
 
 -- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
 7336.913554999592
 
 -- !sql --
@@ -112,4 +298,19 @@ LINESTRING (1 1, 2 2)
 
 -- !sql --
 POLYGON ((114.104486 22.547119, 114.093758 22.547753, 114.096504 22.532057, 114.104229 22.539826, 114.106203 22.54268, 114.104486 22.547119))
+
+-- !sql --
+POINT (117.194767000297 36.46326301008)
+
+-- !sql --
+1.0
+
+-- !sql --
+POINT (1.23456789 2.34567891)
+
+-- !sql --
+0.9999999999999
+
+-- !sql --
+1.0000000000001
 

@@ -94,7 +94,7 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     default void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         if (this instanceof ExternalCatalog) {
-            ((ExternalCatalog) this).onRefresh(false);
+            ((ExternalCatalog) this).resetToUninitialized(false);
         }
     }
 
@@ -189,7 +189,9 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     void createDb(CreateDbStmt stmt) throws DdlException;
 
-    void dropDb(DropDbStmt stmt) throws DdlException;
+    default void dropDb(DropDbStmt stmt) throws DdlException {
+        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    }
 
     void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException;
 
@@ -200,6 +202,9 @@ public interface CatalogIf<T extends DatabaseIf> {
     boolean createTable(CreateTableStmt stmt) throws UserException;
 
     void dropTable(DropTableStmt stmt) throws DdlException;
+
+    void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
+                   boolean force) throws DdlException;
 
     void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException;
 

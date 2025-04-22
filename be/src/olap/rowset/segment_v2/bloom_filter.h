@@ -27,12 +27,10 @@
 #include <memory>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "util/murmur_hash3.h"
 
-namespace doris {
-namespace segment_v2 {
-
+namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 inline bvar::Adder<int64_t> g_total_bloom_filter_num("doris_total_bloom_filter_num");
 inline bvar::Adder<int64_t> g_read_bloom_filter_num("doris_read_bloom_filter_num");
 inline bvar::Adder<int64_t> g_write_bloom_filter_num("doris_write_bloom_filter_num");
@@ -80,9 +78,7 @@ public:
     static Status create(BloomFilterAlgorithmPB algorithm, std::unique_ptr<BloomFilter>* bf,
                          size_t bf_size = 0);
 
-    BloomFilter() : _data(nullptr), _num_bytes(0), _size(0), _has_null(nullptr) {
-        g_total_bloom_filter_num << 1;
-    }
+    BloomFilter() { g_total_bloom_filter_num << 1; }
 
     virtual ~BloomFilter() {
         if (_data) {
@@ -131,7 +127,7 @@ public:
 
     // for read
     // use deep copy to acquire the data
-    virtual Status init(const char* buf, uint32_t size, HashStrategyPB strategy) {
+    virtual Status init(const char* buf, size_t size, HashStrategyPB strategy) {
         if (size <= 1) {
             return Status::InvalidArgument("invalid size:{}", size);
         }
@@ -161,13 +157,13 @@ public:
 
     void reset() { memset(_data, 0, _size); }
 
-    uint64_t hash(const char* buf, uint32_t size) const {
+    uint64_t hash(const char* buf, size_t size) const {
         uint64_t hash_code;
         _hash_func(buf, size, DEFAULT_SEED, &hash_code);
         return hash_code;
     }
 
-    static Result<uint64_t> hash(const char* buf, uint32_t size, HashStrategyPB strategy) {
+    static Result<uint64_t> hash(const char* buf, size_t size, HashStrategyPB strategy) {
         if (strategy == HASH_MURMUR3_X64_64) {
             uint64_t hash_code;
             murmur_hash3_x64_64(buf, size, DEFAULT_SEED, &hash_code);
@@ -177,7 +173,7 @@ public:
         }
     }
 
-    virtual void add_bytes(const char* buf, uint32_t size) {
+    virtual void add_bytes(const char* buf, size_t size) {
         if (buf == nullptr) {
             *_has_null = true;
             return;
@@ -186,7 +182,7 @@ public:
         add_hash(code);
     }
 
-    bool test_bytes(const char* buf, uint32_t size) const {
+    bool test_bytes(const char* buf, size_t size) const {
         if (buf == nullptr) {
             return *_has_null;
         }
@@ -200,9 +196,9 @@ public:
 
     virtual char* data() const { return _data; }
 
-    uint32_t num_bytes() const { return _num_bytes; }
+    size_t num_bytes() const { return _num_bytes; }
 
-    virtual uint32_t size() const { return _size; }
+    virtual size_t size() const { return _size; }
 
     void set_has_null(bool has_null) { *_has_null = has_null; }
 
@@ -234,18 +230,18 @@ protected:
     char* _data = nullptr;
     // optimal bloom filter num bytes
     // it is calculated by optimal_bit_num() / 8
-    uint32_t _num_bytes;
+    size_t _num_bytes = 0;
     // equal to _num_bytes + 1
     // last byte is for has_null flag
-    uint32_t _size;
+    size_t _size = 0;
     // last byte's pointer in data for null flag
     bool* _has_null = nullptr;
     // is this bf used for write
     bool _is_write = false;
 
 private:
-    std::function<void(const void*, const int, const uint64_t, void*)> _hash_func;
+    std::function<void(const void*, const int64_t, const uint64_t, void*)> _hash_func;
 };
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2
+#include "common/compile_check_end.h"

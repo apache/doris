@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
+import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.SetOperationStmt.Qualifier;
 import org.apache.doris.analysis.SetOperationStmt.Operation;
@@ -556,6 +556,7 @@ terminal String
     KW_QUANTILE_UNION,
     KW_AGG_STATE,
     KW_QUERY,
+    KW_QUEUED,
     KW_QUOTA,
     KW_RANDOM,
     KW_RANGE,
@@ -3764,11 +3765,11 @@ opt_key_value_map_in_paren ::=
     | STRING_LITERAL:name EQUAL STRING_LITERAL:value
     {:
     RESULT = Maps.newHashMap();
-    RESULT.put(name, value);
+    RESULT.put(name.trim(), value);
     :}
     | opt_key_value_map_in_paren:map COMMA STRING_LITERAL:name EQUAL STRING_LITERAL:value
     {:
-    map.put(name, value);
+    map.put(name.trim(), value);
     RESULT = map;
     :}
     ;
@@ -3777,11 +3778,11 @@ key_value_map ::=
     STRING_LITERAL:name EQUAL STRING_LITERAL:value
     {:
     RESULT = Maps.newHashMap();
-    RESULT.put(name, value);
+    RESULT.put(name.trim(), value);
     :}
     | key_value_map:map COMMA STRING_LITERAL:name EQUAL STRING_LITERAL:value
     {:
-    map.put(name, value);
+    map.put(name.trim(), value);
     RESULT = map;
     :}
     ;
@@ -4721,7 +4722,7 @@ show_param ::=
     :}
     | KW_AUTO KW_JOBS opt_table_name:tbl opt_wild_where
     {:
-        RESULT = new ShowAutoAnalyzeJobsStmt(tbl, parser.where);
+        RESULT = new ShowQueuedAnalyzeJobsStmt(tbl, parser.where);
     :}
     | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
     {:

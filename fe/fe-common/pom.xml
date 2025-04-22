@@ -57,6 +57,11 @@ under the License.
             <artifactId>libthrift</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hive-catalog-shade</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>org.apache.httpcomponents</groupId>
             <artifactId>httpclient</artifactId>
         </dependency>
@@ -154,6 +159,7 @@ under the License.
     </dependencies>
     <build>
         <finalName>doris-fe-common</finalName>
+        <directory>${project.basedir}/target/</directory>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

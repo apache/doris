@@ -34,6 +34,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class BufferReadable;
@@ -175,4 +176,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

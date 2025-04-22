@@ -47,4 +47,9 @@ public abstract class FunctionBuilder {
      */
     public abstract Pair<? extends Expression, ? extends BoundFunction> build(
             String name, List<? extends Object> arguments);
+
+    /**
+     * return the parameters string for display candidate functions, for example: `(int, decimal, varchar)`
+     */
+    public abstract String parameterDisplayString();
 }

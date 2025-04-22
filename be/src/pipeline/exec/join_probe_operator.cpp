@@ -71,7 +71,7 @@ void JoinProbeLocalState<SharedStateArg, Derived>::_construct_mutable_join_block
 
 template <typename SharedStateArg, typename Derived>
 Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
-        vectorized::Block* origin_block, vectorized::Block* output_block, bool keep_origin) {
+        vectorized::Block* origin_block, vectorized::Block* output_block) {
     if (!output_block->mem_reuse()) {
         output_block->swap(origin_block->clone_empty());
     }
@@ -113,7 +113,6 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
                                                                : false),
           _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                                                 !_is_mark_join) {
-    Base::_is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     if (tnode.__isset.hash_join_node) {
         _intermediate_row_desc = std::make_unique<RowDescriptor>(
                 descs, tnode.hash_join_node.vintermediate_tuple_id_list,

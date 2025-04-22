@@ -67,6 +67,7 @@ Status BKDIndexSearcherBuilder::build(lucene::store::Directory* directory,
         if (!bkd_reader->open()) {
             LOG(INFO) << "bkd index file " << directory->toString() << " is empty";
         }
+        reader_size = bkd_reader->ram_bytes_used();
         output_searcher = bkd_reader;
         _CLDECDELETE(directory)
         return Status::OK();

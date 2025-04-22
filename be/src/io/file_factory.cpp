@@ -30,6 +30,7 @@
 #include "io/fs/broker_file_writer.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
+#include "io/fs/hdfs/hdfs_mgr.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/hdfs_file_writer.h"
@@ -88,18 +89,34 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
                 *fs_properties.properties, s3_uri, &s3_conf));
         return io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
     }
-    case TFileType::FILE_HDFS:
-        return fs_properties.hdfs_params
-                       ? io::HdfsFileSystem::create(*fs_properties.hdfs_params,
-                                                    file_description.fs_name,
-                                                    io::FileSystem::TMP_FS_ID, nullptr)
-                       : io::HdfsFileSystem::create(*fs_properties.properties,
-                                                    file_description.fs_name,
-                                                    io::FileSystem::TMP_FS_ID, nullptr);
+    case TFileType::FILE_HDFS: {
+        std::string fs_name = _get_fs_name(file_description);
+        return io::HdfsFileSystem::create(*fs_properties.properties, fs_name,
+                                          io::FileSystem::TMP_FS_ID, nullptr);
+    }
     default:
         return ResultError(Status::InternalError("unsupported fs type: {}",
                                                  std::to_string(fs_properties.type)));
     }
+}
+
+std::string FileFactory::_get_fs_name(const io::FileDescription& file_description) {
+    // If the destination path contains a schema, use the schema directly.
+    // If not, use origin file_description.fs_name
+    // Because the default fsname in file_description.fs_name maybe different from
+    // file's.
+    // example:
+    //    hdfs://host:port/path1/path2  --> hdfs://host:port
+    //    hdfs://nameservice/path1/path2 --> hdfs://nameservice
+    std::string fs_name = file_description.fs_name;
+    string::size_type idx = file_description.path.find("://");
+    if (idx != string::npos) {
+        idx = file_description.path.find("/", idx + 3);
+        if (idx != string::npos) {
+            fs_name = file_description.path.substr(0, idx);
+        }
+    }
+    return fs_name;
 }
 
 Result<io::FileWriterPtr> FileFactory::create_file_writer(
@@ -129,7 +146,7 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
         std::shared_ptr<io::HdfsHandler> handler;
-        RETURN_IF_ERROR_RESULT(io::HdfsHandlerCache::instance()->get_connection(
+        RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
                 hdfs_params, hdfs_params.fs_name, &handler));
         return io::HdfsFileWriter::create(path, handler, hdfs_params.fs_name, &options);
     }
@@ -173,7 +190,7 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
         if (fs_name->empty()) {
             fs_name = &system_properties.hdfs_params.fs_name;
         }
-        RETURN_IF_ERROR_RESULT(io::HdfsHandlerCache::instance()->get_connection(
+        RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
                 system_properties.hdfs_params, *fs_name, &handler));
         return io::HdfsFileReader::create(file_description.path, handler->hdfs_fs, *fs_name,
                                           reader_options, profile)

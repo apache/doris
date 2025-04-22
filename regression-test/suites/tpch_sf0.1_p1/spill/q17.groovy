@@ -19,7 +19,7 @@ suite("q17_spill") {
     set enable_force_spill=true;
   """
   sql """
-    set min_revocable_mem=1;
+    set spill_min_revocable_mem=1;
   """
   sql """
     use regression_test_tpch_sf0_1_p1;
@@ -27,7 +27,7 @@ suite("q17_spill") {
   qt_q17 """
 -- tables: lineitem,part
 SELECT
-/*+SET_VAR(enable_force_spill=true, min_revocable_mem=1)*/
+/*+SET_VAR(enable_force_spill=true, spill_min_revocable_mem=1)*/
   sum(l_extendedprice) / 7.0 AS avg_yearly
 FROM
   lineitem,

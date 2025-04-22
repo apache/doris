@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.plans.DiffOutputInAsterisk;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
@@ -47,7 +48,8 @@ import java.util.stream.Stream;
 /**
  * Logical filter plan.
  */
-public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Filter {
+public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements Filter, DiffOutputInAsterisk {
 
     private final Set<Expression> conjuncts;
 
@@ -87,9 +89,21 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
+    public List<Slot> computeAsteriskOutput() {
+        return child().getAsteriskOutput();
+    }
+
+    @Override
     public String toString() {
         return Utils.toSqlString("LogicalFilter[" + id.asInt() + "]",
                 "predicates", getPredicate()
+        );
+    }
+
+    @Override
+    public String getFingerprint() {
+        return Utils.toSqlString("Filter[" + getGroupIdWithPrefix() + "]",
+                "predicates", getPredicate().getFingerprint()
         );
     }
 

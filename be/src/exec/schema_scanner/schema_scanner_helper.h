@@ -22,6 +22,8 @@
 #include <string>
 #include <vector>
 
+#include "cctz/time_zone.h"
+
 // this is a util class which can be used by all shema scanner
 // all common functions are added in this class.
 namespace doris {
@@ -33,6 +35,8 @@ class SchemaScannerHelper {
 public:
     static void insert_string_value(int col_index, std::string str_val, vectorized::Block* block);
     static void insert_datetime_value(int col_index, const std::vector<void*>& datas,
+                                      vectorized::Block* block);
+    static void insert_datetime_value(int col_index, int64_t timestamp, const cctz::time_zone& ctz,
                                       vectorized::Block* block);
 
     static void insert_int64_value(int col_index, int64_t int_val, vectorized::Block* block);

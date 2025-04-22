@@ -47,6 +47,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
@@ -56,14 +57,13 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
-import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
-import org.apache.doris.plugin.DialectConverterPlugin;
-import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.CacheAnalyzer;
@@ -79,19 +79,18 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import javax.annotation.Nullable;
 
 /**
  * Process one connection, the life cycle is the same as connection
@@ -269,7 +268,7 @@ public abstract class ConnectProcessor {
             }
         }
 
-        String convertedStmt = convertOriginStmt(originStmt);
+        String convertedStmt = SqlDialectHelper.convertSqlByDialect(originStmt, ctx.getSessionVariable());
         String sqlHash = DigestUtils.md5Hex(convertedStmt);
         ctx.setSqlHash(sqlHash);
 
@@ -323,6 +322,9 @@ public abstract class ConnectProcessor {
         boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
         for (int i = 0; i < stmts.size(); ++i) {
             String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : convertedStmt;
+            if (stmts.size() > 1 && usingOrigSingleStmt) {
+                ctx.setSqlHash(DigestUtils.md5Hex(auditStmt));
+            }
             try {
                 ctx.getState().reset();
                 if (i > 0) {
@@ -397,6 +399,17 @@ public abstract class ConnectProcessor {
     private List<StatementBase> parseFromSqlCache(String originStmt) {
         StatementContext statementContext = new StatementContext(ctx, new OriginStatement(originStmt, 0));
         ctx.setStatementContext(statementContext);
+
+        // the mysql protocol has different between COM_QUERY and COM_STMT_EXECUTE,
+        // the sql cache use the result of COM_QUERY, so we can not provide the
+        // result of sql cache for COM_STMT_EXECUTE/COM_STMT_PREPARE
+        switch (ctx.getCommand()) {
+            case COM_STMT_EXECUTE:
+            case COM_STMT_PREPARE:
+                return null;
+            default: { }
+        }
+
         try {
             Optional<Pair<ExplainOptions, String>> explainPlan = NereidsParser.tryParseExplainPlan(originStmt);
             String cacheSqlKey = originStmt;
@@ -435,27 +448,6 @@ public abstract class ConnectProcessor {
         return null;
     }
 
-    private String convertOriginStmt(String originStmt) {
-        String convertedStmt = originStmt;
-        @Nullable Dialect sqlDialect = Dialect.getByName(ctx.getSessionVariable().getSqlDialect());
-        if (sqlDialect != null && sqlDialect != Dialect.DORIS) {
-            PluginMgr pluginMgr = Env.getCurrentEnv().getPluginMgr();
-            List<DialectConverterPlugin> plugins = pluginMgr.getActiveDialectPluginList(sqlDialect);
-            for (DialectConverterPlugin plugin : plugins) {
-                try {
-                    String convertedSql = plugin.convertSql(originStmt, ctx.getSessionVariable());
-                    if (StringUtils.isNotEmpty(convertedSql)) {
-                        convertedStmt = convertedSql;
-                        break;
-                    }
-                } catch (Throwable throwable) {
-                    LOG.warn("Convert sql with dialect {} failed, plugin: {}, sql: {}, use origin sql.",
-                                sqlDialect, plugin.getClass().getSimpleName(), originStmt, throwable);
-                }
-            }
-        }
-        return convertedStmt;
-    }
 
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
     protected void handleQueryException(Throwable throwable, String origStmt,
@@ -624,47 +616,14 @@ public abstract class ConnectProcessor {
 
         if (request.isSetSessionVariables()) {
             ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());
-        } else {
-            // For compatibility, all following variables are moved to SessionVariables.
-            // Should move in future.
-            if (request.isSetTimeZone()) {
-                ctx.getSessionVariable().setTimeZone(request.getTimeZone());
-            }
-            if (request.isSetSqlMode()) {
-                ctx.getSessionVariable().setSqlMode(request.sqlMode);
-            }
-            if (request.isSetEnableStrictMode()) {
-                ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
-            }
-            if (request.isSetCurrentUserIdent()) {
-                UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
-                ctx.setCurrentUserIdentity(currentUserIdentity);
-            }
-            if (request.isSetInsertVisibleTimeoutMs()) {
-                ctx.getSessionVariable().setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
-            }
-        }
-
-        if (request.isSetQueryOptions()) {
-            ctx.getSessionVariable().setForwardedSessionVariables(request.getQueryOptions());
-        } else {
-            // For compatibility, all following variables are moved to TQueryOptions.
-            // Should move in future.
-            if (request.isSetExecMemLimit()) {
-                ctx.getSessionVariable().setMaxExecMemByte(request.getExecMemLimit());
-            }
-            if (request.isSetQueryTimeout()) {
-                ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
-            }
         }
 
         if (request.isSetUserVariables()) {
             ctx.setUserVars(userVariableFromThrift(request.getUserVariables()));
         }
 
-        // set resource tag
-        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser),
-                Env.getCurrentEnv().getAuth().isAllowResourceTagDowngrade(ctx.qualifiedUser));
+        // set compute group
+        ctx.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(ctx.qualifiedUser));
 
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
@@ -702,7 +661,24 @@ public abstract class ConnectProcessor {
                 UUID uuid = UUID.randomUUID();
                 queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             }
-            executor.queryRetry(queryId);
+            if (request.isSetPrepareExecuteBuffer()) {
+                ctx.setCommand(MysqlCommand.COM_STMT_PREPARE);
+                executor.execute();
+                ctx.setCommand(MysqlCommand.COM_STMT_EXECUTE);
+                String preparedStmtId = executor.getPrepareStmtName();
+                PreparedStatementContext preparedStatementContext = ctx.getPreparedStementContext(preparedStmtId);
+                if (preparedStatementContext == null) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Something error, just support nereids preparedStmtId:{}", preparedStmtId);
+                    }
+                    throw new RuntimeException("Prepare failed when proxy execute");
+                }
+                handleExecute(preparedStatementContext.command, Long.parseLong(preparedStmtId),
+                        preparedStatementContext,
+                        ByteBuffer.wrap(request.getPrepareExecuteBuffer()).order(ByteOrder.LITTLE_ENDIAN), queryId);
+            } else {
+                executor.queryRetry(queryId);
+            }
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
@@ -771,5 +747,11 @@ public abstract class ConnectProcessor {
         } catch (AnalysisException e) {
             throw new TException(e.getMessage());
         }
+    }
+
+
+    protected void handleExecute(PrepareCommand prepareCommand, long stmtId, PreparedStatementContext prepCtx,
+            ByteBuffer packetBuf, TUniqueId queryId) {
+        throw new NotSupportedException("Just MysqlConnectProcessor support execute");
     }
 }

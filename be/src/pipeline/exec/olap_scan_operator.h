@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/tablet_reader.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
 
@@ -29,7 +30,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace vectorized {
-class NewOlapScanner;
+class OlapScanner;
 }
 } // namespace doris
 
@@ -50,9 +51,10 @@ public:
                            std::to_string(_parent->node_id()),
                            std::to_string(_parent->nereids_id()), olap_scan_node().table_name);
     }
+    Status hold_tablets();
 
 private:
-    friend class vectorized::NewOlapScanner;
+    friend class vectorized::OlapScanner;
 
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
@@ -83,20 +85,19 @@ private:
         return _is_key_column(predicate.get_col_name(_parent->node_id()));
     }
 
-    Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
-
-    void add_filter_info(int id, const PredicateFilterInfo& info);
+    Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
 
     Status _build_key_ranges_and_filters();
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
     std::vector<std::unique_ptr<doris::OlapScanRange>> _cond_ranges;
     OlapScanKeys _scan_keys;
-    std::vector<TCondition> _olap_filters;
+    std::vector<FilterOlapParam<TCondition>> _olap_filters;
     // If column id in this set, indicate that we need to read data after index filtering
     std::set<int32_t> _maybe_read_column_ids;
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
+    std::unique_ptr<RuntimeProfile> _index_filter_profile;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
@@ -111,13 +112,14 @@ private:
 
     RuntimeProfile::Counter* _rows_vec_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _rows_short_circuit_cond_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _rows_expr_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _rows_vec_cond_input_counter = nullptr;
     RuntimeProfile::Counter* _rows_short_circuit_cond_input_counter = nullptr;
+    RuntimeProfile::Counter* _rows_expr_cond_input_counter = nullptr;
     RuntimeProfile::Counter* _vec_cond_timer = nullptr;
     RuntimeProfile::Counter* _short_cond_timer = nullptr;
     RuntimeProfile::Counter* _expr_filter_timer = nullptr;
     RuntimeProfile::Counter* _output_col_timer = nullptr;
-    std::map<int, PredicateFilterInfo> _filter_info;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _stats_rp_filtered_counter = nullptr;
@@ -130,6 +132,13 @@ private:
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;
     RuntimeProfile::Counter* _delete_bitmap_get_agg_timer = nullptr;
     RuntimeProfile::Counter* _sync_rowset_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_rowsets_num = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_rowsets_rpc_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_local_delete_bitmap_rowsets_num = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_rowsets_num = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_key_count = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_bytes = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_rpc_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     // Add more detail seek timer and counter profile
@@ -137,7 +146,8 @@ private:
     RuntimeProfile::Counter* _block_init_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
-    RuntimeProfile::Counter* _segment_generate_row_range_timer = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_by_keys_timer = nullptr;
+    RuntimeProfile::Counter* _segment_generate_row_range_by_column_conditions_timer = nullptr;
     RuntimeProfile::Counter* _segment_generate_row_range_by_bf_timer = nullptr;
     RuntimeProfile::Counter* _collect_iterator_merge_next_timer = nullptr;
     RuntimeProfile::Counter* _segment_generate_row_range_by_zonemap_timer = nullptr;
@@ -182,8 +192,6 @@ private:
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
 
-    RuntimeProfile::Counter* _runtime_filter_info = nullptr;
-
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_capture_rs_readers_timer = nullptr;
@@ -211,7 +219,8 @@ private:
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
 
-    std::mutex _profile_mtx;
+    std::vector<TabletWithVersion> _tablets;
+    std::vector<TabletReader::ReadSource> _read_sources;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
@@ -219,6 +228,7 @@ public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                       const DescriptorTbl& descs, int parallel_tasks,
                       const TQueryCacheParam& cache_param);
+    Status hold_tablets(RuntimeState* state) override;
 
 private:
     friend class OlapScanLocalState;

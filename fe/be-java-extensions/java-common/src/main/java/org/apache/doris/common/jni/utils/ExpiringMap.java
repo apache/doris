@@ -78,6 +78,10 @@ public class ExpiringMap<K, V> {
         ttlMap.remove(key);
     }
 
+    public int size() {
+        return map.size();
+    }
+
     public void shutdown() {
         scheduler.shutdown();
         try {

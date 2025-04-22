@@ -33,12 +33,7 @@ suite("parse_sql_from_sql_cache") {
     }
 
     def dbName = (sql "select database()")[0][0].toString()
-    foreachFrontends { fe ->
-        def url = "jdbc:mysql://${fe.Host}:${fe.QueryPort}/${dbName}"
-        connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
-            sql "ADMIN SET FRONTEND CONFIG ('cache_last_version_interval_second' = '10')"
-        }
-    }
+    sql "ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '10')"
 
     // make sure if the table has been dropped, the cache should invalidate,
     // so we should retry multiple times to check
@@ -297,7 +292,7 @@ suite("parse_sql_from_sql_cache") {
                     def clusters = sql " SHOW CLUSTERS; "
                     assertTrue(!clusters.isEmpty())
                     def validCluster = clusters[0][0]
-                    sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_cache_user1"""
+                    sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_cache_user1"""
                 }
 
                 createTestTable "test_use_plan_cache12"
@@ -340,7 +335,7 @@ suite("parse_sql_from_sql_cache") {
                     def clusters = sql " SHOW CLUSTERS; "
                     assertTrue(!clusters.isEmpty())
                     def validCluster = clusters[0][0]
-                    sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_cache_user2"""
+                    sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_cache_user2"""
                 }
 
                 createTestTable "test_use_plan_cache13"
@@ -397,7 +392,7 @@ suite("parse_sql_from_sql_cache") {
                     def clusters = sql " SHOW CLUSTERS; "
                     assertTrue(!clusters.isEmpty())
                     def validCluster = clusters[0][0]
-                    sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_cache_user3"""
+                    sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_cache_user3"""
                 }
 
                 createTestTable "test_use_plan_cache14"
@@ -460,7 +455,7 @@ suite("parse_sql_from_sql_cache") {
                     def clusters = sql " SHOW CLUSTERS; "
                     assertTrue(!clusters.isEmpty())
                     def validCluster = clusters[0][0]
-                    sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO test_cache_user4"""
+                    sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO test_cache_user4"""
                 }
 
                 sql "sync"

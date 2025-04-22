@@ -29,7 +29,7 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     try_sql("DROP USER ${user}")
@@ -71,8 +71,7 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     proc.consumeProcessOutput(sout, serr)
     proc.waitForOrKill(7200000)
     logger.info("std out: " + sout + "std err: " + serr)
-    assertTrue(sout.toString().indexOf("FAILED") != -1)
-    assertTrue(sout.toString().indexOf("denied") != -1)
+    assertTrue(sout.toString().indexOf("Success") == -1)
 
 
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
