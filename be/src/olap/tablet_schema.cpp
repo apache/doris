@@ -1522,15 +1522,16 @@ const TabletIndex* TabletSchema::inverted_index(const TabletColumn& col) const {
     }
     // variant's typed column has it's own index
     else if (col.is_extracted_column()) {
-        const auto& path = col.path_info_ptr()->copy_pop_front().get_path();
+        std::string relative_path = col.path_info_ptr()->copy_pop_front().get_path();
         if (_path_set_info_map.find(col_unique_id) == _path_set_info_map.end()) {
             return nullptr;
         }
         const auto& path_set_info = _path_set_info_map.at(col_unique_id);
-        if (path_set_info.typed_path_set.find(path) == path_set_info.typed_path_set.end()) {
+        if (path_set_info.typed_path_set.find(relative_path) ==
+            path_set_info.typed_path_set.end()) {
             return nullptr;
         }
-        return path_set_info.typed_path_set.at(path).index.get();
+        return path_set_info.typed_path_set.at(relative_path).index.get();
     }
     return nullptr;
 }

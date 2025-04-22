@@ -1912,7 +1912,7 @@ Status ColumnObject::pick_subcolumns_to_sparse_column(
             continue;
         }
         if (typed_paths.find(entry->path.get_path()) != typed_paths.end()) {
-            LOG(INFO) << "pick " << entry->path.get_path() << " as typed column";
+            VLOG_DEBUG << "pick " << entry->path.get_path() << " as typed column";
             new_subcolumns.add(entry->path, entry->data);
             continue;
         }
@@ -1931,7 +1931,7 @@ Status ColumnObject::pick_subcolumns_to_sparse_column(
     // 3. pick config::variant_max_subcolumns_count selected subcolumns
     for (size_t i = 0; i < std::min(size_t(_max_subcolumns_count), sorted_by_size.size()); ++i) {
         // if too many null values, then consider it as sparse column
-        if ((double)sorted_by_size[i].second < (double)num_rows * 0.95) {
+        if ((double)sorted_by_size[i].second < (double)num_rows * 0.99) {
             continue;
         }
         selected_path.insert(sorted_by_size[i].first);
@@ -1939,12 +1939,15 @@ Status ColumnObject::pick_subcolumns_to_sparse_column(
     std::map<std::string_view, Subcolumn> remaing_subcolumns;
     // add selected subcolumns to new_subcolumns, otherwise add to remaining_subcolumns
     for (auto&& entry : subcolumns) {
+        if (entry->data.is_root) {
+            continue;
+        }
         if (selected_path.find(entry->path.get_path()) != selected_path.end()) {
             new_subcolumns.add(entry->path, entry->data);
-            LOG(INFO) << "pick " << entry->path.get_path() << " as sub column";
+            VLOG_DEBUG << "pick " << entry->path.get_path() << " as sub column";
         } else if (none_null_value_sizes.find(entry->path.get_path()) !=
                    none_null_value_sizes.end()) {
-            LOG(INFO) << "pick " << entry->path.get_path() << " as sparse column";
+            VLOG_DEBUG << "pick " << entry->path.get_path() << " as sparse column";
             remaing_subcolumns.emplace(entry->path.get_path(), entry->data);
         }
     }

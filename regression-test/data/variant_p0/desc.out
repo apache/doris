@@ -107,6 +107,17 @@ k	bigint	Yes	true	\N
 v1	variant	Yes	false	\N	NONE
 v2	variant	Yes	false	\N	NONE
 v3	variant	Yes	false	\N	NONE
+v1.a	smallint	Yes	false	\N	NONE
+v1.b	json	Yes	false	\N	NONE
+v1.c.c	smallint	Yes	false	\N	NONE
+v1.c.e	double	Yes	false	\N	NONE
+v1.oooo.xxxx.xxx	tinyint	Yes	false	\N	NONE
+v2.a	smallint	Yes	false	\N	NONE
+v2.xxxx	text	Yes	false	\N	NONE
+v3.a	smallint	Yes	false	\N	NONE
+v3.b	json	Yes	false	\N	NONE
+v3.c.c	smallint	Yes	false	\N	NONE
+v3.c.e	double	Yes	false	\N	NONE
 
 -- !sql_9 --
 k	bigint	Yes	true	\N	

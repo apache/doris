@@ -91,7 +91,7 @@ suite("test_variant_predefine_base", "p0"){
     qt_sql """ select count() from ${tableName} where cast(var['a']['*'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['a']['b1'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['a']['bxc'] as string) match '789' """
-    qt_sql """ select count() from ${tableName} where cast(var['a']['c2323'] as string) match '789' """
+qt_sql """ select count() from ${tableName} where cast(var['a']['c2323'] as string) match '789' """
     
     trigger_and_wait_compaction(tableName, "full")
 
