@@ -21,13 +21,8 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <stdint.h>
 
-#include <map>
+#include <atomic>
 #include <memory>
-#include <mutex>
-#include <unordered_map>
-#include <utility>
-
-#include "util/spinlock.h"
 
 namespace doris {
 
