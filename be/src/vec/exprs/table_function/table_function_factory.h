@@ -44,7 +44,7 @@ public:
     const static int NEWEST_VERSION_EXPLODE_MULTI_PARAM = 7;
 
 private:
-    /// @TEMPORARY: for be_exec_version=8
+    /// @TEMPORARY: for be_exec_version=7
     static void temporary_function_update(int fe_version_now, std::string& name) {
         // replace if fe is old version.
         if (fe_version_now < NEWEST_VERSION_EXPLODE_MULTI_PARAM &&
