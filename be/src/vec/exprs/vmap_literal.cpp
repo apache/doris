@@ -42,8 +42,6 @@ namespace doris::vectorized {
 
 Status VMapLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
                             VExprContext* context) {
-    DCHECK_EQ(type().children.size(), 2) << "map children type not 2";
-
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, row_desc, context));
     // map-field should contain two vector field for keys and values
     Field map = Map();

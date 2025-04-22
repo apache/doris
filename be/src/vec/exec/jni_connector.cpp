@@ -468,7 +468,7 @@ void JniConnector::_generate_predicates(
 std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
     DataTypePtr type = remove_nullable(data_type);
     std::ostringstream buffer;
-    switch (type->get_type_as_type_descriptor().type) {
+    switch (type->get_primitive_type()) {
     case TYPE_BOOLEAN:
         return "boolean";
     case TYPE_TINYINT:
@@ -547,94 +547,6 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
         const DataTypeMap* map_type = reinterpret_cast<const DataTypeMap*>(type.get());
         buffer << "map<" << get_jni_type(map_type->get_key_type()) << ","
                << get_jni_type(map_type->get_value_type()) << ">";
-        return buffer.str();
-    }
-    default:
-        return "unsupported";
-    }
-}
-
-std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
-    std::ostringstream buffer;
-    switch (desc.type) {
-    case TYPE_BOOLEAN:
-        return "boolean";
-    case TYPE_TINYINT:
-        return "tinyint";
-    case TYPE_SMALLINT:
-        return "smallint";
-    case TYPE_INT:
-        return "int";
-    case TYPE_BIGINT:
-        return "bigint";
-    case TYPE_LARGEINT:
-        return "largeint";
-    case TYPE_FLOAT:
-        return "float";
-    case TYPE_DOUBLE:
-        return "double";
-    case TYPE_IPV4:
-        return "ipv4";
-    case TYPE_IPV6:
-        return "ipv6";
-    case TYPE_VARCHAR: {
-        buffer << "varchar(" << desc.len << ")";
-        return buffer.str();
-    }
-    case TYPE_DATE:
-        return "datev1";
-    case TYPE_DATEV2:
-        return "datev2";
-    case TYPE_DATETIME:
-        return "datetimev1";
-    case TYPE_DATETIMEV2:
-        [[fallthrough]];
-    case TYPE_TIMEV2: {
-        buffer << "datetimev2(" << desc.scale << ")";
-        return buffer.str();
-    }
-    case TYPE_BINARY:
-        return "binary";
-    case TYPE_CHAR: {
-        buffer << "char(" << desc.len << ")";
-        return buffer.str();
-    }
-    case TYPE_STRING:
-        return "string";
-    case TYPE_DECIMALV2: {
-        buffer << "decimalv2(" << DecimalV2Value::PRECISION << "," << DecimalV2Value::SCALE << ")";
-        return buffer.str();
-    }
-    case TYPE_DECIMAL32: {
-        buffer << "decimal32(" << desc.precision << "," << desc.scale << ")";
-        return buffer.str();
-    }
-    case TYPE_DECIMAL64: {
-        buffer << "decimal64(" << desc.precision << "," << desc.scale << ")";
-        return buffer.str();
-    }
-    case TYPE_DECIMAL128I: {
-        buffer << "decimal128(" << desc.precision << "," << desc.scale << ")";
-        return buffer.str();
-    }
-    case TYPE_STRUCT: {
-        buffer << "struct<";
-        for (int i = 0; i < desc.children.size(); ++i) {
-            if (i != 0) {
-                buffer << ",";
-            }
-            buffer << desc.field_names[i] << ":" << get_jni_type(desc.children[i]);
-        }
-        buffer << ">";
-        return buffer.str();
-    }
-    case TYPE_ARRAY: {
-        buffer << "array<" << get_jni_type(desc.children[0]) << ">";
-        return buffer.str();
-    }
-    case TYPE_MAP: {
-        buffer << "map<" << get_jni_type(desc.children[0]) << "," << get_jni_type(desc.children[1])
-               << ">";
         return buffer.str();
     }
     default:

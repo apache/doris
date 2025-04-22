@@ -70,8 +70,7 @@ Status TransactionalHiveReader::init_reader(
 
 Status TransactionalHiveReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
     for (const auto& i : TransactionalHive::READ_PARAMS) {
-        DataTypePtr data_type =
-                DataTypeFactory::instance().create_data_type(TypeDescriptor(i.type), false);
+        DataTypePtr data_type = DataTypeFactory::instance().create_data_type(i.type, false);
         MutableColumnPtr data_column = data_type->create_column();
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, i.column_lower_case));

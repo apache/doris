@@ -80,7 +80,7 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
     RuntimeFilterParams params;
     params.filter_id = desc->filter_id;
     params.filter_type = _runtime_filter_type;
-    params.column_return_type = build_ctx->root()->type().type;
+    params.column_return_type = build_ctx->root()->data_type()->get_primitive_type();
     params.max_in_num = options->runtime_filter_max_in_num;
     params.runtime_bloom_filter_min_size = options->__isset.runtime_bloom_filter_min_size
                                                    ? options->runtime_bloom_filter_min_size
@@ -103,9 +103,9 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         if (_has_remote_target) {
             return Status::InternalError("bitmap filter do not support remote target");
         }
-        if (!build_ctx->root()->type().is_bitmap_type()) {
+        if (build_ctx->root()->data_type()->get_primitive_type() != PrimitiveType::TYPE_OBJECT) {
             return Status::InternalError("Unexpected src expr type:{} for bitmap filter.",
-                                         build_ctx->root()->type().debug_string());
+                                         build_ctx->root()->data_type()->get_name());
         }
         if (!desc->__isset.bitmap_target_expr) {
             return Status::InternalError("Unknown bitmap filter target expr.");
@@ -113,7 +113,7 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         vectorized::VExprContextSPtr bitmap_target_ctx;
         RETURN_IF_ERROR(
                 vectorized::VExpr::create_expr_tree(desc->bitmap_target_expr, bitmap_target_ctx));
-        params.column_return_type = bitmap_target_ctx->root()->type().type;
+        params.column_return_type = bitmap_target_ctx->root()->data_type()->get_primitive_type();
 
         if (desc->__isset.bitmap_filter_not_in) {
             params.bitmap_filter_not_in = desc->bitmap_filter_not_in;
