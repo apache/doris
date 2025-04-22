@@ -183,6 +183,13 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
             // plus 1 to skip the delete version.
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             tablet()->set_cumulative_layer_point(_last_delete_version.first + 1);
+            LOG_INFO(
+                    "cumulative compaction meet delete rowset, increase cumu point without "
+                    "other "
+                    "operation.")
+                    .tag("tablet id:", tablet()->tablet_id())
+                    .tag("after cumulative compaction, cumu point:",
+                         tablet()->cumulative_layer_point());
             return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
                     "_last_delete_version.first not equal to -1");
         }
