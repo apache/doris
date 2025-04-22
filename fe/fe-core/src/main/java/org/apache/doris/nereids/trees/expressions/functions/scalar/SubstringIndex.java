@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -51,16 +50,6 @@ public class SubstringIndex extends ScalarFunction
      */
     public SubstringIndex(Expression arg0, Expression arg1, Expression arg2) {
         super("substring_index", arg0, arg1, arg2);
-    }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        for (int i = 1; i < children.size(); ++i) {
-            if (!getArgument(i).isConstant()) {
-                throw new AnalysisException(getName()
-                        + " function except for the first argument, other parameter must be a constant.");
-            }
-        }
     }
 
     /**
