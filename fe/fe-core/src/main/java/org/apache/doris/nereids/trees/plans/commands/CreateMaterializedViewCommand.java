@@ -177,7 +177,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
 
     private void validate(ConnectContext ctx) throws Exception {
         name.analyze(ctx);
-        Pair<LogicalPlan, CascadesContext> result = analyzeAndRewriteLogicalPlan(logicalPlan, ctx);
+        Pair<LogicalPlan, CascadesContext> result = analyzeLogicalPlan(logicalPlan, ctx);
         CheckPrivileges checkPrivileges = new CheckPrivileges();
         checkPrivileges.rewriteRoot(result.first, result.second.getCurrentJobContext());
         PlanValidator planValidator = new PlanValidator();
@@ -194,7 +194,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         }
     }
 
-    private Pair<LogicalPlan, CascadesContext> analyzeAndRewriteLogicalPlan(LogicalPlan unboundPlan,
+    private Pair<LogicalPlan, CascadesContext> analyzeLogicalPlan(LogicalPlan unboundPlan,
             ConnectContext ctx) {
         StatementContext statementContext = ctx.getStatementContext();
         NereidsPlanner planner = new NereidsPlanner(statementContext);
