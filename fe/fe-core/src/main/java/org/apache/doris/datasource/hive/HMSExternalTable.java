@@ -75,6 +75,7 @@ import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.logging.log4j.LogManager;
@@ -573,9 +574,18 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private Optional<SchemaCacheValue> getHiveSchema() {
-        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
-        List<FieldSchema> schema = client.getSchema(dbName, name);
-        Map<String, String> colDefaultValues = client.getDefaultColumnValues(dbName, name);
+        boolean getFromTable = catalog.getCatalogProperty()
+                .getOrDefault(HMSExternalCatalog.GET_SCHEMA_FROM_TABLE, "false")
+                .equalsIgnoreCase("true");
+        List<FieldSchema> schema = null;
+        Map<String, String> colDefaultValues = Maps.newHashMap();
+        if (getFromTable) {
+            schema = getSchemaFromRemoteTable(remoteTable);
+        } else {
+            HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
+            schema = client.getSchema(dbName, name);
+            colDefaultValues = client.getDefaultColumnValues(dbName, name);
+        }
         List<Column> columns = Lists.newArrayListWithCapacity(schema.size());
         for (FieldSchema field : schema) {
             String fieldName = field.getName().toLowerCase(Locale.ROOT);
@@ -586,6 +596,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
         List<Column> partitionColumns = initPartitionColumns(columns);
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
+    }
+
+    private static List<FieldSchema> getSchemaFromRemoteTable(Table table) {
+        List<FieldSchema> schema = Lists.newArrayList();
+        schema.addAll(table.getSd().getCols());
+        schema.addAll(table.getPartitionKeys());
+        return schema;
     }
 
     @Override
