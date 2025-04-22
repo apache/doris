@@ -393,7 +393,10 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIterator** iter
             RETURN_IF_ERROR(_create_sparse_merge_reader(iterator, opts, target_col, inner_iter));
             return Status::OK();
         }
-        if (existed_in_sparse_column || exceeded_sparse_column_limit) {
+        // If the path is typed, it means the path is not a sparse column, so we can't read the sparse column
+        // even if the sparse column size is reached limit
+        if (existed_in_sparse_column ||
+            (exceeded_sparse_column_limit && !relative_path.get_is_typed())) {
             // Sparse column exists or reached sparse size limit, read sparse column
             ColumnIterator* inner_iter;
             RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter));

@@ -79,7 +79,7 @@ suite("test_variant_predefine_base", "p0"){
         INDEX idx_b_b (var) USING INVERTED PROPERTIES("field_pattern"="a.b[0-9]", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_bb_glob (var) USING INVERTED PROPERTIES("field_pattern"="a.b?c", "parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_bx_glob (var) USING INVERTED PROPERTIES("field_pattern"="a.c*", "parser"="unicode", "support_phrase" = "true") COMMENT ''
-    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "${count}")"""
 
     sql """insert into ${tableName} values(1, '{"a" : {"b" : 789, "*" : 789, "b1" : 789, "bxc" : 789, "c2323" : 789}}')"""
     sql """insert into ${tableName} values(2, '{"a" : {"b" : 111, "*" : 111, "b1" : 111, "bxc" : 111, "c2323" : 111}}')"""

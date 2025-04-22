@@ -37,15 +37,19 @@ suite("load") {
 
     tables.forEach { tableName ->
         sql "DROP TABLE IF EXISTS ${tableName}"
+        int max_subcolumns_count = Math.floor(Math.random() * 7) 
+        def var_def = "variant"
+        if (max_subcolumns_count % 2) {
+            var_def = "variant<'O_CLERK' : string, 'C_COMMENT' : string, 'L_RETURNFLAG' : string, 'S_COMMENT' : string, 'S_ACCTBAL' : double>"
+        }
         sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
                     k bigint,
-                    var variant
-                    
+                    var ${var_def} 
                 )
                 DUPLICATE KEY(`k`)
                 DISTRIBUTED BY RANDOM BUCKETS 5 
-                properties("replication_num" = "1", "disable_auto_compaction" = "false");
+                properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "${max_subcolumns_count}");
             """
         streamLoad {
             // a default db 'regression_test' is specified in

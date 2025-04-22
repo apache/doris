@@ -112,12 +112,9 @@ public class FetchRemoteTabletSchemaUtil {
 
     public static Type getTypeFromTypeName(String typeName, int precision, int scale) {
         Type res = typeMap.getOrDefault(typeName, Type.UNSUPPORTED);
-        if (res.isScalarType()) {
-            ScalarType scalarType = (ScalarType) res;
-            if (scalarType.isDecimalV3() || scalarType.isDecimalV2()) {
-                scalarType.setPrecision(precision);
-                scalarType.setScale(scale);
-            }
+        if (res.isScalarType() && (res.isDecimalV3() || res.isDecimalV2())) {
+            // set precision and scale
+            res = ScalarType.createType(res.getPrimitiveType(), 0, precision, scale);
         }
         return res;
     }
