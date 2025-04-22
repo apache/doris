@@ -203,8 +203,14 @@ public class MysqlDataDescription {
     }
 
     private void analyzeLoadAttributes() throws UserException {
-        columnSeparator.analyze();
-        lineDelimiter.analyze();
+        if (columnSeparator.getOriSeparator() != null) {
+            columnSeparator.analyze(false);
+        }
+
+        if (lineDelimiter.getOriSeparator() != null) {
+            lineDelimiter.analyze(true);
+        }
+
         if (partitionNamesInfo != null) {
             partitionNamesInfo.validate(null);
         }
