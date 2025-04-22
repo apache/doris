@@ -1247,9 +1247,6 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
         while (val < val_end && check_space(*val)) {
             val++;
         }
-        if (val >= val_end) {
-            break;
-        }
         // Check switch
         if (*ptr == '%' && ptr + 1 < end) {
             const char* tmp = nullptr;
@@ -2297,9 +2294,6 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
         // Skip space character
         while (val < val_end && check_space(*val)) {
             val++;
-        }
-        if (val >= val_end) {
-            break;
         }
         // Check switch
         if (*ptr == '%' && ptr + 1 < end) {
