@@ -480,10 +480,12 @@ RuntimeProfile::ConditionCounter* RuntimeProfile::add_conditition_counter(
 
     if (_counter_map.find(name) != _counter_map.end()) {
         RuntimeProfile::ConditionCounter* contition_counter =
-            dynamic_cast<ConditionCounter*>(_counter_map[name]);
+                dynamic_cast<ConditionCounter*>(_counter_map[name]);
         if (contition_counter == nullptr) {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                   "Failed to add a conditition counter that is duplicate and of a different type for {}.", name);
+                                   "Failed to add a conditition counter that is duplicate and of a "
+                                   "different type for {}.",
+                                   name);
         }
         return contition_counter;
     }
