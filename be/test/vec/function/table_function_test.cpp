@@ -174,8 +174,8 @@ TEST_F(TableFunctionTest, vexplode_outer_v2) {
 
         InputDataSet output_set = {{{CellSet {Null()}}},
                                    {{CellSet {Null()}}},
-                                   {{CellSet {ut_type::DECIMALV2(17014116.67)}}},
-                                   {{CellSet {ut_type::DECIMALV2(-17014116.67)}}}};
+                                   {{CellSet {ut_type::DECIMAL(17014116.67)}}},
+                                   {{CellSet {ut_type::DECIMAL(-17014116.67)}}}};
 
         check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
     }
