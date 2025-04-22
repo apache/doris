@@ -69,6 +69,19 @@ public class ListPartitionItem extends PartitionItem {
         return getItems().toString();
     }
 
+    public String getItemsStringSkipDefaultKeyCheck() {
+        // ATTN: DO NOT EDIT unless unless you explicitly guarantee compatibility
+        // between different versions.
+        //
+        // the ccr syncer depends on this string to identify partitions between two
+        // clusters (cluster versions may be different).
+        List<String> list = new ArrayList<>();
+        for (PartitionKey partitionKey : partitionKeys) {
+            list.add(partitionKey.toStringSkipDefaultKeyCheck());
+        }
+        return list.toString();
+    }
+
     public String getItemsSql() {
         return toSql();
     }

@@ -1485,8 +1485,9 @@ public class DatabaseTransactionMgr {
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 String partitionRange = tblPartitionInfo.getPartitionRangeString(partitionId);
+                String notDefaultKeyRange = tblPartitionInfo.getPartitionRangeSkipDefaultKeyString(partitionId);
                 PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(
-                        partitionId, partitionRange, -1, -1,
+                        partitionId, partitionRange, notDefaultKeyRange, -1, -1,
                         table.isTemporaryPartition(partitionId));
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
             }
@@ -1500,7 +1501,8 @@ public class DatabaseTransactionMgr {
     private PartitionCommitInfo generatePartitionCommitInfo(OlapTable table, long partitionId, long partitionVersion) {
         PartitionInfo tblPartitionInfo = table.getPartitionInfo();
         String partitionRange = tblPartitionInfo.getPartitionRangeString(partitionId);
-        return new PartitionCommitInfo(partitionId, partitionRange,
+        String notDefaultKeyRange = tblPartitionInfo.getPartitionRangeSkipDefaultKeyString(partitionId);
+        return new PartitionCommitInfo(partitionId, partitionRange, notDefaultKeyRange,
                 partitionVersion, System.currentTimeMillis() /* use as partition visible time */,
                 table.isTemporaryPartition(partitionId));
     }

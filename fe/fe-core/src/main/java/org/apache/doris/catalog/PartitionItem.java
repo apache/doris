@@ -31,6 +31,8 @@ public abstract class PartitionItem implements Comparable<PartitionItem> {
     // get the unique string of the partition item.
     public abstract String getItemsString();
 
+    public abstract String getItemsStringSkipDefaultKeyCheck();
+
     public abstract <T> T getItems();
 
     public abstract PartitionItem getIntersect(PartitionItem newItem);

@@ -40,6 +40,9 @@ public class UpsertRecord {
             @SerializedName(value = "range")
             private String range;
 
+            @SerializedName(value = "rangeNotDefault")
+            private String rangeNotDefault;
+
             @SerializedName(value = "version")
             public long version;
 
@@ -74,6 +77,7 @@ public class UpsertRecord {
             partitionRecord.subTxnId = subTxnId;
             partitionRecord.partitionId = partitionCommitInfo.getPartitionId();
             partitionRecord.range = partitionCommitInfo.getPartitionRange();
+            partitionRecord.rangeNotDefault = partitionCommitInfo.getNotDefaultRange();
             partitionRecord.version = partitionCommitInfo.getVersion();
             partitionRecord.isTemp = partitionCommitInfo.isTempPartition();
             partitionRecords.add(partitionRecord);

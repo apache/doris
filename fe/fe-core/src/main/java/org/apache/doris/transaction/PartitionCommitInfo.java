@@ -33,6 +33,8 @@ public class PartitionCommitInfo implements Writable {
     private long partitionId;
     @SerializedName(value = "range")
     private String range;
+    @SerializedName(value = "rangeNotDefault")
+    private String rangeNotDefault;
     @SerializedName(value = "version")
     private long version;
     @SerializedName(value = "versionTime")
@@ -44,11 +46,12 @@ public class PartitionCommitInfo implements Writable {
 
     }
 
-    public PartitionCommitInfo(long partitionId, String partitionRange, long version, long visibleTime,
-            boolean isTempPartition) {
+    public PartitionCommitInfo(long partitionId, String partitionRange, String notDefaultRange, long version,
+            long visibleTime, boolean isTempPartition) {
         super();
         this.partitionId = partitionId;
         this.range = partitionRange;
+        this.rangeNotDefault = notDefaultRange;
         this.version = version;
         this.versionTime = visibleTime;
         this.isTempPartition = isTempPartition;
@@ -71,6 +74,10 @@ public class PartitionCommitInfo implements Writable {
 
     public String getPartitionRange() {
         return range;
+    }
+
+    public String getNotDefaultRange() {
+        return rangeNotDefault;
     }
 
     public long getVersion() {

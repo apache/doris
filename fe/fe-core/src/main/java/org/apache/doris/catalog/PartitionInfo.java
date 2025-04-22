@@ -178,6 +178,16 @@ public class PartitionInfo {
         return partitionRange;
     }
 
+    // Get the unique string of the partition range skip default check.
+    public String getPartitionRangeSkipDefaultKeyString(long partitionId) {
+        String partitionRange = "";
+        if (getType() == PartitionType.RANGE || getType() == PartitionType.LIST) {
+            PartitionItem item = getItem(partitionId);
+            partitionRange = item.getItemsStringSkipDefaultKeyCheck();
+        }
+        return partitionRange;
+    }
+
     public PartitionItem getItemOrAnalysisException(long partitionId) throws AnalysisException {
         PartitionItem item = idToItem.get(partitionId);
         if (item == null) {

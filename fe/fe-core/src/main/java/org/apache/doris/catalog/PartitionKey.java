@@ -414,6 +414,24 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return builder.toString();
     }
 
+    public String toStringSkipDefaultKeyCheck() {
+        // ATTN: DO NOT EDIT unless unless you explicitly guarantee compatibility
+        // between different versions.
+        //
+        // the ccr syncer depends on this string to identify partitions between two
+        // clusters (cluster versions may be different).
+        StringBuilder builder = new StringBuilder();
+        builder.append("types: [");
+        builder.append(Joiner.on(", ").join(types));
+        builder.append("]; ");
+
+        builder.append("keys: [");
+        builder.append(toString(keys));
+        builder.append("]; ");
+
+        return builder.toString();
+    }
+
     public static String toString(List<LiteralExpr> keys) {
         StringBuilder builder = new StringBuilder();
         int i = 0;
