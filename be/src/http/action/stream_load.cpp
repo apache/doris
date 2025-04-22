@@ -330,9 +330,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     }
 
     if (!http_req->header(HTTP_TIMEOUT).empty()) {
-        int timeout = 0;
-        RETURN_IF_ERROR(safe_stoi(http_req->header(HTTP_TIMEOUT), &timeout));
-        ctx->timeout_second = timeout;
+        ctx->timeout_second = DORIS_TRY(safe_stoi(http_req->header(HTTP_TIMEOUT)));
     }
     if (!http_req->header(HTTP_COMMENT).empty()) {
         ctx->load_comment = http_req->header(HTTP_COMMENT);
@@ -564,8 +562,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     }
 
     if (!http_req->header(HTTP_SEND_BATCH_PARALLELISM).empty()) {
-        int parallelism = 0;
-        RETURN_IF_ERROR(safe_stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM), &parallelism));
+        int parallelism = DORIS_TRY(safe_stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
         request.__set_send_batch_parallelism(parallelism);
     }
 
@@ -622,8 +619,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
     if (!http_req->header(HTTP_SKIP_LINES).empty()) {
-        int skip_lines = 0;
-        RETURN_IF_ERROR(safe_stoi(http_req->header(HTTP_SKIP_LINES), &skip_lines));
+        int skip_lines = DORIS_TRY(safe_stoi(http_req->header(HTTP_SKIP_LINES)));
         request.__set_skip_lines(skip_lines);
     }
     if (!http_req->header(HTTP_ENABLE_PROFILE).empty()) {
@@ -707,8 +703,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_memtable_on_sink_node(value);
     }
     if (!http_req->header(HTTP_LOAD_STREAM_PER_NODE).empty()) {
-        int stream_per_node = 0;
-        RETURN_IF_ERROR(safe_stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE), &stream_per_node));
+        int stream_per_node = DORIS_TRY(safe_stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE)));
         request.__set_stream_per_node(stream_per_node);
     }
     if (ctx->group_commit) {

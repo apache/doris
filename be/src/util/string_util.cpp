@@ -31,17 +31,15 @@ size_t hash_of_path(const std::string& identifier, const std::string& path) {
     return hash;
 }
 
-Status safe_stoi(const std::string& input, int* output) {
+Result<int> safe_stoi(const std::string& input) {
     try {
-        int value = std::stoi(input);
-        *output = value;
-        return Status::OK();
+        return std::stoi(input);
     } catch (const std::invalid_argument& e) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>(std::string("Invalid  format: ") +
-                                                          e.what());
+        return ResultError(Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                std::string("Invalid  format: ") + e.what()));
     } catch (const std::out_of_range& e) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>(std::string("value out of range: ") +
-                                                          e.what());
+        return ResultError(Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                std::string("value out of range: ") + e.what()));
     }
 }
 } // namespace doris
