@@ -270,6 +270,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                     .ctx =
                                             {
                                                     .expiration_time = expiration_time,
+                                                    .is_dryrun = true,
                                             },
                                     .download_done {},
                             });
@@ -282,6 +283,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                 .ctx =
                                         {
                                                 .expiration_time = expiration_time,
+                                                .is_dryrun = true,
                                         },
                                 .download_done {},
                         };

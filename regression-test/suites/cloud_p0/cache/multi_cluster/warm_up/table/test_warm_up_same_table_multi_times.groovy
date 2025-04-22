@@ -17,38 +17,48 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_warm_up_table") {
+suite("test_warm_up_same_table_multi_times") {
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="12000") """
     def getJobState = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
          return jobStateResult[0][2]
     }
 
-    List<String> ipList = new ArrayList<>();
-    List<String> hbPortList = new ArrayList<>()
-    List<String> httpPortList = new ArrayList<>()
-    List<String> brpcPortList = new ArrayList<>()
-    List<String> beUniqueIdList = new ArrayList<>()
+    String[][] backends = sql """ show backends """
+    String backendId;
+    def backendIdToBackendIP = [:]
+    def backendIdToBackendHttpPort = [:]
+    def backendIdToBackendBrpcPort = [:]
+    for (String[] backend in backends) {
+        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name0")) {
+            backendIdToBackendIP.put(backend[0], backend[1])
+            backendIdToBackendHttpPort.put(backend[0], backend[4])
+            backendIdToBackendBrpcPort.put(backend[0], backend[5])
+        }
+    }
+    assertEquals(backendIdToBackendIP.size(), 1)
 
-    String[] bes = context.config.multiClusterBes.split(',');
-    println("the value is " + context.config.multiClusterBes);
-    int num = 0
-    for(String values : bes) {
-        if (num++ == 2) break;
-        println("the value is " + values);
-        String[] beInfo = values.split(':');
-        ipList.add(beInfo[0]);
-        hbPortList.add(beInfo[1]);
-        httpPortList.add(beInfo[2]);
-        beUniqueIdList.add(beInfo[3]);
-        brpcPortList.add(beInfo[4]);
+    backendId = backendIdToBackendIP.keySet()[0]
+    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/file_cache?op=clear&sync=true"""
+    logger.info(url)
+    def clearFileCache = { check_func ->
+        httpTest {
+            endpoint ""
+            uri url
+            op "get"
+            body ""
+            check check_func
+        }
     }
 
-    println("the ip is " + ipList);
-    println("the heartbeat port is " + hbPortList);
-    println("the http port is " + httpPortList);
-    println("the be unique id is " + beUniqueIdList);
-    println("the brpc port is " + brpcPortList);
+    def getMetricsMethod = { check_func ->
+        httpTest {
+            endpoint backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendBrpcPort.get(backendId)
+            uri "/brpc_metrics"
+            op "get"
+            check check_func
+        }
+    }
 
     def s3BucketName = getS3BucketName()
     def s3WithProperties = """WITH S3 (
@@ -64,6 +74,7 @@ suite("test_warm_up_table") {
 
 
     sql "use @regression_cluster_name0"
+    // sql "use @compute_cluster"
 
     def table = "customer"
     sql new File("""${context.file.parent}/../ddl/${table}_delete.sql""").text
@@ -94,45 +105,17 @@ suite("test_warm_up_table") {
         }
     }
 
-    def clearFileCache = { ip, port ->
-        httpTest {
-            endpoint ""
-            uri ip + ":" + port + """/api/file_cache?op=clear&sync=true"""
-            op "get"
-            body ""
-        }
-    }
-
-    def getMetricsMethod = { ip, port, check_func ->
-        httpTest {
-            endpoint ip + ":" + port
-            uri "/brpc_metrics"
-            op "get"
-            check check_func
-        }
-    }
-
-    clearFileCache.call(ipList[0], httpPortList[0]);
-    clearFileCache.call(ipList[1], httpPortList[1]);
+    clearFileCache.call();
     sleep(30000)
 
     load_customer_once()
     load_customer_once()
     load_customer_once()
     load_customer_once()
-    load_customer_once()
-    load_customer_once()
-    load_customer_once()
-    load_customer_once()
-    load_customer_once()
-    load_customer_once()
-    load_customer_once()
-    load_customer_once()
-    load_customer_once()
 
-    def jobId = sql "warm up cluster regression_cluster_name1 with table customer;"
+    def jobId = sql "warm up cluster regression_cluster_name0 with table customer;"
     try {
-        sql "warm up cluster regression_cluster_name1 with table customer;"
+        sql "warm up cluster regression_cluster_name0 with table customer;"
         assertTrue(false)
     } catch (Exception e) {
         assertTrue(true)
@@ -156,7 +139,7 @@ suite("test_warm_up_table") {
     }
     sleep(30000)
     long ttl_cache_size = 0
-    getMetricsMethod.call(ipList[0], brpcPortList[0]) {
+    getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
             String out = "${body}".toString()
@@ -176,19 +159,20 @@ suite("test_warm_up_table") {
             assertTrue(flag)
     }
 
-    getMetricsMethod.call(ipList[1], brpcPortList[1]) {
+    long skip_io_bytes_start = 0;
+    getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
             String out = "${body}".toString()
             def strs = out.split('\n')
             Boolean flag = false;
             for (String line in strs) {
-                if (line.contains("ttl_cache_size")) {
+                if (line.contains("cached_remote_reader_skip_local_cache_io_sum_bytes")) {
                     if (line.startsWith("#")) {
                         continue
                     }
                     def i = line.indexOf(' ')
-                    assertEquals(ttl_cache_size, line.substring(i).toLong())
+                    skip_io_bytes_start = line.substring(i).toLong()
                     flag = true
                     break
                 }
@@ -196,8 +180,8 @@ suite("test_warm_up_table") {
             assertTrue(flag)
     }
 
-    // AGAIN!
-    jobId = sql "warm up cluster regression_cluster_name1 with table customer;"
+    // AGAIN! regression_cluster_name1
+    jobId = sql "warm up cluster regression_cluster_name0 with table customer;"
 
     retryTime = 120
     j = 0
@@ -218,7 +202,7 @@ suite("test_warm_up_table") {
     }
     sleep(30000)
     ttl_cache_size = 0
-    getMetricsMethod.call(ipList[0], brpcPortList[0]) {
+    getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
             String out = "${body}".toString()
@@ -238,7 +222,7 @@ suite("test_warm_up_table") {
             assertTrue(flag)
     }
 
-    getMetricsMethod.call(ipList[1], brpcPortList[1]) {
+    getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
             String out = "${body}".toString()
@@ -258,8 +242,8 @@ suite("test_warm_up_table") {
             assertTrue(flag)
     }
 
-    long skip_io_bytes = 0;
-    getMetricsMethod.call(ipList[0], brpcPortList[0]) {
+    long skip_io_bytes_end = 0;
+    getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
             String out = "${body}".toString()
@@ -271,14 +255,14 @@ suite("test_warm_up_table") {
                         continue
                     }
                     def i = line.indexOf(' ')
-                    skip_io_bytes = line.substring(i).toLong()
+                    skip_io_bytes_end = line.substring(i).toLong()
                     flag = true
                     break
                 }
             }
             assertTrue(flag)
     }
-
-    println("skip_io_bytes" + skip_io_bytes);
-
+    long diff = skip_io_bytes_end - skip_io_bytes_start;
+    println("skip_io_bytes diff: " + diff);
+    assertTrue(diff > 1000);
 }

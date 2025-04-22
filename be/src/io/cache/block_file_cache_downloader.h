@@ -76,7 +76,7 @@ public:
 
 private:
     void download_file_cache_block(const DownloadTask::FileCacheBlockMetaVec&);
-    void download_segment_file(const DownloadFileMeta&);
+    void download_segment_file(DownloadFileMeta&);
 
     CloudStorageEngine& _engine;
 

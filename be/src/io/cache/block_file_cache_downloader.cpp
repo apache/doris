@@ -198,7 +198,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
     });
 }
 
-void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& meta) {
+void FileCacheBlockDownloader::download_segment_file(DownloadFileMeta& meta) {
     FileReaderSPtr file_reader;
     FileReaderOptions opts {
             .cache_type = FileCachePolicy::FILE_BLOCK_CACHE,
@@ -230,6 +230,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
         // TODO(plat1ko):
         //  1. Directly append buffer data to file cache
         //  2. Provide `FileReader::async_read()` interface
+        meta.ctx.is_dryrun = true;
         auto st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &meta.ctx);
         if (!st.ok()) {
             LOG(WARNING) << "failed to download file: " << st;

@@ -122,6 +122,7 @@ void CloudWarmUpManager::handle_jobs() {
                                     .ctx =
                                             {
                                                     .expiration_time = expiration_time,
+                                                    .is_dryrun = true,
                                             },
                                     .download_done =
                                             [wait](Status st) {
@@ -140,6 +141,7 @@ void CloudWarmUpManager::handle_jobs() {
                                 .ctx =
                                         {
                                                 .expiration_time = expiration_time,
+                                                .is_dryrun = true,
                                         },
                                 .download_done =
                                         [wait](Status st) {
