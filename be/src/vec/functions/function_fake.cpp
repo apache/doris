@@ -74,8 +74,8 @@ struct FunctionExplodeV2 {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         DataTypes fieldTypes(arguments.size());
         for (int i = 0; i < arguments.size(); i++) {
-            auto nestedType = check_and_get_data_type<DataTypeArray>(arguments[i].get())
-                                      ->get_nested_type();
+            auto nestedType =
+                    check_and_get_data_type<DataTypeArray>(arguments[i].get())->get_nested_type();
             if (nestedType->is_nullable()) {
                 fieldTypes[i] = nestedType;
             } else {
