@@ -56,6 +56,11 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                 AggregateFunctionsSingleValue<Data<SingleValueDataString>>>(argument_types,
                                                                             result_is_nullable);
     }
+    if (which.idx == TypeIndex::JSONB) {
+        return creator_without_type::create<
+                AggregateFunctionsSingleValue<Data<SingleValueDataJsonb>>>(argument_types,
+                                                                           result_is_nullable);
+    }
     if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::Date) {
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<Int64>>>>(

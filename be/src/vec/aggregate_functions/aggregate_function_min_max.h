@@ -23,16 +23,19 @@
 #include <fmt/format.h>
 #include <string.h>
 
+#include <cstddef>
 #include <memory>
 #include <vector>
 
 #include "common/cast_set.h"
+#include "common/compiler_util.h"
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/pod_array.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
@@ -464,6 +467,157 @@ public:
             change(to, nullptr);
         }
     }
+};
+
+/** For JSON values. Similar to SingleValueDataString but specifically for JSON binary format.
+  */
+struct SingleValueDataJsonb {
+private:
+    using Self = SingleValueDataJsonb;
+    Int32 size = -1;
+    Int32 capacity = 0;
+    std::unique_ptr<char[]> large_data;
+
+public:
+    static constexpr Int32 AUTOMATIC_STORAGE_SIZE = 64;
+    static constexpr Int32 MAX_SMALL_STRING_SIZE =
+            AUTOMATIC_STORAGE_SIZE - sizeof(size) - sizeof(capacity) - sizeof(large_data);
+
+private:
+    char small_data[MAX_SMALL_STRING_SIZE];
+
+public:
+    ~SingleValueDataJsonb() = default;
+    constexpr static bool IsFixedLength = false;
+    bool has() const { return size >= 0; }
+    const char* get_data() const {
+        return size <= MAX_SMALL_STRING_SIZE ? small_data : large_data.get();
+    }
+
+    void insert_result_into(IColumn& to) const {
+        if (has()) {
+            assert_cast<ColumnString&>(to).insert_data(get_data(), size);
+        } else {
+            assert_cast<ColumnString&>(to).insert_default();
+        }
+    }
+
+    void reset() {
+        if (size != -1) {
+            size = -1;
+            capacity = 0;
+            large_data = nullptr;
+        }
+    }
+
+    void write(BufferWritable& buf) const {
+        write_binary(size, buf);
+        if (has()) {
+            buf.write(get_data(), size);
+        }
+    }
+
+    void read(BufferReadable& buf, Arena*) {
+        Int32 rhs_size;
+        read_binary(rhs_size, buf);
+
+        if (rhs_size >= 0) {
+            if (rhs_size <= MAX_SMALL_STRING_SIZE) {
+                /// Don't free large_data here.
+                size = rhs_size;
+                if (size > 0) {
+                    buf.read(small_data, size);
+                }
+            } else {
+                if (capacity < rhs_size) {
+                    capacity = (Int32)round_up_to_power_of_two_or_zero(rhs_size);
+                    large_data.reset(new char[capacity]);
+                }
+
+                size = rhs_size;
+                buf.read(large_data.get(), size);
+            }
+        } else {
+            /// Don't free large_data here.
+            size = rhs_size;
+        }
+    }
+
+    StringRef get_string_ref() const { return StringRef(get_data(), size); }
+
+    void change_impl(StringRef value, Arena*) {
+        Int32 value_size = cast_set<Int32>(value.size);
+        if (value_size <= MAX_SMALL_STRING_SIZE) {
+            /// Don't free large_data here.
+            size = value_size;
+            if (size > 0) {
+                memcpy(small_data, value.data, size);
+            }
+        } else {
+            if (capacity < value_size) {
+                capacity = (Int32)round_up_to_power_of_two_or_zero(value_size);
+                large_data.reset(new char[capacity]);
+            }
+
+            size = value_size;
+            memcpy(large_data.get(), value.data, size);
+        }
+    }
+
+    void change(const IColumn& column, size_t row_num, Arena*) {
+        change_impl(
+                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                        row_num),
+                nullptr);
+    }
+
+    void change(const Self& to, Arena*) { change_impl(to.get_string_ref(), nullptr); }
+
+    bool change_if_less(const IColumn& column, size_t row_num, Arena*) {
+        /// JSON values cannot be compared directly
+        if (!has()) {
+            change(column, row_num, nullptr);
+            return true;
+        }
+        return false;
+    }
+
+    bool change_if_greater(const IColumn& column, size_t row_num, Arena*) {
+        if (!has()) {
+            change(column, row_num, nullptr);
+            return true;
+        }
+        return false;
+    }
+
+    bool change_if_less(const Self& to, Arena*) {
+        if (to.has() && !has()) {
+            change(to, nullptr);
+            return true;
+        }
+        return false;
+    }
+
+    bool change_if_greater(const Self& to, Arena*) {
+        if (to.has() && !has()) {
+            change(to, nullptr);
+            return true;
+        }
+        return false;
+    }
+
+    void change_first_time(const IColumn& column, size_t row_num, Arena*) {
+        if (UNLIKELY(!has())) {
+            change(column, row_num, nullptr);
+        }
+    }
+
+    void change_first_time(const Self& to, Arena*) {
+        if (UNLIKELY(!has() && to.has())) {
+            change(to, nullptr);
+        }
+    }
+
 };
 
 template <typename Data>
