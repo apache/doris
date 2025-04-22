@@ -4288,21 +4288,24 @@ void check_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t s
 }
 
 TEST(RecyclerTest, concurrent_recycle_txn_label_test) {
+    config::label_keep_max_second = 259200;
     doris::cloud::RecyclerThreadPoolGroup recycle_txn_label_thread_group;
     config::recycle_pool_parallelism = 10;
-    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
-    s3_producer_pool->start();
-    auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
-    recycle_tablet_pool->start();
-    auto group_recycle_function_pool =
+    auto recycle_txn_label_s3_producer_pool =
             std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
-    group_recycle_function_pool->start();
+    recycle_txn_label_s3_producer_pool->start();
+    auto recycle_txn_label_recycle_tablet_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_recycle_tablet_pool->start();
+    auto recycle_txn_label_group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_group_recycle_function_pool->start();
     recycle_txn_label_thread_group =
-            RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
-                                    std::move(group_recycle_function_pool));
-    cloud::config::init(nullptr, true);
+            RecyclerThreadPoolGroup(std::move(recycle_txn_label_s3_producer_pool),
+                                    std::move(recycle_txn_label_recycle_tablet_pool),
+                                    std::move(recycle_txn_label_group_recycle_function_pool));
 
-    auto mem_txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    auto mem_txn_kv = std::make_shared<MemTxnKv>();
 
     // cloud::config::fdb_cluster_file_path = "fdb.cluster";
     // auto fdb_txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
