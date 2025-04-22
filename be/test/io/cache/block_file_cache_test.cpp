@@ -7263,7 +7263,7 @@ TEST_F(BlockFileCacheTest, reader_dryrun_when_download_file_cache) {
         EXPECT_TRUE(std::all_of(buffer.begin(), buffer.end(), [](char c) { return c == '\0'; }));
         reporter.update(&stats);
     }
-    LOG(INFO) << "g_skip_local_cache_io_sum_bytes: " << g_skip_local_cache_io_sum_bytes.get_value();
+    EXPECT_EQ(g_skip_local_cache_io_sum_bytes.get_value(), 65536);
 
     EXPECT_TRUE(reader.close().ok());
     EXPECT_TRUE(reader.closed());
