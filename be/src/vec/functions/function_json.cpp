@@ -616,7 +616,7 @@ struct JsonParser<'7'> {
                              StringRef data, rapidjson::Document::AllocatorType& allocator) {
         rapidjson::Document document;
         JsonbValue* json_val = JsonbDocument::createValue(data.data, data.size);
-	doris::vectorized::convert_jsonb_to_rapidjson(*json_val, document, allocator);
+        doris::vectorized::convert_jsonb_to_rapidjson(*json_val, document, allocator);
         value.CopyFrom(document, allocator);
     }
 };
