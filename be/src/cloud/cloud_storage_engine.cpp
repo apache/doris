@@ -529,6 +529,19 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
                             [](int a, auto& b) { return a + b.second.size(); });
     int num_base =
             cast_set<int>(submitted_base_compactions.size() + submitted_full_compactions.size());
+    std::string submitted_cumu_compaction_tablet_id;
+    for (const auto& cumu : submitted_cumu_compactions) {
+        submitted_cumu_compaction_tablet_id += std::to_string(cumu.first);
+    }
+    std::string submitted_base_compaction_tablet_id;
+    for (const auto& base : submitted_base_compactions) {
+        submitted_base_compaction_tablet_id += std::to_string(base.first);
+    }
+    LOG_WARNING("lyk_debug")
+            .tag("num_cumu", num_cumu)
+            .tag("cumu_tablet_id", submitted_cumu_compaction_tablet_id)
+            .tag("num_base", num_base)
+            .tag("base_tablet_id", submitted_base_compaction_tablet_id);
     int n = thread_per_disk - num_cumu - num_base;
     if (compaction_type == CompactionType::BASE_COMPACTION) {
         // We need to reserve at least one thread for cumulative compaction,
