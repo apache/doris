@@ -67,6 +67,9 @@ struct IOContext {
     const TUniqueId* query_id = nullptr;             // Ref
     FileCacheStatistics* file_cache_stats = nullptr; // Ref
     bool is_inverted_index = false;
+    // if is_dryrun, read IO will download data to cache but return no data to reader
+    // useful to skip cache data read from local disk to accelarate warm up
+    bool is_dryrun = false;
 };
 
 } // namespace io

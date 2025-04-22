@@ -190,6 +190,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
                         {
                                 .is_index_data = meta.cache_type() == ::doris::FileCacheType::INDEX,
                                 .expiration_time = meta.expiration_time(),
+                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                         },
                 .download_done = std::move(download_done),
         };
