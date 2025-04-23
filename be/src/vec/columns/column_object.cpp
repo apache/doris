@@ -1930,10 +1930,6 @@ Status ColumnObject::pick_subcolumns_to_sparse_column(
 
     // 3. pick config::variant_max_subcolumns_count selected subcolumns
     for (size_t i = 0; i < std::min(size_t(_max_subcolumns_count), sorted_by_size.size()); ++i) {
-        // if too many null values, then consider it as sparse column
-        if ((double)sorted_by_size[i].second < (double)num_rows * 0.99) {
-            continue;
-        }
         selected_path.insert(sorted_by_size[i].first);
     }
     std::map<std::string_view, Subcolumn> remaing_subcolumns;

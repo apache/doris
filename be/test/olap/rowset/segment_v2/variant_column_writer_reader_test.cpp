@@ -14,7 +14,7 @@
 // // KIND, either express or implied.  See the License for the
 // // specific language governing permissions and limitations
 // // under the License.
-// 
+//
 // #include "gtest/gtest.h"
 // #include "olap/rowset/segment_v2/column_reader.h"
 // #include "olap/rowset/segment_v2/hierarchical_data_reader.h"
@@ -22,15 +22,15 @@
 // #include "olap/storage_engine.h"
 // #include "testutil/schema_utils.h"
 // #include "testutil/variant_util.h"
-// 
+//
 // using namespace doris::vectorized;
-// 
+//
 // namespace doris {
-// 
+//
 // constexpr static uint32_t MAX_PATH_LEN = 1024;
 // constexpr static std::string_view dest_dir = "/ut_dir/variant_column_writer_test";
 // constexpr static std::string_view tmp_dir = "./ut_dir/tmp";
-// 
+//
 // class VariantColumnWriterReaderTest : public testing::Test {
 // public:
 //     void SetUp() override {
@@ -41,7 +41,7 @@
 //         _absolute_dir = _current_dir + std::string(dest_dir);
 //         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
 //         EXPECT_TRUE(io::global_local_filesystem()->create_directory(_absolute_dir).ok());
-// 
+//
 //         // tmp dir
 //         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(tmp_dir).ok());
 //         EXPECT_TRUE(io::global_local_filesystem()->create_directory(tmp_dir).ok());
@@ -51,7 +51,7 @@
 //         Status st = tmp_file_dirs->init();
 //         EXPECT_TRUE(st.ok()) << st.to_json();
 //         ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
-// 
+//
 //         // storage engine
 //         doris::EngineOptions options;
 //         auto engine = std::make_unique<StorageEngine>(options);
@@ -60,17 +60,17 @@
 //         static_cast<void>(_data_dir->update_capacity());
 //         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
 //     }
-// 
+//
 //     void TearDown() override {
 //         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
 //         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(tmp_dir).ok());
 //         _engine_ref = nullptr;
 //         ExecEnv::GetInstance()->set_storage_engine(nullptr);
 //     }
-// 
+//
 //     VariantColumnWriterReaderTest() = default;
 //     ~VariantColumnWriterReaderTest() override = default;
-// 
+//
 // private:
 //     TabletSchemaSPtr _tablet_schema = nullptr;
 //     StorageEngine* _engine_ref = nullptr;
@@ -79,7 +79,7 @@
 //     std::string _absolute_dir;
 //     std::string _current_dir;
 // };
-// 
+//
 // void check_column_meta(const ColumnMetaPB& column_meta, auto& path_with_size) {
 //     EXPECT_TRUE(column_meta.has_column_path_info());
 //     auto path = std::make_shared<vectorized::PathInData>();
@@ -87,7 +87,7 @@
 //     EXPECT_EQ(column_meta.column_path_info().parrent_column_unique_id(), 1);
 //     EXPECT_EQ(column_meta.none_null_size(), path_with_size[path->copy_pop_front().get_path()]);
 // }
-// 
+//
 // void check_sparse_column_meta(const ColumnMetaPB& column_meta, auto& path_with_size) {
 //     EXPECT_TRUE(column_meta.has_column_path_info());
 //     auto path = std::make_shared<vectorized::PathInData>();
@@ -99,7 +99,7 @@
 //     }
 //     EXPECT_EQ(path->copy_pop_front().get_path(), "__DORIS_VARIANT_SPARSE__");
 // }
-// 
+//
 // TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
 //     // 1. create tablet_schema
 //     TabletSchemaPB schema_pb;
@@ -107,22 +107,22 @@
 //     SchemaUtils::construct_column(schema_pb.add_column(), 1, "VARIANT", "V1");
 //     _tablet_schema = std::make_shared<TabletSchema>();
 //     _tablet_schema->init_from_pb(schema_pb);
-// 
+//
 //     // 2. create tablet
 //     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
 //     tablet_meta->_tablet_id = 10000;
 //     _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
-// 
+//
 //     EXPECT_TRUE(_tablet->init().ok());
 //     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 //     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
-// 
+//
 //     // 3. create file_writer
 //     io::FileWriterPtr file_writer;
 //     auto file_path = local_segment_path(_tablet->tablet_path(), "0", 0);
 //     auto st = io::global_local_filesystem()->create_file(file_path, &file_writer);
 //     EXPECT_TRUE(st.ok()) << st.msg();
-// 
+//
 //     // 4. create column_writer
 //     SegmentFooterPB footer;
 //     ColumnWriterOptions opts;
@@ -136,12 +136,12 @@
 //     opts.rowset_ctx->tablet_schema = _tablet_schema;
 //     TabletColumn column = _tablet_schema->column(0);
 //     _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
-// 
+//
 //     std::unique_ptr<ColumnWriter> writer;
 //     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
 //     EXPECT_TRUE(writer->init().ok());
 //     EXPECT_TRUE(assert_cast<VariantColumnWriter*>(writer.get()) != nullptr);
-// 
+//
 //     // 5. write data
 //     auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
 //     auto block = _tablet_schema->create_block();
@@ -165,18 +165,18 @@
 //     EXPECT_TRUE(st.ok()) << st.msg();
 //     EXPECT_TRUE(file_writer->close().ok());
 //     footer.set_num_rows(1000);
-// 
+//
 //     // 6. check footer
 //     EXPECT_EQ(footer.columns_size(), 5);
 //     auto column_meta = footer.columns(0);
 //     EXPECT_EQ(column_meta.type(), (int)FieldType::OLAP_FIELD_TYPE_VARIANT);
-// 
+//
 //     for (int i = 1; i < footer.columns_size() - 1; ++i) {
 //         auto column_meta = footer.columns(i);
 //         check_column_meta(column_meta, path_with_size);
 //     }
 //     check_sparse_column_meta(footer.columns(footer.columns_size() - 1), path_with_size);
-// 
+//
 //     // 7. check variant reader
 //     io::FileReaderSPtr file_reader;
 //     st = io::global_local_filesystem()->open_file(file_path, &file_reader);
@@ -185,10 +185,10 @@
 //     std::unique_ptr<ColumnReader> column_reader;
 //     st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
 //     EXPECT_TRUE(st.ok()) << st.msg();
-// 
+//
 //     auto variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
 //     EXPECT_TRUE(variant_column_reader != nullptr);
-// 
+//
 //     auto subcolumn_reader = variant_column_reader->get_reader_by_path(PathInData("key0"));
 //     EXPECT_TRUE(subcolumn_reader != nullptr);
 //     subcolumn_reader = variant_column_reader->get_reader_by_path(PathInData("key1"));
@@ -204,7 +204,7 @@
 //     EXPECT_TRUE(variant_column_reader->exist_in_sparse_column(PathInData("key9")));
 //     auto size = variant_column_reader->get_metadata_size();
 //     EXPECT_GT(size, 0);
-// 
+//
 //     // 8. check statistics
 //     auto statistics = variant_column_reader->get_stats();
 //     for (const auto& [path, size] : statistics->subcolumns_non_null_size) {
@@ -213,7 +213,7 @@
 //     for (const auto& [path, size] : statistics->sparse_column_non_null_size) {
 //         EXPECT_EQ(path_with_size[path], size);
 //     }
-// 
+//
 //     // 9. check hier reader
 //     ColumnIterator* it;
 //     TabletColumn parent_column = _tablet_schema->column(0);
@@ -228,7 +228,7 @@
 //     column_iter_opts.file_reader = file_reader.get();
 //     st = it->init(column_iter_opts);
 //     EXPECT_TRUE(st.ok()) << st.msg();
-// 
+//
 //     MutableColumnPtr new_column_object = ColumnObject::create(3);
 //     size_t nrows = 1000;
 //     st = it->seek_to_ordinal(0);
@@ -236,16 +236,16 @@
 //     st = it->next_batch(&nrows, new_column_object);
 //     EXPECT_TRUE(st.ok()) << st.msg();
 //     EXPECT_TRUE(stats.bytes_read > 0);
-// 
+//
 //     for (int i = 0; i < 1000; ++i) {
 //         std::string value;
 //         st = assert_cast<ColumnObject*>(new_column_object.get())
 //                      ->serialize_one_row_to_string(i, &value);
-// 
+//
 //         EXPECT_TRUE(st.ok()) << st.msg();
 //         EXPECT_EQ(value, inserted_jsonstr[i]);
 //     }
-// 
+//
 //     std::vector<rowid_t> row_ids;
 //     for (int i = 0; i < 1000; ++i) {
 //         if (i % 7 == 0) {
@@ -262,7 +262,7 @@
 //         EXPECT_TRUE(st.ok()) << st.msg();
 //         EXPECT_EQ(value, inserted_jsonstr[row_ids[i]]);
 //     }
-// 
+//
 //     auto read_to_column_object = [&]() {
 //         new_column_object = ColumnObject::create(3);
 //         nrows = 1000;
@@ -273,7 +273,7 @@
 //         EXPECT_TRUE(stats.bytes_read > 0);
 //         EXPECT_EQ(nrows, 1000);
 //     };
-// 
+//
 //     // 10. check sparse extract reader
 //     for (int i = 3; i < 10; ++i) {
 //         std::string key = ".key" + std::to_string(i);
@@ -285,15 +285,15 @@
 //         subcolumn_in_sparse.set_variant_max_subcolumns_count(
 //                 parent_column.variant_max_subcolumns_count());
 //         subcolumn_in_sparse.set_is_nullable(true);
-// 
+//
 //         st = variant_column_reader->new_iterator(&it, subcolumn_in_sparse, &storage_read_opts);
 //         EXPECT_TRUE(st.ok()) << st.msg();
 //         EXPECT_TRUE(assert_cast<SparseColumnExtractReader*>(it) != nullptr);
 //         st = it->init(column_iter_opts);
 //         EXPECT_TRUE(st.ok()) << st.msg();
-// 
+//
 //         read_to_column_object();
-// 
+//
 //         for (int row = 0; row < 1000; ++row) {
 //             std::string value;
 //             st = assert_cast<ColumnObject*>(new_column_object.get())
@@ -308,7 +308,7 @@
 //             }
 //         }
 //     }
-// 
+//
 //     // 11. check leaf reader
 //     auto check_leaf_reader = [&]() {
 //         for (int i = 0; i < 3; ++i) {
@@ -321,13 +321,13 @@
 //             subcolumn.set_variant_max_subcolumns_count(
 //                     parent_column.variant_max_subcolumns_count());
 //             subcolumn.set_is_nullable(true);
-// 
+//
 //             st = variant_column_reader->new_iterator(&it, subcolumn, &storage_read_opts);
 //             EXPECT_TRUE(st.ok()) << st.msg();
 //             EXPECT_TRUE(assert_cast<FileColumnIterator*>(it) != nullptr);
 //             st = it->init(column_iter_opts);
 //             EXPECT_TRUE(st.ok()) << st.msg();
-// 
+//
 //             auto column_type = DataTypeFactory::instance().create_data_type(subcolumn, false);
 //             auto read_column = column_type->create_column();
 //             nrows = 1000;
@@ -336,7 +336,7 @@
 //             st = it->next_batch(&nrows, read_column);
 //             EXPECT_TRUE(st.ok()) << st.msg();
 //             EXPECT_TRUE(stats.bytes_read > 0);
-// 
+//
 //             for (int row = 0; row < 1000; ++row) {
 //                 const std::string& value = column_type->to_string(*read_column, row);
 //                 if (inserted_jsonstr[row].find(key) != std::string::npos) {
@@ -350,7 +350,7 @@
 //         }
 //     };
 //     check_leaf_reader();
-// 
+//
 //     // 12. check empty
 //     TabletColumn subcolumn;
 //     subcolumn.set_name(parent_column.name_lower_case() + ".key10");
@@ -361,7 +361,7 @@
 //     st = variant_column_reader->new_iterator(&it, subcolumn, &storage_read_opts);
 //     EXPECT_TRUE(st.ok()) << st.msg();
 //     EXPECT_TRUE(assert_cast<DefaultValueColumnIterator*>(it) != nullptr);
-// 
+//
 //     // 13. check statistics size == limit
 //     auto& variant_stats = variant_column_reader->_statistics;
 //     EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() <
@@ -374,27 +374,27 @@
 //     }
 //     EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() ==
 //                 config::variant_max_sparse_column_statistics_size);
-// 
+//
 //     st = variant_column_reader->new_iterator(&it, subcolumn, &storage_read_opts);
 //     EXPECT_TRUE(st.ok()) << st.msg();
 //     EXPECT_TRUE(assert_cast<HierarchicalDataReader*>(it) != nullptr);
 //     st = it->init(column_iter_opts);
 //     EXPECT_TRUE(st.ok()) << st.msg();
-// 
+//
 //     auto check_empty_column = [&]() {
 //         for (int row = 0; row < 1000; ++row) {
 //             std::string value;
 //             st = assert_cast<ColumnObject*>(new_column_object.get())
 //                          ->serialize_one_row_to_string(row, &value);
-// 
+//
 //             EXPECT_TRUE(st.ok()) << st.msg();
 //             EXPECT_EQ(value, "{}");
 //         }
 //     };
-// 
+//
 //     read_to_column_object();
 //     check_empty_column();
-// 
+//
 //     // construct tablet schema for compaction
 //     storage_read_opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
 //     storage_read_opts.tablet_schema = _tablet_schema;
@@ -412,17 +412,17 @@
 //     paths_set_info.sparse_path_set.insert("key9");
 //     uid_to_paths_set_info[parent_column.unique_id()] = paths_set_info;
 //     _tablet_schema->set_path_set_info(std::move(uid_to_paths_set_info));
-// 
+//
 //     // 14. check compaction subcolumn reader
 //     check_leaf_reader();
-// 
+//
 //     // 15. check compaction root reader
 //     st = variant_column_reader->new_iterator(&it, parent_column, &storage_read_opts);
 //     EXPECT_TRUE(st.ok()) << st.msg();
 //     EXPECT_TRUE(assert_cast<VariantRootColumnIterator*>(it) != nullptr);
 //     st = it->init(column_iter_opts);
 //     EXPECT_TRUE(st.ok()) << st.msg();
-// 
+//
 //     // 16. check compacton sparse column
 //     TabletColumn sparse_column = schema_util::create_sparse_column(parent_column);
 //     st = variant_column_reader->new_iterator(&it, sparse_column, &storage_read_opts);
@@ -438,7 +438,7 @@
 //     st = it->next_batch(&nrows, read_column);
 //     EXPECT_TRUE(st.ok()) << st.msg();
 //     EXPECT_TRUE(stats.bytes_read > 0);
-// 
+//
 //     for (int row = 0; row < 1000; ++row) {
 //         const std::string& value = column_type->to_string(*read_column, row);
 //         EXPECT_TRUE(value.find("key0") == std::string::npos)
@@ -448,26 +448,26 @@
 //         EXPECT_TRUE(value.find("key4") == std::string::npos)
 //                 << "row: " << row << ", value: " << value;
 //     }
-// 
+//
 //     // 17. check limit = 10000
 //     subcolumn.set_name(parent_column.name_lower_case() + ".key10");
 //     subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + ".key10"));
 //     st = variant_column_reader->new_iterator(&it, subcolumn, &storage_read_opts);
 //     EXPECT_TRUE(st.ok()) << st.msg();
 //     EXPECT_TRUE(assert_cast<SparseColumnExtractReader*>(it) != nullptr);
-// 
+//
 //     for (int i = 0; i < limit; ++i) {
 //         std::string key = parent_column.name_lower_case() + ".key10" + std::to_string(i);
 //         variant_stats->sparse_column_non_null_size.erase(key);
 //     }
-// 
+//
 //     // 18. check compacton sparse extract column
 //     subcolumn.set_name(parent_column.name_lower_case() + ".key3");
 //     subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + ".key3"));
 //     st = variant_column_reader->new_iterator(&it, subcolumn, &storage_read_opts);
 //     EXPECT_TRUE(st.ok()) << st.msg();
 //     EXPECT_TRUE(assert_cast<SparseColumnExtractReader*>(it) != nullptr);
-// 
+//
 //     // 19. check compaction default column
 //     subcolumn.set_name(parent_column.name_lower_case() + ".key10");
 //     subcolumn.set_path_info(PathInData(parent_column.name_lower_case() + ".key10"));
@@ -476,7 +476,7 @@
 //     EXPECT_TRUE(assert_cast<DefaultValueColumnIterator*>(it) != nullptr);
 //     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 // }
-// 
+//
 // TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
 //     // 1. create tablet_schema
 //     TabletSchemaPB schema_pb;
@@ -484,7 +484,7 @@
 //     SchemaUtils::construct_column(schema_pb.add_column(), 1, "VARIANT", "V1", 10);
 //     _tablet_schema = std::make_shared<TabletSchema>();
 //     _tablet_schema->init_from_pb(schema_pb);
-// 
+//
 //     // 2. create tablet
 //     TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
 //     tablet_meta->_tablet_id = 10000;
@@ -492,13 +492,13 @@
 //     EXPECT_TRUE(_tablet->init().ok());
 //     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 //     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
-// 
+//
 //     // 3. create file_writer
 //     io::FileWriterPtr file_writer;
 //     auto file_path = local_segment_path(_tablet->tablet_path(), "0", 0);
 //     auto st = io::global_local_filesystem()->create_file(file_path, &file_writer);
 //     EXPECT_TRUE(st.ok()) << st.msg();
-// 
+//
 //     // 4. create column_writer
 //     SegmentFooterPB footer;
 //     ColumnWriterOptions opts;
@@ -512,12 +512,12 @@
 //     opts.rowset_ctx->tablet_schema = _tablet_schema;
 //     TabletColumn column = _tablet_schema->column(0);
 //     _init_column_meta(opts.meta, 0, column, CompressionTypePB::LZ4);
-// 
+//
 //     std::unique_ptr<ColumnWriter> writer;
 //     EXPECT_TRUE(ColumnWriter::create(opts, &column, file_writer.get(), &writer).ok());
 //     EXPECT_TRUE(writer->init().ok());
 //     EXPECT_TRUE(assert_cast<VariantColumnWriter*>(writer.get()) != nullptr);
-// 
+//
 //     // 5. write data
 //     auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
 //     auto block = _tablet_schema->create_block();
@@ -541,18 +541,18 @@
 //     EXPECT_TRUE(st.ok()) << st.msg();
 //     EXPECT_TRUE(file_writer->close().ok());
 //     footer.set_num_rows(1000);
-// 
+//
 //     // 6. check footer
 //     EXPECT_EQ(footer.columns_size(), 12);
 //     auto column_meta = footer.columns(0);
 //     EXPECT_EQ(column_meta.type(), (int)FieldType::OLAP_FIELD_TYPE_VARIANT);
-// 
+//
 //     for (int i = 1; i < footer.columns_size() - 1; ++i) {
 //         auto column_meta = footer.columns(i);
 //         check_column_meta(column_meta, path_with_size);
 //     }
 //     check_sparse_column_meta(footer.columns(footer.columns_size() - 1), path_with_size);
-// 
+//
 //     // 7. check variant reader
 //     io::FileReaderSPtr file_reader;
 //     st = io::global_local_filesystem()->open_file(file_path, &file_reader);
@@ -561,10 +561,10 @@
 //     std::unique_ptr<ColumnReader> column_reader;
 //     st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
 //     EXPECT_TRUE(st.ok()) << st.msg();
-// 
+//
 //     auto variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
 //     EXPECT_TRUE(variant_column_reader != nullptr);
-// 
+//
 //     // 8. check statistics
 //     auto statistics = variant_column_reader->get_stats();
 //     for (const auto& [path, size] : statistics->subcolumns_non_null_size) {
@@ -575,7 +575,7 @@
 //         std::cout << "sparse path: " << path << ", size: " << size << std::endl;
 //         EXPECT_EQ(path_with_size[path], size);
 //     }
-// 
+//
 //     // 9. check root
 //     ColumnIterator* it;
 //     TabletColumn parent_column = _tablet_schema->column(0);
@@ -590,7 +590,7 @@
 //     column_iter_opts.file_reader = file_reader.get();
 //     st = it->init(column_iter_opts);
 //     EXPECT_TRUE(st.ok()) << st.msg();
-// 
+//
 //     MutableColumnPtr new_column_object = ColumnObject::create(3);
 //     size_t nrows = 1000;
 //     st = it->seek_to_ordinal(0);
@@ -598,7 +598,7 @@
 //     st = it->next_batch(&nrows, new_column_object);
 //     EXPECT_TRUE(st.ok()) << st.msg();
 //     EXPECT_TRUE(stats.bytes_read > 0);
-// 
+//
 //     for (int i = 0; i < 1000; ++i) {
 //         std::string value;
 //         st = assert_cast<ColumnObject*>(new_column_object.get())
@@ -606,7 +606,7 @@
 //         EXPECT_TRUE(st.ok()) << st.msg();
 //         EXPECT_EQ(value, inserted_jsonstr[i]);
 //     }
-// 
+//
 //     auto read_to_column_object = [&]() {
 //         new_column_object = ColumnObject::create(10);
 //         nrows = 1000;
@@ -617,7 +617,7 @@
 //         EXPECT_TRUE(stats.bytes_read > 0);
 //         EXPECT_EQ(nrows, 1000);
 //     };
-// 
+//
 //     auto check_key_stats = [&](const std::string& key_num) {
 //         std::string key = ".key" + key_num;
 //         TabletColumn subcolumn_in_nested;
@@ -628,14 +628,14 @@
 //         subcolumn_in_nested.set_variant_max_subcolumns_count(
 //                 parent_column.variant_max_subcolumns_count());
 //         subcolumn_in_nested.set_is_nullable(true);
-// 
+//
 //         st = variant_column_reader->new_iterator(&it, subcolumn_in_nested, &storage_read_opts);
 //         EXPECT_TRUE(st.ok()) << st.msg();
 //         EXPECT_TRUE(assert_cast<HierarchicalDataReader*>(it) != nullptr);
 //         st = it->init(column_iter_opts);
 //         EXPECT_TRUE(st.ok()) << st.msg();
 //         read_to_column_object();
-// 
+//
 //         size_t key_count = 0;
 //         size_t key_nested_count = 0;
 //         for (int row = 0; row < 1000; ++row) {
@@ -652,12 +652,12 @@
 //         EXPECT_EQ(key_count, path_with_size["key" + key_num]);
 //         EXPECT_EQ(key_nested_count, path_with_size["key" + key_num + ".nested" + key_num]);
 //     };
-// 
+//
 //     for (int i = 3; i < 10; ++i) {
 //         check_key_stats(std::to_string(i));
 //     }
-// 
+//
 //     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 // }
-// 
+//
 // } // namespace doris
