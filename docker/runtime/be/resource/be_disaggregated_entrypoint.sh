@@ -51,7 +51,7 @@ log_stderr()
     echo "[`date`] $@" >&2
 }
 
-function add_default_conf()
+function add_workloadgroup_config()
 {
     if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
           echo "doris_cgroup_cpu_path=$WORKLOAD_GROUP_PATH" >> ${DORIS_HOME}/conf/be.conf
@@ -251,7 +251,7 @@ function check_and_register()
 }
 
 
-function work_load_group_for_cgroup_path() {
+function make_dir_for_workloadgroup() {
     output=$(cat /proc/filesystems | grep cgroup)
     if [ -z "$output" ]; then
         log_stderr "[error] The host machine does not have cgroup installed, so the workload group function will be limited."
@@ -279,7 +279,7 @@ fi
 
 if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
       log_stderr '[info] Enable workload group !'
-      work_load_group_for_cgroup_path
+      make_dir_for_workloadgroup
 fi
 
 
@@ -291,7 +291,7 @@ else
 fi
 
 update_conf_from_configmap
-add_default_conf
+add_workloadgroup_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
 collect_env_info
