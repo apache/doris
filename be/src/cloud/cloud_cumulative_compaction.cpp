@@ -62,9 +62,6 @@ Status CloudCumulativeCompaction::prepare_compact() {
         }
     }
 
-    int tried = 0;
-PREPARE_TRY_AGAIN:
-
     bool need_sync_tablet = true;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
@@ -83,7 +80,7 @@ PREPARE_TRY_AGAIN:
     // pick rowsets to compact
     auto st = pick_rowsets_to_compact();
     if (!st.ok()) {
-        if (tried == 0 && _last_delete_version.first != -1) {
+        if (_last_delete_version.first != -1) {
             // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // plus 1 to skip the delete version.
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
@@ -96,6 +93,30 @@ PREPARE_TRY_AGAIN:
         return st;
     }
 
+    for (auto& rs : _input_rowsets) {
+        _input_row_num += rs->num_rows();
+        _input_segments += rs->num_segments();
+        _input_rowsets_data_size += rs->data_disk_size();
+        _input_rowsets_index_size += rs->index_disk_size();
+        _input_rowsets_total_size += rs->total_disk_size();
+    }
+    LOG_INFO("start CloudCumulativeCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
+             _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
+            .tag("job_id", _uuid)
+            .tag("input_rowsets", _input_rowsets.size())
+            .tag("input_rows", _input_row_num)
+            .tag("input_segments", _input_segments)
+            .tag("input_rowsets_data_size", _input_rowsets_data_size)
+            .tag("input_rowsets_index_size", _input_rowsets_index_size)
+            .tag("input_rowsets_total_size", _input_rowsets_total_size)
+            .tag("tablet_max_version", cloud_tablet()->max_version_unlocked())
+            .tag("cumulative_point", cloud_tablet()->cumulative_layer_point())
+            .tag("num_rowsets", cloud_tablet()->fetch_add_approximate_num_rowsets(0))
+            .tag("cumu_num_rowsets", cloud_tablet()->fetch_add_approximate_cumu_num_rowsets(0));
+    return st;
+}
+
+Status CloudCumulativeCompaction::request_global_lock() {
     // prepare compaction job
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
@@ -121,7 +142,7 @@ PREPARE_TRY_AGAIN:
     // Set input version range to let meta-service check version range conflict
     compaction_job->set_check_input_versions_range(config::enable_parallel_cumu_compaction);
     cloud::StartTabletJobResponse resp;
-    st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
+    Status st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
     if (!st.ok()) {
         if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time
@@ -130,22 +151,10 @@ PREPARE_TRY_AGAIN:
             // tablet not found
             cloud_tablet()->clear_cache();
         } else if (resp.status().code() == cloud::JOB_TABLET_BUSY) {
-            if (config::enable_parallel_cumu_compaction && resp.version_in_compaction_size() > 0 &&
-                ++tried <= 2) {
-                _max_conflict_version = *std::max_element(resp.version_in_compaction().begin(),
-                                                          resp.version_in_compaction().end());
-                LOG_INFO("retry pick input rowsets")
-                        .tag("job_id", _uuid)
-                        .tag("max_conflict_version", _max_conflict_version)
-                        .tag("tried", tried)
-                        .tag("msg", resp.status().msg());
-                goto PREPARE_TRY_AGAIN;
-            } else {
-                LOG_WARNING("failed to prepare cumu compaction")
-                        .tag("job_id", _uuid)
-                        .tag("msg", resp.status().msg());
-                return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
-            }
+            LOG_WARNING("failed to prepare cumu compaction")
+                    .tag("job_id", _uuid)
+                    .tag("msg", resp.status().msg());
+            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
         } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
             (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
             std::stringstream ss;
@@ -159,29 +168,7 @@ PREPARE_TRY_AGAIN:
             LOG(WARNING) << msg;
             return Status::InternalError(msg);
         }
-        return st;
     }
-
-    for (auto& rs : _input_rowsets) {
-        _input_row_num += rs->num_rows();
-        _input_segments += rs->num_segments();
-        _input_rowsets_data_size += rs->data_disk_size();
-        _input_rowsets_index_size += rs->index_disk_size();
-        _input_rowsets_total_size += rs->total_disk_size();
-    }
-    LOG_INFO("start CloudCumulativeCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
-             _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
-            .tag("job_id", _uuid)
-            .tag("input_rowsets", _input_rowsets.size())
-            .tag("input_rows", _input_row_num)
-            .tag("input_segments", _input_segments)
-            .tag("input_rowsets_data_size", _input_rowsets_data_size)
-            .tag("input_rowsets_index_size", _input_rowsets_index_size)
-            .tag("input_rowsets_total_size", _input_rowsets_total_size)
-            .tag("tablet_max_version", cloud_tablet()->max_version_unlocked())
-            .tag("cumulative_point", cloud_tablet()->cumulative_layer_point())
-            .tag("num_rowsets", cloud_tablet()->fetch_add_approximate_num_rowsets(0))
-            .tag("cumu_num_rowsets", cloud_tablet()->fetch_add_approximate_cumu_num_rowsets(0));
     return st;
 }
 
