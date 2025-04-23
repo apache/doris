@@ -107,7 +107,8 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         return score;
     }
 
-    int64_t now = UnixSeconds();
+    // current time in seconds
+    int64_t now = time(nullptr);
 
     if (earliest_rowset_creation_time < now) {
         int64_t cumu_interval = now - earliest_rowset_creation_time;
@@ -200,7 +201,9 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
     CHECK((*base_rowset_meta)->start_version() == 0);
 
     int64_t prev_version = -1;
-    int64_t now = UnixSeconds();
+
+    // current time in seconds
+    int64_t now = time(nullptr);
     for (const RowsetMetaSharedPtr& rs : existing_rss) {
         if (rs->version().first > prev_version + 1) {
             // There is a hole, do not continue
@@ -351,7 +354,8 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     }
 
     // Condition 3: the time interval between compactions exceeds the value specified by parameter compaction_time_threshold_second
-    int64_t now = UnixSeconds();
+    // current time in seconds
+    int64_t now = time(nullptr);
     if (!input_rowsets->empty()) {
         LOG_EVERY_N(INFO, 1000) << "tablet is: " << tablet->tablet_id() << ", now: " << now
                                 << ", earliest rowset creation time: "
