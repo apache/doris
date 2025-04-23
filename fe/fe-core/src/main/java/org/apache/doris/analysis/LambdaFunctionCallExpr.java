@@ -107,6 +107,9 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                 Expr lastChild = getChild(childSize - 1);
                 for (int i = childSize - 1; i > 0; --i) {
                     argTypes[i] = getChild(i - 1).getType();
+                    if (!argTypes[i].isArrayType()) {
+                        throw new AnalysisException("array_map function only support array type as input params");
+                    }
                     this.setChild(i, getChild(i - 1));
                 }
                 argTypes[0] = lastType;
