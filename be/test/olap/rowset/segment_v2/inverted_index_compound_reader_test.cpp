@@ -36,7 +36,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/x_index_file_reader.h"
 #include "olap/tablet_schema.h"
@@ -45,7 +45,7 @@
 #include "util/slice.h"
 
 using namespace lucene::index;
-using doris::segment_v2::InvertedIndexFileWriter;
+using doris::segment_v2::XIndexFileWriter;
 
 namespace doris::segment_v2 {
 
@@ -364,7 +364,7 @@ TEST_F(DorisCompoundReaderTest, IntegrationWithFileWriter) {
         std::string index_path =
                 InvertedIndexDescriptor::get_index_file_path_v1(index_path_prefix, index_id, "");
 
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<XIndexFileWriter>(
                 io::global_local_filesystem(), index_path_prefix, rowset_id, seg_id,
                 InvertedIndexStorageFormatPB::V1);
 
@@ -411,7 +411,7 @@ TEST_F(DorisCompoundReaderTest, IntegrationWithFileWriter) {
         Status st = io::global_local_filesystem()->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(st.ok()) << st;
 
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<XIndexFileWriter>(
                 io::global_local_filesystem(), index_path_prefix, rowset_id, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 

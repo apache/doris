@@ -76,9 +76,9 @@ struct LocalStateInfo {
 
 // This struct is used only for initializing local sink state.
 struct LocalSinkStateInfo {
-    const int task_idx;
+    const int task_idx = 0;
     RuntimeProfile* parent_profile = nullptr;
-    const int sender_id;
+    const int sender_id = 0;
     BasicSharedState* shared_state;
     const std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
                                   std::vector<std::shared_ptr<Dependency>>>>& shared_state_map;

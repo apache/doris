@@ -44,6 +44,7 @@ protected:
                                                     .region = "dummy-region",
                                                     .ak = access_key,
                                                     .sk = secret_key,
+                                                    .token = "",
                                                     .bucket = bucket,
                                                     .provider = io::ObjStorageType::AWS,
                                                     .use_virtual_addressing = false});

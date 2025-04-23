@@ -242,7 +242,7 @@ class IndexCompactionUtils {
     }
 
     static void check_terms_stats(lucene::store::Directory* dir, std::ostream& os = std::cout) {
-        IndexReader* r = IndexReader::open(dir);
+        lucene::index::IndexReader* r = lucene::index::IndexReader::open(dir);
 
         os << "Max Docs: " << r->maxDoc() << "\n";
         os << "Num Docs: " << r->numDocs() << "\n";
@@ -459,7 +459,7 @@ class IndexCompactionUtils {
     }
 
     static void check_idx_file_writer_closed(BaseBetaRowsetWriter* writer, bool closed) {
-        for (const auto& [seg_id, idx_file_writer] : writer->inverted_index_file_writers()) {
+        for (const auto& [seg_id, idx_file_writer] : writer->x_index_file_writers()) {
             EXPECT_EQ(idx_file_writer->_closed, closed);
         }
     }
