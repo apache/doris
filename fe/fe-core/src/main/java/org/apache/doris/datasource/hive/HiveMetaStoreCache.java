@@ -349,10 +349,11 @@ public class HiveMetaStoreCache {
             List<String> partitionValues,
             String bindBrokerName) throws UserException {
         FileCacheValue result = new FileCacheValue();
+        Map<String, String> properties = catalog.getCatalogProperty().getProperties();
         RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                 new FileSystemCache.FileSystemCacheKey(LocationPath.getFSIdentity(
-                        location, bindBrokerName),
-                        catalog.getCatalogProperty().getProperties(),
+                        location, properties, bindBrokerName),
+                        properties,
                         bindBrokerName, jobConf));
         result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, location));
         // For Tez engine, it may generate subdirectoies for "union" query.
@@ -410,7 +411,8 @@ public class HiveMetaStoreCache {
             } catch (Exception e) {
                 LOG.warn("unknown scheme in path: " + finalLocation, e);
             }
-            FileInputFormat.setInputPaths(jobConf, finalLocation.get());
+            // NOTICE: the setInputPaths has 2 overloads, the 2nd arg should be Path not String
+            FileInputFormat.setInputPaths(jobConf, finalLocation.getPath());
             try {
                 FileCacheValue result = getFileCache(finalLocation.get(), key.inputFormat, jobConf,
                         key.getPartitionValues(), key.bindBrokerName);
@@ -742,6 +744,7 @@ public class HiveMetaStoreCache {
             boolean isFullAcid, boolean skipCheckingAcidVersionFile, long tableId, String bindBrokerName) {
         List<FileCacheValue> fileCacheValues = Lists.newArrayList();
         try {
+            Map<String, String> properties = catalog.getCatalogProperty().getProperties();
             for (HivePartition partition : partitions) {
 
                 AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(jobConf);
@@ -776,8 +779,8 @@ public class HiveMetaStoreCache {
                         RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                                 new FileSystemCache.FileSystemCacheKey(
                                         LocationPath.getFSIdentity(baseOrDeltaPath.toUri().toString(),
-                                                bindBrokerName),
-                                        catalog.getCatalogProperty().getProperties(),
+                                                properties, bindBrokerName),
+                                        properties,
                                         bindBrokerName, jobConf));
                         Status status = fs.exists(acidVersionPath);
                         if (status != Status.OK) {
@@ -803,8 +806,8 @@ public class HiveMetaStoreCache {
                     String location = delta.getPath().toString();
                     RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                             new FileSystemCache.FileSystemCacheKey(
-                                    LocationPath.getFSIdentity(location, bindBrokerName),
-                                            catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
+                                    LocationPath.getFSIdentity(location, properties, bindBrokerName),
+                                            properties, bindBrokerName, jobConf));
                     List<RemoteFile> remoteFiles = new ArrayList<>();
                     Status status = fs.listFiles(location, false, remoteFiles);
                     if (status.ok()) {
@@ -831,8 +834,8 @@ public class HiveMetaStoreCache {
                     String location = directory.getBaseDirectory().toString();
                     RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                             new FileSystemCache.FileSystemCacheKey(
-                                    LocationPath.getFSIdentity(location, bindBrokerName),
-                                            catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
+                                    LocationPath.getFSIdentity(location, properties, bindBrokerName),
+                                            properties, bindBrokerName, jobConf));
                     List<RemoteFile> remoteFiles = new ArrayList<>();
                     Status status = fs.listFiles(location, false, remoteFiles);
                     if (status.ok()) {

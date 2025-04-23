@@ -144,8 +144,9 @@ Status CloudTablet::merge_rowsets_schema() {
 
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
 // This function will erase the tablet from `CloudTabletMgr` when it can't find this tablet in MS.
-Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) {
-    RETURN_IF_ERROR(sync_if_not_running());
+Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data,
+                                 SyncRowsetStats* stats) {
+    RETURN_IF_ERROR(sync_if_not_running(stats));
 
     if (query_version > 0) {
         std::shared_lock rlock(_meta_lock);
@@ -155,7 +156,7 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) 
     }
 
     // serially execute sync to reduce unnecessary network overhead
-    std::lock_guard lock(_sync_meta_lock);
+    std::unique_lock lock(_sync_meta_lock);
     if (query_version > 0) {
         std::shared_lock rlock(_meta_lock);
         if (_max_version >= query_version) {
@@ -163,7 +164,8 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) 
         }
     }
 
-    auto st = _engine.meta_mgr().sync_tablet_rowsets(this, warmup_delta_data);
+    auto st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, warmup_delta_data, true,
+                                                              false, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
@@ -174,13 +176,13 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) 
 // Sync tablet meta and all rowset meta if not running.
 // This could happen when BE didn't finish schema change job and another BE committed this schema change job.
 // It should be a quite rare situation.
-Status CloudTablet::sync_if_not_running() {
+Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
     if (tablet_state() == TABLET_RUNNING) {
         return Status::OK();
     }
 
     // Serially execute sync to reduce unnecessary network overhead
-    std::lock_guard lock(_sync_meta_lock);
+    std::unique_lock lock(_sync_meta_lock);
 
     {
         std::shared_lock rlock(_meta_lock);
@@ -215,7 +217,7 @@ Status CloudTablet::sync_if_not_running() {
         _max_version = -1;
     }
 
-    st = _engine.meta_mgr().sync_tablet_rowsets(this);
+    st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, false, true, false, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
@@ -699,7 +701,8 @@ CalcDeleteBitmapExecutor* CloudTablet::calc_delete_bitmap_executor() {
 
 Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                        DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                                       const RowsetIdUnorderedSet& cur_rowset_ids) {
+                                       const RowsetIdUnorderedSet& cur_rowset_ids,
+                                       int64_t next_visible_version) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
     // update delete bitmap info, in order to avoid recalculation when trying again
@@ -715,7 +718,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
         RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta));
     }
 
-    RETURN_IF_ERROR(save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap));
+    RETURN_IF_ERROR(
+            save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap, next_visible_version));
 
     // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
     // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
@@ -745,7 +749,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 }
 
 Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
-                                             DeleteBitmapPtr delete_bitmap) {
+                                             DeleteBitmapPtr delete_bitmap,
+                                             int64_t next_visible_version) {
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
@@ -758,7 +763,8 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
     }
 
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, txn_id, LOAD_INITIATOR_ID,
-                                                            new_delete_bitmap.get()));
+                                                            new_delete_bitmap.get(), txn_id, false,
+                                                            next_visible_version));
     return Status::OK();
 }
 

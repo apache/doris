@@ -392,57 +392,18 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.__set_status(exec_status.to_thrift());
     params.__set_done(req.done);
     params.__set_query_type(req.runtime_state->query_type());
+    params.__isset.profile = false;
 
     DCHECK(req.runtime_state != nullptr);
 
     if (req.runtime_state->query_type() == TQueryType::LOAD) {
         params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
         params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
-    }
-    params.__isset.detailed_report = true;
-    DCHECK(!req.runtime_states.empty());
-    const bool enable_profile = (*req.runtime_states.begin())->enable_profile();
-    if (enable_profile) {
-        params.__isset.profile = true;
-        params.__isset.loadChannelProfile = false;
-        for (auto* rs : req.runtime_states) {
-            DCHECK(req.load_channel_profile);
-            TDetailedReportParams detailed_param;
-            rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
-            // merge all runtime_states.loadChannelProfile to req.load_channel_profile
-            req.load_channel_profile->update(detailed_param.loadChannelProfile);
-        }
-        req.load_channel_profile->to_thrift(&params.loadChannelProfile);
     } else {
-        params.__isset.profile = false;
-    }
-
-    if (enable_profile) {
-        DCHECK(req.profile != nullptr);
-        TDetailedReportParams detailed_param;
-        detailed_param.__isset.fragment_instance_id = false;
-        detailed_param.__isset.profile = true;
-        detailed_param.__isset.loadChannelProfile = false;
-        detailed_param.__set_is_fragment_level(true);
-        req.profile->to_thrift(&detailed_param.profile);
-        params.detailed_report.push_back(detailed_param);
-        for (auto pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
-            TDetailedReportParams detailed_param;
-            detailed_param.__isset.fragment_instance_id = false;
-            detailed_param.__isset.profile = true;
-            detailed_param.__isset.loadChannelProfile = false;
-            pipeline_profile->to_thrift(&detailed_param.profile);
-            params.detailed_report.push_back(std::move(detailed_param));
-        }
-    }
-    if (!req.runtime_state->output_files().empty()) {
-        params.__isset.delta_urls = true;
-        for (auto& it : req.runtime_state->output_files()) {
-            params.delta_urls.push_back(to_http_path(it));
-        }
-    } else if (!req.runtime_states.empty()) {
-        for (auto* rs : req.runtime_states) {
-            for (auto& it : rs->output_files()) {
+        DCHECK(!req.runtime_states.empty());
+        if (!req.runtime_state->output_files().empty()) {
+            params.__isset.delta_urls = true;
+            for (auto& it : req.runtime_state->output_files()) {
                 params.delta_urls.push_back(to_http_path(it));
             }
         }
@@ -495,26 +456,13 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
     params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
 
-    if (!req.runtime_state->get_error_log_file_path().empty()) {
-        std::string error_log_url =
-                to_load_error_http_path(req.runtime_state->get_error_log_file_path());
-        LOG(INFO) << "error log file path: " << error_log_url
-                  << ", query id: " << print_id(req.query_id)
-                  << ", fragment instance id: " << print_id(req.fragment_instance_id);
-        params.__set_tracking_url(error_log_url);
-    } else if (!req.runtime_states.empty()) {
-        for (auto* rs : req.runtime_states) {
-            if (!rs->get_error_log_file_path().empty()) {
-                std::string error_log_url = to_load_error_http_path(rs->get_error_log_file_path());
-                LOG(INFO) << "error log file path: " << error_log_url
-                          << ", query id: " << print_id(req.query_id)
-                          << ", fragment instance id: " << print_id(rs->fragment_instance_id());
-                params.__set_tracking_url(error_log_url);
-            }
-            if (rs->wal_id() > 0) {
-                params.__set_txn_id(rs->wal_id());
-                params.__set_label(rs->import_label());
-            }
+    if (!req.load_error_url.empty()) {
+        params.__set_tracking_url(req.load_error_url);
+    }
+    for (auto* rs : req.runtime_states) {
+        if (rs->wal_id() > 0) {
+            params.__set_txn_id(rs->wal_id());
+            params.__set_label(rs->import_label());
         }
     }
     if (!req.runtime_state->export_output_files().empty()) {
@@ -553,37 +501,29 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
         }
     }
-
-    if (!req.runtime_state->hive_partition_updates().empty()) {
+    if (auto hpu = req.runtime_state->hive_partition_updates(); !hpu.empty()) {
         params.__isset.hive_partition_updates = true;
-        params.hive_partition_updates.reserve(req.runtime_state->hive_partition_updates().size());
-        for (auto& hive_partition_update : req.runtime_state->hive_partition_updates()) {
-            params.hive_partition_updates.push_back(hive_partition_update);
-        }
+        params.hive_partition_updates.insert(params.hive_partition_updates.end(), hpu.begin(),
+                                             hpu.end());
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
-            if (!rs->hive_partition_updates().empty()) {
+            if (auto rs_hpu = rs->hive_partition_updates(); !rs_hpu.empty()) {
                 params.__isset.hive_partition_updates = true;
                 params.hive_partition_updates.insert(params.hive_partition_updates.end(),
-                                                     rs->hive_partition_updates().begin(),
-                                                     rs->hive_partition_updates().end());
+                                                     rs_hpu.begin(), rs_hpu.end());
             }
         }
     }
-
-    if (!req.runtime_state->iceberg_commit_datas().empty()) {
+    if (auto icd = req.runtime_state->iceberg_commit_datas(); !icd.empty()) {
         params.__isset.iceberg_commit_datas = true;
-        params.iceberg_commit_datas.reserve(req.runtime_state->iceberg_commit_datas().size());
-        for (auto& iceberg_commit_data : req.runtime_state->iceberg_commit_datas()) {
-            params.iceberg_commit_datas.push_back(iceberg_commit_data);
-        }
+        params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(), icd.begin(),
+                                           icd.end());
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
-            if (!rs->iceberg_commit_datas().empty()) {
+            if (auto rs_icd = rs->iceberg_commit_datas(); !rs_icd.empty()) {
                 params.__isset.iceberg_commit_datas = true;
                 params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(),
-                                                   rs->iceberg_commit_datas().begin(),
-                                                   rs->iceberg_commit_datas().end());
+                                                   rs_icd.begin(), rs_icd.end());
             }
         }
     }
@@ -901,11 +841,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     }
 
     {
-        for (const auto& local_param : params.local_params) {
-            const TUniqueId& fragment_instance_id = local_param.fragment_instance_id;
-            query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
-        }
-
         int64 now = duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
                             .count();
@@ -946,13 +881,9 @@ void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query
 
 void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
     std::shared_ptr<QueryContext> query_ctx = nullptr;
-    std::vector<TUniqueId> all_instance_ids;
     {
         if (auto q_ctx = get_query_ctx(query_id)) {
             query_ctx = q_ctx;
-            // Copy instanceids to avoid concurrent modification.
-            // And to reduce the scope of lock.
-            all_instance_ids = query_ctx->fragment_instance_ids;
         } else {
             LOG(WARNING) << "Query " << print_id(query_id)
                          << " does not exists, failed to cancel it";

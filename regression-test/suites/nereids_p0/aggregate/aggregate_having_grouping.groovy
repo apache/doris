@@ -53,6 +53,4 @@ suite("aggregate_having_grouping") {
                 HAVING grouping!=0
                 order by grouping;
             """
-
-    sql "DROP TABLE test_aggregate_having_grouping"
 }

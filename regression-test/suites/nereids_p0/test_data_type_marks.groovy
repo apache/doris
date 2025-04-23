@@ -40,5 +40,4 @@ suite("test_data_type_marks") {
     qt_select_no_marks "select * from org where id in (639215401565159424) and id=639237839376089088;"
     qt_select_one_marks "select * from org where id in ('639215401565159424') ;"
     qt_select_two_marks "select * from org where id in ('639215401565159424') and  id='639237839376089088';"
-    sql "DROP TABLE ${tbName}"
 }

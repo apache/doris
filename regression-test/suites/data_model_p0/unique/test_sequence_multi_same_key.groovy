@@ -59,7 +59,5 @@ suite("test_sequence_multi_same_key") {
     sql "sync"
 
     order_qt_all "SELECT * from ${tableName}"
-
-    sql "DROP TABLE ${tableName}"
 }
 

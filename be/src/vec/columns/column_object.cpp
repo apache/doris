@@ -734,6 +734,9 @@ void ColumnObject::Subcolumn::pop_back(size_t n) {
     size_t sz = data.size() - num_removed;
     data.resize(sz);
     data_types.resize(sz);
+    // need to update least_common_type when pop_back a column from the last
+    least_common_type = sz > 0 ? LeastCommonType {data_types[sz - 1]}
+                               : LeastCommonType {std::make_shared<DataTypeNothing>()};
     num_of_defaults_in_prefix -= n;
 }
 
@@ -1096,7 +1099,7 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
 }
 
 ColumnPtr ColumnObject::replicate(const Offsets& offsets) const {
-    if (subcolumns.empty()) {
+    if (num_rows == 0 || subcolumns.empty()) {
         // Add an emtpy column with offsets.back rows
         auto res = ColumnObject::create(true, false);
         res->set_num_rows(offsets.back());
@@ -1106,7 +1109,7 @@ ColumnPtr ColumnObject::replicate(const Offsets& offsets) const {
 }
 
 ColumnPtr ColumnObject::permute(const Permutation& perm, size_t limit) const {
-    if (subcolumns.empty()) {
+    if (num_rows == 0 || subcolumns.empty()) {
         if (limit == 0) {
             limit = num_rows;
         } else {
@@ -1737,7 +1740,7 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
         auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
         return finalized_object.filter(filter, count);
     }
-    if (subcolumns.empty()) {
+    if (num_rows == 0 || subcolumns.empty()) {
         // Add an emtpy column with filtered rows
         auto res = ColumnObject::create(true, false);
         res->set_num_rows(count_bytes_in_filter(filter));
@@ -1756,7 +1759,7 @@ Status ColumnObject::filter_by_selector(const uint16_t* sel, size_t sel_size, IC
     if (!is_finalized()) {
         finalize();
     }
-    if (subcolumns.empty()) {
+    if (num_rows == 0 || subcolumns.empty()) {
         assert_cast<ColumnObject*>(col_ptr)->insert_many_defaults(sel_size);
         return Status::OK();
     }

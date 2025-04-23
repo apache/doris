@@ -391,22 +391,23 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StDisjoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StIntersects;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinestringfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolyfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StTouches;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
@@ -465,6 +466,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
@@ -1910,6 +1912,18 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(stContains, context);
     }
 
+    default R visitStIntersects(StIntersects stIntersects, C context) {
+        return visitScalarFunction(stIntersects, context);
+    }
+
+    default R visitStDisjoint(StDisjoint stDisjoint, C context) {
+        return visitScalarFunction(stDisjoint, context);
+    }
+
+    default R visitStTouches(StTouches stTouches, C context) {
+        return visitScalarFunction(stTouches, context);
+    }
+
     default R visitStDistanceSphere(StDistanceSphere stDistanceSphere, C context) {
         return visitScalarFunction(stDistanceSphere, context);
     }
@@ -1988,14 +2002,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStartsWith(StartsWith startsWith, C context) {
         return visitScalarFunction(startsWith, context);
-    }
-
-    default R visitStrLeft(StrLeft strLeft, C context) {
-        return visitScalarFunction(strLeft, context);
-    }
-
-    default R visitStrRight(StrRight strRight, C context) {
-        return visitScalarFunction(strRight, context);
     }
 
     default R visitStrToDate(StrToDate strToDate, C context) {
@@ -2212,6 +2218,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitYear(Year year, C context) {
         return visitScalarFunction(year, context);
+    }
+
+    default R visitYearOfWeek(YearOfWeek yearOfWeek, C context) {
+        return visitScalarFunction(yearOfWeek, context);
     }
 
     default R visitYearCeil(YearCeil yearCeil, C context) {

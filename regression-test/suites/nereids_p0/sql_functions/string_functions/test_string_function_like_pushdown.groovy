@@ -91,6 +91,4 @@ suite("test_string_function_like_pushdown", "query") {
     qt_sql """
         select * from ${tbName} where k like "b%b" and id > 1 order by id, k;
     """
-
-    sql "DROP TABLE ${tbName};"
 }

@@ -1196,9 +1196,10 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         msg = "invalid alter_version";
         return;
     }
-    if (schema_change.alter_version() < 2) { // no need to update stats
-                                             // TODO(cyx): clear schema_change job?
+    if (schema_change.alter_version() < 2) {
+        // no need to update stats
         if (!new_tablet_job_val.empty()) {
+            new_recorded_job.clear_schema_change();
             auto& compactions = *new_recorded_job.mutable_compaction();
             auto origin_size = compactions.size();
             compactions.erase(

@@ -520,6 +520,12 @@ DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
 DRAGONBOX_SOURCE=dragonbox-1.1.3
 DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
 
+# icu
+ICU_DOWNLOAD="https://github.com/unicode-org/icu/archive/refs/tags/release-69-1.tar.gz"
+ICU_NAME=release-69-1.tar.gz
+ICU_SOURCE=icu-release-69-1
+ICU_MD5SUM="135125f633864285d637db5c01e0388b"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -597,6 +603,7 @@ export TP_ARCHIVES=(
     'BASE64'
     'AZURE'
     'DRAGONBOX'
+    'ICU'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

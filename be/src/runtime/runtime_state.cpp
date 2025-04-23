@@ -385,8 +385,7 @@ Status RuntimeState::create_error_log_file() {
 
 Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
                                               std::function<std::string()> error_msg,
-                                              bool* stop_processing, bool is_summary) {
-    *stop_processing = false;
+                                              bool is_summary) {
     if (query_type() != TQueryType::LOAD) {
         return Status::OK();
     }
@@ -407,7 +406,10 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM &&
         !is_summary) {
         if (_load_zero_tolerance) {
-            *stop_processing = true;
+            return Status::DataQualityError(
+                    "Encountered unqualified data, stop processing. Please check if the source "
+                    "data matches the schema, and consider disabling strict mode or increasing "
+                    "max_filter_ratio.");
         }
         return Status::OK();
     }
@@ -440,6 +442,11 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
 }
 
 std::string RuntimeState::get_error_log_file_path() {
+    DBUG_EXECUTE_IF("RuntimeState::get_error_log_file_path.block", {
+        if (!_error_log_file_path.empty()) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    });
     std::lock_guard<std::mutex> l(_s3_error_log_file_lock);
     if (_s3_error_fs && _error_log_file && _error_log_file->is_open()) {
         // close error log file
@@ -448,10 +455,7 @@ std::string RuntimeState::get_error_log_file_path() {
                 _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
         // upload error log file to s3
         Status st = _s3_error_fs->upload(error_log_absolute_path, _s3_error_log_file_path);
-        if (st.ok()) {
-            // remove local error log file
-            std::filesystem::remove(error_log_absolute_path);
-        } else {
+        if (!st.ok()) {
             // upload failed and return local error log file path
             LOG(WARNING) << "Fail to upload error file to s3, error_log_file_path="
                          << _error_log_file_path << ", error=" << st;
