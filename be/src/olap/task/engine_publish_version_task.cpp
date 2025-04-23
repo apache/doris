@@ -411,8 +411,9 @@ void TabletPublishTxnTask::handle() {
         rowset_update_lock.lock();
     }
     _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
+    std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info = nullptr;
     _result = _engine.txn_manager()->publish_txn(_partition_id, _tablet, _transaction_id, _version,
-                                                 &_stats);
+                                                 &_stats, extend_tablet_txn_info);
     if (!_result.ok()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
@@ -466,8 +467,9 @@ void AsyncTabletPublishTask::handle() {
     }
     RowsetSharedPtr rowset = iter->second;
     Version version(_version, _version);
-    auto publish_status = _engine.txn_manager()->publish_txn(_partition_id, _tablet,
-                                                             _transaction_id, version, &_stats);
+    std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info = nullptr;
+    auto publish_status = _engine.txn_manager()->publish_txn(
+            _partition_id, _tablet, _transaction_id, version, &_stats, extend_tablet_txn_info);
     if (!publish_status.ok()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << rowset->rowset_id()
                      << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _transaction_id
