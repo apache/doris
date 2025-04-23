@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Assertions;
  * @Date 2025/4/23 19:43
  * @Version 1.0
  */
-public class ShowFrontendsCommandTest  extends TestWithFeService {
+public class ShowBackendsCommandTest extends TestWithFeService {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     private static final String infoDB = InfoSchemaDb.DATABASE_NAME;
 
@@ -55,7 +55,7 @@ public class ShowFrontendsCommandTest  extends TestWithFeService {
     @Test
     public void testNormal() throws Exception {
         runBefore();
-        ShowFrontendsCommand command = new ShowFrontendsCommand(null);
+        ShowBackendsCommand command = new ShowBackendsCommand();
         Assertions.assertDoesNotThrow(() -> command.run(connectContext, null));
     }
 
@@ -81,7 +81,7 @@ public class ShowFrontendsCommandTest  extends TestWithFeService {
                 result = false;
             }
         };
-        ShowFrontendsCommand command = new ShowFrontendsCommand(null);
+        ShowBackendsCommand command = new ShowBackendsCommand();
         Assertions.assertThrows(AnalysisException.class, () -> command.run(connectContext, null));
     }
 }
