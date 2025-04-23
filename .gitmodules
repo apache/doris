@@ -19,7 +19,7 @@
 [submodule "be/src/apache-orc"]
 	path = be/src/apache-orc
 	url = https://github.com/apache/doris-thirdparty.git
-	branch = orc
+	branch = orc-for-doris-21
 [submodule "be/src/clucene"]
 	path = be/src/clucene
 	url = https://github.com/apache/doris-thirdparty.git
