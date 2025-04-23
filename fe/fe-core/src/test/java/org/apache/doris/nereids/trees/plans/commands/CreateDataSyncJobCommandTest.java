@@ -42,6 +42,7 @@ import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -108,8 +109,9 @@ public class CreateDataSyncJobCommandTest {
     @Test
     public void testNoDb() throws Exception {
         runBefore();
+        BinlogDesc binlogDesc = new BinlogDesc(properties);
         CreateDataSyncJobCommand command = new CreateDataSyncJobCommand(
-                null, null, null, null, null);
+                "", "test_job", new ArrayList<>(), binlogDesc, properties);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext), "No database selected");
     }
 
@@ -118,7 +120,7 @@ public class CreateDataSyncJobCommandTest {
         runBefore();
         BinlogDesc binlogDesc = new BinlogDesc(properties);
         CreateDataSyncJobCommand command = new CreateDataSyncJobCommand(
-                dbName, jobName, null, binlogDesc, null);
+                dbName, jobName, new ArrayList<>(), binlogDesc, properties);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext), "Binlog properties must contain property `type`");
     }
 
@@ -133,7 +135,7 @@ public class CreateDataSyncJobCommandTest {
         ChannelDescription channelDescription = new ChannelDescription(
                 "mysql_db", "mysql_tbl", tblName, null, colNames);
         CreateDataSyncJobCommand command = new CreateDataSyncJobCommand(
-                dbName, jobName, Lists.newArrayList(channelDescription), binlogDesc, null);
+                dbName, jobName, Lists.newArrayList(channelDescription), binlogDesc, properties);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext), "Duplicate column: a");
     }
 
@@ -159,7 +161,7 @@ public class CreateDataSyncJobCommandTest {
         List<String> colNames = Lists.newArrayList();
         colNames.add("a");
         CreateDataSyncJobCommand command = new CreateDataSyncJobCommand(
-                dbName, jobName, Lists.newArrayList(), binlogDesc, null);
+                dbName, jobName, Lists.newArrayList(), binlogDesc, properties);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext), "No channel is assign in data sync job statement.");
     }
 
@@ -179,7 +181,7 @@ public class CreateDataSyncJobCommandTest {
         ChannelDescription channelDescription = new ChannelDescription(
                 "mysql_db", "mysql_tbl", tblName, null, null);
         CreateDataSyncJobCommand command = new CreateDataSyncJobCommand(
-                    dbName, jobName, Lists.newArrayList(channelDescription), binlogDesc, null);
+                    dbName, jobName, Lists.newArrayList(channelDescription), binlogDesc, properties);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext), "Table: testTbl"
                 + " is not a unique table, key type: DUP_KEYS");
     }
@@ -200,7 +202,7 @@ public class CreateDataSyncJobCommandTest {
         ChannelDescription channelDescription = new ChannelDescription(
                 "mysql_db", "mysql_tbl", tblName, null, null);
         CreateDataSyncJobCommand command = new CreateDataSyncJobCommand(
-                dbName, jobName, Lists.newArrayList(channelDescription), binlogDesc, null);
+                dbName, jobName, Lists.newArrayList(channelDescription), binlogDesc, properties);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext), "Table: testTbl"
                 + " don't support batch delete. Please upgrade it to support, see `help alter table`.");
     }
@@ -221,7 +223,7 @@ public class CreateDataSyncJobCommandTest {
         ChannelDescription channelDescription = new ChannelDescription(
                 "mysql_db", "mysql_tbl", tblName, null, null);
         CreateDataSyncJobCommand command = new CreateDataSyncJobCommand(
-                dbName, jobName, Lists.newArrayList(channelDescription), binlogDesc, null);
+                dbName, jobName, Lists.newArrayList(channelDescription), binlogDesc, properties);
         try {
             command.validate(connectContext);
             Assertions.assertEquals(jobName, command.getJobName());
