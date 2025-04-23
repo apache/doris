@@ -40,8 +40,8 @@ template <typename T>
 void ColumnStr<T>::sanity_check() const {
 #ifndef NDEBUG
     sanity_check_simple();
-    auto count = cast_set<int>(offsets.size());
-    for (int i = 0; i < count; ++i) {
+    auto count = cast_set<int64_t>(offsets.size());
+    for (int64_t i = 0; i < count; ++i) {
         if (offsets[i] < offsets[i - 1]) {
             throw Exception(Status::InternalError("row count: {}, offsets[{}]: {}, offsets[{}]: {}",
                                                   count, i, offsets[i], i - 1, offsets[i - 1]));
@@ -53,7 +53,7 @@ void ColumnStr<T>::sanity_check() const {
 template <typename T>
 void ColumnStr<T>::sanity_check_simple() const {
 #ifndef NDEBUG
-    auto count = cast_set<int>(offsets.size());
+    auto count = cast_set<int64_t>(offsets.size());
     if (chars.size() != offsets[count - 1]) {
         throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
                                               count, chars.size(), count - 1, offsets[count - 1]));
@@ -157,7 +157,15 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
                     src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
         }
     }
-    sanity_check_simple();
+
+#ifndef NDEBUG
+    auto count = cast_set<int64_t>(offsets.size());
+    // offsets may overflow, so we make chars.size() as T to do same overflow check
+    if (offsets.back() != T(chars.size())) {
+        throw Exception(Status::InternalError("row count: {}, chars.size(): {}, offset[{}]: {}",
+                                              count, chars.size(), count - 1, offsets[count - 1]));
+    }
+#endif
 }
 
 template <typename T>
@@ -356,6 +364,11 @@ Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size, IC
         IColumn::Offsets& res_offsets = col->offsets;
         IColumn::Filter filter;
         filter.resize_fill(offsets.size(), 0);
+        // CAUTION: the order of the returned rows DOES NOT match
+        // the order of row indices that are specified in the sel parameter,
+        // instead, the result rows are picked from start to end if the index
+        // appears in sel parameter.
+        // e.g., sel: [3, 0, 1], the result rows are: [0, 1, 3]
         for (size_t i = 0; i < sel_size; i++) {
             filter[sel[i]] = 1;
         }
@@ -381,7 +394,6 @@ ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) 
     if (perm.size() < limit) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "Size of permutation is less than required.");
-        __builtin_unreachable();
     }
 
     if (limit == 0) {
@@ -655,8 +667,8 @@ void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
             // and will result wrong result.
             int res = memcmp_small_allow_overflow15((Char*)value_a.data, value_a.size,
                                                     (Char*)cmp_base.data, cmp_base.size);
-            cmp_res[row_id] = res != 0;
-            filter[row_id] = res * direction < 0;
+            cmp_res[row_id] = (res != 0);
+            filter[row_id] = (res * direction < 0);
         }
         begin = simd::find_zero(cmp_res, end + 1);
     }
@@ -688,6 +700,29 @@ ColumnPtr ColumnStr<T>::convert_column_if_overflow() {
         return new_col;
     }
     return this->get_ptr();
+}
+
+template <typename T>
+void ColumnStr<T>::erase(size_t start, size_t length) {
+    if (start >= offsets.size() || length == 0) {
+        return;
+    }
+    length = std::min(length, offsets.size() - start);
+
+    auto char_start = offsets[start - 1];
+    auto char_end = offsets[start + length - 1];
+    auto char_length = char_end - char_start;
+    memmove(chars.data() + char_start, chars.data() + char_end, chars.size() - char_end);
+    chars.resize(chars.size() - char_length);
+
+    const size_t remain_size = offsets.size() - length;
+    memmove(offsets.data() + start, offsets.data() + start + length,
+            (remain_size - start) * sizeof(T));
+    offsets.resize(remain_size);
+
+    for (size_t i = start; i < remain_size; ++i) {
+        offsets[i] -= char_length;
+    }
 }
 
 template class ColumnStr<uint32_t>;

@@ -748,10 +748,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
             col_unique_ids[i] = tablet_schema.column(column_idx).unique_id();
         } else {
             // if column unique id not found by column name, find by column unique id
-            // column unique id can not bigger than tablet schema column size, if bigger than column size means
-            // this column is a new column added by light schema change
-            if (index.__isset.column_unique_ids &&
-                index.column_unique_ids[i] < tablet_schema.num_columns()) {
+            // column unique id can not found means this column is a new column added by light schema change
+            if (index.__isset.column_unique_ids && !index.column_unique_ids.empty() &&
+                tablet_schema.has_column_unique_id(index.column_unique_ids[i])) {
                 col_unique_ids[i] = index.column_unique_ids[i];
             } else {
                 col_unique_ids[i] = -1;
@@ -858,7 +857,7 @@ TabletSchema::~TabletSchema() {
 }
 
 int64_t TabletSchema::get_metadata_size() const {
-    return sizeof(TabletSchema) + _vl_field_mem_size;
+    return sizeof(TabletSchema);
 }
 
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
@@ -905,6 +904,10 @@ void TabletColumn::append_sparse_column(TabletColumn column) {
 }
 
 void TabletSchema::append_index(TabletIndex&& index) {
+    for (int32_t id : index.col_unique_ids()) {
+        _col_id_suffix_to_index.emplace(
+                std::make_tuple(index.index_type(), id, index.get_index_suffix()), _indexes.size());
+    }
     _indexes.push_back(std::make_shared<TabletIndex>(index));
 }
 
@@ -912,15 +915,14 @@ void TabletSchema::update_index(const TabletColumn& col, const IndexType& index_
                                 TabletIndex&& index) {
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path = escape_for_path_name(col.suffix_path());
-    for (auto& _indexe : _indexes) {
-        for (int32_t id : _indexe->col_unique_ids()) {
-            if (_indexe->index_type() == index_type && id == col_unique_id &&
-                _indexe->get_index_suffix() == suffix_path) {
-                _indexe = std::make_shared<TabletIndex>(std::move(index));
-                break;
-            }
-        }
+    IndexKey key(index_type, col_unique_id, suffix_path);
+    auto iter = _col_id_suffix_to_index.find(key);
+    if (iter != _col_id_suffix_to_index.end()) {
+        _indexes[iter->second] = std::make_shared<TabletIndex>(std::move(index));
+        return;
     }
+    LOG(WARNING) << " failed to update_index: " << index_type << " " << col_unique_id << " "
+                 << suffix_path;
 }
 
 void TabletSchema::replace_column(size_t pos, TabletColumn new_col) {
@@ -938,17 +940,25 @@ void TabletSchema::clear_index_cache_handlers() {
 void TabletSchema::clear_index() {
     clear_index_cache_handlers();
     _indexes.clear();
+    _col_id_suffix_to_index.clear();
 }
 
 void TabletSchema::remove_index(int64_t index_id) {
     std::vector<TabletIndexPtr> indexes;
+    std::unordered_map<IndexKey, int32_t, IndexKeyHash> col_id_suffix_to_index;
     for (auto index : _indexes) {
         if (index->index_id() == index_id) {
             continue;
         }
+        for (int32_t col_uid : index->col_unique_ids()) {
+            col_id_suffix_to_index.emplace(
+                    std::make_tuple(index->index_type(), col_uid, index->get_index_suffix()),
+                    indexes.size());
+        }
         indexes.emplace_back(std::move(index));
     }
     _indexes = std::move(indexes);
+    _col_id_suffix_to_index = std::move(col_id_suffix_to_index);
 }
 
 void TabletSchema::clear_columns() {
@@ -979,6 +989,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _num_null_columns = 0;
     _cols.clear();
     _indexes.clear();
+    _col_id_suffix_to_index.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
     _cluster_key_uids.clear();
@@ -1013,10 +1024,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
 
         _cols.emplace_back(std::move(column));
         if (!_cols.back()->is_extracted_column()) {
-            _vl_field_mem_size +=
-                    sizeof(StringRef) + sizeof(char) * _cols.back()->name().size() + sizeof(size_t);
             _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
-            _vl_field_mem_size += sizeof(int32_t) * 2;
             _field_id_to_index[_cols.back()->unique_id()] = _num_columns;
         }
         _num_columns++;
@@ -1031,6 +1039,11 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
         } else {
             index = std::make_shared<TabletIndex>();
             index->init_from_pb(index_pb);
+        }
+        for (int32_t col_uid : index->col_unique_ids()) {
+            _col_id_suffix_to_index.emplace(
+                    std::make_tuple(index->index_type(), col_uid, index->get_index_suffix()),
+                    _indexes.size());
         }
         _indexes.emplace_back(std::move(index));
     }
@@ -1069,8 +1082,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
 
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
-    _variant_enable_flatten_nested = schema.variant_enable_flatten_nested();
-    _vl_field_mem_size += _row_store_column_unique_ids.capacity() * sizeof(int32_t);
+    _enable_variant_flatten_nested = schema.enable_variant_flatten_nested();
     update_metadata_size();
 }
 
@@ -1091,7 +1103,6 @@ void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schem
     _num_null_columns = 0;
     _num_key_columns = 0;
     _cols.clear();
-    _vl_field_mem_size = 0;
     // notice : do not ref columns
     _column_cache_handlers.clear();
 }
@@ -1139,7 +1150,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sort_col_num = ori_tablet_schema.sort_col_num();
     _row_store_page_size = ori_tablet_schema.row_store_page_size();
     _storage_page_size = ori_tablet_schema.storage_page_size();
-    _variant_enable_flatten_nested = ori_tablet_schema.variant_flatten_nested();
+    _enable_variant_flatten_nested = ori_tablet_schema.variant_flatten_nested();
 
     // copy from table_schema_param
     _schema_version = version;
@@ -1150,6 +1161,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     bool has_bf_columns = false;
     _cols.clear();
     _indexes.clear();
+    _col_id_suffix_to_index.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
     _delete_sign_idx = -1;
@@ -1189,7 +1201,12 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
         _num_columns++;
     }
 
-    for (auto& i : index->indexes) {
+    for (const auto& i : index->indexes) {
+        for (int32_t col_uid : i->col_unique_ids()) {
+            _col_id_suffix_to_index.emplace(
+                    std::make_tuple(i->index_type(), col_uid, i->get_index_suffix()),
+                    _indexes.size());
+        }
         _indexes.emplace_back(std::make_shared<TabletIndex>(*i));
     }
 
@@ -1304,7 +1321,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
-    tablet_schema_pb->set_variant_enable_flatten_nested(_variant_enable_flatten_nested);
+    tablet_schema_pb->set_enable_variant_flatten_nested(_enable_variant_flatten_nested);
 }
 
 size_t TabletSchema::row_size() const {
@@ -1371,6 +1388,15 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
         indexes.emplace_back(std::make_shared<TabletIndex>(std::move(index)));
     }
     _indexes = std::move(indexes);
+    std::unordered_map<IndexKey, int32_t, IndexKeyHash> col_id_suffix_to_index;
+    for (size_t i = 0; i < _indexes.size(); i++) {
+        for (int32_t col_uid : _indexes[i]->col_unique_ids()) {
+            col_id_suffix_to_index.emplace(std::make_tuple(_indexes[i]->index_type(), col_uid,
+                                                           _indexes[i]->get_index_suffix()),
+                                           i);
+        }
+    }
+    _col_id_suffix_to_index = std::move(col_id_suffix_to_index);
 }
 
 bool TabletSchema::exist_column(const std::string& field_name) const {
@@ -1426,14 +1452,10 @@ bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id) const {
 const TabletIndex* TabletSchema::inverted_index(int32_t col_unique_id,
                                                 const std::string& suffix_path) const {
     const std::string escaped_suffix = escape_for_path_name(suffix_path);
-    for (const auto& _index : _indexes) {
-        if (_index->index_type() == IndexType::INVERTED) {
-            for (int32_t id : _index->col_unique_ids()) {
-                if (id == col_unique_id && _index->get_index_suffix() == escaped_suffix) {
-                    return _index.get();
-                }
-            }
-        }
+    auto it = _col_id_suffix_to_index.find(
+            std::make_tuple(IndexType::INVERTED, col_unique_id, escaped_suffix));
+    if (it != _col_id_suffix_to_index.end()) {
+        return _indexes[it->second].get();
     }
     return nullptr;
 }
@@ -1450,30 +1472,17 @@ const TabletIndex* TabletSchema::inverted_index(const TabletColumn& col) const {
 }
 
 bool TabletSchema::has_ngram_bf_index(int32_t col_unique_id) const {
-    // TODO use more efficient impl
-    for (const auto& _index : _indexes) {
-        if (_index->index_type() == IndexType::NGRAM_BF) {
-            for (int32_t id : _index->col_unique_ids()) {
-                if (id == col_unique_id) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
+    IndexKey index_key(IndexType::NGRAM_BF, col_unique_id, "");
+    auto it = _col_id_suffix_to_index.find(index_key);
+    return it != _col_id_suffix_to_index.end();
 }
 
 const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const {
-    // TODO use more efficient impl
-    for (const auto& _index : _indexes) {
-        if (_index->index_type() == IndexType::NGRAM_BF) {
-            for (int32_t id : _index->col_unique_ids()) {
-                if (id == col_unique_id) {
-                    return _index.get();
-                }
-            }
-        }
+    // Get the ngram bf index for the given column unique id
+    IndexKey index_key(IndexType::NGRAM_BF, col_unique_id, "");
+    auto it = _col_id_suffix_to_index.find(index_key);
+    if (it != _col_id_suffix_to_index.end()) {
+        return _indexes[it->second].get();
     }
     return nullptr;
 }
@@ -1573,7 +1582,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._row_store_page_size != b._row_store_page_size) return false;
     if (a._storage_page_size != b._storage_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
-    if (a._variant_enable_flatten_nested != b._variant_enable_flatten_nested) return false;
+    if (a._enable_variant_flatten_nested != b._enable_variant_flatten_nested) return false;
     return true;
 }
 

@@ -666,7 +666,7 @@ public class FileSystemManager {
      */
     public BrokerFileSystem getChdfsFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
-        String host = CHDFS_SCHEME;
+        String host = CHDFS_SCHEME + "://" + pathUri.getAuthority();
         String authentication = properties.getOrDefault(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
                 AUTHENTICATION_SIMPLE);
         if (Strings.isNullOrEmpty(authentication) || (!authentication.equals(AUTHENTICATION_SIMPLE)

@@ -64,7 +64,7 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
             "CacheTabletId", std::to_string(scan_ranges[0].scan_range.palo_scan_range.tablet_id));
 
     // 3. lookup the cache and find proper slot order
-    hit_cache = QueryCache::instance()->lookup(_cache_key, _version, &_query_cache_handle);
+    hit_cache = _global_cache->lookup(_cache_key, _version, &_query_cache_handle);
     _runtime_profile->add_info_string("HitCache", std::to_string(hit_cache));
     if (hit_cache && !cache_param.force_refresh_query_cache) {
         _hit_cache_results = _query_cache_handle.get_cache_result();

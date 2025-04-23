@@ -52,7 +52,7 @@ public class ExplainDictionaryCommand extends ShowCommand {
     /**
      * get meta data
      */
-    private ShowResultSetMetaData getMetaData() {
+    public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         builder.addColumn(new Column("Field", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("Type", ScalarType.createVarchar(30)));

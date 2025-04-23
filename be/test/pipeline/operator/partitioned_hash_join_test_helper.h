@@ -24,75 +24,22 @@
 #include <gtest/gtest.h>
 
 #include <memory>
-#include <sstream>
 #include <vector>
 
 #include "common/config.h"
 #include "common/object_pool.h"
-#include "olap/olap_define.h"
+#include "pipeline/exec/partitioned_hash_join_probe_operator.h"
 #include "pipeline/exec/partitioned_hash_join_sink_operator.h"
-#include "pipeline/exec/spill_utils.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
-#include "testutil/column_helper.h"
-#include "testutil/creators.h"
-#include "testutil/mock/mock_operators.h"
+#include "spillable_operator_test_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
-
-class MockPartitioner : public vectorized::PartitionerBase {
-public:
-    MockPartitioner(size_t partition_count) : PartitionerBase(partition_count) {}
-    Status init(const std::vector<TExpr>& texprs) override { return Status::OK(); }
-
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc) override {
-        return Status::OK();
-    }
-
-    Status open(RuntimeState* state) override { return Status::OK(); }
-
-    Status close(RuntimeState* state) override { return Status::OK(); }
-
-    Status do_partitioning(RuntimeState* state, vectorized::Block* block, bool eos,
-                           bool* already_sent) const override {
-        if (already_sent) {
-            *already_sent = false;
-        }
-        return Status::OK();
-    }
-
-    Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override {
-        partitioner = std::make_unique<MockPartitioner>(_partition_count);
-        return Status::OK();
-    }
-
-    vectorized::ChannelField get_channel_ids() const override { return {}; }
-};
-
-class MockExpr : public vectorized::VExpr {
-public:
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                   vectorized::VExprContext* context) override {
-        return Status::OK();
-    }
-
-    Status open(RuntimeState* state, vectorized::VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override {
-        return Status::OK();
-    }
-};
-
-class MockHashJoinBuildSharedState : public HashJoinSharedState {
-public:
-};
-
 class MockPartitionedHashJoinSharedState : public PartitionedHashJoinSharedState {
 public:
     MockPartitionedHashJoinSharedState() {
@@ -111,11 +58,26 @@ public:
 
 class MockHashJoinSharedState : public HashJoinSharedState {};
 
+class MockRuntimeFilterProducerHelper : public RuntimeFilterProducerHelper {
+public:
+    MockRuntimeFilterProducerHelper() = default;
+    ~MockRuntimeFilterProducerHelper() override = default;
+
+    Status send_filter_size(
+            RuntimeState* state, uint64_t hash_table_size,
+            const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) override {
+        return Status::OK();
+    }
+
+    Status skip_process(RuntimeState* state) override { return Status::OK(); }
+};
+
 class MockHashJoinBuildSinkLocalState : public HashJoinBuildSinkLocalState {
 public:
     // DataSinkOperatorXBase* parent, RuntimeState* state
     MockHashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : HashJoinBuildSinkLocalState(parent, state) {
+        _runtime_filter_producer_helper = std::make_shared<MockRuntimeFilterProducerHelper>();
         _runtime_profile = std::make_unique<RuntimeProfile>("test");
         _profile = _runtime_profile.get();
         _memory_used_counter =
@@ -162,16 +124,6 @@ public:
     }
 
     std::string get_memory_usage_debug_str(RuntimeState* state) const override { return "mock"; }
-};
-
-class MockFragmentManager : public FragmentMgr {
-public:
-    MockFragmentManager(Status& status_, ExecEnv* exec_env)
-            : FragmentMgr(exec_env), status(status_) {}
-    void cancel_query(const TUniqueId query_id, const Status reason) override { status = reason; }
-
-private:
-    Status& status;
 };
 
 class MockHashJoinProbeLocalState : public HashJoinProbeLocalState {
@@ -262,12 +214,12 @@ public:
     void update_profile_from_inner() override {}
 };
 
-class PartitionedHashJoinTestHelper {
+class PartitionedHashJoinTestHelper : public SpillableOperatorTestHelper {
 public:
-    void SetUp();
-    void TearDown();
+    ~PartitionedHashJoinTestHelper() override = default;
+    TPlanNode create_test_plan_node() override;
 
-    TPlanNode create_test_plan_node();
+    TDescriptorTable create_test_table_descriptor(bool nullable) override;
 
     PartitionedHashJoinProbeLocalState* create_probe_local_state(
             RuntimeState* state, PartitionedHashJoinProbeOperatorX* probe_operator,
@@ -280,13 +232,5 @@ public:
     std::tuple<std::shared_ptr<PartitionedHashJoinProbeOperatorX>,
                std::shared_ptr<PartitionedHashJoinSinkOperatorX>>
     create_operators();
-
-    std::unique_ptr<MockRuntimeState> runtime_state;
-    std::unique_ptr<ObjectPool> obj_pool;
-    std::shared_ptr<QueryContext> query_ctx;
-    std::shared_ptr<RuntimeProfile> runtime_profile;
-    std::shared_ptr<PipelineTask> pipeline_task;
-    DescriptorTbl* desc_tbl;
-    static constexpr uint32_t TEST_PARTITION_COUNT = 8;
 };
 } // namespace doris::pipeline

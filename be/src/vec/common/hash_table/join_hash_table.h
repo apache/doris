@@ -26,7 +26,6 @@
 #include "vec/columns/column_filter_helper.h"
 #include "vec/common/custom_allocator.h"
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_table_allocator.h"
 
 namespace doris {
 template <typename Key, typename Hash = DefaultHash<Key>>
@@ -179,7 +178,7 @@ public:
     }
 
     template <int JoinOpType, bool is_mark_join>
-    bool iterate_map(std::vector<uint32_t>& build_idxs,
+    bool iterate_map(vectorized::ColumnVector<uint32_t>& build_idxs,
                      vectorized::ColumnFilterHelper* mark_column_helper) const {
         const auto batch_size = max_batch_size;
         const auto elem_num = visited.size();
@@ -188,7 +187,7 @@ public:
 
         while (count < batch_size && iter_idx < elem_num) {
             const auto matched = visited[iter_idx];
-            build_idxs[count] = iter_idx;
+            build_idxs.get_element(count) = iter_idx;
             if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
                 if constexpr (is_mark_join) {
                     mark_column_helper->insert_value(matched);

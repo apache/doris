@@ -412,13 +412,13 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
     }
 
     auto& file_blocks = it->second;
-    DCHECK(!file_blocks.empty());
     if (file_blocks.empty()) {
         LOG(WARNING) << "file_blocks is empty for hash=" << hash.to_string()
                      << " cache type=" << context.cache_type
                      << " cache expiration time=" << context.expiration_time
                      << " cache range=" << range.left << " " << range.right
                      << " query id=" << context.query_id;
+        DCHECK(false);
         _files.erase(hash);
         return {};
     }
@@ -759,12 +759,11 @@ BlockFileCache::FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& ha
         return nullptr; /// Empty files are not cached.
     }
 
-    DCHECK_EQ(_files[hash].count(offset), 0)
+    auto& offsets = _files[hash];
+    DCHECK_EQ(offsets.count(offset), 0)
             << "Cache already exists for hash: " << hash.to_string() << ", offset: " << offset
             << ", size: " << size
             << ".\nCurrent cache structure: " << dump_structure_unlocked(hash, cache_lock);
-
-    auto& offsets = _files[hash];
 
     FileCacheKey key;
     key.hash = hash;
@@ -1052,37 +1051,43 @@ bool BlockFileCache::remove_if_ttl_file_blocks(const UInt128Wrapper& file_key, b
     if (auto iter = _key_to_time.find(file_key);
         _key_to_time.find(file_key) != _key_to_time.end()) {
         if (!remove_directly) {
-            for (auto& [_, cell] : _files[file_key]) {
-                if (cell.file_block->cache_type() != FileCacheType::TTL) {
-                    continue;
-                }
-                Status st = cell.file_block->update_expiration_time(0);
-                if (!st.ok()) {
-                    LOG_WARNING("Failed to update expiration time to 0").error(st);
-                }
-
-                if (cell.file_block->cache_type() == FileCacheType::NORMAL) continue;
-                st = cell.file_block->change_cache_type_between_ttl_and_others(
-                        FileCacheType::NORMAL);
-                if (st.ok()) {
-                    if (cell.queue_iterator) {
-                        ttl_queue.remove(cell.queue_iterator.value(), cache_lock);
+            auto it = _files.find(file_key);
+            if (it != _files.end()) {
+                for (auto& [_, cell] : it->second) {
+                    if (cell.file_block->cache_type() != FileCacheType::TTL) {
+                        continue;
                     }
-                    auto& queue = get_queue(FileCacheType::NORMAL);
-                    cell.queue_iterator =
-                            queue.add(cell.file_block->get_hash_value(), cell.file_block->offset(),
-                                      cell.file_block->range().size(), cache_lock);
-                } else {
-                    LOG_WARNING("Failed to change cache type to normal").error(st);
+                    Status st = cell.file_block->update_expiration_time(0);
+                    if (!st.ok()) {
+                        LOG_WARNING("Failed to update expiration time to 0").error(st);
+                    }
+
+                    if (cell.file_block->cache_type() == FileCacheType::NORMAL) continue;
+                    st = cell.file_block->change_cache_type_between_ttl_and_others(
+                            FileCacheType::NORMAL);
+                    if (st.ok()) {
+                        if (cell.queue_iterator) {
+                            ttl_queue.remove(cell.queue_iterator.value(), cache_lock);
+                        }
+                        auto& queue = get_queue(FileCacheType::NORMAL);
+                        cell.queue_iterator = queue.add(
+                                cell.file_block->get_hash_value(), cell.file_block->offset(),
+                                cell.file_block->range().size(), cache_lock);
+                    } else {
+                        LOG_WARNING("Failed to change cache type to normal").error(st);
+                    }
                 }
             }
         } else {
             std::vector<FileBlockCell*> to_remove;
-            for (auto& [_, cell] : _files[file_key]) {
-                if (cell.releasable()) {
-                    to_remove.push_back(&cell);
-                } else {
-                    cell.file_block->set_deleting();
+            auto it = _files.find(file_key);
+            if (it != _files.end()) {
+                for (auto& [_, cell] : it->second) {
+                    if (cell.releasable()) {
+                        to_remove.push_back(&cell);
+                    } else {
+                        cell.file_block->set_deleting();
+                    }
                 }
             }
             std::for_each(to_remove.begin(), to_remove.end(), [&](FileBlockCell* cell) {
@@ -1404,10 +1409,12 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     if (FileCacheType::TTL == type) {
         _cur_ttl_size -= file_block->range().size();
     }
-    auto& offsets = _files[hash];
-    offsets.erase(file_block->offset());
-    if (offsets.empty()) {
-        _files.erase(hash);
+    auto it = _files.find(hash);
+    if (it != _files.end()) {
+        it->second.erase(file_block->offset());
+        if (it->second.empty()) {
+            _files.erase(hash);
+        }
     }
     *_num_removed_blocks << 1;
 }
@@ -1525,7 +1532,11 @@ std::string BlockFileCache::dump_structure(const UInt128Wrapper& hash) {
 std::string BlockFileCache::dump_structure_unlocked(const UInt128Wrapper& hash,
                                                     std::lock_guard<std::mutex>&) {
     std::stringstream result;
-    const auto& cells_by_offset = _files[hash];
+    auto it = _files.find(hash);
+    if (it == _files.end()) {
+        return std::string("");
+    }
+    const auto& cells_by_offset = it->second;
 
     for (const auto& [_, cell] : cells_by_offset) {
         result << cell.file_block->get_info_for_log() << " "
@@ -1544,7 +1555,11 @@ std::string BlockFileCache::dump_single_cache_type_unlocked(const UInt128Wrapper
                                                             size_t offset,
                                                             std::lock_guard<std::mutex>&) {
     std::stringstream result;
-    const auto& cells_by_offset = _files[hash];
+    auto it = _files.find(hash);
+    if (it == _files.end()) {
+        return std::string("");
+    }
+    const auto& cells_by_offset = it->second;
     const auto& cell = cells_by_offset.find(offset);
 
     return cache_type_to_string(cell->second.file_block->cache_type());
@@ -1758,9 +1773,9 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
 }
 
 void BlockFileCache::run_background_monitor() {
-    int64_t interval_time_seconds = 20;
     while (!_close) {
-        TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_sleep_time", &interval_time_seconds);
+        int64_t interval_ms = config::file_cache_background_monitor_interval_ms;
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_sleep_time", &interval_ms);
         check_disk_resource_limit();
         if (config::enable_evict_file_cache_in_advance) {
             check_need_evict_cache_in_advance();
@@ -1770,7 +1785,7 @@ void BlockFileCache::run_background_monitor() {
 
         {
             std::unique_lock close_lock(_close_mtx);
-            _close_cv.wait_for(close_lock, std::chrono::seconds(interval_time_seconds));
+            _close_cv.wait_for(close_lock, std::chrono::milliseconds(interval_ms));
             if (_close) {
                 break;
             }
@@ -1815,12 +1830,12 @@ void BlockFileCache::run_background_monitor() {
 }
 
 void BlockFileCache::run_background_ttl_gc() { // TODO(zhengyu): fix!
-    int64_t interval_time_seconds = 20;
     while (!_close) {
-        TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_sleep_time", &interval_time_seconds);
+        int64_t interval_ms = config::file_cache_background_ttl_gc_interval_ms;
+        TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_sleep_time", &interval_ms);
         {
             std::unique_lock close_lock(_close_mtx);
-            _close_cv.wait_for(close_lock, std::chrono::seconds(interval_time_seconds));
+            _close_cv.wait_for(close_lock, std::chrono::milliseconds(interval_ms));
             if (_close) {
                 break;
             }
@@ -1841,10 +1856,10 @@ void BlockFileCache::run_background_ttl_gc() { // TODO(zhengyu): fix!
 
 void BlockFileCache::run_background_gc() {
     FileCacheKey key;
-    static const size_t interval_ms = 100;
-    const size_t batch_limit = config::file_cache_remove_block_qps_limit * interval_ms / 1000;
     size_t batch_count = 0;
     while (!_close) {
+        int64_t interval_ms = config::file_cache_background_gc_interval_ms;
+        size_t batch_limit = config::file_cache_remove_block_qps_limit * interval_ms / 1000;
         {
             std::unique_lock close_lock(_close_mtx);
             _close_cv.wait_for(close_lock, std::chrono::milliseconds(interval_ms));
@@ -1889,7 +1904,9 @@ void BlockFileCache::run_background_evict_in_advance() {
         batch = config::file_cache_evict_in_advance_batch_bytes;
 
         // Skip if eviction not needed or too many pending recycles
-        if (!_need_evict_cache_in_advance || _recycle_keys.size_approx() >= (batch * 10)) {
+        if (!_need_evict_cache_in_advance ||
+            _recycle_keys.size_approx() >=
+                    config::file_cache_evict_in_advance_recycle_keys_num_threshold) {
             continue;
         }
 
@@ -1924,10 +1941,13 @@ void BlockFileCache::modify_expiration_time(const UInt128Wrapper& hash,
         }
         _time_to_key.insert(std::make_pair(new_expiration_time, hash));
         iter->second = new_expiration_time;
-        for (auto& [_, cell] : _files[hash]) {
-            Status st = cell.file_block->update_expiration_time(new_expiration_time);
-            if (!st.ok()) {
-                LOG_WARNING("Failed to modify expiration time").error(st);
+        auto it = _files.find(hash);
+        if (it != _files.end()) {
+            for (auto& [_, cell] : it->second) {
+                Status st = cell.file_block->update_expiration_time(new_expiration_time);
+                if (!st.ok()) {
+                    LOG_WARNING("Failed to modify expiration time").error(st);
+                }
             }
         }
 

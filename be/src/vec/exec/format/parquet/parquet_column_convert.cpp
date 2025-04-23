@@ -120,7 +120,7 @@ ColumnPtr PhysicalToLogicalConverter::get_physical_column(tparquet::Type::type s
         // In order to share null map between parquet converted src column and dst column to avoid copying. It is very tricky that will
         // call mutable function `doris_nullable_column->get_null_map_column_ptr()` which will set `_need_update_has_null = true`.
         // Because some operations such as agg will call `has_null()` to set `_need_update_has_null = false`.
-        auto doris_nullable_column = const_cast<ColumnNullable*>(
+        auto* doris_nullable_column = const_cast<ColumnNullable*>(
                 static_cast<const ColumnNullable*>(dst_logical_column.get()));
         return ColumnNullable::create(_cached_src_physical_column,
                                       doris_nullable_column->get_null_map_column_ptr());
@@ -141,58 +141,35 @@ static void get_decimal_converter(FieldSchema* field_schema, TypeDescriptor src_
 
     tparquet::Type::type src_physical_type = parquet_schema.type;
     PrimitiveType src_logical_primitive = src_logical_type.type;
-    int dst_scale = src_logical_type.scale;
 
     if (src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
         switch (src_logical_primitive) {
 #define DISPATCH(LOGICAL_PTYPE)                                                                   \
     case LOGICAL_PTYPE: {                                                                         \
         using DECIMAL_TYPE = typename PrimitiveTypeTraits<LOGICAL_PTYPE>::ColumnType::value_type; \
-        convert_params->init_decimal_converter<DECIMAL_TYPE>(dst_scale);                          \
-        DecimalScaleParams& scale_params = convert_params->decimal_scale;                         \
-        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                            \
-            physical_converter.reset(                                                             \
-                    new FixedSizeToDecimal<DECIMAL_TYPE, DecimalScaleParams::SCALE_UP>(           \
-                            parquet_schema.type_length));                                         \
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {                   \
-            physical_converter.reset(                                                             \
-                    new FixedSizeToDecimal<DECIMAL_TYPE, DecimalScaleParams::SCALE_DOWN>(         \
-                            parquet_schema.type_length));                                         \
-        } else {                                                                                  \
-            physical_converter.reset(                                                             \
-                    new FixedSizeToDecimal<DECIMAL_TYPE, DecimalScaleParams::NO_SCALE>(           \
-                            parquet_schema.type_length));                                         \
-        }                                                                                         \
+        physical_converter.reset(                                                                 \
+                new FixedSizeToDecimal<DECIMAL_TYPE>(parquet_schema.type_length));                \
         break;                                                                                    \
     }
             FOR_LOGICAL_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
         default:
-            physical_converter.reset(new UnsupportedConverter(src_physical_type, src_logical_type));
+            physical_converter =
+                    std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
         }
     } else if (src_physical_type == tparquet::Type::BYTE_ARRAY) {
         switch (src_logical_primitive) {
 #define DISPATCH(LOGICAL_PTYPE)                                                                   \
     case LOGICAL_PTYPE: {                                                                         \
         using DECIMAL_TYPE = typename PrimitiveTypeTraits<LOGICAL_PTYPE>::ColumnType::value_type; \
-        convert_params->init_decimal_converter<DECIMAL_TYPE>(dst_scale);                          \
-        DecimalScaleParams& scale_params = convert_params->decimal_scale;                         \
-        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                            \
-            physical_converter.reset(                                                             \
-                    new StringToDecimal<DECIMAL_TYPE, DecimalScaleParams::SCALE_UP>());           \
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {                   \
-            physical_converter.reset(                                                             \
-                    new StringToDecimal<DECIMAL_TYPE, DecimalScaleParams::SCALE_DOWN>());         \
-        } else {                                                                                  \
-            physical_converter.reset(                                                             \
-                    new StringToDecimal<DECIMAL_TYPE, DecimalScaleParams::NO_SCALE>());           \
-        }                                                                                         \
+        physical_converter.reset(new StringToDecimal<DECIMAL_TYPE>());                            \
         break;                                                                                    \
     }
             FOR_LOGICAL_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
         default:
-            physical_converter.reset(new UnsupportedConverter(src_physical_type, src_logical_type));
+            physical_converter =
+                    std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
         }
     } else if (src_physical_type == tparquet::Type::INT32 ||
                src_physical_type == tparquet::Type::INT64) {
@@ -200,42 +177,22 @@ static void get_decimal_converter(FieldSchema* field_schema, TypeDescriptor src_
 #define DISPATCH(LOGICAL_PTYPE)                                                                   \
     case LOGICAL_PTYPE: {                                                                         \
         using DECIMAL_TYPE = typename PrimitiveTypeTraits<LOGICAL_PTYPE>::ColumnType::value_type; \
-        convert_params->init_decimal_converter<DECIMAL_TYPE>(dst_scale);                          \
-        DecimalScaleParams& scale_params = convert_params->decimal_scale;                         \
-        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                            \
-            if (src_physical_type == tparquet::Type::INT32) {                                     \
-                physical_converter.reset(new NumberToDecimal<int32_t, DECIMAL_TYPE,               \
-                                                             DecimalScaleParams::SCALE_UP>());    \
-            } else {                                                                              \
-                physical_converter.reset(new NumberToDecimal<int64_t, DECIMAL_TYPE,               \
-                                                             DecimalScaleParams::SCALE_UP>());    \
-            }                                                                                     \
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {                   \
-            if (src_physical_type == tparquet::Type::INT32) {                                     \
-                physical_converter.reset(new NumberToDecimal<int32_t, DECIMAL_TYPE,               \
-                                                             DecimalScaleParams::SCALE_DOWN>());  \
-            } else {                                                                              \
-                physical_converter.reset(new NumberToDecimal<int64_t, DECIMAL_TYPE,               \
-                                                             DecimalScaleParams::SCALE_DOWN>());  \
-            }                                                                                     \
+        if (src_physical_type == tparquet::Type::INT32) {                                         \
+            physical_converter.reset(new NumberToDecimal<int32_t, DECIMAL_TYPE>());               \
         } else {                                                                                  \
-            if (src_physical_type == tparquet::Type::INT32) {                                     \
-                physical_converter.reset(new NumberToDecimal<int32_t, DECIMAL_TYPE,               \
-                                                             DecimalScaleParams::NO_SCALE>());    \
-            } else {                                                                              \
-                physical_converter.reset(new NumberToDecimal<int64_t, DECIMAL_TYPE,               \
-                                                             DecimalScaleParams::NO_SCALE>());    \
-            }                                                                                     \
+            physical_converter.reset(new NumberToDecimal<int64_t, DECIMAL_TYPE>());               \
         }                                                                                         \
         break;                                                                                    \
     }
             FOR_LOGICAL_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
         default:
-            physical_converter.reset(new UnsupportedConverter(src_physical_type, src_logical_type));
+            physical_converter =
+                    std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
         }
     } else {
-        physical_converter.reset(new UnsupportedConverter(src_physical_type, src_logical_type));
+        physical_converter =
+                std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
     }
 }
 
@@ -254,48 +211,52 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
     PrimitiveType src_logical_primitive = src_logical_type.type;
 
     if (field_schema->is_type_compatibility) {
-        if (src_logical_type == TYPE_SMALLINT) {
-            physical_converter.reset(new UnsignedIntegerConverter<TYPE_SMALLINT>());
-        } else if (src_logical_type == TYPE_INT) {
-            physical_converter.reset(new UnsignedIntegerConverter<TYPE_INT>());
-        } else if (src_logical_type == TYPE_BIGINT) {
-            physical_converter.reset(new UnsignedIntegerConverter<TYPE_BIGINT>());
-        } else if (src_logical_type == TYPE_LARGEINT) {
-            physical_converter.reset(new UnsignedIntegerConverter<TYPE_LARGEINT>());
+        if (src_logical_type.is<TYPE_SMALLINT>()) {
+            physical_converter = std::make_unique<UnsignedIntegerConverter<TYPE_SMALLINT>>();
+        } else if (src_logical_type.is<TYPE_INT>()) {
+            physical_converter = std::make_unique<UnsignedIntegerConverter<TYPE_INT>>();
+        } else if (src_logical_type.is<TYPE_BIGINT>()) {
+            physical_converter = std::make_unique<UnsignedIntegerConverter<TYPE_BIGINT>>();
+        } else if (src_logical_type.is<TYPE_LARGEINT>()) {
+            physical_converter = std::make_unique<UnsignedIntegerConverter<TYPE_LARGEINT>>();
         } else {
-            physical_converter.reset(new UnsupportedConverter(src_physical_type, src_logical_type));
+            physical_converter =
+                    std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
         }
     } else if (is_parquet_native_type(src_logical_primitive)) {
         if (is_string_type(src_logical_primitive) &&
             src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
             // for FixedSizeBinary
-            physical_converter.reset(new FixedSizeBinaryConverter(parquet_schema.type_length));
+            physical_converter =
+                    std::make_unique<FixedSizeBinaryConverter>(parquet_schema.type_length);
         } else {
-            physical_converter.reset(new ConsistentPhysicalConverter());
+            physical_converter = std::make_unique<ConsistentPhysicalConverter>();
         }
-    } else if (src_logical_type == TYPE_TINYINT) {
-        physical_converter.reset(new LittleIntPhysicalConverter<TYPE_TINYINT>());
-    } else if (src_logical_type == TYPE_SMALLINT) {
-        physical_converter.reset(new LittleIntPhysicalConverter<TYPE_SMALLINT>);
+    } else if (src_logical_type.is<TYPE_TINYINT>()) {
+        physical_converter = std::make_unique<LittleIntPhysicalConverter<TYPE_TINYINT>>();
+    } else if (src_logical_type.is<TYPE_SMALLINT>()) {
+        physical_converter = std::make_unique<LittleIntPhysicalConverter<TYPE_SMALLINT>>();
     } else if (is_decimal_type(src_logical_primitive)) {
         get_decimal_converter(field_schema, src_logical_type, dst_logical_type,
                               convert_params.get(), physical_converter);
-    } else if (src_logical_type == TYPE_DATEV2) {
-        physical_converter.reset(new Int32ToDate());
-    } else if (src_logical_type == TYPE_DATETIMEV2) {
+    } else if (src_logical_type.is<TYPE_DATEV2>()) {
+        physical_converter = std::make_unique<Int32ToDate>();
+    } else if (src_logical_type.is<TYPE_DATETIMEV2>()) {
         if (src_physical_type == tparquet::Type::INT96) {
             // int96 only stores nanoseconds in standard parquet file
             convert_params->reset_time_scale_if_missing(9);
-            physical_converter.reset(new Int96toTimestamp());
+            physical_converter = std::make_unique<Int96toTimestamp>();
         } else if (src_physical_type == tparquet::Type::INT64) {
             convert_params->reset_time_scale_if_missing(
                     remove_nullable(dst_logical_type)->get_scale());
-            physical_converter.reset(new Int64ToTimestamp());
+            physical_converter = std::make_unique<Int64ToTimestamp>();
         } else {
-            physical_converter.reset(new UnsupportedConverter(src_physical_type, src_logical_type));
+            physical_converter =
+                    std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
         }
     } else {
-        physical_converter.reset(new UnsupportedConverter(src_physical_type, src_logical_type));
+        physical_converter =
+                std::make_unique<UnsupportedConverter>(src_physical_type, src_logical_type);
     }
 
     if (physical_converter->support()) {
@@ -303,9 +264,9 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
         physical_converter->_logical_converter = converter::ColumnTypeConverter::get_converter(
                 src_logical_type, dst_logical_type, converter::FileFormat::PARQUET);
         if (!physical_converter->_logical_converter->support()) {
-            physical_converter.reset(new UnsupportedConverter(
+            physical_converter = std::make_unique<UnsupportedConverter>(
                     "Unsupported type change: " +
-                    physical_converter->_logical_converter->get_error_msg()));
+                    physical_converter->_logical_converter->get_error_msg());
         }
     }
     return physical_converter;

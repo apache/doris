@@ -32,6 +32,7 @@ import org.apache.doris.load.DppConfig;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -161,11 +162,11 @@ public class UserPropertyMgr implements Writable {
         return existProperty.getParallelFragmentExecInstanceNum();
     }
 
-    public Set<Tag> getResourceTags(String qualifiedUser) {
+    public ComputeGroup getComputeGroup(String qualifiedUser) {
         UserProperty existProperty = propertyMap.get(qualifiedUser);
         existProperty = getPropertyIfNull(qualifiedUser, existProperty);
         if (existProperty == null) {
-            return UserProperty.INVALID_RESOURCE_TAGS;
+            return ComputeGroup.INVALID_COMPUTE_GROUP;
         }
         Set<Tag> tags = existProperty.getCopiedResourceTags();
         // only root and admin can return empty tag.
@@ -176,7 +177,11 @@ public class UserPropertyMgr implements Writable {
                 && Config.force_olap_table_replication_allocation.isEmpty()) {
             tags = Sets.newHashSet(Tag.DEFAULT_BACKEND_TAG);
         }
-        return tags;
+        if (!tags.isEmpty()) {
+            return Env.getCurrentEnv().getComputeGroupMgr().getComputeGroup(tags);
+        } else {
+            return Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+        }
     }
 
     public Pair<String, DppConfig> getLoadClusterInfo(String qualifiedUser, String cluster) throws DdlException {
@@ -225,6 +230,15 @@ public class UserPropertyMgr implements Writable {
             return -1;
         }
         return existProperty.getExecMemLimit();
+    }
+
+    public String getInitCatalog(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        existProperty = getPropertyIfNull(qualifiedUser, existProperty);
+        if (existProperty == null) {
+            return null;
+        }
+        return existProperty.getInitCatalog();
     }
 
     public String getWorkloadGroup(String qualifiedUser) {

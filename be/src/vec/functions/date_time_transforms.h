@@ -39,25 +39,26 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                \
-    template <typename ArgType>                                                  \
-    struct CLASS {                                                               \
-        using OpArgType = ArgType;                                               \
-        static constexpr auto name = #UNIT;                                      \
-                                                                                 \
-        static inline auto execute(const ArgType& t) {                           \
-            const auto& date_time_value = (typename DateTraits<ArgType>::T&)(t); \
-            return date_time_value.FUNCTION;                                     \
-        }                                                                        \
-                                                                                 \
-        static DataTypes get_variadic_argument_types() {                         \
-            return {std::make_shared<typename DateTraits<ArgType>::DateType>()}; \
-        }                                                                        \
+#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                   \
+    template <typename NativeType>                                                  \
+    struct CLASS {                                                                  \
+        using OpArgType = NativeType;                                               \
+        static constexpr auto name = #UNIT;                                         \
+                                                                                    \
+        static inline auto execute(const NativeType& t) {                           \
+            const auto& date_time_value = (typename DateTraits<NativeType>::T&)(t); \
+            return date_time_value.FUNCTION;                                        \
+        }                                                                           \
+                                                                                    \
+        static DataTypes get_variadic_argument_types() {                            \
+            return {std::make_shared<typename DateTraits<NativeType>::DateType>()}; \
+        }                                                                           \
     }
 
 #define TO_TIME_FUNCTION(CLASS, UNIT) TIME_FUNCTION_IMPL(CLASS, UNIT, UNIT())
 
 TO_TIME_FUNCTION(ToYearImpl, year);
+TO_TIME_FUNCTION(ToYearOfWeekImpl, year_of_week);
 TO_TIME_FUNCTION(ToQuarterImpl, quarter);
 TO_TIME_FUNCTION(ToMonthImpl, month);
 TO_TIME_FUNCTION(ToDayImpl, day);
@@ -377,8 +378,8 @@ struct Transformer {
     }
 };
 
-template <typename FromType, typename ToType>
-struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
+template <typename FromType, typename ToType, template <typename> typename Impl>
+struct TransformerYear {
     static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to,
                        NullMap& null_map) {
         size_t size = vec_from.size();
@@ -390,7 +391,7 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
         auto* __restrict null_map_ptr = null_map.data();
 
         for (size_t i = 0; i < size; ++i) {
-            to_ptr[i] = ToYearImpl<FromType>::execute(from_ptr[i]);
+            to_ptr[i] = Impl<FromType>::execute(from_ptr[i]);
         }
 
         for (size_t i = 0; i < size; ++i) {
@@ -406,10 +407,18 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
         auto* __restrict from_ptr = vec_from.data();
 
         for (size_t i = 0; i < size; ++i) {
-            to_ptr[i] = ToYearImpl<FromType>::execute(from_ptr[i]);
+            to_ptr[i] = Impl<FromType>::execute(from_ptr[i]);
         }
     }
 };
+
+template <typename FromType, typename ToType>
+struct Transformer<FromType, ToType, ToYearImpl<FromType>>
+        : public TransformerYear<FromType, ToType, ToYearImpl> {};
+
+template <typename FromType, typename ToType>
+struct Transformer<FromType, ToType, ToYearOfWeekImpl<FromType>>
+        : public TransformerYear<FromType, ToType, ToYearOfWeekImpl> {};
 
 template <typename FromType, typename ToType, typename Transform>
 struct DateTimeTransformImpl {

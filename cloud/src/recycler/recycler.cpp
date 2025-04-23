@@ -1212,6 +1212,19 @@ int InstanceRecycler::recycle_versions() {
         auto tbl_version_key = table_version_key({instance_id_, db_id, table_id});
         txn->remove(tbl_version_key);
         LOG(WARNING) << "remove table version kv " << hex(tbl_version_key);
+        // 3. Remove mow delete bitmap update lock and tablet compaction lock
+        std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id_, table_id, -1});
+        txn->remove(lock_key);
+        LOG(WARNING) << "remove delete bitmap update lock kv " << hex(lock_key);
+        std::string tablet_compaction_key_begin =
+                mow_tablet_compaction_key({instance_id_, table_id, 0});
+        std::string tablet_compaction_key_end =
+                mow_tablet_compaction_key({instance_id_, table_id, INT64_MAX});
+        txn->remove(tablet_compaction_key_begin, tablet_compaction_key_end);
+        LOG(WARNING) << "remove mow tablet compaction kv, begin="
+                     << hex(tablet_compaction_key_begin)
+                     << " end=" << hex(tablet_compaction_key_end) << " db_id=" << db_id
+                     << " table_id=" << table_id;
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
             return -1;
@@ -2487,6 +2500,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
     int64_t num_scanned = 0;
     int64_t num_expired = 0;
     int64_t num_recycled = 0;
+    int ret = 0;
 
     RecycleTxnKeyInfo recycle_txn_key_info0 {instance_id_, 0, 0};
     RecycleTxnKeyInfo recycle_txn_key_info1 {instance_id_, INT64_MAX, INT64_MAX};
@@ -2494,6 +2508,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
     std::string end_recycle_txn_key;
     recycle_txn_key(recycle_txn_key_info0, &begin_recycle_txn_key);
     recycle_txn_key(recycle_txn_key_info1, &end_recycle_txn_key);
+    std::vector<std::string> recycle_txn_info_keys;
 
     LOG_INFO("begin to recycle expired txn").tag("instance_id", instance_id_);
 
@@ -2521,12 +2536,15 @@ int InstanceRecycler::recycle_expired_txn_label() {
         return final_expiration;
     };
 
+    SyncExecutor<int> concurrent_delete_executor(
+            _thread_pool_group.s3_producer_pool,
+            fmt::format("recycle expired txn label, instance id {}", instance_id_),
+            [](const int& ret) { return ret != 0; });
+
     int64_t current_time_ms =
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
-    auto handle_recycle_txn_kv = [&num_scanned, &num_expired, &num_recycled, &current_time_ms,
-                                  &calc_expiration,
-                                  this](std::string_view k, std::string_view v) -> int {
+    auto handle_recycle_txn_kv = [&](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         RecycleTxnPB recycle_txn_pb;
         if (!recycle_txn_pb.ParseFromArray(v.data(), v.size())) {
@@ -2538,10 +2556,12 @@ int InstanceRecycler::recycle_expired_txn_label() {
             (calc_expiration(recycle_txn_pb) <= current_time_ms)) {
             VLOG_DEBUG << "found recycle txn, key=" << hex(k);
             num_expired++;
-        } else {
-            return 0;
+            recycle_txn_info_keys.emplace_back(k);
         }
+        return 0;
+    };
 
+    auto delete_recycle_txn_kv = [&](const std::string& k) -> int {
         std::string_view k1 = k;
         //RecycleTxnKeyInfo 0:instance_id  1:db_id  2:txn_id
         k1.remove_prefix(1); // Remove key space
@@ -2625,8 +2645,41 @@ int InstanceRecycler::recycle_expired_txn_label() {
         return 0;
     };
 
+    auto loop_done = [&]() -> int {
+        for (const auto& k : recycle_txn_info_keys) {
+            concurrent_delete_executor.add([&]() {
+                if (delete_recycle_txn_kv(k) != 0) {
+                    LOG_WARNING("failed to delete recycle txn kv")
+                            .tag("instance id", instance_id_)
+                            .tag("key", hex(k));
+                    return -1;
+                }
+                return 0;
+            });
+        }
+        bool finished = true;
+        std::vector<int> rets = concurrent_delete_executor.when_all(&finished);
+        for (int r : rets) {
+            if (r != 0) {
+                ret = -1;
+            }
+        }
+
+        ret = finished ? ret : -1;
+
+        if (ret != 0) {
+            LOG_WARNING("recycle txn kv ret!=0")
+                    .tag("finished", finished)
+                    .tag("ret", ret)
+                    .tag("instance_id", instance_id_);
+            return ret;
+        }
+        recycle_txn_info_keys.clear();
+        return ret;
+    };
+
     return scan_and_recycle(begin_recycle_txn_key, end_recycle_txn_key,
-                            std::move(handle_recycle_txn_kv));
+                            std::move(handle_recycle_txn_kv), std::move(loop_done));
 }
 
 struct CopyJobIdTuple {

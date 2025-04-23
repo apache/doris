@@ -388,10 +388,15 @@ Status BaseTablet::calc_delete_bitmap_between_segments(
 
     RETURN_IF_ERROR(calculator.calculate_all(delete_bitmap));
 
+    delete_bitmap->add(
+            {rowset_id, DeleteBitmap::INVALID_SEGMENT_ID, DeleteBitmap::TEMP_VERSION_COMMON},
+            DeleteBitmap::ROWSET_SENTINEL_MARK);
     LOG(INFO) << fmt::format(
             "construct delete bitmap between segments, "
-            "tablet: {}, rowset: {}, number of segments: {}, bitmap size: {}, cost {} (us)",
-            tablet_id(), rowset_id.to_string(), num_segments, delete_bitmap->delete_bitmap.size(),
+            "tablet: {}, rowset: {}, number of segments: {}, bitmap count: {}, bitmap cardinality: "
+            "{}, cost {} (us)",
+            tablet_id(), rowset_id.to_string(), num_segments,
+            delete_bitmap->get_delete_bitmap_count(), delete_bitmap->cardinality(),
             watch.get_elapse_time_us());
     return Status::OK();
 }
@@ -821,7 +826,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                       << " rows: " << seg->num_rows() << " conflict rows: " << conflict_rows
                       << " filtered rows: " << rids_be_overwritten.size()
                       << " new generated rows: " << new_generated_rows
-                      << " bimap num: " << delete_bitmap->delete_bitmap.size()
+                      << " bitmap num: " << delete_bitmap->get_delete_bitmap_count()
+                      << " bitmap cardinality: " << delete_bitmap->cardinality()
                       << " cost: " << cost_us << "(us)";
         }
         return Status::OK();
@@ -832,7 +838,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                   << " rowset: " << rowset_id << " seg_id: " << seg->id()
                   << " dummy_version: " << end_version + 1 << " rows: " << seg->num_rows()
                   << " conflict rows: " << conflict_rows
-                  << " bitmap num: " << delete_bitmap->delete_bitmap.size() << " cost: " << cost_us
+                  << " bitmap num: " << delete_bitmap->get_delete_bitmap_count()
+                  << " bitmap cardinality: " << delete_bitmap->cardinality() << " cost: " << cost_us
                   << "(us)";
     }
     return Status::OK();
@@ -1054,7 +1061,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
                             mutable_column.get())
                             ->insert_default();
                 } else {
-                    mutable_column->insert_default();
+                    mutable_column->insert(rs_column.get_vec_type()->get_default());
                 }
             } else {
                 mutable_column->insert_from(*old_block.get_by_position(i).column,
@@ -1168,7 +1175,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                             new_col.get())
                             ->insert_default();
                 } else {
-                    new_col->insert_default();
+                    new_col->insert(tablet_column.get_vec_type()->get_default());
                 }
             } else {
                 new_col->insert_from(old_value_col, idx);
@@ -1418,9 +1425,9 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     RETURN_IF_ERROR(std::dynamic_pointer_cast<BetaRowset>(rowset)->load_segments(&segments));
     auto t1 = watch.get_elapse_time_us();
 
+    int64_t next_visible_version = txn_info->is_txn_load ? txn_info->next_visible_version
+                                                         : txn_info->rowset->start_version();
     {
-        int64_t next_visible_version = txn_info->is_txn_load ? txn_info->next_visible_version
-                                                             : txn_info->rowset->start_version();
         std::shared_lock meta_rlock(self->_meta_lock);
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
         if (self->tablet_state() == TABLET_NOTREADY) {
@@ -1565,7 +1572,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     auto t5 = watch.get_elapse_time_us();
     int64_t lock_id = txn_info->is_txn_load ? txn_info->lock_id : -1;
     RETURN_IF_ERROR(self->save_delete_bitmap(txn_info, txn_id, delete_bitmap,
-                                             transient_rs_writer.get(), cur_rowset_ids, lock_id));
+                                             transient_rs_writer.get(), cur_rowset_ids, lock_id,
+                                             next_visible_version));
 
     // defensive check, check that the delete bitmap cache we wrote is correct
     RETURN_IF_ERROR(self->check_delete_bitmap_cache(txn_id, delete_bitmap.get()));

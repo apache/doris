@@ -102,17 +102,18 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* prof
     auto task_ctx = state->get_task_execution_context();
     RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
             [this, state, profile, task_ctx]() {
+                SCOPED_ATTACH_TASK(state);
                 auto task_lock = task_ctx.lock();
                 if (task_lock == nullptr) {
                     return;
                 }
                 this->process_block(state, profile);
+                task_lock.reset();
             }));
     return Status::OK();
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
-    SCOPED_ATTACH_TASK(state);
     if (auto status = open(state, profile); !status.ok()) {
         force_close(status);
     }
@@ -130,42 +131,44 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
     }
 
     DCHECK(_dependency);
-    if (_writer_status.ok()) {
-        while (true) {
-            ThreadCpuStopWatch cpu_time_stop_watch;
-            cpu_time_stop_watch.start();
-            Defer defer {[&]() {
-                if (state && state->get_query_ctx()) {
-                    state->get_query_ctx()->resource_ctx()->cpu_context()->update_cpu_cost_ms(
-                            cpu_time_stop_watch.elapsed_time());
-                }
-            }};
-            if (!_eos && _data_queue.empty() && _writer_status.ok()) {
-                std::unique_lock l(_m);
-                while (!_eos && _data_queue.empty() && _writer_status.ok()) {
-                    // Add 1s to check to avoid lost signal
-                    _cv.wait_for(l, std::chrono::seconds(1));
-                }
+    while (_writer_status.ok()) {
+        ThreadCpuStopWatch cpu_time_stop_watch;
+        cpu_time_stop_watch.start();
+        Defer defer {[&]() {
+            if (state && state->get_query_ctx()) {
+                state->get_query_ctx()->resource_ctx()->cpu_context()->update_cpu_cost_ms(
+                        cpu_time_stop_watch.elapsed_time());
+            }
+        }};
+
+        //1) wait scan operator write data
+        {
+            std::unique_lock l(_m);
+            while (!_eos && _data_queue.empty() && _writer_status.ok()) {
+                // Add 1s to check to avoid lost signal
+                _cv.wait_for(l, std::chrono::seconds(1));
             }
 
+            //check if eos or writer error
             if ((_eos && _data_queue.empty()) || !_writer_status.ok()) {
                 _data_queue.clear();
                 break;
             }
-
-            auto block = _get_block_from_queue();
-            auto status = write(state, *block);
-            if (!status.ok()) [[unlikely]] {
-                std::unique_lock l(_m);
-                _writer_status.update(status);
-                if (_is_finished()) {
-                    _dependency->set_ready();
-                }
-                break;
-            }
-
-            _return_free_block(std::move(block));
         }
+
+        //2) get the block from  data queue and write to downstream
+        auto block = _get_block_from_queue();
+        auto status = write(state, *block);
+        if (!status.ok()) [[unlikely]] {
+            std::unique_lock l(_m);
+            _writer_status.update(status);
+            if (_is_finished()) {
+                _dependency->set_ready();
+            }
+            break;
+        }
+
+        _return_free_block(std::move(block));
     }
 
     bool need_finish = false;

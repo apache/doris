@@ -29,12 +29,13 @@
 #include "olap/parallel_scanner_builder.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
-#include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/query_cache/query_cache.h"
+#include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "service/backend_options.h"
+#include "util/runtime_profile.h"
 #include "util/to_string.h"
-#include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/exec/scan/olap_scanner.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -65,7 +66,29 @@ Status OlapScanLocalState::_init_profile() {
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
     _delete_bitmap_get_agg_timer = ADD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime");
     if (config::is_cloud_mode()) {
-        _sync_rowset_timer = ADD_TIMER(_scanner_profile, "SyncRowsetTime");
+        static const char* sync_rowset_timer_name = "SyncRowsetTime";
+        _sync_rowset_timer = ADD_TIMER(_scanner_profile, sync_rowset_timer_name);
+        _sync_rowset_get_remote_rowsets_num =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsCount", TUnit::UNIT,
+                                  sync_rowset_timer_name);
+        _sync_rowset_get_remote_rowsets_rpc_timer =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsRpcMs",
+                                  TUnit::TIME_MS, sync_rowset_timer_name);
+        _sync_rowset_get_local_delete_bitmap_rowsets_num =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetLocalDeleteBitmapRowsetsCount",
+                                  TUnit::UNIT, sync_rowset_timer_name);
+        _sync_rowset_get_remote_delete_bitmap_rowsets_num =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRowsetsCount",
+                                  TUnit::UNIT, sync_rowset_timer_name);
+        _sync_rowset_get_remote_delete_bitmap_key_count =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapKeyCount",
+                                  TUnit::UNIT, sync_rowset_timer_name);
+        _sync_rowset_get_remote_delete_bitmap_bytes =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapBytes",
+                                  TUnit::BYTES, sync_rowset_timer_name);
+        _sync_rowset_get_remote_delete_bitmap_rpc_timer =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRpcMs",
+                                  TUnit::TIME_MS, sync_rowset_timer_name);
     }
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
@@ -157,8 +180,6 @@ Status OlapScanLocalState::_init_profile() {
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
     _key_range_counter = ADD_COUNTER(_runtime_profile, "KeyRangesNum", TUnit::UNIT);
-    _runtime_filter_info = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "RuntimeFilterInfo", 1);
-
     _tablet_reader_init_timer = ADD_TIMER(_scanner_profile, "TabletReaderInitTimer");
     _tablet_reader_capture_rs_readers_timer =
             ADD_TIMER(_scanner_profile, "TabletReaderCaptureRsReadersTimer");
@@ -284,7 +305,7 @@ bool OlapScanLocalState::_storage_no_merge() {
              p._olap_scan_node.enable_unique_key_merge_on_write));
 }
 
-Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
+Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
@@ -292,7 +313,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
     SCOPED_TIMER(_scanner_init_timer);
 
-    if (!_conjuncts.empty() && RuntimeFilterConsumer::_state->enable_profile()) {
+    if (!_conjuncts.empty() && _state->enable_profile()) {
         std::string message;
         for (auto& conjunct : _conjuncts) {
             if (conjunct->root()) {
@@ -354,7 +375,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
 
         RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
         for (auto& scanner : *scanners) {
-            auto* olap_scanner = assert_cast<vectorized::NewOlapScanner*>(scanner.get());
+            auto* olap_scanner = assert_cast<vectorized::OlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
         }
         return Status::OK();
@@ -394,8 +415,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-            auto scanner = vectorized::NewOlapScanner::create_shared(
-                    this, vectorized::NewOlapScanner::Params {
+            auto scanner = vectorized::OlapScanner::create_shared(
+                    this, vectorized::OlapScanner::Params {
                                   state(),
                                   _scanner_profile.get(),
                                   scanner_ranges,
@@ -419,46 +440,81 @@ Status OlapScanLocalState::hold_tablets() {
     if (!_tablets.empty()) {
         return Status::OK();
     }
+
     MonotonicStopWatch timer;
     timer.start();
     _tablets.resize(_scan_ranges.size());
     _read_sources.resize(_scan_ranges.size());
-    for (size_t i = 0; i < _scan_ranges.size(); i++) {
-        int64_t version = 0;
-        std::from_chars(_scan_ranges[i]->version.data(),
-                        _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(), version);
-        auto tablet = DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id));
-        _tablets[i] = {std::move(tablet), version};
-
-        if (config::is_cloud_mode()) {
-            // FIXME(plat1ko): Avoid pointer cast
-            ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(
-                    *_tablets[i].tablet);
-        }
-    }
 
     if (config::is_cloud_mode()) {
-        int64_t duration_ns = 0;
+        std::vector<SyncRowsetStats> sync_statistics(_scan_ranges.size());
+        std::vector<std::function<Status()>> tasks {};
+        tasks.reserve(_scan_ranges.size());
+        int64_t duration_ns {0};
         {
             SCOPED_RAW_TIMER(&duration_ns);
-            std::vector<std::function<Status()>> tasks;
-            tasks.reserve(_scan_ranges.size());
-            for (auto&& [cur_tablet, cur_version] : _tablets) {
-                tasks.emplace_back([cur_tablet, cur_version]() {
-                    return std::dynamic_pointer_cast<CloudTablet>(cur_tablet)
-                            ->sync_rowsets(cur_version);
+            for (size_t i = 0; i < _scan_ranges.size(); i++) {
+                auto* sync_stats = &sync_statistics[i];
+                int64_t version = 0;
+                std::from_chars(_scan_ranges[i]->version.data(),
+                                _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(),
+                                version);
+                tasks.emplace_back([this, sync_stats, version, i]() {
+                    auto tablet =
+                            DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id, sync_stats));
+                    _tablets[i] = {std::move(tablet), version};
+                    SyncOptions options;
+                    options.query_version = version;
+                    options.merge_schema = true;
+                    RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablets[i].tablet)
+                                            ->sync_rowsets(options, sync_stats));
+                    // FIXME(plat1ko): Avoid pointer cast
+                    ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(
+                            *_tablets[i].tablet);
+                    return Status::OK();
                 });
             }
             RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
         }
-        _sync_rowset_timer->update(duration_ns);
+        COUNTER_UPDATE(_sync_rowset_timer, duration_ns);
+        for (const auto& sync_stats : sync_statistics) {
+            COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_num, sync_stats.get_remote_rowsets_num);
+            COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_rpc_timer,
+                           sync_stats.get_remote_rowsets_rpc_ms);
+            COUNTER_UPDATE(_sync_rowset_get_local_delete_bitmap_rowsets_num,
+                           sync_stats.get_local_delete_bitmap_rowsets_num);
+            COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rowsets_num,
+                           sync_stats.get_remote_delete_bitmap_rowsets_num);
+            COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_key_count,
+                           sync_stats.get_remote_delete_bitmap_key_count);
+            COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_bytes,
+                           sync_stats.get_remote_delete_bitmap_bytes);
+            COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rpc_timer,
+                           sync_stats.get_remote_delete_bitmap_rpc_ms);
+        }
+    } else {
+        for (size_t i = 0; i < _scan_ranges.size(); i++) {
+            int64_t version = 0;
+            std::from_chars(_scan_ranges[i]->version.data(),
+                            _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(),
+                            version);
+            auto tablet = DORIS_TRY(ExecEnv::get_tablet(_scan_ranges[i]->tablet_id));
+            _tablets[i] = {std::move(tablet), version};
+        }
     }
+
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
-        RETURN_IF_ERROR(_tablets[i].tablet->capture_rs_readers(
-                {0, _tablets[i].version}, &_read_sources[i].rs_splits,
-                RuntimeFilterConsumer::_state->skip_missing_version()));
+        RETURN_IF_ERROR(_tablets[i].tablet->capture_rs_readers({0, _tablets[i].version},
+                                                               &_read_sources[i].rs_splits,
+                                                               _state->skip_missing_version()));
         if (!PipelineXLocalState<>::_state->skip_delete_predicate()) {
             _read_sources[i].fill_delete_predicates();
+        }
+        if (config::enable_mow_verbose_log &&
+            _tablets[i].tablet->enable_unique_key_merge_on_write()) {
+            LOG_INFO("finish capture_rs_readers for tablet={}, query_id={}",
+                     _tablets[i].tablet->tablet_id(),
+                     print_id(PipelineXLocalState<>::_state->query_id()));
         }
     }
     timer.stop();
@@ -514,14 +570,14 @@ static std::string olap_filter_to_string(const doris::TCondition& condition) {
                                : to_string(condition.condition_values));
 }
 
-static std::string olap_filters_to_string(const std::vector<doris::TCondition>& filters) {
+static std::string olap_filters_to_string(const std::vector<FilterOlapParam<TCondition>>& filters) {
     std::string filters_string;
     filters_string += "[";
     for (auto it = filters.cbegin(); it != filters.cend(); it++) {
         if (it != filters.cbegin()) {
             filters_string += ", ";
         }
-        filters_string += olap_filter_to_string(*it);
+        filters_string += olap_filter_to_string(it->filter);
     }
     filters_string += "]";
     return filters_string;
@@ -611,11 +667,11 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
         }
 
         for (auto& iter : _colname_to_value_range) {
-            std::vector<TCondition> filters;
+            std::vector<FilterOlapParam<TCondition>> filters;
             std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
 
             for (const auto& filter : filters) {
-                _olap_filters.push_back(filter);
+                _olap_filters.emplace_back(filter);
             }
         }
 
@@ -638,36 +694,6 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
     VLOG_CRITICAL << _scan_keys.debug_string();
 
     return Status::OK();
-}
-
-void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& update_info) {
-    std::unique_lock lock(_profile_mtx);
-    // update
-    _filter_info[id].filtered_row += update_info.filtered_row;
-    _filter_info[id].input_row += update_info.input_row;
-    _filter_info[id].type = update_info.type;
-    // to string
-    auto& info = _filter_info[id];
-    std::string filter_name = "RuntimeFilterInfo id ";
-    filter_name += std::to_string(id);
-    std::string info_str;
-    info_str += "type = " + type_to_string(static_cast<PredicateType>(info.type)) + ", ";
-    info_str += "input = " + std::to_string(info.input_row) + ", ";
-    info_str += "filtered = " + std::to_string(info.filtered_row);
-    info_str = "[" + info_str + "]";
-
-    // add info
-    _segment_profile->add_info_string(filter_name, info_str);
-
-    const std::string rf_name = "filter id = " + std::to_string(id) + " ";
-
-    // add counter
-    auto* input_count = ADD_CHILD_COUNTER_WITH_LEVEL(_runtime_profile, rf_name + "input",
-                                                     TUnit::UNIT, "RuntimeFilterInfo", 1);
-    auto* filtered_count = ADD_CHILD_COUNTER_WITH_LEVEL(_runtime_profile, rf_name + "filtered",
-                                                        TUnit::UNIT, "RuntimeFilterInfo", 1);
-    COUNTER_SET(input_count, (int64_t)info.input_row);
-    COUNTER_SET(filtered_count, (int64_t)info.filtered_row);
 }
 
 OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,

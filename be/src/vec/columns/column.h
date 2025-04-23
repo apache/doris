@@ -20,24 +20,17 @@
 
 #pragma once
 
-#include <fmt/format.h>
-#include <glog/logging.h>
-#include <sys/types.h>
-
 #include <cstdint>
 #include <functional>
-#include <ostream>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
-#include "vec/common/custom_allocator.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
@@ -183,6 +176,18 @@ public:
         return res;
     }
 
+    /**
+    * erase data from 'start' and length elements from the column.
+    * @param length The number of elements to remove from the start position of the column
+    * @throws doris::Exception with NOT_IMPLEMENTED_ERROR if the operation is not supported
+    *         for this column type
+    * eg: erase(3, 2) means remove the idx 3 and 4 elements (0-based)
+    */
+    virtual void erase(size_t start, size_t length) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method erase is not supported for " + get_name());
+    }
+
     /// cut or expand inplace. `this` would be moved, only the return value is avaliable.
     virtual Ptr shrink(size_t length) const final {
         // NOLINTBEGIN(performance-move-const-arg)
@@ -213,8 +218,6 @@ public:
     }
 
     /// Appends one element from other column with the same type multiple times.
-    /// we should make sure position is less than src's size and length is less than src's size,
-    /// and position + length is less than src's size
     virtual void insert_many_from(const IColumn& src, size_t position, size_t length) {
         for (size_t i = 0; i < length; ++i) {
             insert_from(src, position);
@@ -331,20 +334,9 @@ public:
         return 0;
     }
 
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const {
-        serialize_vec(keys.data(), num_rows, max_row_byte_size);
-    }
-
-    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                     const uint8_t* null_map) const {
-        serialize_vec_with_null_map(keys.data(), num_rows, null_map);
-    }
-
     virtual void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method serialize_vec is not supported for " + get_name());
-        __builtin_unreachable();
     }
 
     virtual void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
@@ -352,23 +344,12 @@ public:
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
                 "Method serialize_vec_with_null_map is not supported for " + get_name());
-        __builtin_unreachable();
-    }
-
-    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
-        deserialize_vec(keys.data(), num_rows);
-    }
-
-    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
-                                       const uint8_t* null_map) {
-        deserialize_vec_with_null_map(keys.data(), num_rows, null_map);
     }
 
     // This function deserializes group-by keys into column in the vectorized way.
     virtual void deserialize_vec(StringRef* keys, const size_t num_rows) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method deserialize_vec is not supported for " + get_name());
-        __builtin_unreachable();
     }
 
     // Used in ColumnNullable::deserialize_vec
@@ -377,7 +358,6 @@ public:
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
                 "Method deserialize_vec_with_null_map is not supported for " + get_name());
-        __builtin_unreachable();
     }
 
     /// TODO: SipHash is slower than city or xx hash, rethink we should have a new interface
@@ -454,7 +434,6 @@ public:
                                "Method filter_by_selector is not supported for {}, only "
                                "column_nullable, column_dictionary and predict_column support",
                                get_name());
-        __builtin_unreachable();
     }
 
     /// Permutes elements using specified permutation. Is used in sortings.

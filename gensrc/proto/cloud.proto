@@ -514,6 +514,7 @@ message TabletCompactionJobPB {
         CUMULATIVE = 2;
         EMPTY_CUMULATIVE = 3; // just update cumulative point
         FULL = 4;
+        STOP_TOKEN = 5; // fail existing compactions and deny newly incomming compactions
     }
     // IP and port of the node which initiates this job
     optional string initiator = 1; // prepare
@@ -1393,6 +1394,7 @@ enum MetaServiceCode {
     LOCK_EXPIRED = 8001;
     LOCK_CONFLICT = 8002;
     ROWSETS_EXPIRED = 8003;
+    VERSION_NOT_MATCH = 8004;
 
     // partial update
     ROWSET_META_NOT_FOUND = 9001;
@@ -1418,6 +1420,12 @@ message UpdateDeleteBitmapRequest {
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 10;
     optional bool unlock = 11;
+    // to determine whether this is in an explicit txn and whether it's the first sub txn
+    optional bool is_explicit_txn = 12;
+    optional int64 txn_id = 13;
+
+    // for load txn only
+    optional int64 next_visible_version = 14;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1466,6 +1474,10 @@ message DeleteBitmapUpdateLockPB {
     optional int64 lock_id = 1;
     optional int64 expiration = 2;
     repeated int64 initiators = 3;
+}
+
+message MowTabletCompactionPB {
+    optional int64 expiration = 1;
 }
 
 message GetDeleteBitmapUpdateLockRequest {

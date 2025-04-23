@@ -42,6 +42,7 @@ public:
 
 class MockRowDescriptor : public RowDescriptor {
 public:
+    MockRowDescriptor() = default;
     MockRowDescriptor(std::vector<vectorized::DataTypePtr> types, ObjectPool* pool) {
         std::vector<SlotDescriptor*> slots;
         for (auto type : types) {
@@ -54,6 +55,7 @@ public:
         tuple_desc->Slots = slots;
         tuple_desc_map.push_back(tuple_desc);
         _tuple_desc_map.push_back(tuple_desc);
+        _num_materialized_slots = types.size();
     }
     const std::vector<TupleDescriptor*>& tuple_descriptors() const override {
         return tuple_desc_map;
@@ -73,6 +75,7 @@ public:
         auto* tuple_desc = pool->add(new MockTupleDescriptor());
         tuple_desc->Slots = slots;
         tuple_descriptors.push_back(tuple_desc);
+        _tuple_desc_map[0] = tuple_desc;
     }
 
     MOCK_METHOD(std::vector<TupleDescriptor*>, get_tuple_descs, (), (const));

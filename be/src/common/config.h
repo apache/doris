@@ -205,6 +205,13 @@ DECLARE_mBool(enable_query_memory_overcommit);
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
 
+// for the query being canceled,
+// if (current time - cancel start time) < revoke_memory_max_tolerance_ms, the query memory is counted in `freed_memory`,
+// and the query memory is expected to be released soon.
+// if > revoke_memory_max_tolerance_ms, the query memory will not be counted in `freed_memory`,
+// and the query may be blocked during the cancel process. skip this query and continue to cancel other queries.
+DECLARE_mInt64(revoke_memory_max_tolerance_ms);
+
 // if false, turn off all stacktrace
 DECLARE_mBool(enable_stacktrace);
 
@@ -335,6 +342,8 @@ DECLARE_Int32(be_service_threads);
 
 // interval between profile reports; in seconds
 DECLARE_mInt32(pipeline_status_report_interval);
+// Time slice for pipeline task execution (ms)
+DECLARE_mInt32(pipeline_task_exec_time_slice);
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
@@ -525,6 +534,16 @@ DECLARE_mInt32(compaction_task_num_per_fast_disk);
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 DECLARE_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round);
 
+// Minimum number of threads required in the thread pool to activate the large cumu compaction delay strategy.
+// The delay strategy is only applied when the thread pool has at least this many threads.
+DECLARE_mInt32(large_cumu_compaction_task_min_thread_num);
+// Maximum size threshold (in bytes) for input rowsets. Compaction tasks with input size
+// exceeding this threshold will be delayed when thread pool is near capacity. Default 100MB.
+DECLARE_mInt32(large_cumu_compaction_task_bytes_threshold);
+// Maximum row count threshold for compaction input. Compaction tasks with row count
+// exceeding this threshold will be delayed when thread pool is near capacity. Default 1 million.
+DECLARE_mInt32(large_cumu_compaction_task_row_num_threshold);
+
 // Not compact the invisible versions, but with some limitations:
 // if not timeout, keep no more than compaction_keep_invisible_version_max_count versions;
 // if timeout, keep no more than compaction_keep_invisible_version_min_count versions.
@@ -676,8 +695,7 @@ DECLARE_Bool(ignore_broken_disk);
 // Sleep time in milliseconds between memory maintenance iterations
 DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 
-// After full gc, no longer full gc and minor gc during sleep.
-// After minor gc, no minor gc during sleep, but full gc is possible.
+// Memory gc are expensive, wait a while to avoid too frequent.
 DECLARE_mInt32(memory_gc_sleep_time_ms);
 
 // max write buffer size before flush, default 200MB
@@ -699,6 +717,9 @@ DECLARE_Int32(load_process_soft_mem_limit_percent);
 // If load memory consumption is within load_process_safe_mem_permit_percent,
 // memtable memory limiter will do nothing.
 DECLARE_Int32(load_process_safe_mem_permit_percent);
+
+// If there are a lot of memtable memory, then wait them flush finished.
+DECLARE_mDouble(load_max_wg_active_memtable_percent);
 
 // result buffer cancelled time (unit: second)
 DECLARE_mInt32(result_buffer_cancelled_interval_time);
@@ -1102,6 +1123,7 @@ DECLARE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent);
 DECLARE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent);
 DECLARE_mInt32(file_cache_evict_in_advance_interval_ms);
 DECLARE_mInt64(file_cache_evict_in_advance_batch_bytes);
+DECLARE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold);
 DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
 // If true, evict the ttl cache using LRU when full.
@@ -1120,6 +1142,9 @@ DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
 // enable this option; otherwise, it is recommended to leave it disabled.
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
+DECLARE_mInt64(file_cache_background_gc_interval_ms);
+DECLARE_mInt64(file_cache_background_monitor_interval_ms);
+DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
 // inverted index searcher cache
 // cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
@@ -1150,6 +1175,8 @@ DECLARE_mBool(inverted_index_compaction_enable);
 DECLARE_mBool(debug_inverted_index_compaction);
 // index by RAM directory
 DECLARE_mBool(inverted_index_ram_dir_enable);
+// wheather index by RAM directory when base compaction
+DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 
@@ -1262,6 +1289,10 @@ DECLARE_mInt64(mow_primary_key_index_max_size_in_memory);
 // current txn's publishing version and the max version of the tablet exceeds this value,
 // don't print warning log
 DECLARE_mInt32(publish_version_gap_logging_threshold);
+// get agg by cache for mow table
+DECLARE_mBool(enable_mow_get_agg_by_cache);
+// get agg correctness check for mow table
+DECLARE_mBool(enable_mow_get_agg_correctness_check_core);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
@@ -1314,8 +1345,6 @@ DECLARE_mBool(enable_be_proc_monitor);
 DECLARE_mInt32(be_proc_monitor_interval_ms);
 DECLARE_Int32(workload_group_metrics_interval_ms);
 
-DECLARE_mBool(enable_workload_group_memory_gc);
-
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
 
@@ -1324,6 +1353,12 @@ DECLARE_Bool(ignore_always_true_predicate_for_segment);
 
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
+
+// Ingest binlog with persistent connection
+DECLARE_Bool(enable_ingest_binlog_with_persistent_connection);
+
+// Log ingest binlog elapsed threshold, -1 means no log
+DECLARE_mInt64(ingest_binlog_elapsed_threshold_ms);
 
 // Download binlog rate limit, unit is KB/s
 DECLARE_Int32(download_binlog_rate_limit_kbs);
@@ -1392,6 +1427,7 @@ DECLARE_mInt32(max_s3_client_retry);
 // and the max retry time is max_s3_client_retry
 DECLARE_mInt32(s3_read_base_wait_time_ms);
 DECLARE_mInt32(s3_read_max_wait_time_ms);
+DECLARE_mBool(enable_s3_object_check_after_upload);
 
 // write as inverted index tmp directory
 DECLARE_String(tmp_file_dir);
@@ -1524,6 +1560,11 @@ DECLARE_mInt32(schema_dict_cache_capacity);
 DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
 
 DECLARE_mBool(enable_mow_verbose_log);
+
+DECLARE_mInt32(tablet_sched_delay_time_ms);
+DECLARE_mInt32(load_trigger_compaction_version_percent);
+DECLARE_mInt64(base_compaction_interval_seconds_since_last_operation);
+DECLARE_mBool(enable_compaction_pause_on_high_memory);
 
 #ifdef BE_TEST
 // test s3

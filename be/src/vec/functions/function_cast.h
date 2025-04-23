@@ -132,123 +132,6 @@ struct PrecisionScaleArg {
     UInt32 precision;
     UInt32 scale;
 };
-/** Cast from string or number to Time.
-  * In Doris, the underlying storage type of the Time class is Float64.
-  */
-struct TimeCast {
-    // Cast from string
-    // Some examples of conversions.
-    // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24
-    template <typename T>
-    static bool try_parse_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone) {
-        /// TODO: Maybe we can move Timecast to the io_helper.
-        if (try_as_time(s, len, x, local_time_zone)) {
-            return true;
-        } else {
-            if (VecDateTimeValue dv {}; dv.from_date_str(s, len, local_time_zone)) {
-                // can be parse as a datetime
-                x = TimeValue::make_time(dv.hour(), dv.minute(), dv.second());
-                return true;
-            }
-            return false;
-        }
-    }
-
-    template <typename T>
-    static bool try_as_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone) {
-        char* first_char = s;
-        char* end_char = s + len;
-        int hour = 0, minute = 0, second = 0;
-        auto parse_from_str_to_int = [](char* begin, size_t len, auto& num) {
-            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-            auto int_value = StringParser::string_to_unsigned_int<uint64_t>(
-                    reinterpret_cast<char*>(begin), len, &parse_result);
-            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
-                return false;
-            }
-            num = int_value;
-            return true;
-        };
-        if (char* first_colon {nullptr};
-            (first_colon = (char*)memchr(first_char, ':', len)) != nullptr) {
-            if (char* second_colon {nullptr};
-                (second_colon = (char*)memchr(first_colon + 1, ':', end_char - first_colon - 1)) !=
-                nullptr) {
-                // find two colon
-                // parse hour
-                if (!parse_from_str_to_int(first_char, first_colon - first_char, hour)) {
-                    // hour  failed
-                    return false;
-                }
-                // parse minute
-                if (!parse_from_str_to_int(first_colon + 1, second_colon - first_colon - 1,
-                                           minute)) {
-                    return false;
-                }
-                // parse second
-                if (!parse_from_str_to_int(second_colon + 1, end_char - second_colon - 1, second)) {
-                    return false;
-                }
-            } else {
-                // find one colon
-                // parse hour
-                if (!parse_from_str_to_int(first_char, first_colon - first_char, hour)) {
-                    return false;
-                }
-                // parse minute
-                if (!parse_from_str_to_int(first_colon + 1, end_char - first_colon - 1, minute)) {
-                    return false;
-                }
-            }
-        } else {
-            // no colon ,so try to parse as a number
-            size_t from {};
-            if (!parse_from_str_to_int(first_char, len, from)) {
-                return false;
-            }
-            return try_parse_time(from, x, local_time_zone);
-        }
-        // minute second must be < 60
-        if (minute >= 60 || second >= 60) {
-            return false;
-        }
-        x = TimeValue::make_time(hour, minute, second);
-        return true;
-    }
-    // Cast from number
-    template <typename T, typename S>
-    //requires {std::is_arithmetic_v<T> && std::is_arithmetic_v<S>}
-    static bool try_parse_time(T from, S& x, const cctz::time_zone& local_time_zone) {
-        int64 seconds = int64(from / 100);
-        int64 hour = 0, minute = 0, second = 0;
-        second = int64(from - 100 * seconds);
-        from /= 100;
-        seconds = int64(from / 100);
-        minute = int64(from - 100 * seconds);
-        hour = seconds;
-        if (minute >= 60 || second >= 60) {
-            return false;
-        }
-        x = TimeValue::make_time(hour, minute, second);
-        return true;
-    }
-    template <typename S>
-    static bool try_parse_time(__int128 from, S& x, const cctz::time_zone& local_time_zone) {
-        from %= (int64)(1000000000000);
-        int64 seconds = from / 100;
-        int64 hour = 0, minute = 0, second = 0;
-        second = from - 100 * seconds;
-        from /= 100;
-        seconds = from / 100;
-        minute = from - 100 * seconds;
-        hour = seconds;
-        if (minute >= 60 || second >= 60) {
-            return false;
-        }
-        x = TimeValue::make_time(hour, minute, second);
-        return true;
-    }
-};
 
 /** Conversion of number types to each other, enums to numbers, dates and datetimes to numbers and back: done by straight assignment.
   *  (Date is represented internally as number of days from some day; DateTime - as unix timestamp)
@@ -444,11 +327,10 @@ struct ConvertImpl {
                     // 300 -> 00:03:00  360 will be parse failed , so value maybe null
                     ColumnUInt8::MutablePtr col_null_map_to;
                     ColumnUInt8::Container* vec_null_map_to = nullptr;
-                    col_null_map_to = ColumnUInt8::create(size);
+                    col_null_map_to = ColumnUInt8::create(size, 0);
                     vec_null_map_to = &col_null_map_to->get_data();
                     for (size_t i = 0; i < size; ++i) {
-                        (*vec_null_map_to)[i] = !TimeCast::try_parse_time(
-                                vec_from[i], vec_to[i], context->state()->timezone_obj());
+                        (*vec_null_map_to)[i] = !TimeValue::try_parse_time(vec_from[i], vec_to[i]);
                     }
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
@@ -493,8 +375,8 @@ struct ConvertImplToTimeType {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
 
-    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
-                          size_t /*input_rows_count*/) {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          uint32_t result, size_t /*input_rows_count*/) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
         using ColVecFrom =
@@ -519,32 +401,56 @@ struct ConvertImplToTimeType {
 
             // create null column
             ColumnUInt8::MutablePtr col_null_map_to;
-            col_null_map_to = ColumnUInt8::create(size);
+            col_null_map_to = ColumnUInt8::create(size, 0);
             auto& vec_null_map_to = col_null_map_to->get_data();
 
-            UInt32 from_precision = 0;
-            UInt32 from_scale = 0;
-            UInt32 to_precision = NumberTraits::max_ascii_len<Int64>();
-            if constexpr (IsDecimalNumber<FromFieldType>) {
-                const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
-                from_precision = from_decimal_type.get_precision();
-                from_scale = from_decimal_type.get_scale();
+            if constexpr (std::is_same_v<FromDataType, DataTypeTimeV2>) {
+                DateValueType current_date_value;
+                current_date_value.from_unixtime(context->state()->timestamp_ms() / 1000,
+                                                 context->state()->timezone_obj());
+                uint32_t scale = 0;
+                // Only DateTimeV2 has scale
+                if (std::is_same_v<ToDataType, DataTypeDateTimeV2>) {
+                    scale = remove_nullable(block.get_by_position(result).type)->get_scale();
+                }
+                // According to MySQL rules, when casting time type to date/datetime,
+                // the current date is added to the time
+                // So here we need to clear the time part
+                current_date_value.reset_time_part();
+                for (size_t i = 0; i < size; ++i) {
+                    auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
+                    date_value = current_date_value;
+                    int64_t microsecond = TimeValue::round_time(vec_from[i], scale);
+                    // Only TimeV2 type needs microseconds
+                    if constexpr (IsTimeV2Type<ToDataType>) {
+                        vec_null_map_to[i] = !date_value.template date_add_interval<MICROSECOND>(
+                                TimeInterval {MICROSECOND, microsecond, false});
+                    } else {
+                        vec_null_map_to[i] =
+                                !date_value.template date_add_interval<SECOND>(TimeInterval {
+                                        SECOND, microsecond / TimeValue::ONE_SECOND_MICROSECONDS,
+                                        false});
+                    }
+
+                    // DateType of VecDateTimeValue should cast to date
+                    if constexpr (IsDateType<ToDataType>) {
+                        date_value.cast_to_date();
+                    } else if constexpr (IsDateTimeType<ToDataType>) {
+                        date_value.to_datetime();
+                    }
+                }
+            } else {
+                for (size_t i = 0; i < size; ++i) {
+                    auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
+                    vec_null_map_to[i] = !date_value.from_date_int64(int64_t(vec_from[i]));
+                    // DateType of VecDateTimeValue should cast to date
+                    if constexpr (IsDateType<ToDataType>) {
+                        date_value.cast_to_date();
+                    } else if constexpr (IsDateTimeType<ToDataType>) {
+                        date_value.to_datetime();
+                    }
+                }
             }
-            bool narrow_integral = to_precision < (from_precision - from_scale);
-            std::visit(
-                    [&](auto narrow_integral) {
-                        for (size_t i = 0; i < size; ++i) {
-                            auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
-                            vec_null_map_to[i] = !date_value.from_date_int64(int64_t(vec_from[i]));
-                            // DateType of VecDateTimeValue should cast to date
-                            if constexpr (IsDateType<ToDataType>) {
-                                date_value.cast_to_date();
-                            } else if constexpr (IsDateTimeType<ToDataType>) {
-                                date_value.to_datetime();
-                            }
-                        }
-                    },
-                    make_bool_variant(narrow_integral));
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
@@ -590,7 +496,7 @@ struct ConvertImplGenericFromString {
             size_t size = col_from.size();
             col_to->reserve(size);
 
-            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
+            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 0);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
             const bool is_complex = is_complex_type(data_type_to);
             DataTypeSerDe::FormatOptions format_options;
@@ -714,7 +620,7 @@ struct ConvertImplGenericFromJsonb {
             size_t size = col_from.size();
             col_to->reserve(size);
 
-            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
+            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 0);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
             const bool is_complex = is_complex_type(data_type_to);
             const bool is_dst_string = is_string_or_fixed_string(data_type_to);
@@ -794,7 +700,7 @@ struct ConvertImplGenericToJsonb {
         auto column_string = ColumnString::create();
         JsonbWriter writer;
 
-        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(col_from.size());
+        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(col_from.size(), 0);
         ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
         DataTypeSerDe::FormatOptions format_options;
         format_options.converted_from_string = true;
@@ -969,7 +875,6 @@ struct ConvertImplFromJsonb {
 template <typename ToDataType, typename Name>
 struct ConvertImpl<DataTypeString, ToDataType, Name> {
     template <typename Additions = void*>
-
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
@@ -1074,7 +979,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionCon
         auto len = rb.count();
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
-        auto ret = TimeCast::try_parse_time(s, len, x, context->state()->timezone_obj());
+        auto ret = TimeValue::try_parse_time(s, len, x, context->state()->timezone_obj());
         return ret;
     }
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
@@ -1382,7 +1287,7 @@ struct StringParsing {
 
         ColumnUInt8::MutablePtr col_null_map_to;
         ColumnUInt8::Container* vec_null_map_to [[maybe_unused]] = nullptr;
-        col_null_map_to = ColumnUInt8::create(row);
+        col_null_map_to = ColumnUInt8::create(row, 0);
         vec_null_map_to = &col_null_map_to->get_data();
 
         const ColumnString::Chars* chars = &col_from_string->get_chars();
@@ -1525,7 +1430,7 @@ public:
             using RightDataType = typename Types::RightType;
 
             ret_status = ConvertImplToTimeType<LeftDataType, RightDataType, Name>::execute(
-                    block, arguments, result, input_rows_count);
+                    context, block, arguments, result, input_rows_count);
             return true;
         };
 
@@ -1882,7 +1787,8 @@ private:
                     variant.is_scalar_variant() ||
                     (!variant.is_null_root() &&
                      !WhichDataType(remove_nullable(variant.get_root_type())).is_nothing() &&
-                     !WhichDataType(data_type_to).is_string());
+                     !WhichDataType(data_type_to).is_string() &&
+                     !WhichDataType(data_type_to).is_json());
             if (is_root_valuable) {
                 ColumnPtr nested = variant.get_root();
                 auto nested_from_type = variant.get_root_type();
@@ -1914,13 +1820,19 @@ private:
                     // TODO not found root cause, a tmp fix
                     col_to->assume_mutable()->insert_many_defaults(input_rows_count);
                     col_to = make_nullable(col_to, true);
-                } else if (!data_type_to->is_nullable() &&
-                           !WhichDataType(data_type_to).is_string()) {
-                    col_to->assume_mutable()->insert_many_defaults(input_rows_count);
-                    col_to = make_nullable(col_to, true);
                 } else if (WhichDataType(data_type_to).is_string()) {
+                    // serialize to string
                     return ConvertImplGenericToString::execute2(context, block, arguments, result,
                                                                 input_rows_count);
+                } else if (WhichDataType(data_type_to).is_json()) {
+                    // serialize to json by parsing
+                    return ConvertImplGenericToJsonb::execute(context, block, arguments, result,
+                                                              input_rows_count);
+                } else if (!data_type_to->is_nullable() &&
+                           !WhichDataType(data_type_to).is_string()) {
+                    // other types
+                    col_to->assume_mutable()->insert_many_defaults(input_rows_count);
+                    col_to = make_nullable(col_to, true);
                 } else {
                     assert_cast<ColumnNullable&>(*col_to->assume_mutable())
                             .insert_many_defaults(input_rows_count);

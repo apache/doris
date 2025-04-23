@@ -21,17 +21,14 @@
 #include <utility>
 
 #include "common/compiler_util.h"
-#include "runtime/descriptors.h"
-#include "util/stack_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/columns_hashing.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/string_ref.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
-#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 
@@ -287,7 +284,7 @@ struct MethodSerialized : public MethodBase<TData> {
     void insert_keys_into_columns(std::vector<StringRef>& input_keys, MutableColumns& key_columns,
                                   const size_t num_rows) override {
         for (auto& column : key_columns) {
-            column->deserialize_vec(input_keys, num_rows);
+            column->deserialize_vec(input_keys.data(), num_rows);
         }
     }
 };

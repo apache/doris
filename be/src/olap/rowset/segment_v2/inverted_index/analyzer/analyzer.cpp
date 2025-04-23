@@ -28,10 +28,13 @@
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-#include "olap/rowset/segment_v2/inverted_index/analyzer/icu/ICUAnalyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/basic/basic_analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/icu/icu_analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/ik/IKAnalyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 std::unique_ptr<lucene::util::Reader> InvertedIndexAnalyzer::create_reader(
         CharFilterMap& char_filter_map) {
@@ -69,6 +72,18 @@ std::unique_ptr<lucene::analysis::Analyzer> InvertedIndexAnalyzer::create_analyz
     } else if (analyser_type == InvertedIndexParserType::PARSER_ICU) {
         analyzer = std::make_unique<ICUAnalyzer>();
         analyzer->initDict(config::inverted_index_dict_path + "/icu");
+    } else if (analyser_type == InvertedIndexParserType::PARSER_BASIC) {
+        analyzer = std::make_unique<BasicAnalyzer>();
+    } else if (analyser_type == InvertedIndexParserType::PARSER_IK) {
+        auto ik_analyzer = std::make_unique<IKAnalyzer>();
+        ik_analyzer->initDict(config::inverted_index_dict_path + "/ik");
+        auto mode = inverted_index_ctx->parser_mode;
+        if (mode == INVERTED_INDEX_PARSER_SMART) {
+            ik_analyzer->setMode(true);
+        } else {
+            ik_analyzer->setMode(false);
+        }
+        analyzer = std::move(ik_analyzer);
     } else {
         // default
         analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
@@ -132,8 +147,9 @@ std::vector<std::string> InvertedIndexAnalyzer::get_analyse_result(
     auto analyzer = create_analyzer(inverted_index_ctx.get());
     inverted_index_ctx->analyzer = analyzer.get();
     auto reader = create_reader(inverted_index_ctx->char_filter_map);
-    reader->init(search_str.data(), search_str.size(), true);
+    reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
     return get_analyse_result(reader.get(), analyzer.get(), field_name, query_type);
 }
 
 } // namespace doris::segment_v2::inverted_index
+#include "common/compile_check_end.h"

@@ -84,7 +84,7 @@ suite("test_create_vault_with_case_sensitive", "nonConcurrent") {
             "TYPE" = "HDFS",
             "FS.DEFAULTFS"="${getHmsHdfsFs()}",
             "PATH_PREFIX" = "${hdfsVaultName.toUpperCase()}",
-            "HADOOP.USERNAME" = "${getHmsUser()}"
+            "hadoop.username" = "${getHmsUser()}"
         );
     """
 
@@ -113,6 +113,8 @@ suite("test_create_vault_with_case_sensitive", "nonConcurrent") {
             PROPERTIES (
                 "type" = "hdfs",
                 "FS.DEFAULTFS"="${getHmsHdfsFs()}",
+                "path_prefix" = "${hdfsVaultName}",
+                "hadoop.username" = "${getHmsUser()}",
                 "s3.endpoint"="${getS3Endpoint()}",
                 "s3.region" = "${getS3Region()}",
                 "s3.access_key" = "${getS3AK()}",
@@ -131,6 +133,9 @@ suite("test_create_vault_with_case_sensitive", "nonConcurrent") {
             CREATE STORAGE VAULT ${s3VaultName}
             PROPERTIES (
                 "type" = "HDFS",
+                "FS.DEFAULTFS"="${getHmsHdfsFs()}",
+                "path_prefix" = "${hdfsVaultName}",
+                "hadoop.username" = "${getHmsUser()}",
                 "s3.endpoint"="${getS3Endpoint()}",
                 "s3.region" = "${getS3Region()}",
                 "s3.access_key" = "${getS3AK()}",

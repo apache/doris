@@ -339,14 +339,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Deprecated
     @Override
-    public void commitTransaction(long dbId, List<Table> tableList,
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
-        commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, null);
+        commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, null);
     }
 
     @Override
-    public void commitTransaction(long dbId, List<Table> tableList, long transactionId,
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
@@ -971,9 +971,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
                     // DELETE_BITMAP_LOCK_ERR will be retried on be
                     throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
-                            "Failed to get delete bitmap lock due to confilct");
+                            "Failed to get delete bitmap lock due to conflict");
                 }
-                throw new UserException("Failed to get delete bitmap lock, code: " + response.getStatus().getCode());
+                throw new UserException(
+                        "Failed to get delete bitmap lock, msg: " + response.getStatus().getMsg() + ", code: "
+                                + response.getStatus().getCode());
             }
 
             // record tablet's latest compaction stats from meta service and send them to BEs
@@ -998,7 +1000,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 lockContext.getBaseCompactionCnts().put(tabletId, respBaseCompactionCnts.get(i));
                 lockContext.getCumulativeCompactionCnts().put(tabletId, respCumulativeCompactionCnts.get(i));
                 lockContext.getCumulativePoints().put(tabletId, respCumulativePoints.get(i));
-                lockContext.getTabletStates().put(tabletId, respTabletStates.get(i));
+                if (size4 > 0) {
+                    lockContext.getTabletStates().put(tabletId, respTabletStates.get(i));
+                }
             }
             totalRetryTime += retryTime;
         }
@@ -1330,12 +1334,21 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public void commitTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis, TxnCommitAttachment txnCommitAttachment)
+            throws UserException {
+        // There is no publish in cloud mode
+        commitAndPublishTransaction(
+                db, tableList, transactionId, tabletCommitInfos, timeoutMillis, txnCommitAttachment);
+    }
+
+    @Override
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
                                                TxnCommitAttachment txnCommitAttachment) throws UserException {
         beforeCommitTransaction(tableList, transactionId, timeoutMillis);
         try {
-            commitTransaction(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+            commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
             afterCommitTransaction(tableList);
         }
@@ -1390,6 +1403,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         LOG.info("try to abort transaction, dbId:{}, transactionId:{}, reason: {}", dbId, transactionId, reason);
 
         AbortTxnRequest.Builder builder = AbortTxnRequest.newBuilder();
+        if (reason != null && reason.length() > 1024) {
+            reason = reason.substring(0, 1024) + " ... (reason is truncated, check fe.log with txnId for details)";
+        }
         builder.setDbId(dbId);
         builder.setTxnId(transactionId);
         builder.setReason(reason);

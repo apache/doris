@@ -51,7 +51,10 @@ public class ShowDictionariesCommand extends ShowCommand {
         this.matcher = PatternMatcherWrapper.createMysqlPattern(wild, true);
     }
 
-    private ShowResultSetMetaData getMetaData() {
+    /**
+     * get meta data
+     */
+    public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         builder.addColumn(new Column("DictionaryId", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("DictionaryName", ScalarType.createVarchar(30)));

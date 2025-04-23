@@ -18,17 +18,24 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.PreparedStatementContext;
+import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -99,6 +106,18 @@ public class PrepareCommand extends Command {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<String> labels = getLabels();
+        StatementContext statementContext = ctx.getStatementContext();
+        statementContext.setPrepareStage(true);
+        List<Slot> slots;
+        if (logicalPlan instanceof Command) {
+            ResultSetMetaData md = ((Command) logicalPlan).getResultSetMetaData();
+            slots = Lists.newArrayList();
+            for (Column c : md.getColumns()) {
+                slots.add(new SlotReference(c.getName(), DataType.fromCatalogType(c.getType())));
+            }
+        } else {
+            slots = executor.planPrepareStatementSlots();
+        }
         // register prepareStmt
         if (LOG.isDebugEnabled()) {
             LOG.debug("add prepared statement {}, isBinaryProtocol {}",
@@ -110,8 +129,8 @@ public class PrepareCommand extends Command {
         }
         ctx.addPreparedStatementContext(name,
                 new PreparedStatementContext(this, ctx, ctx.getStatementContext(), name));
-        if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
-            executor.sendStmtPrepareOK(Integer.parseInt(name), labels);
+        if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE && !ctx.isProxy()) {
+            executor.sendStmtPrepareOK(Integer.parseInt(name), labels, slots);
         }
     }
 

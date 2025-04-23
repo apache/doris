@@ -30,6 +30,9 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.policy.Policy;
@@ -82,6 +85,18 @@ public class ResourceMgr implements Writable {
         }
     }
 
+    public void createResource(CreateResourceCommand command) throws DdlException {
+        CreateResourceInfo info = command.getInfo();
+        if (info.getResourceType() == ResourceType.UNKNOWN) {
+            throw new DdlException("Only support SPARK, ODBC_CATALOG ,JDBC, S3_COOLDOWN, S3, HDFS and HMS resource.");
+        }
+        Resource resource = Resource.fromInfo(info);
+        if (createResource(resource, info.isIfNotExists())) {
+            Env.getCurrentEnv().getEditLog().logCreateResource(resource);
+            LOG.info("Create resource success. Resource: {}", resource.getName());
+        }
+    }
+
     // Return true if the resource is truly added,
     // otherwise, return false or throw exception.
     public boolean createResource(Resource resource, boolean ifNotExists) throws DdlException {
@@ -98,6 +113,32 @@ public class ResourceMgr implements Writable {
     public void replayCreateResource(Resource resource) {
         resource.applyDefaultProperties();
         nameToResource.put(resource.getName(), resource);
+    }
+
+    public void dropResource(DropResourceCommand dropResourceCommand) throws DdlException {
+        String resourceName = dropResourceCommand.getResourceName();
+        if (!nameToResource.containsKey(resourceName)) {
+            if (dropResourceCommand.isIfExists()) {
+                return;
+            }
+            throw new DdlException("Resource(" + resourceName + ") does not exist");
+        }
+
+        Resource resource = nameToResource.get(resourceName);
+        resource.dropResource();
+
+        // Check whether the resource is in use before deleting it, except spark resource
+        StoragePolicy checkedStoragePolicy = StoragePolicy.ofCheck(null);
+        checkedStoragePolicy.setStorageResource(resourceName);
+        if (Env.getCurrentEnv().getPolicyMgr().existPolicy(checkedStoragePolicy)) {
+            Policy policy = Env.getCurrentEnv().getPolicyMgr().getPolicy(checkedStoragePolicy);
+            LOG.warn("Can not drop resource, since it's used in policy {}", policy.getPolicyName());
+            throw new DdlException("Can not drop resource, since it's used in policy " + policy.getPolicyName());
+        }
+        nameToResource.remove(resourceName);
+        // log drop
+        Env.getCurrentEnv().getEditLog().logDropResource(new DropResourceOperationLog(resourceName));
+        LOG.info("Drop resource success. Resource resourceName: {}", resourceName);
     }
 
     public void dropResource(DropResourceStmt stmt) throws DdlException {

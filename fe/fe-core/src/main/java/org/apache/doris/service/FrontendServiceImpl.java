@@ -85,9 +85,11 @@ import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
+import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.plsql.metastore.PlsqlPackage;
@@ -114,6 +116,7 @@ import org.apache.doris.statistics.InvalidateStatsTarget;
 import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.UpdatePartitionStatsTarget;
+import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
@@ -147,6 +150,8 @@ import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
+import org.apache.doris.thrift.TFetchRoutineLoadJobRequest;
+import org.apache.doris.thrift.TFetchRoutineLoadJobResult;
 import org.apache.doris.thrift.TFetchRunningQueriesRequest;
 import org.apache.doris.thrift.TFetchRunningQueriesResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
@@ -157,6 +162,8 @@ import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
+import org.apache.doris.thrift.TFrontendReportAliveSessionRequest;
+import org.apache.doris.thrift.TFrontendReportAliveSessionResult;
 import org.apache.doris.thrift.TGetBackendMetaRequest;
 import org.apache.doris.thrift.TGetBackendMetaResult;
 import org.apache.doris.thrift.TGetBinlogLagResult;
@@ -226,6 +233,7 @@ import org.apache.doris.thrift.TRestoreSnapshotRequest;
 import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
+import org.apache.doris.thrift.TRoutineLoadJob;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowProcessListRequest;
@@ -254,6 +262,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
+import org.apache.doris.thrift.TUpdatePlanStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.SubTransactionState;
@@ -264,6 +273,7 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -287,6 +297,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -879,7 +890,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             final TColumnDef colDef = new TColumnDef(desc);
                             final String comment = column.getComment();
                             if (comment != null) {
-                                colDef.setComment(comment);
+                                if (Config.column_comment_length_limit > 0
+                                        && comment.length() > Config.column_comment_length_limit) {
+                                    colDef.setComment(comment.substring(0, Config.column_comment_length_limit));
+                                } else {
+                                    colDef.setComment(comment);
+                                }
                             }
                             if (column.isKey()) {
                                 if (table instanceof OlapTable) {
@@ -1050,7 +1066,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), params.getClientNodeHost());
         }
-        ConnectContext context = new ConnectContext(null, true);
+        ConnectContext context = new ConnectContext(null, true, params.getSessionId());
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
@@ -1589,6 +1605,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
+        if (DebugPointUtil.isEnable("load.commit_timeout")) {
+            try {
+                Thread.sleep(60 * 1000);
+            } catch (InterruptedException e) {
+                LOG.warn("failed to sleep", e);
+            }
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs("load commit timeout");
+            return result;
+        }
+
         try {
             if (!loadTxnCommitImpl(request)) {
                 // committed success but not visible
@@ -1787,14 +1814,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                 subTxnInfo.getTabletCommitInfos(), null));
             }
             transactionState.setSubTxnIds(subTxnIds);
-            return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(db, request.getTxnId(),
-                    subTransactionStates, timeoutMs);
-        } else {
+            return Env.getCurrentGlobalTransactionMgr()
+                    .commitAndPublishTransaction(db, request.getTxnId(),
+                            subTransactionStates, timeoutMs);
+        } else if (!request.isOnlyCommit()) {
             return Env.getCurrentGlobalTransactionMgr()
                     .commitAndPublishTransaction(db, tableList,
                             request.getTxnId(),
                             TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
                             TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
+        } else {
+            // single table commit, so don't need to wait for publish.
+            Env.getCurrentGlobalTransactionMgr()
+                    .commitTransaction(db, tableList,
+                            request.getTxnId(),
+                            TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
+                            TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
+            return true;
         }
     }
 
@@ -2199,6 +2235,34 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return new TStatus(TStatusCode.OK);
         }
         return new TStatus(TStatusCode.CANCELLED);
+    }
+
+    @Override
+    public TFrontendReportAliveSessionResult getAliveSessions(TFrontendReportAliveSessionRequest request)
+            throws TException {
+        TFrontendReportAliveSessionResult result = new TFrontendReportAliveSessionResult();
+        result.setStatus(TStatusCode.OK);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get alive sessions request: {}", request);
+        }
+
+        Env env = Env.getCurrentEnv();
+        if (env.isReady()) {
+            if (request.getClusterId() != env.getClusterId()) {
+                result.setStatus(TStatusCode.INVALID_ARGUMENT);
+                result.setMsg("invalid cluster id: " + Env.getCurrentEnv().getClusterId());
+            } else if (!request.getToken().equals(env.getToken())) {
+                result.setStatus(TStatusCode.INVALID_ARGUMENT);
+                result.setMsg("invalid token: " + Env.getCurrentEnv().getToken());
+            } else {
+                result.setMsg("success");
+                result.setSessionIdList(env.getAllAliveSessionIds());
+            }
+        } else {
+            result.setStatus(TStatusCode.ILLEGAL_STATE);
+            result.setMsg("not ready");
+        }
+        return result;
     }
 
     @Override
@@ -3322,6 +3386,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setLastCommitSeq(lagInfo.getLastCommitSeq());
             result.setFirstBinlogTimestamp(lagInfo.getFirstCommitTs());
             result.setLastBinlogTimestamp(lagInfo.getLastCommitTs());
+            result.setNextCommitSeq(lagInfo.getNextCommitSeq());
+            result.setNextBinlogTimestamp(lagInfo.getNextCommitTs());
         }
         return result;
     }
@@ -3435,6 +3501,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     k.catalogId, k.dbId, k.tableId, k.idxId, k.colName, c);
         }
         // Return Ok anyway
+        return new TStatus(TStatusCode.OK);
+    }
+
+    @Override
+    public TStatus updatePlanStatsCache(TUpdatePlanStatsCacheRequest request) throws TException {
+        PlanNodeAndHash key = GsonUtils.GSON.fromJson(request.key, PlanNodeAndHash.class);
+        RecentRunsPlanStatistics data = GsonUtils.GSON.fromJson(request.planStatsData, RecentRunsPlanStatistics.class);
+        Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanStatisticsProvider()
+                .updatePlanStats(key, data);
         return new TStatus(TStatusCode.OK);
     }
 
@@ -3943,6 +4018,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
 
                     if (table == null) {
+                        // Since Database.getTableNullable is lock-free, we need to take lock and check again,
+                        // to ensure the visibility of the table.
+                        db.readLock();
+                        try {
+                            if (getMetaTable.isSetId()) {
+                                table = db.getTableNullable(getMetaTable.getId());
+                            } else {
+                                table = db.getTableNullable(getMetaTable.getName());
+                            }
+                        } finally {
+                            db.readUnlock();
+                        }
+                    }
+
+                    if (table == null) {
                         LOG.warn("table not found {}", getMetaTable);
                         continue;
                     }
@@ -4125,8 +4215,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetCurrentUserIdent()) {
             userIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
         }
+        String timeZone = VariableMgr.getDefaultSessionVariable().getTimeZone();
+        if (request.isSetTimeZone()) {
+            timeZone = request.getTimeZone();
+        }
         List<List<String>> processList = ExecuteEnv.getInstance().getScheduler()
-                .listConnectionForRpc(userIdentity, isShowFullSql);
+                .listConnectionForRpc(userIdentity, isShowFullSql, Optional.of(timeZone));
         TShowProcessListResult result = new TShowProcessListResult();
         result.setProcessList(processList);
         return result;
@@ -4163,6 +4257,57 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         result.setStatus(new TStatus(TStatusCode.OK));
         result.setRunningQueries(runningQueries);
+        return result;
+    }
+
+    @Override
+    public TFetchRoutineLoadJobResult fetchRoutineLoadJob(TFetchRoutineLoadJobRequest request) {
+        TFetchRoutineLoadJobResult result = new TFetchRoutineLoadJobResult();
+
+        if (!Env.getCurrentEnv().isReady()) {
+            return result;
+        }
+
+        RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
+        List<TRoutineLoadJob> jobInfos = Lists.newArrayList();
+        List<RoutineLoadJob> routineLoadJobs = routineLoadManager.getAllRoutineLoadJobs();
+        for (RoutineLoadJob job : routineLoadJobs) {
+            TRoutineLoadJob jobInfo = new TRoutineLoadJob();
+            jobInfo.setJobId(String.valueOf(job.getId()));
+            jobInfo.setJobName(job.getName());
+            jobInfo.setCreateTime(job.getCreateTimestampString());
+            jobInfo.setPauseTime(job.getPauseTimestampString());
+            jobInfo.setEndTime(job.getEndTimestampString());
+            String dbName = "";
+            String tableName = "";
+            try {
+                dbName = job.getDbFullName();
+                tableName = job.getTableName();
+            } catch (MetaNotFoundException e) {
+                LOG.warn("Failed to get db or table name for routine load job: {}", job.getId(), e);
+            }
+            jobInfo.setDbName(dbName);
+            jobInfo.setTableName(tableName);
+            jobInfo.setState(job.getState().name());
+            jobInfo.setCurrentTaskNum(String.valueOf(job.getSizeOfRoutineLoadTaskInfoList()));
+            jobInfo.setJobProperties(job.jobPropertiesToJsonString());
+            jobInfo.setDataSourceProperties(job.dataSourcePropertiesJsonToString());
+            jobInfo.setCustomProperties(job.customPropertiesJsonToString());
+            jobInfo.setStatistic(job.getStatistic());
+            jobInfo.setProgress(job.getProgress().toJsonString());
+            jobInfo.setLag(job.getLag());
+            jobInfo.setReasonOfStateChanged(job.getStateReason());
+            jobInfo.setErrorLogUrls(Joiner.on(", ").join(job.getErrorLogUrls()));
+            jobInfo.setUserName(job.getUserIdentity().getQualifiedUser());
+            jobInfo.setCurrentAbortTaskNum(job.getJobStatistic().currentAbortedTaskNum);
+            jobInfo.setIsAbnormalPause(job.isAbnormalPause());
+            jobInfos.add(jobInfo);
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("routine load job infos: {}", jobInfos);
+        }
+        result.setRoutineLoadJobs(jobInfos);
+
         return result;
     }
 }

@@ -56,7 +56,6 @@
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_meta.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -72,7 +71,6 @@
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
-#include "util/spinlock.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -300,7 +298,7 @@ Status StorageEngine::_open() {
 
 Status StorageEngine::_init_store_map() {
     std::vector<std::thread> threads;
-    SpinLock error_msg_lock;
+    std::mutex error_msg_lock;
     std::string error_msg;
     for (auto& path : _options.store_paths) {
         auto store = std::make_unique<DataDir>(*this, path.path, path.capacity_bytes,
@@ -309,7 +307,7 @@ Status StorageEngine::_init_store_map() {
             auto st = store->init();
             if (!st.ok()) {
                 {
-                    std::lock_guard<SpinLock> l(error_msg_lock);
+                    std::lock_guard<std::mutex> l(error_msg_lock);
                     error_msg.append(st.to_string() + ";");
                 }
                 LOG(WARNING) << "Store load failed, status=" << st.to_string()
@@ -949,6 +947,11 @@ void StorageEngine::_clean_unused_rowset_metas() {
         for (auto& rowset_meta : invalid_rowset_metas) {
             static_cast<void>(RowsetMetaManager::remove(
                     data_dir->get_meta(), rowset_meta->tablet_uid(), rowset_meta->rowset_id()));
+            TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
+            if (tablet && tablet->tablet_meta()->enable_unique_key_merge_on_write()) {
+                tablet->tablet_meta()->delete_bitmap().remove_rowset_cache_version(
+                        rowset_meta->rowset_id());
+            }
         }
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
@@ -1223,6 +1226,7 @@ void StorageEngine::start_delete_unused_rowset() {
             tablet && tablet->enable_unique_key_merge_on_write()) {
             tablet->tablet_meta()->delete_bitmap().remove({rs->rowset_id(), 0, 0},
                                                           {rs->rowset_id(), UINT32_MAX, 0});
+            tablet->tablet_meta()->delete_bitmap().remove_rowset_cache_version(rs->rowset_id());
         }
         Status status = rs->remove();
         unused_rowsets_counter << -1;
@@ -1262,7 +1266,7 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
     return _tablet_manager->create_tablet(request, stores, profile);
 }
 
-Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id) {
+Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats) {
     BaseTabletSPtr tablet;
     std::string err;
     tablet = _tablet_manager->get_tablet(tablet_id, true, &err);
@@ -1491,6 +1495,24 @@ void BaseStorageEngine::_evict_querying_rowset() {
             }
         }
     }
+}
+
+bool BaseStorageEngine::_should_delay_large_task() {
+    DCHECK_GE(_cumu_compaction_thread_pool->max_threads(),
+              _cumu_compaction_thread_pool_used_threads);
+    DCHECK_GE(_cumu_compaction_thread_pool_small_tasks_running, 0);
+    // Case 1: Multiple threads available => accept large task
+    if (_cumu_compaction_thread_pool->max_threads() - _cumu_compaction_thread_pool_used_threads >
+        0) {
+        return false; // No delay needed
+    }
+    // Case 2: Only one thread left => accept large task only if another small task is already running
+    if (_cumu_compaction_thread_pool_small_tasks_running > 0) {
+        return false; // No delay needed
+    }
+    // Case 3: Only one thread left, this is a large task, and no small tasks are running
+    // Delay this task to reserve capacity for potential small tasks
+    return true; // Delay this large task
 }
 
 bool StorageEngine::add_broken_path(std::string path) {

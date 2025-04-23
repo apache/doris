@@ -140,7 +140,7 @@ std::string ResourceManager::get_node(const std::string& cloud_unique_id,
 }
 
 bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::string* err,
-                                                 bool check_master_num) {
+                                                 bool check_master_num, bool check_cluster_name) {
     // check
     if (!cluster.has_type()) {
         *err = "cluster must have type arg";
@@ -152,6 +152,11 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
     if (config::enable_cluster_name_check && cluster.has_cluster_name() &&
         !std::regex_match(cluster.cluster_name(), txt_regex)) {
         *err = "cluster name not regex with ^[a-zA-Z][a-zA-Z0-9_]*$, please check it";
+        return false;
+    }
+
+    if (check_cluster_name && (!cluster.has_cluster_name() || cluster.cluster_name() == "")) {
+        *err = "not have cluster name";
         return false;
     }
 
@@ -310,7 +315,8 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [&msg](int*) { LOG(INFO) << "add_cluster err=" << msg; });
 
-    if (!check_cluster_params_valid(cluster.cluster, &msg, true)) {
+    // just check cluster_name not empty in add_cluster
+    if (!check_cluster_params_valid(cluster.cluster, &msg, true, true)) {
         LOG(WARNING) << msg;
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
     }

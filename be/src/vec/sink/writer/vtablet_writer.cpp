@@ -68,13 +68,13 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
+#include "util/brpc_closure.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/network_util.h"
 #include "util/proto_util.h"
-#include "util/ref_count_closure.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_util.h"
@@ -167,7 +167,7 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
     }
 
     {
-        std::lock_guard<doris::SpinLock> l(_fail_lock);
+        std::lock_guard<std::mutex> l(_fail_lock);
         if (tablet_id == -1) {
             for (const auto the_tablet_id : it->second) {
                 _failed_channels[the_tablet_id].insert(node_id);
@@ -190,20 +190,23 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
 }
 
 Status IndexChannel::check_intolerable_failure() {
-    std::lock_guard<doris::SpinLock> l(_fail_lock);
+    std::lock_guard<std::mutex> l(_fail_lock);
     return _intolerable_failure_status;
 }
 
 void IndexChannel::set_error_tablet_in_state(RuntimeState* state) {
-    std::vector<TErrorTabletInfo>& error_tablet_infos = state->error_tablet_infos();
+    std::vector<TErrorTabletInfo> error_tablet_infos;
 
-    std::lock_guard<doris::SpinLock> l(_fail_lock);
-    for (const auto& it : _failed_channels_msgs) {
-        TErrorTabletInfo error_info;
-        error_info.__set_tabletId(it.first);
-        error_info.__set_msg(it.second);
-        error_tablet_infos.emplace_back(error_info);
+    {
+        std::lock_guard<std::mutex> l(_fail_lock);
+        for (const auto& it : _failed_channels_msgs) {
+            TErrorTabletInfo error_info;
+            error_info.__set_tabletId(it.first);
+            error_info.__set_msg(it.second);
+            error_tablet_infos.emplace_back(error_info);
+        }
     }
+    state->add_error_tablet_infos(error_tablet_infos);
 }
 
 void IndexChannel::set_tablets_received_rows(
@@ -519,7 +522,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
         if (_cancelled) {
-            std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
+            std::lock_guard<std::mutex> l(_cancel_msg_lock);
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>("add row failed. {}",
                                                                    _cancel_msg);
         } else {
@@ -579,7 +582,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
 }
 
 static void injection_full_gc_fn() {
-    MemoryReclamation::process_full_gc();
+    MemoryReclamation::revoke_process_memory("injection_full_gc_fn");
 }
 
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
@@ -618,7 +621,7 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
 void VNodeChannel::_cancel_with_msg(const std::string& msg) {
     LOG(WARNING) << "cancel node channel " << channel_info() << ", error message: " << msg;
     {
-        std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
+        std::lock_guard<std::mutex> l(_cancel_msg_lock);
         if (_cancel_msg.empty()) {
             _cancel_msg = msg;
         }
@@ -943,7 +946,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     auto st = none_of({_cancelled, !_eos_is_produced});
     if (!st.ok()) {
         if (_cancelled) {
-            std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
+            std::lock_guard<std::mutex> l(_cancel_msg_lock);
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>("wait close failed. {}",
                                                                    _cancel_msg);
         } else {
@@ -968,9 +971,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
 
     if (_add_batches_finished) {
         _close_check();
-        state->tablet_commit_infos().insert(state->tablet_commit_infos().end(),
-                                            std::make_move_iterator(_tablet_commit_infos.begin()),
-                                            std::make_move_iterator(_tablet_commit_infos.end()));
+        _state->add_tablet_commit_infos(_tablet_commit_infos);
 
         _index_channel->set_error_tablet_in_state(state);
         _index_channel->set_tablets_received_rows(_tablets_received_rows, _node_id);

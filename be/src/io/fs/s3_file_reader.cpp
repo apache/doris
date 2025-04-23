@@ -132,6 +132,7 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
 
     int total_sleep_time = 0;
     while (retry_count <= max_retries) {
+        *bytes_read = 0;
         s3_file_reader_read_counter << 1;
         // clang-format off
         auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
@@ -157,8 +158,12 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
             }
         }
         if (*bytes_read != bytes_req) {
-            return Status::InternalError("failed to read (bytes read: {}, bytes req: {})",
-                                         *bytes_read, bytes_req);
+            std::string msg = fmt::format(
+                    "failed to get object, path={} offset={} bytes_req={} bytes_read={} "
+                    "file_size={} tries={}",
+                    _path.native(), offset, bytes_req, *bytes_read, _file_size, (retry_count + 1));
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
         }
         _s3_stats.total_bytes_read += bytes_req;
         s3_bytes_read_total << bytes_req;
@@ -170,7 +175,12 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         }
         return Status::OK();
     }
-    return Status::InternalError("failed to read from s3, exceeded maximum retries");
+    std::string msg = fmt::format(
+            "failed to get object, path={} offset={} bytes_req={} bytes_read={} file_size={} "
+            "tries={}",
+            _path.native(), offset, bytes_req, *bytes_read, _file_size, (max_retries + 1));
+    LOG(WARNING) << msg;
+    return Status::InternalError(msg);
 }
 
 void S3FileReader::_collect_profile_before_close() {

@@ -186,7 +186,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, qualifier, partIds,
-                    tabletIds, unboundRelation.getHints(), unboundRelation.getTableSample());
+                    tabletIds, unboundRelation.getHints(),
+                    unboundRelation.getTableSample(),
+                    ImmutableList.of());
         } else {
             Optional<String> indexName = unboundRelation.getIndexName();
             // For direct mv scan.
@@ -204,11 +206,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     (OlapTable) table, qualifier, tabletIds,
                     CollectionUtils.isEmpty(partIds) ? ((OlapTable) table).getPartitionIds() : partIds, indexId,
                     preAggStatus, CollectionUtils.isEmpty(partIds) ? ImmutableList.of() : partIds,
-                    unboundRelation.getHints(), unboundRelation.getTableSample());
+                    unboundRelation.getHints(), unboundRelation.getTableSample(), ImmutableList.of());
             } else {
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
-                    unboundRelation.getTableSample());
+                    unboundRelation.getTableSample(), ImmutableList.of());
             }
         }
         if (!tabletIds.isEmpty()) {
@@ -376,6 +378,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         List<String> qualifierWithoutTableName = Lists.newArrayList();
         qualifierWithoutTableName.addAll(qualifiedTableName.subList(0, qualifiedTableName.size() - 1));
+        cascadesContext.getStatementContext().loadSnapshots(unboundRelation.getTableSnapshot());
         boolean isView = false;
         try {
             switch (table.getType()) {

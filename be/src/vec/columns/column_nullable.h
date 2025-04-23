@@ -200,6 +200,12 @@ public:
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
+    void append_data_by_selector(IColumn::MutablePtr& res,
+                                 const IColumn::Selector& selector) const override;
+
+    void append_data_by_selector(IColumn::MutablePtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override;
+
     template <typename ColumnType>
     void insert_from_with_type(const IColumn& src, size_t n) {
         const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
@@ -215,9 +221,7 @@ public:
         }
     }
 
-    void insert_from_not_nullable(const IColumn& src, size_t n);
     void insert_range_from_not_nullable(const IColumn& src, size_t start, size_t length);
-    void insert_many_from_not_nullable(const IColumn& src, size_t position, size_t length);
 
     void insert_many_fix_len_data(const char* pos, size_t num) override {
         _push_false_to_nullmap(num);
@@ -434,6 +438,13 @@ public:
 
     std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
         return nested_column->get_rowset_segment_id();
+    }
+
+    void finalize() override { get_nested_column().finalize(); }
+
+    void erase(size_t start, size_t length) override {
+        get_nested_column().erase(start, length);
+        get_null_map_column().erase(start, length);
     }
 
 private:

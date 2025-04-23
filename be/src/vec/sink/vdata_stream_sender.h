@@ -42,7 +42,7 @@
 #include "exec/tablet_info.h"
 #include "pipeline/exec/exchange_sink_buffer.h"
 #include "service/backend_options.h"
-#include "util/ref_count_closure.h"
+#include "util/brpc_closure.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
@@ -166,13 +166,13 @@ public:
     InstanceLoId dest_ins_id() const { return _fragment_instance_id.lo; }
 
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
-            InstanceLoId id, bool eos) {
+            pipeline::RpcInstance* ins, bool eos) {
         if (!_send_callback) {
             _send_callback = pipeline::ExchangeSendCallback<PTransmitDataResult>::create_shared();
         } else {
             _send_callback->cntl_->Reset();
         }
-        _send_callback->init(id, eos);
+        _send_callback->init(ins, eos);
         return _send_callback;
     }
 

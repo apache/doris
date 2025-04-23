@@ -134,7 +134,7 @@ public class MaxComputeExternalTable extends ExternalTable {
                 partitionSpecs.stream()
                         .map(p -> parsePartitionValues(partitionColumnNames, p))
                         .collect(Collectors.toList()),
-                partitionTypes);
+                partitionTypes, Collections.nCopies(partitionSpecs.size(), 0L));
         return partitionValues;
     }
 
@@ -269,6 +269,7 @@ public class MaxComputeExternalTable extends ExternalTable {
             case DATETIME: {
                 return ScalarType.createDatetimeV2Type(3);
             }
+            case TIMESTAMP:
             case TIMESTAMP_NTZ: {
                 return ScalarType.createDatetimeV2Type(6);
             }

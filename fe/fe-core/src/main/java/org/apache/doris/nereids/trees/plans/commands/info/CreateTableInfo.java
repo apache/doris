@@ -43,6 +43,7 @@ import org.apache.doris.common.util.GeneratedColumnUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.es.EsUtil;
@@ -58,6 +59,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -71,6 +73,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -135,6 +138,7 @@ public class CreateTableInfo {
     private boolean isEnableSkipBitmapColumn = false;
 
     private boolean isExternal = false;
+    private boolean isTemp = false;
     private String clusterName = null;
     private List<String> clusterKeysColumnNames = null;
     private PartitionTableInfo partitionTableInfo; // get when validate
@@ -142,7 +146,7 @@ public class CreateTableInfo {
     /**
      * constructor for create table
      */
-    public CreateTableInfo(boolean ifNotExists, boolean isExternal, String ctlName, String dbName,
+    public CreateTableInfo(boolean ifNotExists, boolean isExternal, boolean isTemp, String ctlName, String dbName,
             String tableName, List<ColumnDefinition> columns, List<IndexDefinition> indexes,
             String engineName, KeysType keysType, List<String> keys, String comment,
             PartitionTableInfo partitionTableInfo,
@@ -151,6 +155,7 @@ public class CreateTableInfo {
             List<String> clusterKeyColumnNames) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
+        this.isTemp = isTemp;
         this.ctlName = ctlName;
         this.dbName = dbName;
         this.tableName = tableName;
@@ -173,7 +178,7 @@ public class CreateTableInfo {
     /**
      * constructor for create table as select
      */
-    public CreateTableInfo(boolean ifNotExists, boolean isExternal, String ctlName, String dbName,
+    public CreateTableInfo(boolean ifNotExists, boolean isExternal, boolean isTemp, String ctlName, String dbName,
             String tableName, List<String> cols, String engineName, KeysType keysType,
             List<String> keys, String comment,
             PartitionTableInfo partitionTableInfo,
@@ -182,6 +187,7 @@ public class CreateTableInfo {
             List<String> clusterKeyColumnNames) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
+        this.isTemp = isTemp;
         this.ctlName = ctlName;
         this.dbName = dbName;
         this.tableName = tableName;
@@ -206,11 +212,11 @@ public class CreateTableInfo {
      */
     public CreateTableInfo withTableNameAndIfNotExists(String tableName, boolean ifNotExists) {
         if (ctasColumns != null) {
-            return new CreateTableInfo(ifNotExists, isExternal, ctlName, dbName, tableName, ctasColumns, engineName,
-                    keysType, keys, comment, partitionTableInfo, distribution, rollups, properties, extProperties,
-                    clusterKeysColumnNames);
+            return new CreateTableInfo(ifNotExists, isExternal, isTemp, ctlName, dbName, tableName, ctasColumns,
+                    engineName, keysType, keys, comment, partitionTableInfo, distribution, rollups, properties,
+                    extProperties, clusterKeysColumnNames);
         } else {
-            return new CreateTableInfo(ifNotExists, isExternal, ctlName, dbName, tableName, columns, indexes,
+            return new CreateTableInfo(ifNotExists, isExternal, isTemp, ctlName, dbName, tableName, columns, indexes,
                     engineName, keysType, keys, comment, partitionTableInfo, distribution, rollups, properties,
                     extProperties, clusterKeysColumnNames);
         }
@@ -300,7 +306,8 @@ public class CreateTableInfo {
         }
 
         try {
-            FeNameFormat.checkTableName(tableName);
+            // check display name for temporary table, its inner name cannot pass validation
+            FeNameFormat.checkTableName(Util.getTempTableDisplayName(tableName));
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
@@ -668,13 +675,10 @@ public class CreateTableInfo {
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
-            boolean disableInvertedIndexV1ForVariant = false;
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
             try {
                 invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
                         new HashMap<>(properties));
-                disableInvertedIndexV1ForVariant = invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
-                        && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
@@ -690,7 +694,7 @@ public class CreateTableInfo {
                     for (ColumnDefinition column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
                             indexDef.checkColumn(column, keysType, isEnableMergeOnWrite,
-                                    invertedIndexFileStorageFormat, disableInvertedIndexV1ForVariant);
+                                    invertedIndexFileStorageFormat);
                             found = true;
                             break;
                         }
@@ -771,6 +775,13 @@ public class CreateTableInfo {
                 throw new AnalysisException(
                         "Do not support table with engine name = " + engineName);
             }
+        }
+
+        if (isTemp && !engineName.equals(ENGINE_OLAP)) {
+            throw new AnalysisException("Do not support temporary table with engine name = " + engineName);
+        }
+        if (isTemp && !rollups.isEmpty()) {
+            throw new AnalysisException("Do not support temporary table with rollup ");
         }
 
         if (!Config.enable_odbc_mysql_broker_table && (engineName.equals(ENGINE_ODBC)
@@ -949,7 +960,7 @@ public class CreateTableInfo {
             }
         }
 
-        return new CreateTableStmt(ifNotExists, isExternal,
+        return new CreateTableStmt(ifNotExists, isExternal, isTemp,
                 new TableName(ctlName, dbName, tableName),
                 catalogColumns, catalogIndexes, engineName,
                 new KeysDesc(keysType, keys, clusterKeysColumnNames),
@@ -1007,19 +1018,28 @@ public class CreateTableInfo {
             Expression boundSlotExpression = SlotReplacer.INSTANCE.replace(parsedExpression, columnToSlotReference);
             Scope scope = new Scope(slots);
             ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
-            Expression expr;
+            Expression expression;
             try {
-                expr = analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
+                expression = analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
             } catch (AnalysisException e) {
                 throw new AnalysisException("In generated column '" + column.getName() + "', "
                         + Utils.convertFirstChar(e.getMessage()));
             }
-            checkExpressionInGeneratedColumn(expr, column, nameToColumnDefinition);
-            TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
+            checkExpressionInGeneratedColumn(expression, column, nameToColumnDefinition);
+            TypeCoercionUtils.checkCanCastTo(expression.getDataType(), column.getType());
             ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
-            Expr e = expr.accept(translator, planTranslatorContext);
-            info.get().setExpr(e);
-            exprAndnames.add(new GeneratedColumnUtil.ExprAndname(e.clone(), column.getName()));
+            Expr expr = expression.accept(translator, planTranslatorContext);
+            info.get().setExpr(expr);
+            // Casting slot to its own type is because when loading data(stream load and other load),
+            // the slots reading from files are string type. So we need to cast it to its own type to avoid error.
+            Expression expressionForLoad = expression.rewriteDownShortCircuit(e -> {
+                if (e instanceof SlotReference && !(e.getDataType() instanceof CharacterType)) {
+                    return new Cast(e, e.getDataType());
+                }
+                return e;
+            });
+            Expr exprForLoad = expressionForLoad.accept(translator, planTranslatorContext);
+            exprAndnames.add(new GeneratedColumnUtil.ExprAndname(exprForLoad.clone(), column.getName()));
         }
 
         // for alter drop column
@@ -1170,6 +1190,10 @@ public class CreateTableInfo {
 
     public DistributionDescriptor getDistribution() {
         return distribution;
+    }
+
+    public boolean isTemp() {
+        return isTemp;
     }
 }
 

@@ -35,6 +35,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/memory/memory_reclamation.h"
 #include "runtime/workload_group/workload_group_metrics.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/mem_info.h"
@@ -66,7 +67,6 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_
           _load_buffer_ratio(tg_info.write_buffer_ratio),
           _enable_memory_overcommit(tg_info.enable_memory_overcommit),
           _cpu_share(tg_info.cpu_share),
-          _mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM),
           _cpu_hard_limit(tg_info.cpu_hard_limit),
           _scan_thread_num(tg_info.scan_thread_num),
           _max_remote_scan_thread_num(tg_info.max_remote_scan_thread_num),
@@ -87,6 +87,8 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_
     _wg_metrics = std::make_shared<WorkloadGroupMetrics>(this);
 }
 
+WorkloadGroup::~WorkloadGroup() = default;
+
 std::string WorkloadGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
     return fmt::format(
@@ -98,7 +100,7 @@ std::string WorkloadGroup::debug_string() const {
             "read_bytes_per_second={}, remote_read_bytes_per_second={}]",
             _id, _name, _version, _memory_debug_string(), cpu_share(), cpu_hard_limit(),
             _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,
-            _is_shutdown, _query_ctxs.size(), _scan_bytes_per_second,
+            _is_shutdown, _resource_ctxs.size(), _scan_bytes_per_second,
             _remote_scan_bytes_per_second);
 }
 
@@ -144,7 +146,7 @@ std::string WorkloadGroup::memory_debug_string() const {
     return fmt::format(
             "WorkloadGroup[id = {}, name = {}, version = {}, "
             "{}, is_shutdown={}, query_num={}]",
-            _id, _name, _version, _memory_debug_string(), _is_shutdown, _query_ctxs.size());
+            _id, _name, _version, _memory_debug_string(), _is_shutdown, _resource_ctxs.size());
 }
 
 void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
@@ -184,32 +186,29 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
 
 // MemtrackerLimiter is not removed during query context release, so that should remove it here.
 int64_t WorkloadGroup::refresh_memory_usage() {
-    int64_t used_memory = 0;
+    int64_t fragment_used_memory = 0;
     int64_t write_buffer_size = 0;
-    for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
-        std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
-        for (auto trackerWptr = mem_tracker_group.trackers.begin();
-             trackerWptr != mem_tracker_group.trackers.end();) {
-            auto tracker = trackerWptr->lock();
-            if (tracker == nullptr) {
-                trackerWptr = mem_tracker_group.trackers.erase(trackerWptr);
-            } else {
-                used_memory += tracker->consumption();
-                write_buffer_size += tracker->write_buffer_size();
-                ++trackerWptr;
+    {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        for (const auto& pair : _resource_ctxs) {
+            auto resource_ctx = pair.second.lock();
+            if (!resource_ctx) {
+                continue;
             }
+            DCHECK(resource_ctx->memory_context()->mem_tracker() != nullptr);
+            fragment_used_memory += resource_ctx->memory_context()->current_memory_bytes();
+            write_buffer_size += resource_ctx->memory_context()->mem_tracker()->write_buffer_size();
         }
     }
-    // refresh total memory used.
 
-    _total_mem_used = used_memory + write_buffer_size;
-    _wg_metrics->update_memory_used_bytes(used_memory);
+    _total_mem_used = fragment_used_memory + write_buffer_size;
+    _wg_metrics->update_memory_used_bytes(_total_mem_used);
     _write_buffer_size = write_buffer_size;
     // reserve memory is recorded in the query mem tracker
     // and _total_mem_used already contains all the current reserve memory.
     // so after refreshing _total_mem_used, reset _wg_refresh_interval_memory_growth.
     _wg_refresh_interval_memory_growth.store(0.0);
-    return used_memory;
+    return _total_mem_used;
 }
 
 int64_t WorkloadGroup::memory_used() {
@@ -217,230 +216,106 @@ int64_t WorkloadGroup::memory_used() {
 }
 
 void WorkloadGroup::do_sweep() {
-    // Clear memtracker limiter that is registered during query or load.
-    for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
-        std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
-        for (auto trackerWptr = mem_tracker_group.trackers.begin();
-             trackerWptr != mem_tracker_group.trackers.end();) {
-            auto tracker = trackerWptr->lock();
-            if (tracker == nullptr) {
-                trackerWptr = mem_tracker_group.trackers.erase(trackerWptr);
-            } else {
-                ++trackerWptr;
-            }
-        }
-    }
-
-    // Clear query context that is registered during query context ctor
+    // Clear resource context that is registered during add_resource_ctx
     std::unique_lock<std::shared_mutex> wlock(_mutex);
-    for (auto iter = _query_ctxs.begin(); iter != _query_ctxs.end();) {
+    for (auto iter = _resource_ctxs.begin(); iter != _resource_ctxs.end();) {
         if (iter->second.lock() == nullptr) {
-            iter = _query_ctxs.erase(iter);
+            iter = _resource_ctxs.erase(iter);
         } else {
             iter++;
         }
     }
 }
 
-void WorkloadGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr) {
-    std::unique_lock<std::shared_mutex> wlock(_mutex);
-    auto group_num = mem_tracker_ptr->group_num();
-    std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
-    _mem_tracker_limiter_pool[group_num].trackers.insert(
-            _mem_tracker_limiter_pool[group_num].trackers.end(), mem_tracker_ptr);
-}
-
-int64_t WorkloadGroup::free_overcommited_memory(int64_t need_free_mem, RuntimeProfile* profile) {
+int64_t WorkloadGroup::revoke_memory(int64_t need_free_mem, const std::string& revoke_reason,
+                                     RuntimeProfile* profile) {
     if (need_free_mem <= 0) {
         return 0;
     }
     int64_t used_memory = memory_used();
-    // Change need free mem to exceed limit
-    need_free_mem = std::min<int64_t>(used_memory - _memory_limit, need_free_mem);
-    if (need_free_mem <= 0) {
-        return 0;
+    int64_t freed_mem = 0;
+    MonotonicStopWatch watch;
+    watch.start();
+    RuntimeProfile* group_revoke_profile =
+            profile->create_child(fmt::format("RevokeGroupMemory:id {}", _id), true, true);
+
+    std::vector<std::shared_ptr<ResourceContext>> resource_ctxs;
+    {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        for (const auto& pair : _resource_ctxs) {
+            auto resource_ctx = pair.second.lock();
+            if (resource_ctx) {
+                resource_ctxs.push_back(resource_ctx);
+            }
+        }
     }
 
-    int64_t freed_mem = 0;
-
-    std::string cancel_str =
-            fmt::format("Kill overcommit query, wg id:{}, name:{}, used:{}, limit:{}, backend:{}.",
-                        _id, _name, MemCounter::print_bytes(used_memory),
-                        MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
-
-    auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
-                                                  const std::string& label) {
-        return fmt::format(
-                "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}, "
-                "Execute again after enough memory, details see be.INFO.",
-                cancel_str, label, MemCounter::print_bytes(mem_consumption),
-                GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
-    };
-
+    auto group_revoke_reason = fmt::format(
+            "{}, revoke group id:{}, name:{}, used:{}, limit:{}", revoke_reason, _id, _name,
+            MemCounter::print_bytes(used_memory), MemCounter::print_bytes(_memory_limit));
     LOG(INFO) << fmt::format(
-            "Workload group start gc, id:{} name:{}, memory limit: {}, used: {}, "
-            "need_free_mem: {}.",
-            _id, _name, _memory_limit, used_memory, need_free_mem);
+            "[MemoryGC] start WorkloadGroup::revoke_memory, {}, need free size: {}.",
+            group_revoke_reason, MemCounter::print_bytes(need_free_mem));
     Defer defer {[&]() {
+        std::stringstream ss;
+        group_revoke_profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
-                "Workload group finished gc, id:{} name:{}, memory limit: {}, used: "
-                "{}, need_free_mem: {}, freed memory: {}.",
-                _id, _name, _memory_limit, used_memory, need_free_mem, freed_mem);
+                "[MemoryGC] end WorkloadGroup::revoke_memory, {}, need free size: {}, free Memory "
+                "{}. cost(us): {}, details: {}",
+                group_revoke_reason, MemCounter::print_bytes(need_free_mem),
+                MemCounter::print_bytes(freed_mem), watch.elapsed_time() / 1000, ss.str());
     }};
 
-    // 1. free top overcommit query
-    RuntimeProfile* tmq_profile = profile->create_child(
+    // step 1. free top overcommit query
+    RuntimeProfile* free_top_profile = group_revoke_profile->create_child(
             fmt::format("FreeGroupTopOvercommitQuery:Name {}", _name), true, true);
-    freed_mem += MemTrackerLimiter::free_top_overcommit_query(
-            need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY, _mem_tracker_limiter_pool,
-            cancel_top_overcommit_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
-    // To be compatible with the non-group's gc logic, minorGC just gc overcommit query
-    if (freed_mem >= need_free_mem) {
-        return freed_mem;
-    }
-    auto cancel_top_usage_str = [cancel_str](int64_t mem_consumption, const std::string& label) {
-        return fmt::format(
-                "{} cancel top memory used tracker <{}> consumption {}. details:{}, Execute "
-                "again "
-                "after enough memory, details see be.INFO.",
-                cancel_str, label, MemCounter::print_bytes(mem_consumption),
-                GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str());
-    };
-    // 2. free top usage query
-    tmq_profile =
-            profile->create_child(fmt::format("FreeGroupTopUsageQuery:Name {}", _name), true, true);
-    freed_mem += MemTrackerLimiter::free_top_memory_query(
-            need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY, _mem_tracker_limiter_pool,
-            cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+    freed_mem += MemoryReclamation::revoke_tasks_memory(
+            need_free_mem - freed_mem, resource_ctxs, group_revoke_reason, free_top_profile,
+            MemoryReclamation::PriorityCmpFunc::TOP_OVERCOMMITED_MEMORY,
+            {MemoryReclamation::FilterFunc::EXCLUDE_IS_SMALL,
+             MemoryReclamation::FilterFunc::IS_QUERY},
+            MemoryReclamation::ActionFunc::CANCEL);
     if (freed_mem >= need_free_mem) {
         return freed_mem;
     }
 
-    // 3. free top overcommit load
-    tmq_profile = profile->create_child(fmt::format("FreeGroupTopOvercommitLoad:Name {}", _name),
-                                        true, true);
-    freed_mem += MemTrackerLimiter::free_top_overcommit_query(
-            need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
-            cancel_top_overcommit_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+    // step 2. free top usage query
+    free_top_profile = group_revoke_profile->create_child(
+            fmt::format("FreeGroupTopUsageQuery:Name {}", _name), true, true);
+    freed_mem += MemoryReclamation::revoke_tasks_memory(
+            need_free_mem - freed_mem, resource_ctxs, group_revoke_reason, free_top_profile,
+            MemoryReclamation::PriorityCmpFunc::TOP_MEMORY,
+            {MemoryReclamation::FilterFunc::EXCLUDE_IS_SMALL,
+             MemoryReclamation::FilterFunc::EXCLUDE_IS_OVERCOMMITED,
+             MemoryReclamation::FilterFunc::IS_QUERY},
+            MemoryReclamation::ActionFunc::CANCEL); // skip overcommited query, cancelled in step 1.
     if (freed_mem >= need_free_mem) {
         return freed_mem;
     }
 
-    // 4. free top usage load
-    tmq_profile =
-            profile->create_child(fmt::format("FreeGroupTopUsageLoad:Name {}", _name), true, true);
-    freed_mem += MemTrackerLimiter::free_top_memory_query(
-            need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
-            cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
-    return freed_mem;
-}
-
-int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc) {
-    if (need_free_mem <= 0) {
-        return 0;
-    }
-    int64_t used_memory = memory_used();
-    int64_t freed_mem = 0;
-
-    std::string cancel_str = "";
-    if (is_minor_gc) {
-        cancel_str = fmt::format(
-                "Process memory not enough, {}, Memory GC in WorkloadGroup[id:{}, name:{}, "
-                "used:{}, limit:{}, enable_memory_overcommit:true], backend:{}.",
-                GlobalMemoryArbitrator::process_mem_log_str(), _id, _name,
-                MemCounter::print_bytes(used_memory), MemCounter::print_bytes(_memory_limit),
-                BackendOptions::get_localhost());
-    } else {
-        if (_enable_memory_overcommit) {
-            cancel_str = fmt::format(
-                    "Process memory not enough, {}, Memory GC in WorkloadGroup[id:{}, name:{}, "
-                    "used:{}, limit:{}, enable_memory_overcommit:true], backend:{}.",
-                    GlobalMemoryArbitrator::process_mem_log_str(), _id, _name,
-                    MemCounter::print_bytes(used_memory), MemCounter::print_bytes(_memory_limit),
-                    BackendOptions::get_localhost());
-        } else {
-            cancel_str = fmt::format(
-                    "WorkloadGroup memory exceed limit, Memory GC in in WorkloadGroup[id:{}, "
-                    "name:{}, used:{}, "
-                    "limit:{}, enable_memory_overcommit:false], {}, backend:{}.",
-                    _id, _name, MemCounter::print_bytes(used_memory),
-                    MemCounter::print_bytes(_memory_limit),
-                    GlobalMemoryArbitrator::process_mem_log_str(), BackendOptions::get_localhost());
-        }
-    }
-    auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
-                                                  const std::string& label) {
-        return fmt::format(
-                "{} cancel top memory overcommit tracker <{}> consumption {}. "
-                "Execute "
-                "again after enough memory, details see be.INFO.",
-                cancel_str, label, MemCounter::print_bytes(mem_consumption));
-    };
-    auto cancel_top_usage_str = [cancel_str](int64_t mem_consumption, const std::string& label) {
-        return fmt::format(
-                "{} cancel top memory used tracker <{}> consumption {}. Execute "
-                "again "
-                "after enough memory, details see be.INFO.",
-                cancel_str, label, MemCounter::print_bytes(mem_consumption));
-    };
-
-    LOG(INFO) << fmt::format(
-            "[MemoryGC] work load group start gc, id:{} name:{}, memory limit: {}, used: {}, "
-            "need_free_mem: {}.",
-            _id, _name, PrettyPrinter::print_bytes(_memory_limit),
-            PrettyPrinter::print_bytes(used_memory), PrettyPrinter::print_bytes(need_free_mem));
-    Defer defer {[&]() {
-        LOG(INFO) << fmt::format(
-                "[MemoryGC] work load group finished gc, id:{} name:{}, memory limit: {}, "
-                "used: "
-                "{}, need_free_mem: {}, freed memory: {}.",
-                _id, _name, PrettyPrinter::print_bytes(_memory_limit),
-                PrettyPrinter::print_bytes(used_memory), PrettyPrinter::print_bytes(need_free_mem),
-                PrettyPrinter::print_bytes(freed_mem));
-    }};
-
-    // 1. free top overcommit query
-    if (config::enable_query_memory_overcommit) {
-        RuntimeProfile* tmq_profile = profile->create_child(
-                fmt::format("FreeGroupTopOvercommitQuery:Name {}", _name), true, true);
-        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
-                need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY,
-                _mem_tracker_limiter_pool, cancel_top_overcommit_str, tmq_profile,
-                MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
-    }
-    // To be compatible with the non-group's gc logic, minorGC just gc overcommit query
-    if (is_minor_gc || freed_mem >= need_free_mem) {
-        return freed_mem;
-    }
-
-    // 2. free top usage query
-    RuntimeProfile* tmq_profile =
-            profile->create_child(fmt::format("FreeGroupTopUsageQuery:Name {}", _name), true, true);
-    freed_mem += MemTrackerLimiter::free_top_memory_query(
-            need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY, _mem_tracker_limiter_pool,
-            cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+    // step 3. free top overcommit load
+    free_top_profile = group_revoke_profile->create_child(
+            fmt::format("FreeGroupTopOvercommitLoad:Name {}", _name), true, true);
+    freed_mem += MemoryReclamation::revoke_tasks_memory(
+            need_free_mem - freed_mem, resource_ctxs, group_revoke_reason, free_top_profile,
+            MemoryReclamation::PriorityCmpFunc::TOP_OVERCOMMITED_MEMORY,
+            {MemoryReclamation::FilterFunc::EXCLUDE_IS_SMALL,
+             MemoryReclamation::FilterFunc::IS_LOAD},
+            MemoryReclamation::ActionFunc::CANCEL);
     if (freed_mem >= need_free_mem) {
         return freed_mem;
     }
 
-    // 3. free top overcommit load
-    if (config::enable_query_memory_overcommit) {
-        tmq_profile = profile->create_child(
-                fmt::format("FreeGroupTopOvercommitLoad:Name {}", _name), true, true);
-        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
-                need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
-                cancel_top_overcommit_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
-        if (freed_mem >= need_free_mem) {
-            return freed_mem;
-        }
-    }
-
-    // 4. free top usage load
-    tmq_profile =
-            profile->create_child(fmt::format("FreeGroupTopUsageLoad:Name {}", _name), true, true);
-    freed_mem += MemTrackerLimiter::free_top_memory_query(
-            need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
-            cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+    // step 4. free top usage load
+    free_top_profile = group_revoke_profile->create_child(
+            fmt::format("FreeGroupTopUsageLoad:Name {}", _name), true, true);
+    freed_mem += MemoryReclamation::revoke_tasks_memory(
+            need_free_mem - freed_mem, resource_ctxs, group_revoke_reason, free_top_profile,
+            MemoryReclamation::PriorityCmpFunc::TOP_OVERCOMMITED_MEMORY,
+            {MemoryReclamation::FilterFunc::EXCLUDE_IS_SMALL,
+             MemoryReclamation::FilterFunc::EXCLUDE_IS_OVERCOMMITED,
+             MemoryReclamation::FilterFunc::IS_LOAD},
+            MemoryReclamation::ActionFunc::CANCEL);
     return freed_mem;
 }
 
@@ -747,13 +622,11 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* wg_info) {
 
 void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                                         vectorized::SimplifiedScanScheduler** scan_sched,
-                                        ThreadPool** memtable_flush_pool,
                                         vectorized::SimplifiedScanScheduler** remote_scan_sched) {
     std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
     *exec_sched = _task_sched.get();
     *scan_sched = _scan_task_sched.get();
     *remote_scan_sched = _remote_scan_task_sched.get();
-    *memtable_flush_pool = _memtable_flush_pool.get();
 }
 
 std::string WorkloadGroup::thread_debug_info() {

@@ -75,6 +75,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     // broker name for file split and query scan.
     public static final String BIND_BROKER_NAME = "broker.name";
+    // Default is false, if set to true, will get table schema from "remoteTable" instead of from hive metastore.
+    // This is because for some forward compatiblity issue of hive metastore, there maybe
+    // "storage schema reading not support" error being thrown.
+    // set this to true can avoid this error.
+    // But notice that if set to true, the default value of column will be ignored because we cannot get default value
+    // from remoteTable object.
+    public static final String GET_SCHEMA_FROM_TABLE = "get_schema_from_table";
 
     // -1 means file cache no ttl set
     public static final int FILE_META_CACHE_NO_TTL = -1;
@@ -176,7 +183,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
                 hiveConf.set(kv.getKey(), kv.getValue());
             }
-            hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+            HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
                     String.valueOf(Config.hive_metastore_client_timeout_second));
         }
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
@@ -190,10 +197,21 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void onRefresh(boolean invalidCache) {
-        super.onRefresh(invalidCache);
+    public void resetToUninitialized(boolean invalidCache) {
+        super.resetToUninitialized(invalidCache);
         if (metadataOps != null) {
             metadataOps.close();
+        }
+    }
+
+    @Override
+    public void onClose() {
+        super.onClose();
+        if (null != fileSystemExecutor) {
+            ThreadPoolManager.shutdownExecutorService(fileSystemExecutor);
+        }
+        if (null != icebergMetadataOps) {
+            icebergMetadataOps.close();
         }
     }
 
