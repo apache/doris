@@ -117,14 +117,14 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         Expression leftExpr = predicate.child(0);
         Expression rightExpr = predicate.child(1);
         Statistics leftStats = leftExpr.accept(this, context);
-        leftStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
+        leftStats.normalizeColumnStatistics(context.statistics.getRowCount(), false);
         Statistics andStats = rightExpr.accept(this, new EstimationContext(leftStats));
         if (predicate instanceof And) {
-            andStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
+            andStats.normalizeColumnStatistics(context.statistics.getRowCount(), false);
             return andStats;
         } else if (predicate instanceof Or) {
             Statistics rightStats = rightExpr.accept(this, context);
-            rightStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
+            rightStats.normalizeColumnStatistics(context.statistics.getRowCount(), false);
             double rowCount = leftStats.getRowCount() + rightStats.getRowCount() - andStats.getRowCount();
             Statistics orStats = context.statistics.withRowCount(rowCount);
             Set<Slot> leftInputSlots = leftExpr.getInputSlots();
