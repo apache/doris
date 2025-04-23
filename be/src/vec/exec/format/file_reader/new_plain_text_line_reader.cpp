@@ -21,6 +21,8 @@
 #include <glog/logging.h>
 #include <string.h>
 
+#include "common/logging.h"
+
 #ifdef __AVX2__
 #include <immintrin.h>
 #endif
