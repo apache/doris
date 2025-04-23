@@ -612,6 +612,9 @@ static void remove_delete_bitmap_update_lock_v1(std::unique_ptr<Transaction>& tx
         }
     }
     if (!found) {
+        INSTANCE_LOG(WARNING) << "failed to find lock_initiator, table_id=" << table_id
+                              << " tablet_id=" << tablet_id << " lock_id=" << lock_id
+                              << " initiator=" << lock_initiator << " key=" << hex(lock_key);
         return;
     }
     if (initiators->empty()) {
@@ -650,9 +653,10 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
             remove_delete_bitmap_update_lock_v1(txn, instance_id, table_id, tablet_id, lock_id,
                                                 lock_initiator);
         } else if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get tablet compaction key, instance_id=" << instance_id
-                         << " table_id=" << table_id << " initiator=" << lock_initiator
-                         << " key=" << hex(tablet_compaction_key) << " err=" << err;
+            INSTANCE_LOG(WARNING) << "failed to get tablet compaction key, instance_id="
+                                  << instance_id << " table_id=" << table_id
+                                  << " initiator=" << lock_initiator
+                                  << " key=" << hex(tablet_compaction_key) << " err=" << err;
             return;
         } else {
             txn->remove(tablet_compaction_key);
