@@ -1909,6 +1909,7 @@ TEST(TxnLazyCommitTest, FuzzyRandom) {
     }
     LOG(INFO) << "fuzzy_random counter: " << counter;
     ASSERT_GT(counter, 0);
+    ASSERT_LT(counter, 10000);
 }
 
 TEST(TxnLazyCommitTest, ForceTxnLazyCommit) {
@@ -1919,7 +1920,7 @@ TEST(TxnLazyCommitTest, ForceTxnLazyCommit) {
             counter++;
         }
     }
-    LOG(INFO) << "fuzzy_random counter: " << counter;
+    LOG(INFO) << "force_txn_lazy_commit counter: " << counter;
     ASSERT_EQ(counter, 10000);
 
     config::enable_cloud_txn_lazy_commit_fuzzy_test = true;
@@ -1931,6 +1932,7 @@ TEST(TxnLazyCommitTest, ForceTxnLazyCommit) {
     }
     LOG(INFO) << "force_txn_lazy_commit counter: " << counter;
     ASSERT_GT(counter, 0);
+    ASSERT_LT(counter, 10000);
     config::enable_cloud_txn_lazy_commit_fuzzy_test = false;
 }
 } // namespace doris::cloud

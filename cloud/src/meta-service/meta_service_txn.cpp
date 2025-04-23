@@ -2518,10 +2518,7 @@ static bool fuzzy_random() {
     std::mt19937 gen {std::random_device {}()};
     auto p = 0.5;
     std::bernoulli_distribution bd {p};
-    if (bd(gen)) {
-        return true;
-    }
-    return false;
+    return bd(gen);
 }
 
 static bool force_txn_lazy_commit() {
