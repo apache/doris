@@ -97,11 +97,11 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                 }
             }
             if (missedLogCount > 0) {
-                LOG.warn("discard audit event because of log queue is full, discard num : {}, succ num : {}",
+                LOG.warn("yy debug discard audit event because of log queue is full, discard num : {}, succ num : {}",
                         missedLogCount, succLogCount);
             }
         } catch (Throwable t) {
-            LOG.warn("exception happens when handleAuditEvent, ", t);
+            LOG.warn("yy debug exception happens when handleAuditEvent, ", t);
         }
 
         // 3 clear beToQueryStatsMap when be report timeout
@@ -112,14 +112,16 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         queryAuditEventLogWriteLock();
         try {
             if (queryAuditEventList.size() > Config.audit_event_log_queue_size) {
-                LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
+                LOG.warn("yy debug audit log event queue size {} is full, this may cause audit log missing statistics."
                                 + "you can check whether qps is too high or reset audit_event_log_queue_size",
                         queryAuditEventList.size());
                 Env.getCurrentAuditEventProcessor().handleAuditEvent(event, true);
-                return;
+            } else {
+                LOG.info("yy debug audit log event queue size {} is not full, add audit event {} to queue",
+                        event.queryId, queryAuditEventList.size());
+                event.pushToAuditLogQueueTime = System.currentTimeMillis();
+                queryAuditEventList.add(event);
             }
-            event.pushToAuditLogQueueTime = System.currentTimeMillis();
-            queryAuditEventList.add(event);
         } finally {
             queryAuditEventLogWriteUnlock();
         }

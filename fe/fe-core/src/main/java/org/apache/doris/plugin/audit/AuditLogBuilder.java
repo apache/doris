@@ -90,12 +90,11 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
                     auditStreamLoadLog(event);
                     break;
                 default:
+                    LOG.info("yy debug unexpected audit event type: {}", event.type);
                     break;
             }
         } catch (Exception e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("failed to process audit event", e);
-            }
+            LOG.info("yy debug failed to process audit event: {}", event.queryId, e);
         }
     }
 

@@ -95,6 +95,7 @@ public class AuditEventProcessor {
     public boolean handleAuditEvent(AuditEvent auditEvent, boolean ignoreQueueFullLog) {
         if (skipAuditUsers.contains(auditEvent.user)) {
             // return true to ignore this event
+            LOG.info("yy debug skip audit user: {}, {}", auditEvent.user, auditEvent.queryId);
             return true;
         }
         boolean isAddSucc = true;
@@ -102,9 +103,8 @@ public class AuditEventProcessor {
             eventQueue.add(auditEvent);
         } catch (Exception e) {
             isAddSucc = false;
-            if (!ignoreQueueFullLog) {
-                LOG.warn("encounter exception when handle audit event {}, ignore", auditEvent.type, e);
-            }
+            LOG.warn("yy debug encounter exception when handle audit event {}, {}, ignore", auditEvent.type,
+                    auditEvent.queryId, e);
         }
         return isAddSucc;
     }
@@ -130,9 +130,7 @@ public class AuditEventProcessor {
                         continue;
                     }
                 } catch (InterruptedException e) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("encounter exception when getting audit event from queue, ignore", e);
-                    }
+                    LOG.info("yy debug encounter exception when getting audit event from queue, ignore", e);
                     continue;
                 }
 
@@ -140,12 +138,12 @@ public class AuditEventProcessor {
                     for (Plugin plugin : auditPlugins) {
                         if (((AuditPlugin) plugin).eventFilter(auditEvent.type)) {
                             ((AuditPlugin) plugin).exec(auditEvent);
+                        } else {
+                            LOG.info("yy debug the audit log is filtered: {}, {}", auditEvent.type, auditEvent.queryId);
                         }
                     }
                 } catch (Exception e) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("encounter exception when processing audit event.", e);
-                    }
+                    LOG.info("yy debug encounter exception when processing audit event.", e);
                 }
             }
         }

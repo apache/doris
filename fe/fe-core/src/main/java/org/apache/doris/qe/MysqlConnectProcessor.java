@@ -188,6 +188,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
         if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
             auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        } else {
+            LOG.info("yy debug stmt prepare stmt audit is disable: {}", stmtStr);
         }
     }
 

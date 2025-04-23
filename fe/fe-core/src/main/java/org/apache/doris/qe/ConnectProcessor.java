@@ -376,12 +376,13 @@ public abstract class ConnectProcessor {
                     }
                     auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
                             true);
-                    LOG.debug("Write audit logs for query {}", DebugUtil.printId(ctx.queryId));
+                    LOG.info("yy debug Write audit logs for query {}", DebugUtil.printId(ctx.queryId));
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                         break;
                     }
                 } catch (Throwable throwable) {
+                    LOG.info("yy debug throw exception for query: {}", DebugUtil.printId(ctx.queryId), throwable);
                     handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
                             executor.getQueryStatisticsForAuditLog());
                     // execute failed, skip remaining stmts
@@ -457,7 +458,7 @@ public abstract class ConnectProcessor {
         }
         if (throwable instanceof ConnectionException) {
             // Throw this exception to close the connection outside.
-            LOG.warn("Process one query failed because ConnectionException: ", throwable);
+            LOG.warn("yy debug Process one query failed because ConnectionException: ", throwable);
             throw (ConnectionException) throwable;
         } else if (throwable instanceof IOException) {
             // Client failed.

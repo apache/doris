@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -299,7 +300,9 @@ public class AuditLogHelper {
         if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE && ctx.getState().getErrorCode() == null) {
             auditEventBuilder.setState(String.valueOf(MysqlStateType.OK));
         }
-        Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(auditEventBuilder.build());
+        AuditEvent event = auditEventBuilder.build();
+        Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(event);
+        LOG.info("yy debug submitFinishQueryToAudit: {}", event.queryId);
     }
 
     private static String getStmtType(StatementBase stmt) {
