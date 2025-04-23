@@ -182,18 +182,20 @@ public class MysqlLoadCommand extends Command {
         // check data descriptions, only support one file path:
         String fullDbName = mysqlDataDescription.analyzeFullDbName(ctx);
         mysqlDataDescription.analyze(fullDbName);
-        for (String path : mysqlDataDescription.getFilePaths()) {
-            if (Config.mysql_load_server_secure_path.isEmpty()) {
-                throw new AnalysisException("Load local data from fe local is not enabled. If you want to use it,"
-                    + " please set the `mysql_load_server_secure_path` for FE to be a right path.");
-            } else {
-                path = stripQuotes(path);
-                File file = new File(path);
-                if (!path.startsWith(stripQuotes(Config.mysql_load_server_secure_path))) {
-                    throw new AnalysisException("Local file should be under the secure path of FE.");
-                }
-                if (!file.exists()) {
-                    throw new AnalysisException("File: " + path + " is not exists.");
+        if (!mysqlDataDescription.isClientLocal()) {
+            for (String path : mysqlDataDescription.getFilePaths()) {
+                if (Config.mysql_load_server_secure_path.isEmpty()) {
+                    throw new AnalysisException("Load local data from fe local is not enabled. If you want to use it,"
+                        + " please set the `mysql_load_server_secure_path` for FE to be a right path.");
+                } else {
+                    path = stripQuotes(path);
+                    File file = new File(path);
+                    if (!path.startsWith(stripQuotes(Config.mysql_load_server_secure_path))) {
+                        throw new AnalysisException("Local file should be under the secure path of FE.");
+                    }
+                    if (!file.exists()) {
+                        throw new AnalysisException("File: " + path + " is not exists.");
+                    }
                 }
             }
         }
