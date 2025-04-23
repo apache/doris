@@ -27,10 +27,10 @@
 #include <thread>
 #include <utility>
 
+#include "absl/strings/substitute.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "gutil/port.h"
-#include "absl/strings/substitute.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
@@ -411,7 +411,7 @@ std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode, int m
 void ThreadPool::release_token(ThreadPoolToken* t) {
     std::lock_guard<std::mutex> l(_lock);
     CHECK(!t->is_active()) << absl::Substitute("Token with state $0 may not be released",
-                                                  ThreadPoolToken::state_to_string(t->state()));
+                                               ThreadPoolToken::state_to_string(t->state()));
     CHECK_EQ(1, _tokens.erase(t));
 }
 

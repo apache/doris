@@ -65,7 +65,7 @@ bool GetBooleanEnvironmentVariable(const char* env_var_name) {
     if ((strcasecmp(e, "true") == 0) || (strcasecmp(e, "1") == 0) || (strcasecmp(e, "yes") == 0)) {
         return true;
     }
-    LOG(FATAL) << absl::Substitute("$0: invalid value for environment variable $0", e,
+    LOG(FATAL) << absl::Substitute("$0: invalid value for environment variable $1", e,
                                    env_var_name);
     return false; // unreachable
 }

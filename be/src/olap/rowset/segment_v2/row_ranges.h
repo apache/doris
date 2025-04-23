@@ -21,8 +21,8 @@
 #include <string>
 #include <vector>
 
-#include "common/logging.h"
 #include "absl/strings/substitute.h"
+#include "common/logging.h"
 #include "olap/rowset/segment_v2/common.h"
 
 namespace doris {

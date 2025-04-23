@@ -54,11 +54,11 @@
 #include <filesystem>
 #include <fstream>
 
+#include "absl/strings/substitute.h"
 #include "common/config.h"
 #include "common/env_config.h"
 #include "gflags/gflags.h"
 #include "gutil/stringprintf.h"
-#include "absl/strings/substitute.h"
 #include "util/cgroup_util.h"
 #include "util/pretty_printer.h"
 
@@ -233,8 +233,7 @@ void CpuInfo::_init_numa() {
     for (int core = 0; core < max_num_cores_; ++core) {
         bool found_numa_node = false;
         for (int node = 0; node < max_num_numa_nodes_; ++node) {
-            if (fs::exists(
-                        absl::Substitute("/sys/devices/system/cpu/cpu$0/node$1", core, node))) {
+            if (fs::exists(absl::Substitute("/sys/devices/system/cpu/cpu$0/node$1", core, node))) {
                 core_to_numa_node_[core] = node;
                 found_numa_node = true;
                 break;
@@ -280,8 +279,8 @@ void CpuInfo::verify_cpu_requirements() {
 
 void CpuInfo::verify_performance_governor() {
     for (int cpu_id = 0; cpu_id < CpuInfo::num_cores(); ++cpu_id) {
-        const string governor_file = absl::Substitute(
-                "/sys/devices/system/cpu/cpu$0/cpufreq/scaling_governor", cpu_id);
+        const string governor_file =
+                absl::Substitute("/sys/devices/system/cpu/cpu$0/cpufreq/scaling_governor", cpu_id);
         const string warning_text = absl::Substitute(
                 "WARNING: CPU $0 is not using 'performance' governor. Note that changing the "
                 "governor to 'performance' will reset the no_turbo setting to 0.",
