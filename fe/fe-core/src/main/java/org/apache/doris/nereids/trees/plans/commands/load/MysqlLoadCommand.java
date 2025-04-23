@@ -41,7 +41,6 @@ import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -188,13 +187,10 @@ public class MysqlLoadCommand extends Command {
                 throw new AnalysisException("Load local data from fe local is not enabled. If you want to use it,"
                     + " please set the `mysql_load_server_secure_path` for FE to be a right path.");
             } else {
+                path = stripQuotes(path);
                 File file = new File(path);
-                try {
-                    if (!(file.getCanonicalPath().startsWith(Config.mysql_load_server_secure_path))) {
-                        throw new AnalysisException("Local file should be under the secure path of FE.");
-                    }
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
+                if (!path.startsWith(stripQuotes(Config.mysql_load_server_secure_path))) {
+                    throw new AnalysisException("Local file should be under the secure path of FE.");
                 }
                 if (!file.exists()) {
                     throw new AnalysisException("File: " + path + " is not exists.");
@@ -207,6 +203,14 @@ public class MysqlLoadCommand extends Command {
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }
+    }
+
+    private String stripQuotes(String str) {
+        if ((str.charAt(0) == '\'' && str.charAt(str.length() - 1) == '\'')
+                || (str.charAt(0) == '\"' && str.charAt(str.length() - 1) == '\"')) {
+            str = str.substring(1, str.length() - 1);
+        }
+        return str;
     }
 
     private void handleMysqlLoadComand(ConnectContext ctx) {

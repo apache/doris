@@ -217,13 +217,8 @@ public class MysqlDataDescription {
     }
 
     private void analyzeColumns() throws AnalysisException {
-        if (columns.isEmpty()) {
-            throw new AnalysisException("Can not specify columns_from_path without column_list");
-        }
-
-        // used to check duplicated column name in COLUMNS and COLUMNS FROM PATH
         Set<String> columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        // 1. analyze columns
+        // analyze columns
         for (String columnName : columns) {
             if (!columnNames.add(columnName)) {
                 throw new AnalysisException("Duplicate column: " + columnName);
