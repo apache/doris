@@ -39,6 +39,8 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_OSS_SUPPORT = "fs.oss.support";
     public static final String FS_OBS_SUPPORT = "fs.obs.support";
     public static final String FS_COS_SUPPORT = "fs.cos.support";
+    public static final String FS_OSS_HDFS_SUPPORT = "fs.oss-hdfs.support";
+    public static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
 
     public static final String FS_PROVIDER_KEY = "provider";
 
@@ -111,6 +113,9 @@ public abstract class StorageProperties extends ConnectionProperties {
             Arrays.asList(
                     props -> (isFsSupport(props, FS_HDFS_SUPPORT)
                             || HdfsProperties.guessIsMe(props)) ? new HdfsProperties(props) : null,
+                    props -> ((isFsSupport(props, FS_OSS_HDFS_SUPPORT)
+                            || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT))
+                            || OSSHdfsProperties.guessIsMe(props)) ? new OSSHdfsProperties(props) : null,
                     props -> (isFsSupport(props, FS_S3_SUPPORT)
                             || S3Properties.guessIsMe(props)) ? new S3Properties(props) : null,
                     props -> (isFsSupport(props, FS_OSS_SUPPORT)
