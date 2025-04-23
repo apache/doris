@@ -16,10 +16,10 @@
 -- !sql --
 id	bigint	No	true	\N	
 type	varchar(30)	Yes	false	\N	NONE
-v1	variant<MATCH_NAME_GLOB a.b.c:int,MATCH_NAME_GLOB ss:text,MATCH_NAME_GLOB dcm:decimalv3(38,9),MATCH_NAME_GLOB dt:datetime,MATCH_NAME_GLOB ip:ipv4,MATCH_NAME_GLOB a.b.d:double>	Yes	false	\N	NONE
+v1	variant<MATCH_NAME_GLOB 'a.b.c':int,MATCH_NAME_GLOB 'ss':text,MATCH_NAME_GLOB 'dcm':decimalv3(38,9),MATCH_NAME_GLOB 'dt':datetimev2(0),MATCH_NAME_GLOB 'ip':ipv4,MATCH_NAME_GLOB 'a.b.d':double>	Yes	false	\N	NONE
 v1.a.b.c	int	Yes	false	\N	NONE
 v1.a.b.d	double	Yes	false	\N	NONE
-v1.dcm	decimal(38,0)	Yes	false	\N	NONE
+v1.dcm	decimal(38,9)	Yes	false	\N	NONE
 v1.dt	datetime	Yes	false	\N	NONE
 v1.ip	ipv4	Yes	false	\N	NONE
 v1.ss	text	Yes	false	\N	NONE
@@ -101,6 +101,36 @@ v1.predefine_col4	text	Yes	false	\N	NONE
 4	{"array_datetimev2":["2021-01-01 00:00:00", "2022-01-01 00:00:00", "2023-01-01 00:00:00"],"array_int":[1, 2, 3],"array_string":["a", "b", "c"],"ext_1":1.111111,"ext_2":"this is an extra field","ext_3":[1, 2, 3],"float_":1.1111112,"ipv4_":"127.0.0.1","varchar_":"world hello"}
 
 -- !sql --
+id	bigint	No	true	\N	
+v1	variant<MATCH_NAME_GLOB 'array_int':array<int>,MATCH_NAME_GLOB 'array_string':array<text>,MATCH_NAME_GLOB 'array_decimal':array<decimalv3(26,9)>,MATCH_NAME_GLOB 'array_datetime':array<datetimev2(0)>,MATCH_NAME_GLOB 'array_datetimev2':array<datetimev2(0)>,MATCH_NAME_GLOB 'array_date':array<datev2>,MATCH_NAME_GLOB 'array_datev2':array<datev2>,MATCH_NAME_GLOB 'array_ipv4':array<ipv4>,MATCH_NAME_GLOB 'array_ipv6':array<ipv6>,MATCH_NAME_GLOB 'array_float':array<float>,MATCH_NAME_GLOB 'array_boolean':array<boolean>,MATCH_NAME_GLOB 'int_':int,MATCH_NAME_GLOB 'string_':text,MATCH_NAME_GLOB 'decimal_':decimalv3(26,9),MATCH_NAME_GLOB 'datetime_':datetimev2(0),MATCH_NAME_GLOB 'datetimev2_':datetimev2(6),MATCH_NAME_GLOB 'date_':datev2,MATCH_NAME_GLOB 'datev2_':datev2,MATCH_NAME_GLOB 'ipv4_':ipv4,MATCH_NAME_GLOB 'ipv6_':ipv6,MATCH_NAME_GLOB 'float_':float,MATCH_NAME_GLOB 'boolean_':boolean,MATCH_NAME_GLOB 'varchar_':varchar(65533)>	Yes	false	\N	NONE
+v1.array_boolean	array<boolean>	Yes	false	\N	NONE
+v1.array_date	array<date>	Yes	false	\N	NONE
+v1.array_datetime	array<datetime>	Yes	false	\N	NONE
+v1.array_datetimev2	array<datetime>	Yes	false	\N	NONE
+v1.array_datev2	array<date>	Yes	false	\N	NONE
+v1.array_decimal	array<decimal(26,9)>	Yes	false	\N	NONE
+v1.array_float	array<float>	Yes	false	\N	NONE
+v1.array_int	array<int>	Yes	false	\N	NONE
+v1.array_ipv4	array<ipv4>	Yes	false	\N	NONE
+v1.array_ipv6	array<ipv6>	Yes	false	\N	NONE
+v1.array_string	array<text>	Yes	false	\N	NONE
+v1.boolean_	boolean	Yes	false	\N	NONE
+v1.date_	date	Yes	false	\N	NONE
+v1.datetime_	datetime	Yes	false	\N	NONE
+v1.datetimev2_	datetime	Yes	false	\N	NONE
+v1.datev2_	date	Yes	false	\N	NONE
+v1.decimal_	decimal(26,9)	Yes	false	\N	NONE
+v1.ext_1	double	Yes	false	\N	NONE
+v1.ext_2	text	Yes	false	\N	NONE
+v1.ext_3	array<tinyint>	Yes	false	\N	NONE
+v1.float_	float	Yes	false	\N	NONE
+v1.int_	int	Yes	false	\N	NONE
+v1.ipv4_	ipv4	Yes	false	\N	NONE
+v1.ipv6_	ipv6	Yes	false	\N	NONE
+v1.string_	text	Yes	false	\N	NONE
+v1.varchar_	varchar(65533)	Yes	false	\N	NONE
+
+-- !sql --
 101	{"a":1}	{"dcm":1111111.000000000}	\N
 102	{"a":1}	{"dcm":1111111.000000000}	{"dcm":1111111.000000000}
 103	{"a":1}	{"dcm":1111111.000000000}	{"dt":"2021-01-01 11:11:11"}
@@ -108,8 +138,8 @@ v1.predefine_col4	text	Yes	false	\N	NONE
 -- !sql --
 id	bigint	No	true	\N	
 v1	variant	Yes	false	\N	NONE
-v2	variant<MATCH_NAME_GLOB dcm:decimalv3(38,9),MATCH_NAME_GLOB dt:datetime>	Yes	false	\N	NONE
-v3	variant<MATCH_NAME_GLOB dcm:decimalv3(38,9),MATCH_NAME_GLOB dt:datetime,MATCH_NAME_GLOB ip:ipv6>	Yes	false	\N	NONE
+v2	variant<MATCH_NAME_GLOB 'dcm':decimalv3(38,9),MATCH_NAME_GLOB 'dt':datetimev2(0)>	Yes	false	\N	NONE
+v3	variant<MATCH_NAME_GLOB 'dcm':decimalv3(38,9),MATCH_NAME_GLOB 'dt':datetimev2(0),MATCH_NAME_GLOB 'ip':ipv6>	Yes	false	\N	NONE
 v1.PREDEFINE_COL1	smallint	Yes	false	\N	NONE
 v1.PREDEFINE_COL2	double	Yes	false	\N	NONE
 v1.PREDEFINE_COL3	text	Yes	false	\N	NONE
@@ -119,8 +149,8 @@ v1.predefine_col1	smallint	Yes	false	\N	NONE
 v1.predefine_col2	double	Yes	false	\N	NONE
 v1.predefine_col3	text	Yes	false	\N	NONE
 v1.predefine_col4	text	Yes	false	\N	NONE
-v2.dcm	decimal(38,0)	Yes	false	\N	NONE
-v3.dcm	decimal(38,0)	Yes	false	\N	NONE
+v2.dcm	decimal(38,9)	Yes	false	\N	NONE
+v3.dcm	decimal(38,9)	Yes	false	\N	NONE
 v3.dt	datetime	Yes	false	\N	NONE
 
 -- !sql --
@@ -146,7 +176,7 @@ v3.dt	datetime	Yes	false	\N	NONE
 
 -- !sql --
 id	bigint	No	true	\N	
-v	variant<MATCH_NAME_GLOB nested.a:text>	Yes	false	\N	NONE
+v	variant<MATCH_NAME_GLOB 'nested.a':text>	Yes	false	\N	NONE
 v.auto_type	json	Yes	false	\N	NONE
 
 -- !sql_arr_null_1 --
@@ -160,5 +190,8 @@ v.auto_type	json	Yes	false	\N	NONE
 5	{"array_decimal":[1.100000000, 2.200000000, 3.300000000, 4.400000000]}
 
 -- !sql --
-{"a.b.c":"Int32","db":"Float64","dcm":"Decimal128V3","dt":"DateTime"}
+{"a.b.c":"Int32","db":"Float64","dcm":"Decimal128V3","dt":"DateTimeV2"}
+
+-- !sql --
+{"a.b.c":"Int32","db":"Float64","dcm":"Decimal128V3","dt":"DateTimeV2"}
 

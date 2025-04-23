@@ -1954,4 +1954,15 @@ void BaseTablet::get_base_rowset_delete_bitmap_count(
     }
 }
 
+TabletSchemaSPtr BaseTablet::calculate_variant_extended_schema() const {
+    std::vector<RowsetSharedPtr> rowsets;
+    {
+        std::shared_lock rdlock(_meta_lock);
+        for (const auto& it : _rs_version_map) {
+            rowsets.emplace_back(it.second);
+        }
+    }
+    return vectorized::schema_util::calculate_variant_extended_schema(rowsets, _max_version_schema);
+}
+
 } // namespace doris
