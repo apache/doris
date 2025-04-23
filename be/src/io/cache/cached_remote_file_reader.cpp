@@ -112,7 +112,7 @@ std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, si
 
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                             const IOContext* io_ctx) {
-    bool is_dryrun = io_ctx->is_dryrun;
+    const bool is_dryrun = io_ctx->is_dryrun;
     DCHECK(!closed());
     DCHECK(io_ctx);
     if (offset > size()) {
