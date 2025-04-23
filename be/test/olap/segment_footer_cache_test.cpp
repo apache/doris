@@ -151,13 +151,13 @@ private:
 TEST_F(SegmentFooterCacheTest, TestGetSegmentFooter) {
     for (auto segment_ptr : _segments) {
         std::shared_ptr<segment_v2::SegmentFooterPB> footer;
-        Status st = segment_ptr->_get_segment_footer(footer);
+        Status st = segment_ptr->_get_segment_footer(footer, nullptr);
         ASSERT_TRUE(st.ok());
     }
 
     for (auto segment_ptr : _segments) {
         std::shared_ptr<segment_v2::SegmentFooterPB> footer;
-        Status st = segment_ptr->_get_segment_footer(footer);
+        Status st = segment_ptr->_get_segment_footer(footer, nullptr);
         ASSERT_TRUE(st.ok());
     }
 }
@@ -179,7 +179,7 @@ TEST_F(SegmentFooterCacheTest, TestSemgnetFooterPBPage) {
     StoragePageCache cache(16 * 2048, 0, 0, 16);
     for (auto segment_ptr : _segments) {
         std::shared_ptr<segment_v2::SegmentFooterPB> footer;
-        Status st = segment_ptr->_get_segment_footer(footer);
+        Status st = segment_ptr->_get_segment_footer(footer, nullptr);
         ASSERT_TRUE(st.ok());
         PageCacheHandle cache_handle;
         cache.insert(segment_ptr->get_segment_footer_cache_key(), footer, footer->ByteSizeLong(),
