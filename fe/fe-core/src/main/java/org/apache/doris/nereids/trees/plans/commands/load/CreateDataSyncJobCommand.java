@@ -122,7 +122,10 @@ public class CreateDataSyncJobCommand extends Command {
         handleCreateDataSyncJobCommand(ctx);
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    /**
+     * validate
+     */
+    public void validate(ConnectContext ctx) throws AnalysisException {
         if (Strings.isNullOrEmpty(dbName)) {
             if (Strings.isNullOrEmpty(ctx.getDatabase())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
