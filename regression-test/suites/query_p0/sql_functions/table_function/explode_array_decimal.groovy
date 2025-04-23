@@ -39,7 +39,7 @@ suite("explode_array_decimal") {
 
     sql """insert into ods_device_data_1d_inc values(1, "[0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,1,9,5,5,5,5,5,5,5,5,5,0.8,0.8,0.8,0.8,0.8]")"""
 
-    sql "SET enable_nereids_planner=false;"
+    sql "SET enable_nereids_planner=true;"
 
     qt_sql_old_planner """
     SELECT * from
