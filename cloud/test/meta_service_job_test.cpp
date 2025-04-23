@@ -1151,7 +1151,8 @@ void check_compaction_key(MetaServiceProxy* meta_service, std::string instance_i
 }
 
 TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
-    config::delete_bitmap_lock_version_white_list = "instance_id1:v1,instance_id2:v2,instance_id3:v3";
+    config::delete_bitmap_lock_version_white_list =
+            "instance_id1:v1,instance_id2:v2,instance_id3:v3";
     auto meta_service = get_meta_service();
     auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
@@ -2028,7 +2029,6 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
                                instance_id_4);
     check_delete_bitmap_lock(meta_service.get(), instance_id_4, table_id, -1, false);
     clear_rowsets(5);
-
 
     //load
     sp->set_call_back("get_instance_id", [&](auto&& args) {
