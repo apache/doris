@@ -629,6 +629,11 @@ private:
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
     //support iceberg position delete .
     std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
+
+    // If you set "orc_tiny_stripe_threshold_bytes" = 0, the use tiny stripes merge io optimization will not be used.
+    int64_t _orc_tiny_stripe_threshold_bytes = 8L * 1024L * 1024L;
+    int64_t _orc_once_max_read_bytes = 8L * 1024L * 1024L;
+    int64_t _orc_max_merge_distance_bytes = 1L * 1024L * 1024L;
 };
 
 class StripeStreamInputStream : public orc::InputStream, public ProfileCollector {
