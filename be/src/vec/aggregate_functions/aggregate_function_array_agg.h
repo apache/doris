@@ -295,13 +295,11 @@ public:
     AggregateFunctionArrayAgg(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>, true>(
                       {argument_types_}),
-              return_type(make_nullable(argument_types_[0])) {}
+              return_type(std::make_shared<DataTypeArray>(make_nullable(argument_types_[0]))) {}
 
     std::string get_name() const override { return "array_agg"; }
 
-    DataTypePtr get_return_type() const override {
-        return std::make_shared<DataTypeArray>(return_type);
-    }
+    DataTypePtr get_return_type() const override { return return_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
@@ -422,9 +420,7 @@ public:
         return get_serialized_type()->create_column();
     }
 
-    DataTypePtr get_serialized_type() const override {
-        return std::make_shared<DataTypeArray>(return_type);
-    }
+    DataTypePtr get_serialized_type() const override { return return_type; }
 
 private:
     DataTypePtr return_type;

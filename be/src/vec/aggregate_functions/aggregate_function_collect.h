@@ -399,7 +399,7 @@ public:
     AggregateFunctionCollect(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>, true>(
                       {argument_types_}),
-              return_type(make_nullable(argument_types_[0])) {}
+              return_type(std::make_shared<DataTypeArray>(make_nullable(argument_types_[0]))) {}
 
     std::string get_name() const override {
         if constexpr (std::is_same_v<AggregateFunctionCollectListData<typename Data::ElementType,
@@ -411,9 +411,7 @@ public:
         }
     }
 
-    DataTypePtr get_return_type() const override {
-        return std::make_shared<DataTypeArray>(return_type);
-    }
+    DataTypePtr get_return_type() const override { return return_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
