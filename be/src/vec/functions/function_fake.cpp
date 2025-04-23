@@ -49,9 +49,6 @@ struct FunctionFakeBaseImpl {
     }
     static DataTypes get_variadic_argument_types() {
         if constexpr (VARIADIC) {
-            if constexpr (AlwaysNullable) {
-                return {make_nullable(std::make_shared<ReturnType>())};
-            }
             return {std::make_shared<ReturnType>()};
         } else {
             return {};
