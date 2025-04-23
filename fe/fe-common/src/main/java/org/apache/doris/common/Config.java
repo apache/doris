@@ -3064,7 +3064,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = { "字典触发数据过期检查的时间间隔，单位为秒",
             "Interval at which the dictionary triggers a data expiration check, in seconds" })
-    public static int dictionary_auto_refresh_interval_seconds = 60;
+    public static int dictionary_auto_refresh_interval_seconds = 5;
 
     //==========================================================================
     //                    begin of cloud config

@@ -1741,12 +1741,13 @@ public class Coordinator implements CoordInterface {
                 // set when assign all BE job
                 int expectedInstanceNum = fragment.getParallelExecNum();
                 int count = 0;
+                // current cluster
                 for (Map.Entry<Long, Backend> entry : this.idToBackend.entrySet()) {
                     Backend backend = entry.getValue();
                     TNetworkAddress execHostport = new TNetworkAddress(backend.getHost(), backend.getBePort());
                     Reference<Long> backendIdRef = new Reference<Long>(backend.getId());
                     this.addressToBackendID.put(execHostport, backendIdRef.getRef());
-                    FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, count, params);
+                    FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, params);
                     params.instanceExecParams.add(instanceParam);
                     count++;
                 }
@@ -1786,8 +1787,7 @@ public class Coordinator implements CoordInterface {
                     // backendIdRef can be null is we call getHostByCurrentBackend() before
                     this.addressToBackendID.put(execHostport, backendIdRef.getRef());
                 }
-                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport,
-                        0, params);
+                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, params);
                 params.instanceExecParams.add(instanceParam);
 
                 // Using serial source means a serial source operator will be used in this fragment (e.g. data will be
@@ -1797,7 +1797,7 @@ public class Coordinator implements CoordInterface {
                 if (useSerialSource) {
                     for (int j = 1; j < expectedInstanceNum; j++) {
                         params.instanceExecParams.add(new FInstanceExecParam(
-                                null, execHostport, 0, params));
+                                null, execHostport, params));
                     }
                     params.ignoreDataDistribution = true;
                     params.parallelTasksNum = 1;
@@ -1849,7 +1849,7 @@ public class Coordinator implements CoordInterface {
                     Collections.shuffle(hosts, instanceRandom);
                     for (int index = 0; index < exchangeInstances; index++) {
                         FInstanceExecParam instanceParam = new FInstanceExecParam(null,
-                                hosts.get(index % hosts.size()), 0, params);
+                                hosts.get(index % hosts.size()), params);
                         params.instanceExecParams.add(instanceParam);
                     }
                     params.ignoreDataDistribution = useSerialSource;
@@ -1857,7 +1857,7 @@ public class Coordinator implements CoordInterface {
                 } else {
                     for (FInstanceExecParam execParams
                             : fragmentExecParamsMap.get(inputFragmentId).instanceExecParams) {
-                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host, 0, params);
+                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host, params);
                         params.instanceExecParams.add(instanceParam);
                     }
                     params.ignoreDataDistribution = useSerialSource;
@@ -1939,7 +1939,7 @@ public class Coordinator implements CoordInterface {
                         for (int j = 0; j < perInstanceScanRanges.size(); j++) {
                             List<TScanRangeParams> scanRangeParams = perInstanceScanRanges.get(j);
 
-                            FInstanceExecParam instanceParam = new FInstanceExecParam(null, key, 0, params);
+                            FInstanceExecParam instanceParam = new FInstanceExecParam(null, key, params);
                             instanceParam.perNodeScanRanges.put(planNodeId, scanRangeParams);
                             params.instanceExecParams.add(instanceParam);
                         }
@@ -1972,7 +1972,7 @@ public class Coordinator implements CoordInterface {
                     // backendIdRef can be null is we call getHostByCurrentBackend() before
                     this.addressToBackendID.put(execHostport, backendIdRef.getRef());
                 }
-                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, 0, params);
+                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, params);
                 params.instanceExecParams.add(instanceParam);
             }
         }
@@ -2798,7 +2798,7 @@ public class Coordinator implements CoordInterface {
                 for (List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>> perInstanceScanRange
                         : perInstanceScanRanges) {
                     FInstanceExecParam instanceParam = new FInstanceExecParam(
-                            null, addressScanRange.getKey(), 0, params);
+                            null, addressScanRange.getKey(), params);
 
                     if (firstInstanceParam == null) {
                         firstInstanceParam = instanceParam;
@@ -2826,7 +2826,7 @@ public class Coordinator implements CoordInterface {
                     params.instanceExecParams.add(instanceParam);
                 }
                 for (int i = perInstanceScanRanges.size(); i < parallelExecInstanceNum; i++) {
-                    params.instanceExecParams.add(new FInstanceExecParam(null, addressScanRange.getKey(), 0, params));
+                    params.instanceExecParams.add(new FInstanceExecParam(null, addressScanRange.getKey(), params));
                 }
             } else {
                 int expectedInstanceNum = 1;
@@ -2842,7 +2842,7 @@ public class Coordinator implements CoordInterface {
                 for (List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>> perInstanceScanRange
                         : perInstanceScanRanges) {
                     FInstanceExecParam instanceParam = new FInstanceExecParam(
-                            null, addressScanRange.getKey(), 0, params);
+                            null, addressScanRange.getKey(), params);
 
                     for (Pair<Integer, Map<Integer, List<TScanRangeParams>>> nodeScanRangeMap : perInstanceScanRange) {
                         instanceParam.addBucketSeq(nodeScanRangeMap.first);
@@ -3376,8 +3376,6 @@ public class Coordinator implements CoordInterface {
         TNetworkAddress host;
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newHashMap();
 
-        int perFragmentInstanceIdx; // not useful now
-
         Set<Integer> bucketSeqSet = Sets.newHashSet();
 
         FragmentExecParams fragmentExecParams;
@@ -3390,11 +3388,9 @@ public class Coordinator implements CoordInterface {
             this.bucketSeqSet.add(bucketSeq);
         }
 
-        public FInstanceExecParam(TUniqueId id, TNetworkAddress host,
-                                  int perFragmentInstanceIdx, FragmentExecParams fragmentExecParams) {
+        public FInstanceExecParam(TUniqueId id, TNetworkAddress host, FragmentExecParams fragmentExecParams) {
             this.instanceId = id;
             this.host = host;
-            this.perFragmentInstanceIdx = perFragmentInstanceIdx;
             this.fragmentExecParams = fragmentExecParams;
         }
 
