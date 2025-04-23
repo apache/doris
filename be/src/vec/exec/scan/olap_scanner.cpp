@@ -199,6 +199,11 @@ Status OlapScanner::init() {
                 LOG(WARNING) << "fail to init reader.res=" << st;
                 return st;
             }
+            if (config::enable_mow_verbose_log && tablet->enable_unique_key_merge_on_write()) {
+                LOG_INFO("finish capture_rs_readers for tablet={}, query_id={}",
+                         tablet->tablet_id(), print_id(_state->query_id()));
+            }
+
             if (!_state->skip_delete_predicate()) {
                 read_source.fill_delete_predicates();
             }
