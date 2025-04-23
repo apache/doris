@@ -592,20 +592,15 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
             if (vectorized::schema_util::generate_sub_column_info(
                         *opts.tablet_schema, self_column_pb.unique_id(), relative_path.get_path(),
                         &sub_column_info) &&
-                sub_column_info.index != nullptr) {
-                const auto* index_meta = sub_column_info.index.get();
-                DCHECK(index_meta != nullptr);
-                auto subcolumn_index = std::make_unique<TabletIndex>(*index_meta);
-                _variant_subcolumns_indexes.emplace(path.get_path(), std::move(subcolumn_index));
+                !sub_column_info.indexes.empty()) {
+                _variant_subcolumns_indexes[path.get_path()] = std::move(sub_column_info.indexes);
             } else if (!parent_index.empty()) {
-                const auto& suffix_path = path.get_path();
-                auto it = _variant_subcolumns_indexes.find(suffix_path);
-                if (it == _variant_subcolumns_indexes.end()) {
-                    auto subcolumn_index = std::make_unique<TabletIndex>(*parent_index[0]);
+                for (const auto& index : parent_index) {
+                    const auto& suffix_path = path.get_path();
+                    auto subcolumn_index = std::make_unique<TabletIndex>(*index);
                     subcolumn_index->set_escaped_escaped_index_suffix_path(suffix_path);
-                    _variant_subcolumns_indexes.emplace(suffix_path, std::move(subcolumn_index));
-                } else {
-                    DCHECK(false);
+                    _variant_subcolumns_indexes[suffix_path].emplace_back(
+                            std::move(subcolumn_index));
                 }
             }
         }
@@ -622,9 +617,9 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     return Status::OK();
 }
 
-TabletIndex* VariantColumnReader::find_subcolumn_tablet_index(const std::string& path) {
+TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const std::string& path) {
     auto it = _variant_subcolumns_indexes.find(path);
-    return it == _variant_subcolumns_indexes.end() ? nullptr : it->second.get();
+    return it == _variant_subcolumns_indexes.end() ? TabletIndexes() : it->second;
 }
 
 std::vector<std::string> VariantColumnReader::get_typed_paths() const {

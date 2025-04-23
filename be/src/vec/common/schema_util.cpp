@@ -451,8 +451,9 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
         index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
         indexes_to_update.emplace_back(std::move(index_info));
     }
-    auto target_indexes = (*target_schema)->inverted_indexs(target.parent_unique_id(),
-                                                         target.path_info_ptr()->get_path());
+    auto target_indexes = (*target_schema)
+                                  ->inverted_indexs(target.parent_unique_id(),
+                                                    target.path_info_ptr()->get_path());
     if (!target_indexes.empty()) {
         (*target_schema)->update_index(target, IndexType::INVERTED, std::move(indexes_to_update));
     } else {
@@ -1191,20 +1192,26 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
 
     auto generate_index = [&](const std::string& pattern) {
         // 1. find subcolumn's index
-        if (const auto& index = schema.inverted_index_by_field_pattern(col_unique_id, pattern);
-            index != nullptr) {
-            sub_column_info->index = std::make_shared<TabletIndex>(*index);
-            sub_column_info->index->set_escaped_escaped_index_suffix_path(
-                    sub_column_info->column.path_info_ptr()->get_path());
+        if (const auto& indexes = schema.inverted_index_by_field_pattern(col_unique_id, pattern);
+            !indexes.empty()) {
+            for (const auto& index : indexes) {
+                auto index_ptr = std::make_shared<TabletIndex>(*index);
+                index_ptr->set_escaped_escaped_index_suffix_path(
+                        sub_column_info->column.path_info_ptr()->get_path());
+                sub_column_info->indexes.emplace_back(std::move(index_ptr));
+            }
         }
         // 2. find parent column's index
         else if (const auto parent_index = schema.inverted_indexs(col_unique_id);
                  !parent_index.empty()) {
-            sub_column_info->index = std::make_shared<TabletIndex>(*parent_index[0]);
-            sub_column_info->index->set_escaped_escaped_index_suffix_path(
-                    sub_column_info->column.path_info_ptr()->get_path());
+            for (const auto& index : parent_index) {
+                auto index_ptr = std::make_shared<TabletIndex>(*index);
+                index_ptr->set_escaped_escaped_index_suffix_path(
+                        sub_column_info->column.path_info_ptr()->get_path());
+                sub_column_info->indexes.emplace_back(std::move(index_ptr));
+            }
         } else {
-            sub_column_info->index = nullptr;
+            sub_column_info->indexes.clear();
         }
     };
 

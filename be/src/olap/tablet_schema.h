@@ -329,6 +329,7 @@ private:
 };
 
 using TabletIndexPtr = std::shared_ptr<TabletIndex>;
+using TabletIndexes = std::vector<std::shared_ptr<TabletIndex>>;
 
 class TabletSchema : public MetadataAdder<TabletSchema> {
 public:
@@ -481,8 +482,8 @@ public:
     // TabletIndex information will be returned as long as it exists.
     std::vector<const TabletIndex*> inverted_indexs(int32_t col_unique_id,
                                                     const std::string& suffix_path = "") const;
-    TabletIndexPtr inverted_index_by_field_pattern(int32_t col_unique_id,
-                                                   const std::string& field_pattern) const;
+    std::vector<TabletIndexPtr> inverted_index_by_field_pattern(
+            int32_t col_unique_id, const std::string& field_pattern) const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
@@ -594,9 +595,10 @@ public:
 
     struct SubColumnInfo {
         TabletColumn column;
-        TabletIndexPtr index;
+        TabletIndexes indexes;
     };
 
+    // all path in path_set_info are relative to the parent column
     struct PathsSetInfo {
         std::unordered_map<std::string, SubColumnInfo> typed_path_set; // typed columns
         PathSet sub_path_set;                                          // extracted columns
@@ -693,7 +695,7 @@ private:
 
     // key: field_pattern
     // value: index
-    using PatternToIndex = std::unordered_map<std::string, TabletIndexPtr>;
+    using PatternToIndex = std::unordered_map<std::string, std::vector<TabletIndexPtr>>;
     std::unordered_map<int32_t, PatternToIndex> _index_by_unique_id_with_pattern;
 };
 

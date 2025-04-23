@@ -523,7 +523,7 @@ private:
     const TabletColumn* _tablet_column = nullptr;
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;
-    std::unique_ptr<TabletIndex> _index;
+    TabletIndexes _indexes;
 };
 
 class VariantColumnWriter : public ColumnWriter {

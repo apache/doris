@@ -933,7 +933,7 @@ void TabletSchema::append_index(TabletIndex&& index) {
         !field_pattern.empty() && !_indexes.back()->col_unique_ids().empty()) {
         auto& pattern_to_index_map =
                 _index_by_unique_id_with_pattern[_indexes.back()->col_unique_ids()[0]];
-        pattern_to_index_map[field_pattern] = _indexes.back();
+        pattern_to_index_map[field_pattern].emplace_back(_indexes.back());
     }
 }
 
@@ -1083,7 +1083,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
             !field_pattern.empty() && !_indexes.back()->col_unique_ids().empty()) {
             auto& pattern_to_index_map =
                     _index_by_unique_id_with_pattern[_indexes.back()->col_unique_ids()[0]];
-            pattern_to_index_map[field_pattern] = _indexes.back();
+            pattern_to_index_map[field_pattern].emplace_back(_indexes.back());
         }
     }
     _num_short_key_columns = schema.num_short_key_columns();
@@ -1256,7 +1256,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
         if (auto field_pattern = i->field_pattern();
             !field_pattern.empty() && !i->col_unique_ids().empty()) {
             auto& pattern_to_index_map = _index_by_unique_id_with_pattern[i->col_unique_ids()[0]];
-            pattern_to_index_map[field_pattern] = _indexes.back();
+            pattern_to_index_map[field_pattern].emplace_back(_indexes.back());
         }
     }
 
@@ -1451,7 +1451,7 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
             !field_pattern.empty() && !index->col_unique_ids().empty()) {
             auto& pattern_to_index_map =
                     _index_by_unique_id_with_pattern[index->col_unique_ids()[0]];
-            pattern_to_index_map[field_pattern] = index;
+            pattern_to_index_map[field_pattern].emplace_back(index);
         }
     }
     std::unordered_map<IndexKey, std::vector<int32_t>, IndexKeyHash> col_id_suffix_to_index;
@@ -1530,15 +1530,15 @@ std::vector<const TabletIndex*> TabletSchema::inverted_indexs(
     return result;
 }
 
-TabletIndexPtr TabletSchema::inverted_index_by_field_pattern(
+std::vector<TabletIndexPtr> TabletSchema::inverted_index_by_field_pattern(
         int32_t col_unique_id, const std::string& field_pattern) const {
     auto id_to_pattern_map = _index_by_unique_id_with_pattern.find(col_unique_id);
     if (id_to_pattern_map == _index_by_unique_id_with_pattern.end()) {
-        return nullptr;
+        return {};
     }
     auto pattern_to_index_map = id_to_pattern_map->second.find(field_pattern);
     if (pattern_to_index_map == id_to_pattern_map->second.end()) {
-        return nullptr;
+        return {};
     }
     return pattern_to_index_map->second;
 }
@@ -1567,7 +1567,9 @@ std::vector<const TabletIndex*> TabletSchema::inverted_indexs(const TabletColumn
             path_set_info.typed_path_set.end()) {
             return result;
         }
-        result.push_back(path_set_info.typed_path_set.at(relative_path).index.get());
+        for (const auto& index : path_set_info.typed_path_set.at(relative_path).indexes) {
+            result.push_back(index.get());
+        }
         return result;
     }
     return result;
