@@ -36,6 +36,7 @@
 #include "io/fs/file_system.h"
 #include "io/io_common.h"
 #include "olap/olap_common.h"
+#include "olap/tablet_schema.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
@@ -329,7 +330,7 @@ public:
 
     int64_t get_metadata_size() const override;
 
-    TabletIndex* find_subcolumn_tablet_index(const std::string&);
+    TabletIndexes find_subcolumn_tablet_indexes(const std::string&);
 
     bool exist_in_sparse_column(const vectorized::PathInData& path) const;
 
@@ -353,7 +354,8 @@ private:
     std::unique_ptr<SubcolumnColumnReaders> _subcolumn_readers;
     std::unique_ptr<ColumnReader> _sparse_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
-    std::unordered_map<std::string, std::unique_ptr<TabletIndex>> _variant_subcolumns_indexes;
+    // key: subcolumn path, value: subcolumn indexes
+    std::unordered_map<std::string, TabletIndexes> _variant_subcolumns_indexes;
 };
 
 // Base iterator to read one column data
