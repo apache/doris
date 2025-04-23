@@ -295,6 +295,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                         Base::_shared_state->aggregate_evaluators[i]);
                 auto column = block->get_by_position(col_id).column;
                 if (column->is_nullable()) {
+                    DCHECK(false);
                     column = ((vectorized::ColumnNullable*)column.get())->get_nested_column_ptr();
                 }
 
@@ -347,6 +348,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
                     }
                     auto column = block->get_by_position(col_id).column;
                     if (column->is_nullable()) {
+                        DCHECK(false);
                         column = ((vectorized::ColumnNullable*)column.get())
                                          ->get_nested_column_ptr();
                     }
@@ -405,6 +407,7 @@ Status AggSinkLocalState::_merge_without_key(vectorized::Block* block) {
                     Base::_shared_state->aggregate_evaluators[i]);
             auto column = block->get_by_position(col_id).column;
             if (column->is_nullable()) {
+                DCHECK(false);
                 column = ((vectorized::ColumnNullable*)column.get())->get_nested_column_ptr();
             }
 
