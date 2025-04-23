@@ -59,7 +59,7 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64) {
     create_agg("array_agg", false, {std::make_shared<DataTypeInt64>()});
 
     auto data_type = std::make_shared<DataTypeInt64>();
-    auto array_data_type = std::make_shared<DataTypeArray>(data_type);
+    auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
     auto off_column = ColumnVector<ColumnArray::Offset64>::create();
     auto data_column = data_type->create_column();
@@ -71,7 +71,8 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64) {
     for (auto& v : vals) {
         data_column->insert_data((const char*)(&v), 0);
     }
-    auto array_column = ColumnArray::create(std::move(data_column), std::move(off_column));
+    auto array_column =
+            ColumnArray::create(make_nullable(std::move(data_column)), std::move(off_column));
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
             ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
