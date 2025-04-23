@@ -177,6 +177,7 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
                     _join_block, state->batch_size());
         }
     }
+    COUNTER_UPDATE(_probe_rows_counter, _join_block.rows());
     return Status::OK();
 }
 
