@@ -83,7 +83,7 @@ public:
                        std::unordered_set<std::string>* missing_cols) override;
 
     Status init_reader(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     Status close() override {
         if (_jni_connector) {
@@ -100,7 +100,7 @@ protected:
     }
 
 private:
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
 };
 
 } // namespace doris::vectorized

@@ -55,7 +55,7 @@ Status AvroJNIReader::get_columns(std::unordered_map<std::string, TypeDescriptor
 }
 
 Status AvroJNIReader::init_fetch_table_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     _colname_to_value_range = colname_to_value_range;
     std::ostringstream required_fields;
     std::ostringstream columns_types;
