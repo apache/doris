@@ -497,6 +497,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ORC_FILTER_BY_MIN_MAX = "enable_orc_filter_by_min_max";
 
+    public static final String CHECK_ORC_INIT_SARGS_SUCCESS = "check_orc_init_sargs_success";
+
     public static final String INLINE_CTE_REFERENCED_THRESHOLD = "inline_cte_referenced_threshold";
 
     public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
@@ -1947,6 +1949,14 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is true."},
             needForward = true)
     public boolean enableOrcFilterByMinMax = true;
+
+    @VariableMgr.VarAttr(
+            name = CHECK_ORC_INIT_SARGS_SUCCESS,
+            description = {"是否检查orc init sargs是否成功。默认为 false。",
+                    "Whether to check whether orc init sargs is successful. "
+                            + "The default value is false."},
+            needForward = true)
+    public boolean checkOrcInitSargsSuccess = false;
 
     @VariableMgr.VarAttr(
             name = EXTERNAL_TABLE_ANALYZE_PART_NUM,
@@ -3488,6 +3498,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableOrcFilterByMinMax = enableOrcFilterByMinMax;
     }
 
+    public boolean isCheckOrcInitSargsSuccess() {
+        return checkOrcInitSargsSuccess;
+    }
+
+    public void setCheckOrcInitSargsSuccess(boolean checkOrcInitSargsSuccess) {
+        this.checkOrcInitSargsSuccess = checkOrcInitSargsSuccess;
+    }
+
     public String getSqlDialect() {
         return sqlDialect;
     }
@@ -4081,6 +4099,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
         tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
+        tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
         tResult.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
