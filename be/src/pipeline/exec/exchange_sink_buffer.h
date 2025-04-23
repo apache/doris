@@ -111,13 +111,11 @@ private:
 
 namespace pipeline {
 struct TransmitInfo {
-    vectorized::Channel* channel = nullptr;
     std::unique_ptr<PBlock> block;
     bool eos;
 };
 
 struct BroadcastTransmitInfo {
-    vectorized::Channel* channel = nullptr;
     std::shared_ptr<vectorized::BroadcastPBlockHolder> block_holder = nullptr;
     bool eos;
 };
@@ -278,8 +276,8 @@ public:
 
     void construct_request(TUniqueId);
 
-    Status add_block(TransmitInfo&& request);
-    Status add_block(BroadcastTransmitInfo&& request);
+    Status add_block(vectorized::Channel* channel, TransmitInfo&& request);
+    Status add_block(vectorized::Channel* channel, BroadcastTransmitInfo&& request);
     void close();
     void update_rpc_time(RpcInstance& ins, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
