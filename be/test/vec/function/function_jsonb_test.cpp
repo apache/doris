@@ -2128,6 +2128,15 @@ TEST(FunctionJsonSearchTest, EscapeJsonSearchTest) {
               STRING("\\")},
              STRING("\"$.k1\"")},
 
+            // specical default escape_char '\\'
+            {{STRING(R"({"k1":"v1\\", "k2": "100\\"})"), STRING("one"), STRING("v1\\\\"),
+              STRING("")},
+             STRING("\"$.k1\"")},
+
+            // specical Null escape_char '\\'
+            {{STRING(R"({"k1":"v1\\", "k2": "100\\"})"), STRING("one"), STRING("v1\\\\"), Null()},
+             STRING("\"$.k1\"")},
+
             // Array test cases with escape characters
             {{STRING(R"(["v1%", "v2%"])"), STRING("one"), STRING("v1%"), STRING("\\")},
              STRING("\"$[0]\"")},

@@ -1620,12 +1620,12 @@ struct JsonSearchUtil {
     using CheckNullFun = std::function<bool(size_t)>;
     using GetJsonStringRefFun = std::function<StringRef(size_t)>;
     using GetJsonStartFun = std::function<std::string(size_t)>;
-    using GetJsonEscapeFun = std::function<Status(size_t, char*)>;
+    using GetJsonEscapeFun = std::function<Status(std::shared_ptr<LikeState>& state)>;
 
     static constexpr bool always_not_null(size_t) { return false; }
     static constexpr bool always_null(size_t) { return true; }
     static constexpr std::string default_null_start(size_t) { return ""; }
-    static Status default_null_escape(size_t, char*) { return Status::OK(); }
+    static Status default_null_escape(std::shared_ptr<LikeState>&) { return Status::OK(); }
 
     static Status matched(const std::string_view& str, LikeState* state, unsigned char* res) {
         StringRef pattern; // not used
@@ -1834,7 +1834,6 @@ struct JsonSearchUtil {
             }
 
             // an error occurs if any path argument is not a valid path expression.
-            // root_path_str = get_start_string(i);
             std::string root_path_str = "$";
             if (!start_null_check(i)) {
                 root_path_str = get_start_string(i);
@@ -1852,12 +1851,8 @@ struct JsonSearchUtil {
                 state_ptr->is_like_pattern = true;
                 const auto& search_str = col_search_string->get_data_at(i);
 
-                // The default is \ if the escape_char argument is missing or NULL.
-                // Otherwise, escape_char must be a constant that is empty or one character.
-                char escape_char = '\\';
                 if (!escape_null_check(i)) {
-                    RETURN_IF_ERROR(get_escape_string(i, &escape_char));
-                    state_ptr->search_state.escape_char = escape_char;
+                    RETURN_IF_ERROR(get_escape_string(state_ptr));
                 }
                 RETURN_IF_ERROR(FunctionLike::construct_like_const_state(context, search_str,
                                                                          state_ptr, false));
@@ -2028,6 +2023,9 @@ public:
         if (context->is_col_constant(2)) {
             std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
             state->is_like_pattern = true;
+            // The default is \ if the escape_char argument is missing or NULL.
+            // Otherwise, escape_char must be a constant that is empty or one character.
+            state->search_state.escape_char = '\\';
             const auto pattern_col = context->get_constant_col(2)->column_ptr;
             const auto& pattern = pattern_col->get_data_at(0);
             RETURN_IF_ERROR(
@@ -2111,6 +2109,37 @@ struct JsonSearchNormal {
         get_##arg_name##_string = get_fn;                                                   \
     }
 
+#define JSON_SEARCH_EXTRA_PREPARE_ESCAPE()                                                        \
+    JsonSearchUtil::CheckNullFun escape_null_check = JsonSearchUtil::always_null;                 \
+    JsonSearchUtil::GetJsonEscapeFun get_escape_string;                                           \
+                                                                                                  \
+    ColumnPtr col_escape;                                                                         \
+    bool escape_is_const = false;                                                                 \
+    const ColumnString* col_escape_string;                                                        \
+                                                                                                  \
+    RETURN_IF_ERROR(JsonSearchUtil::parse_column_args(                                            \
+            context, block, arguments, 3, &escape_is_const, col_escape, col_escape_string));      \
+                                                                                                  \
+    if (!escape_is_const) {                                                                       \
+        /* return Status::RuntimeError("JsonSearch escape_char CANNOT be non-constant column");*/ \
+    }                                                                                             \
+    do {                                                                                          \
+        escape_null_check = [col_escape](size_t) { return col_escape->is_null_at(0); };           \
+        get_escape_string = [col_escape_string](std::shared_ptr<LikeState>& state) {              \
+            auto escape_string = col_escape_string->get_data_at(0).to_string();                   \
+            if (escape_string.length() == 0) {                                                    \
+                return Status::OK();                                                              \
+            }                                                                                     \
+                                                                                                  \
+            if (escape_string.length() > 1) {                                                     \
+                return Status::RuntimeError("Illegal arg pattern {} should be char",              \
+                                            col_escape_string->get_name());                       \
+            }                                                                                     \
+            state->search_state.escape_char = escape_string.at(0);                                \
+            return Status::OK();                                                                  \
+        };                                                                                        \
+    } while (false)
+
 struct JsonSearchEscape {
     static DataTypes get_variadic_argument_types() {
         return {
@@ -2130,18 +2159,7 @@ struct JsonSearchEscape {
 
         JSON_SEARCH_NORMAL_PREPARE();
 
-        JSON_SEARCH_EXTRA_PREPARE(
-                escape, 3, [col_escape](size_t i) { return col_escape->is_null_at(i); },
-                JsonSearchUtil::GetJsonEscapeFun,
-                [col_escape_string](size_t i, char* escape_char) {
-                    auto escape_string = col_escape_string->get_data_at(i).to_string();
-                    if (escape_string.length() != 1) {
-                        return Status::RuntimeError("Illegal arg pattern {} should be char",
-                                                    col_escape_string->get_name());
-                    }
-                    *escape_char = escape_string.at(0);
-                    return Status::OK();
-                });
+        JSON_SEARCH_EXTRA_PREPARE_ESCAPE();
 
         if (search_is_const) {
             RETURN_IF_ERROR(JsonSearchUtil::execute_vector<true>(
@@ -2177,18 +2195,7 @@ struct JsonSearchStartPath {
 
         JSON_SEARCH_NORMAL_PREPARE();
 
-        JSON_SEARCH_EXTRA_PREPARE(
-                escape, 3, [col_escape](size_t i) { return col_escape->is_null_at(i); },
-                JsonSearchUtil::GetJsonEscapeFun,
-                [col_escape_string](size_t i, char* escape_char) {
-                    auto escape_string = col_escape_string->get_data_at(i).to_string();
-                    if (escape_string.length() != 1) {
-                        return Status::RuntimeError("Illegal arg pattern {} should be char",
-                                                    col_escape_string->get_name());
-                    }
-                    *escape_char = escape_string.at(0);
-                    return Status::OK();
-                });
+        JSON_SEARCH_EXTRA_PREPARE_ESCAPE();
 
         JSON_SEARCH_EXTRA_PREPARE(
                 start, 4, [col_start](size_t i) { return col_start->is_null_at(i); },
