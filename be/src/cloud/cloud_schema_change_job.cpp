@@ -542,7 +542,8 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
 }
 
 void CloudSchemaChangeJob::clean_up_on_failed() {
-    if (_new_tablet->enable_unique_key_merge_on_write()) {
+    if (_new_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _new_tablet->enable_unique_key_merge_on_write()) {
         _cloud_storage_engine.meta_mgr().remove_delete_bitmap_update_lock(
                 _new_tablet->table_id(), SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, _initiator,
                 _new_tablet->tablet_id());
