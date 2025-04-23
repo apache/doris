@@ -390,7 +390,7 @@ Status OrcReader::_init_read_columns() {
     std::vector<std::string> orc_cols;
     std::vector<std::string> orc_cols_lower_case;
     bool is_hive1_orc = false;
-    _init_orc_cols(root_type, orc_cols, orc_cols_lower_case, _type_map, &is_hive1_orc);
+    _init_orc_cols(root_type, orc_cols, orc_cols_lower_case, _type_map, &is_hive1_orc, false);
 
     // In old version slot_name_to_schema_pos may not be set in _scan_params
     // TODO, should be removed in 2.2 or later
@@ -451,7 +451,7 @@ Status OrcReader::_init_read_columns() {
 void OrcReader::_init_orc_cols(const orc::Type& type, std::vector<std::string>& orc_cols,
                                std::vector<std::string>& orc_cols_lower_case,
                                std::unordered_map<std::string, const orc::Type*>& type_map,
-                               bool* is_hive1_orc) const {
+                               bool* is_hive1_orc, bool should_add_acid_prefix) const {
     bool hive1_orc = true;
     for (int i = 0; i < type.getSubtypeCount(); ++i) {
         orc_cols.emplace_back(type.getFieldName(i));
@@ -461,11 +461,17 @@ void OrcReader::_init_orc_cols(const orc::Type& type, std::vector<std::string>& 
         }
         orc_cols_lower_case.emplace_back(std::move(filed_name_lower_case));
         auto file_name = type.getFieldName(i);
+        if (should_add_acid_prefix) {
+            file_name = fmt::format(
+                    "{}.{}", TransactionalHive::ACID_COLUMN_NAMES[TransactionalHive::ROW_OFFSET],
+                    file_name);
+        }
         type_map.emplace(std::move(file_name), type.getSubtype(i));
         if (_is_acid) {
             const orc::Type* sub_type = type.getSubtype(i);
             if (sub_type->getKind() == orc::TypeKind::STRUCT) {
-                _init_orc_cols(*sub_type, orc_cols, orc_cols_lower_case, type_map, is_hive1_orc);
+                _init_orc_cols(*sub_type, orc_cols, orc_cols_lower_case, type_map, is_hive1_orc,
+                               true);
             }
         }
     }
@@ -988,10 +994,6 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
 }
 
 bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
-    if (!_enable_filter_by_min_max) {
-        return false;
-    }
-
     // build search argument, if any expr can not be pushed down, return false
     auto builder = orc::SearchArgumentFactory::newBuilder();
     bool at_least_one_can_push_down = false;
@@ -1139,8 +1141,20 @@ Status OrcReader::set_fill_columns(
 
     if (_lazy_read_ctx.conjuncts.empty()) {
         _lazy_read_ctx.can_lazy_read = false;
-    } else {
-        _init_search_argument(_lazy_read_ctx.conjuncts);
+    } else if (_enable_filter_by_min_max) {
+        auto res = _init_search_argument(_lazy_read_ctx.conjuncts);
+        if (_state->query_options().check_orc_init_sargs_success && !res) {
+            std::stringstream ss;
+            for (const auto& conjunct : _lazy_read_ctx.conjuncts) {
+                ss << conjunct->root()->debug_string() << "\n";
+            }
+            std::string conjuncts_str = ss.str();
+            return Status::InternalError(
+                    "Session variable check_orc_init_sargs_success is set, but "
+                    "_init_search_argument returns false because all exprs can not be pushed "
+                    "down:\n " +
+                    conjuncts_str);
+        }
     }
     try {
         _row_reader_options.range(_range_start_offset, _range_size);

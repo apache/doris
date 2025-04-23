@@ -285,7 +285,7 @@ private:
     void _init_orc_cols(const orc::Type& type, std::vector<std::string>& orc_cols,
                         std::vector<std::string>& orc_cols_lower_case,
                         std::unordered_map<std::string, const orc::Type*>& type_map,
-                        bool* is_hive1_orc) const;
+                        bool* is_hive1_orc, bool should_add_acid_prefix) const;
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
 

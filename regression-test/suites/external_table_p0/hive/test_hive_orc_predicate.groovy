@@ -45,6 +45,15 @@ suite("test_hive_orc_predicate", "p0,external,hive,external_docker,external_dock
 
             qt_predicate_null_aware_equal_in_rt """select * from table_a inner join table_b on table_a.age <=> table_b.age and table_b.id in (1,3) order by table_a.id;"""
 
+            // use check_orc_init_sargs_success to test full acid push down
+            sql """use `${catalog_name}`.`default`"""
+            if (hivePrefix == "hive3") {
+                sql """ set check_orc_init_sargs_success = true; """
+            }
+            qt_predicate_full_acid_push_down """ select * from orc_full_acid_par where value = 'BB' order by id;"""
+            sql """ set check_orc_init_sargs_success = false; """
+
+            sql """use `${catalog_name}`.`multi_catalog`"""
             qt_lazy_materialization_for_list_type """ select l from complex_data_orc where id > 2 order by id; """
             qt_lazy_materialization_for_map_type """ select m from complex_data_orc where id > 2 order by id; """
             qt_lazy_materialization_for_list_and_map_type """ select * from complex_data_orc where id > 2 order by id; """
@@ -52,6 +61,7 @@ suite("test_hive_orc_predicate", "p0,external,hive,external_docker,external_dock
 
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
+            sql """ set check_orc_init_sargs_success = false; """
         }
     }
 }
