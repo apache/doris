@@ -64,6 +64,26 @@ Status CloudBaseCompaction::prepare_compact() {
 
     RETURN_IF_ERROR(pick_rowsets_to_compact());
 
+    for (auto& rs : _input_rowsets) {
+        _input_row_num += rs->num_rows();
+        _input_segments += rs->num_segments();
+        _input_rowsets_data_size += rs->data_disk_size();
+        _input_rowsets_index_size += rs->index_disk_size();
+        _input_rowsets_total_size += rs->total_disk_size();
+    }
+    LOG_INFO("start CloudBaseCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
+             _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
+            .tag("job_id", _uuid)
+            .tag("input_rowsets", _input_rowsets.size())
+            .tag("input_rows", _input_row_num)
+            .tag("input_segments", _input_segments)
+            .tag("input_rowsets_data_size", _input_rowsets_data_size)
+            .tag("input_rowsets_index_size", _input_rowsets_index_size)
+            .tag("input_rowsets_total_size", _input_rowsets_total_size);
+    return Status::OK();
+}
+
+Status CloudBaseCompaction::request_global_lock() {
     // prepare compaction job
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
@@ -113,25 +133,7 @@ Status CloudBaseCompaction::prepare_compact() {
             LOG(WARNING) << msg;
             return Status::InternalError(msg);
         }
-        return st;
     }
-
-    for (auto& rs : _input_rowsets) {
-        _input_row_num += rs->num_rows();
-        _input_segments += rs->num_segments();
-        _input_rowsets_data_size += rs->data_disk_size();
-        _input_rowsets_index_size += rs->index_disk_size();
-        _input_rowsets_total_size += rs->total_disk_size();
-    }
-    LOG_INFO("start CloudBaseCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
-             _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
-            .tag("job_id", _uuid)
-            .tag("input_rowsets", _input_rowsets.size())
-            .tag("input_rows", _input_row_num)
-            .tag("input_segments", _input_segments)
-            .tag("input_rowsets_data_size", _input_rowsets_data_size)
-            .tag("input_rowsets_index_size", _input_rowsets_index_size)
-            .tag("input_rowsets_total_size", _input_rowsets_total_size);
     return st;
 }
 

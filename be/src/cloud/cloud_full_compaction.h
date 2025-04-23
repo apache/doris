@@ -33,6 +33,7 @@ public:
 
     Status prepare_compact() override;
     Status execute_compact() override;
+    Status request_global_lock();
 
     void do_lease();
 
