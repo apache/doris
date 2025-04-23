@@ -461,6 +461,7 @@ public interface TableIf {
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
                 case MATERIALIZED_VIEW:
+                case TRINO_CONNECTOR_EXTERNAL_TABLE:
                     return "BASE TABLE";
                 default:
                     return null;
