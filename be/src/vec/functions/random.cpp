@@ -97,10 +97,6 @@ public:
         return _execute_float(context, block, arguments, result, input_rows_count);
     }
 
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return Status::OK();
-    }
-
 private:
     static Status _execute_int_range(FunctionContext* context, Block& block,
                                      const ColumnNumbers& arguments, uint32_t result,

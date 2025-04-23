@@ -32,7 +32,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -41,7 +40,6 @@
 namespace doris::vectorized {
 
 struct StPoint {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_point";
     static const size_t NUM_ARGS = 2;
     using Type = DataTypeString;
@@ -129,7 +127,6 @@ struct StAsWktName {
 
 template <typename FunctionName>
 struct StAsText {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = FunctionName::NAME;
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeString;
@@ -165,7 +162,6 @@ struct StAsText {
 };
 
 struct StX {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_x";
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeFloat64;
@@ -203,7 +199,6 @@ struct StX {
 };
 
 struct StY {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_y";
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeFloat64;
@@ -241,7 +236,6 @@ struct StY {
 };
 
 struct StDistanceSphere {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_distance_sphere";
     static const size_t NUM_ARGS = 4;
     using Type = DataTypeFloat64;
@@ -288,7 +282,6 @@ struct StDistanceSphere {
 };
 
 struct StAngleSphere {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_angle_sphere";
     static const size_t NUM_ARGS = 4;
     using Type = DataTypeFloat64;
@@ -337,7 +330,6 @@ struct StAngleSphere {
 };
 
 struct StAngle {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_angle";
     static const size_t NUM_ARGS = 3;
     using Type = DataTypeFloat64;
@@ -397,7 +389,6 @@ struct StAngle {
 };
 
 struct StAzimuth {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_azimuth";
     static const size_t NUM_ARGS = 2;
     using Type = DataTypeFloat64;
@@ -487,7 +478,6 @@ struct StAzimuth {
 };
 
 struct StAreaSquareMeters {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_area_square_meters";
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeFloat64;
@@ -528,7 +518,6 @@ struct StAreaSquareMeters {
 };
 
 struct StAreaSquareKm {
-    static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_area_square_km";
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeFloat64;
@@ -571,12 +560,10 @@ struct StAreaSquareKm {
 };
 
 struct StCircle {
-    static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = "st_circle";
     static const size_t NUM_ARGS = 3;
     using Type = DataTypeString;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 3);
         auto return_type = block.get_data_type(result);
         auto center_lng =
@@ -616,25 +603,15 @@ struct StCircle {
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
     }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
 };
 
 template <typename Func>
 struct StRelationFunction {
-    static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = Func::NAME;
     static const size_t NUM_ARGS = 2;
     using Type = DataTypeUInt8;
 
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 2);
         auto return_type = block.get_data_type(result);
         const auto& [left_column, left_const] =
@@ -707,14 +684,6 @@ struct StRelationFunction {
             loop_do(lhs_value, rhs_value, shapes, res, null_map, row);
         }
     }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
 };
 
 struct StContainsFunc {
@@ -774,12 +743,10 @@ struct StPolygonFromText {
 
 template <typename Impl>
 struct StGeoFromText {
-    static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = Impl::NAME;
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeString;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = block.get_data_type(result);
         auto& geo = block.get_by_position(arguments[0]).column;
@@ -807,14 +774,6 @@ struct StGeoFromText {
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
     }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
 };
 
 struct StGeometryFromWKB {
@@ -829,12 +788,10 @@ struct StGeomFromWKB {
 
 template <typename Impl>
 struct StGeoFromWkb {
-    static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = Impl::NAME;
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeString;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = block.get_data_type(result);
         auto& geo = block.get_by_position(arguments[0]).column;
@@ -861,23 +818,13 @@ struct StGeoFromWkb {
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
         return Status::OK();
     }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
 };
 
 struct StAsBinary {
-    static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = "st_asbinary";
     static const size_t NUM_ARGS = 1;
     using Type = DataTypeString;
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result) {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = block.get_data_type(result);
         auto res = ColumnString::create();
@@ -908,14 +855,6 @@ struct StAsBinary {
 
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
-        return Status::OK();
-    }
-
-    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
 };

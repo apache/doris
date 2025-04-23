@@ -70,14 +70,6 @@ public:
                       NullMapType* dest_nested_null_map) const;
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t /*input_rows_count*/) const override;
-
-    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return Status::OK();
-    }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return Status::OK();
-    }
 };
 
 void register_function_tokenize(SimpleFunctionFactory& factory) {
