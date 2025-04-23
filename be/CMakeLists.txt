@@ -254,6 +254,10 @@ add_compile_options(-g
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
+                    $<$<COMPILE_LANGUAGE:CXX>:-Wno-incompatible-pointer-types>
+                    -Wno-unknown-warning-option
+                    -Wno-deprecated-declarations
+                    -Wno-missing-designated-field-initializers
                     -Wno-sign-compare)
 
 if (COMPILER_GCC)
@@ -767,4 +771,3 @@ get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTO
 foreach(dir ${dirs})
     message(STATUS "dir='${dir}'")
 endforeach()
-
