@@ -177,4 +177,94 @@ TEST_F(PartitionSortOperatorTest, test) {
     }
 }
 
+TEST_F(PartitionSortOperatorTest, TestWithoutKey) {
+    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeUInt32>()};
+    std::unique_ptr<PartitionedHashMapVariants> _variants =
+            std::make_unique<PartitionedHashMapVariants>();
+    _variants->init(types, HashKeyType::without_key);
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(_variants->method_variant));
+}
+
+TEST_F(PartitionSortOperatorTest, TestSerializedKey) {
+    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeString>()};
+    std::unique_ptr<PartitionedHashMapVariants> _variants =
+            std::make_unique<PartitionedHashMapVariants>();
+    _variants->init(types, HashKeyType::serialized);
+    ASSERT_TRUE(std::holds_alternative<vectorized::MethodSerialized<PartitionDataWithStringKey>>(
+            _variants->method_variant));
+}
+
+TEST_F(PartitionSortOperatorTest, TestNumericKeys) {
+    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeUInt32>()};
+    std::unique_ptr<PartitionedHashMapVariants> _variants =
+            std::make_unique<PartitionedHashMapVariants>();
+    // Test int8 key
+    _variants->init(types, HashKeyType::int8_key);
+    auto value = std::holds_alternative<
+            vectorized::MethodOneNumber<vectorized::UInt8, PartitionData<vectorized::UInt8>>>(
+            _variants->method_variant);
+    ASSERT_TRUE(value);
+
+    // Test int32 key
+    _variants->init(types, HashKeyType::int32_key);
+    value = std::holds_alternative<
+            vectorized::MethodOneNumber<vectorized::UInt32, PartitionData<vectorized::UInt32>>>(
+            _variants->method_variant);
+    ASSERT_TRUE(value);
+
+    // Test int64 key
+    _variants->init(types, HashKeyType::int64_key);
+    value = std::holds_alternative<
+            vectorized::MethodOneNumber<vectorized::UInt64, PartitionData<vectorized::UInt64>>>(
+            _variants->method_variant);
+    ASSERT_TRUE(value);
+}
+
+TEST_F(PartitionSortOperatorTest, TestNullableKeys) {
+    auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(
+            std::make_shared<vectorized::DataTypeUInt32>());
+    std::vector<vectorized::DataTypePtr> types {nullable_type};
+    std::unique_ptr<PartitionedHashMapVariants> _variants =
+            std::make_unique<PartitionedHashMapVariants>();
+    // Test nullable int32
+    _variants->init(types, HashKeyType::int32_key);
+    auto value = std::holds_alternative<
+            vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
+                    vectorized::UInt32, DataWithNullKey<PartitionData<vectorized::UInt32>>>>>(
+            _variants->method_variant);
+    ASSERT_TRUE(value);
+
+    // Test nullable string
+    _variants->init(types, HashKeyType::string_key);
+    auto value2 = std::holds_alternative<vectorized::MethodSingleNullableColumn<
+            vectorized::MethodStringNoCache<DataWithNullKey<PartitionDataWithShortStringKey>>>>(
+            _variants->method_variant);
+    ASSERT_TRUE(value2);
+}
+
+TEST_F(PartitionSortOperatorTest, TestFixedKeys) {
+    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeUInt32>(),
+                                                std::make_shared<vectorized::DataTypeUInt32>()};
+    std::unique_ptr<PartitionedHashMapVariants> _variants =
+            std::make_unique<PartitionedHashMapVariants>();
+    // Test fixed64
+    _variants->init(types, HashKeyType::fixed64);
+    ASSERT_TRUE(
+            std::holds_alternative<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt64>>>(
+                    _variants->method_variant));
+
+    // Test fixed128
+    _variants->init(types, HashKeyType::fixed128);
+    ASSERT_TRUE(
+            std::holds_alternative<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt128>>>(
+                    _variants->method_variant));
+}
+
+TEST_F(PartitionSortOperatorTest, TestInvalidKeyType) {
+    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeUInt32>()};
+    std::unique_ptr<PartitionedHashMapVariants> _variants =
+            std::make_unique<PartitionedHashMapVariants>();
+    ASSERT_THROW(_variants->init(types, static_cast<HashKeyType>(-1)), Exception);
+}
+
 } // namespace doris::pipeline
