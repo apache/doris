@@ -526,6 +526,12 @@ ICU_NAME=release-69-1.tar.gz
 ICU_SOURCE=icu-release-69-1
 ICU_MD5SUM="135125f633864285d637db5c01e0388b"
 
+# jindofs
+JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.8.2-libs-0.1.tar.gz"
+JINDOFS_NAME=jindofs-6.8.2-libs-0.1.tar.gz
+JINDOFS_SOURCE=jindofs-6.8.2-libs-0.1
+JINDOFS_MD5SUM="0e5b0f71e636b8ed3f09e0bf16208fd1"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -604,6 +610,7 @@ export TP_ARCHIVES=(
     'AZURE'
     'DRAGONBOX'
     'ICU'
+    'JINDOFS'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
