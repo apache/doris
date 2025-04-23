@@ -57,7 +57,7 @@ public class IndexDefinitionTest {
     }
 
     void testArrayTypeSupport() throws AnalysisException {
-        IndexDefinition def = new IndexDefinition("array_index", false, Lists.newArrayList("col1"),
+        IndexDefinition def = new IndexDefinition("array_index", Lists.newArrayList("col1"),
                 "INVERTED", null, "array test");
 
         // Test array of supported types
