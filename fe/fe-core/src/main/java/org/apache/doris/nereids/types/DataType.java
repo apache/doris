@@ -396,13 +396,16 @@ public abstract class DataType {
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
             return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
         } else if (type.isVariantType()) {
-            List<VariantField> variantFields = ((org.apache.doris.catalog.VariantType) type)
-                    .getPredefinedFields().stream()
-                    .map(cf -> new VariantField(cf.getPattern(), fromCatalogType(cf.getType()),
-                            cf.getComment() == null ? "" : cf.getComment(), cf.getPatternType().toString()))
-                    .collect(ImmutableList.toImmutableList());
-            return new VariantType(variantFields,
-                            ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount());
+            if (type instanceof org.apache.doris.catalog.VariantType) {
+                List<VariantField> variantFields = ((org.apache.doris.catalog.VariantType) type)
+                        .getPredefinedFields().stream()
+                        .map(cf -> new VariantField(cf.getPattern(), fromCatalogType(cf.getType()),
+                                cf.getComment() == null ? "" : cf.getComment(), cf.getPatternType().toString()))
+                        .collect(ImmutableList.toImmutableList());
+                return new VariantType(variantFields,
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount());
+            }
+            return new VariantType(0);
         } else {
             return UnsupportedType.INSTANCE;
         }

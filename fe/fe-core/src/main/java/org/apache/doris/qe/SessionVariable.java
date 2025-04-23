@@ -2498,7 +2498,7 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkGlobalVariantMaxSubcolumnsCount",
             fuzzy = true
     )
-    public int globalVariantMaxSubcolumnsCount = 5;
+    public int globalVariantMaxSubcolumnsCount = 2048;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
