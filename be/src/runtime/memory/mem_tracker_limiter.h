@@ -157,7 +157,12 @@ public:
         if (UNLIKELY(bytes == 0)) {
             return true;
         }
-        return _mem_counter.try_add(bytes, _limit);
+        if (has_limit()) {
+            return _mem_counter.try_add(bytes, _limit);
+        } else {
+            _mem_counter.add(bytes);
+            return true;
+        }
     }
 
     void set_consumption(int64_t bytes) { _mem_counter.set(bytes); }
