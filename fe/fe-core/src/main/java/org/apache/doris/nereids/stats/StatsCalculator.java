@@ -135,6 +135,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -617,6 +618,20 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(tableRowCount);
+        }
+
+        if (ConnectContext.get() != null && !ConnectContext.get().getSessionVariable().enableStringMinMaxStats) {
+            for (SlotReference slot : visibleOutputSlots) {
+                if (slot.getDataType() instanceof CharacterType && builder.getColumnStatistic(slot) != null) {
+                    ColumnStatisticBuilder colStatsBuilder =
+                            new ColumnStatisticBuilder(builder.getColumnStatistic(slot));
+                    colStatsBuilder.setMinValue(Double.NEGATIVE_INFINITY);
+                    colStatsBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+                    colStatsBuilder.setMinExpr(null);
+                    colStatsBuilder.setMaxExpr(null);
+                    builder.putColumnStatistics(slot, colStatsBuilder.build());
+                }
+            }
         }
         return builder.build();
     }

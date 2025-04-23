@@ -1659,6 +1659,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
     public boolean enableEliminateSortNode = true;
 
+    public static final  String ENABLE_STRING_MIN_MAX_STATS = "enable_string_min_max_stats";
+    @VariableMgr.VarAttr(name = ENABLE_STRING_MIN_MAX_STATS, needForward = true, fuzzy = false)
+    public boolean enableStringMinMaxStats = true;
+
     @VariableMgr.VarAttr(name = INTERNAL_SESSION)
     public boolean internalSession = false;
 

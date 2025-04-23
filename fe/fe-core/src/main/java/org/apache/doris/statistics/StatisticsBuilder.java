@@ -73,6 +73,10 @@ public class StatisticsBuilder {
         return expressionToColumnStats.entrySet();
     }
 
+    public ColumnStatistic getColumnStatistic(Expression expression) {
+        return expressionToColumnStats.get(expression);
+    }
+
     public Statistics build() {
         return new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats, deltaRowCount);
     }
