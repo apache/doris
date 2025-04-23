@@ -28,7 +28,7 @@ import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import java.util.Map;
 
-public class JsonFileFormatConfigurator extends FileFormatConfigurator {
+public class JsonFileFormatProperties extends FileFormatProperties {
     // from ExternalFileTableValuedFunction:
     private String jsonRoot = "";
     private String jsonPaths = "";
@@ -38,7 +38,7 @@ public class JsonFileFormatConfigurator extends FileFormatConfigurator {
     private boolean fuzzyParse;
 
 
-    public JsonFileFormatConfigurator(TFileFormatType fileFormatType) {
+    public JsonFileFormatProperties(TFileFormatType fileFormatType) {
         super(fileFormatType);
     }
 
@@ -118,15 +118,5 @@ public class JsonFileFormatConfigurator extends FileFormatConfigurator {
 
     public boolean isFuzzyParse() {
         return fuzzyParse;
-    }
-
-
-    public static class JsonFileFormatProperties {
-        public static final String PROP_JSON_ROOT = "json_root";
-        public static final String PROP_JSON_PATHS = "jsonpaths";
-        public static final String PROP_STRIP_OUTER_ARRAY = "strip_outer_array";
-        public static final String PROP_READ_JSON_BY_LINE = "read_json_by_line";
-        public static final String PROP_NUM_AS_STRING = "num_as_string";
-        public static final String PROP_FUZZY_PARSE = "fuzzy_parse";
     }
 }

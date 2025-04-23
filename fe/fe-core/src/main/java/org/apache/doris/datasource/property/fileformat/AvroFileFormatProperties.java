@@ -20,17 +20,14 @@ package org.apache.doris.datasource.property.fileformat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.thrift.TFileAttributes;
-import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import java.util.Map;
 
-public class OrcFileFormatConfigurator extends FileFormatConfigurator {
-    private TFileCompressType orcCompressionType = TFileCompressType.ZLIB;
-
-    public OrcFileFormatConfigurator(TFileFormatType fileFormatType) {
+public class AvroFileFormatProperties extends FileFormatProperties {
+    public AvroFileFormatProperties(TFileFormatType fileFormatType) {
         super(fileFormatType);
     }
 
@@ -55,12 +52,5 @@ public class OrcFileFormatConfigurator extends FileFormatConfigurator {
         TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
         fileAttributes.setTextParams(fileTextScanRangeParams);
         return fileAttributes;
-    }
-
-    public TFileCompressType getOrcCompressionType() {
-        return orcCompressionType;
-    }
-
-    public static class OrcFileFormatProperties {
     }
 }

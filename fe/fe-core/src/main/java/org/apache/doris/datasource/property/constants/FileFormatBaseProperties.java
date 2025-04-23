@@ -15,30 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property.fileformat;
+package org.apache.doris.datasource.property.constants;
 
-import org.apache.doris.thrift.TFileFormatType;
-
-import org.junit.Before;
-import org.junit.Test;
-
-import java.util.HashMap;
-import java.util.Map;
-
-
-public class AvroFileFormatConfiguratorTest {
-
-    private AvroFileFormatConfigurator checker;
-
-    @Before
-    public void setUp() {
-        checker = new AvroFileFormatConfigurator(TFileFormatType.FORMAT_AVRO);
-    }
-
-    @Test
-    public void testAnalyzeFileFormatProperties() {
-        Map<String, String> properties = new HashMap<>();
-        // Add properties if needed
-        checker.analyzeFileFormatProperties(properties, true);
-    }
+public class FileFormatBaseProperties {
+    public static final String PROP_FORMAT = "format";
+    public static final String FORMAT_PARQUET = "parquet";
+    public static final String FORMAT_CSV = "csv";
+    public static final String FORMAT_CSV_WITH_NAMES = "csv_with_names";
+    public static final String FORMAT_CSV_WITH_NAMES_AND_TYPES = "csv_with_names_and_types";
+    public static final String FORMAT_HIVE_TEXT = "hive_text";
+    public static final String FORMAT_ORC = "orc";
+    public static final String FORMAT_JSON = "json";
+    public static final String FORMAT_AVRO = "avro";
+    public static final String FORMAT_WAL = "wal";
+    public static final String FORMAT_ARROW = "arrow";
 }

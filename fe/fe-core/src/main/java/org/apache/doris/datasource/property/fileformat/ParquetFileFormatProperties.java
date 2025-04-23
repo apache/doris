@@ -22,13 +22,22 @@ import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
+import org.apache.doris.thrift.TParquetCompressionType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import java.util.Map;
 
-public class WalFileFormatConfigurator extends FileFormatConfigurator {
-    public WalFileFormatConfigurator(TFileFormatType fileFormatType) {
+public class ParquetFileFormatProperties extends FileFormatProperties {
+    private TParquetCompressionType parquetCompressionType = TParquetCompressionType.SNAPPY;
+    private boolean parquetDisableDictionary = false;
+
+    public ParquetFileFormatProperties(TFileFormatType fileFormatType) {
         super(fileFormatType);
+    }
+
+    @Override
+    public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
+            throws AnalysisException {
     }
 
     @Override
@@ -49,8 +58,11 @@ public class WalFileFormatConfigurator extends FileFormatConfigurator {
         return fileAttributes;
     }
 
-    @Override
-    public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
-            throws AnalysisException {
+    public TParquetCompressionType getParquetCompressionType() {
+        return parquetCompressionType;
+    }
+
+    public boolean isParquetDisableDictionary() {
+        return parquetDisableDictionary;
     }
 }

@@ -15,29 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property.fileformat;
+package org.apache.doris.datasource.property.constants;
 
-import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TParquetVersion;
 
-import org.junit.Before;
-import org.junit.Test;
-
-import java.util.HashMap;
-import java.util.Map;
-
-public class WalFileFormatConfiguratorTest {
-
-    private WalFileFormatConfigurator configurator;
-
-    @Before
-    public void setUp() {
-        configurator = new WalFileFormatConfigurator(TFileFormatType.FORMAT_WAL);
-    }
-
-    @Test
-    public void testAnalyzeFileFormatProperties() {
-        Map<String, String> properties = new HashMap<>();
-        // Add properties if needed
-        configurator.analyzeFileFormatProperties(properties, true);
-    }
+public class ParquetProperties {
+    public static final String PARQUET_DISABLE_DICTIONARY = "disable_dictionary";
+    public static final TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
+    public static final String PARQUET_VERSION = "version";
 }

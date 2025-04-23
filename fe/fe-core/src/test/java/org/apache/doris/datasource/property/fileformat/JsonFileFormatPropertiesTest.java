@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.fileformat;
 
+import org.apache.doris.datasource.property.constants.JsonProperties;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFileFormatType;
 
@@ -27,13 +28,13 @@ import org.junit.Test;
 import java.util.HashMap;
 import java.util.Map;
 
-public class JsonFileFormatConfiguratorTest {
+public class JsonFileFormatPropertiesTest {
 
-    private JsonFileFormatConfigurator configurator;
+    private JsonFileFormatProperties configurator;
 
     @Before
     public void setUp() {
-        configurator = new JsonFileFormatConfigurator(TFileFormatType.FORMAT_JSON);
+        configurator = new JsonFileFormatProperties(TFileFormatType.FORMAT_JSON);
     }
 
     @Test
@@ -52,7 +53,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesValidJsonRoot() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_JSON_ROOT, "data.items");
+        properties.put(JsonProperties.PROP_JSON_ROOT, "data.items");
 
         configurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals("data.items", configurator.getJsonRoot());
@@ -61,7 +62,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesValidJsonPaths() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_JSON_PATHS,
+        properties.put(JsonProperties.PROP_JSON_PATHS,
                 "[\"$.name\", \"$.age\", \"$.city\"]");
 
         configurator.analyzeFileFormatProperties(properties, true);
@@ -71,7 +72,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesStripOuterArrayTrue() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, "true");
+        properties.put(JsonProperties.PROP_STRIP_OUTER_ARRAY, "true");
 
         configurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(true, configurator.isStripOuterArray());
@@ -80,7 +81,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesStripOuterArrayFalse() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, "false");
+        properties.put(JsonProperties.PROP_STRIP_OUTER_ARRAY, "false");
 
         configurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(false, configurator.isStripOuterArray());
@@ -89,7 +90,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesReadJsonByLineTrue() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, "true");
+        properties.put(JsonProperties.PROP_READ_JSON_BY_LINE, "true");
 
         configurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(true, configurator.isReadJsonByLine());
@@ -98,7 +99,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesReadJsonByLineFalse() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, "false");
+        properties.put(JsonProperties.PROP_READ_JSON_BY_LINE, "false");
 
         configurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(false, configurator.isReadJsonByLine());
@@ -107,7 +108,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesNumAsStringTrue() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_NUM_AS_STRING, "true");
+        properties.put(JsonProperties.PROP_NUM_AS_STRING, "true");
 
         configurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(true, configurator.isNumAsString());
@@ -116,7 +117,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesNumAsStringFalse() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_NUM_AS_STRING, "false");
+        properties.put(JsonProperties.PROP_NUM_AS_STRING, "false");
 
         configurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(false, configurator.isNumAsString());
@@ -125,7 +126,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesFuzzyParseTrue() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_FUZZY_PARSE, "true");
+        properties.put(JsonProperties.PROP_FUZZY_PARSE, "true");
 
         configurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(true, configurator.isFuzzyParse());
@@ -134,7 +135,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesFuzzyParseFalse() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_FUZZY_PARSE, "false");
+        properties.put(JsonProperties.PROP_FUZZY_PARSE, "false");
 
         configurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(false, configurator.isFuzzyParse());
@@ -143,7 +144,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesInvalidBooleanValue() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_FUZZY_PARSE, "invalid");
+        properties.put(JsonProperties.PROP_FUZZY_PARSE, "invalid");
 
         configurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(false, configurator.isFuzzyParse());
@@ -152,12 +153,12 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesAllProperties() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_JSON_ROOT, "data.records");
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_JSON_PATHS, "[\"$.id\", \"$.name\"]");
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, "true");
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, "true");
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_NUM_AS_STRING, "true");
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_FUZZY_PARSE, "true");
+        properties.put(JsonProperties.PROP_JSON_ROOT, "data.records");
+        properties.put(JsonProperties.PROP_JSON_PATHS, "[\"$.id\", \"$.name\"]");
+        properties.put(JsonProperties.PROP_STRIP_OUTER_ARRAY, "true");
+        properties.put(JsonProperties.PROP_READ_JSON_BY_LINE, "true");
+        properties.put(JsonProperties.PROP_NUM_AS_STRING, "true");
+        properties.put(JsonProperties.PROP_FUZZY_PARSE, "true");
 
         configurator.analyzeFileFormatProperties(properties, true);
 
@@ -172,7 +173,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesSpecialCharactersInJsonRoot() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_JSON_ROOT, "data.special@#$%^&*()");
+        properties.put(JsonProperties.PROP_JSON_ROOT, "data.special@#$%^&*()");
 
         configurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals("data.special@#$%^&*()", configurator.getJsonRoot());
@@ -181,7 +182,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesComplexJsonPaths() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_JSON_PATHS,
+        properties.put(JsonProperties.PROP_JSON_PATHS,
                 "[\"$.deeply.nested[0].array[*].field\", \"$.complex.path[?(@.type=='value')]\"]");
 
         configurator.analyzeFileFormatProperties(properties, true);
@@ -192,7 +193,7 @@ public class JsonFileFormatConfiguratorTest {
     @Test
     public void testAnalyzeFileFormatPropertiesEmptyJsonPaths() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatConfigurator.JsonFileFormatProperties.PROP_JSON_PATHS, "");
+        properties.put(JsonProperties.PROP_JSON_PATHS, "");
 
         configurator.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals("", configurator.getJsonPaths());

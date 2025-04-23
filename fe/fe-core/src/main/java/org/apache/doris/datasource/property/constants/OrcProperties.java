@@ -15,20 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property.fileformat;
+package org.apache.doris.datasource.property.constants;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
-
-import org.junit.Assert;
-import org.junit.Test;
-
-
-public class FileFormatConfiguratorTest {
-
-    @Test
-    public void testCreateFileFormatCheckerInvalidFormat() {
-        Assert.assertThrows(AnalysisException.class, () -> {
-            FileFormatConfigurator.createFileFormatChecker("invalid_format");
-        });
-    }
+public class OrcProperties {
+    public static final String COMPRESS_TYPE = "compress_type";
 }

@@ -20,19 +20,17 @@ package org.apache.doris.datasource.property.fileformat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
-import org.apache.doris.thrift.TParquetCompressionType;
-import org.apache.doris.thrift.TParquetVersion;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import java.util.Map;
 
-public class ParquetFileFormatConfigurator extends FileFormatConfigurator {
-    private TParquetCompressionType parquetCompressionType = TParquetCompressionType.SNAPPY;
-    private boolean parquetDisableDictionary = false;
+public class OrcFileFormatProperties extends FileFormatProperties {
+    private TFileCompressType orcCompressionType = TFileCompressType.ZLIB;
 
-    public ParquetFileFormatConfigurator(TFileFormatType fileFormatType) {
+    public OrcFileFormatProperties(TFileFormatType fileFormatType) {
         super(fileFormatType);
     }
 
@@ -59,17 +57,7 @@ public class ParquetFileFormatConfigurator extends FileFormatConfigurator {
         return fileAttributes;
     }
 
-    public TParquetCompressionType getParquetCompressionType() {
-        return parquetCompressionType;
-    }
-
-    public boolean isParquetDisableDictionary() {
-        return parquetDisableDictionary;
-    }
-
-    public static class ParquetFileFormatProperties {
-        public static final String PARQUET_DISABLE_DICTIONARY = "disable_dictionary";
-        public static final TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
-        public static final String PARQUET_VERSION = "version";
+    public TFileCompressType getOrcCompressionType() {
+        return orcCompressionType;
     }
 }

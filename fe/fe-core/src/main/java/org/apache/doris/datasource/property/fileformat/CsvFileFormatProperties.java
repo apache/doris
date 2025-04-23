@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.constants.CsvProperties;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.qe.ConnectContext;
@@ -38,13 +39,14 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 
-public class CsvFileFormatConfigurator extends FileFormatConfigurator {
-    public static final Logger LOG = LogManager.getLogger(CsvFileFormatConfigurator.class);
+public class CsvFileFormatProperties extends FileFormatProperties {
+    public static final Logger LOG = LogManager.getLogger(
+            org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties.class);
 
     private String headerType = "";
     private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
-    private String columnSeparator = CsvFileFormatProperties.DEFAULT_COLUMN_SEPARATOR;
-    private String lineDelimiter = CsvFileFormatProperties.DEFAULT_LINE_DELIMITER;
+    private String columnSeparator = CsvProperties.DEFAULT_COLUMN_SEPARATOR;
+    private String lineDelimiter = CsvProperties.DEFAULT_LINE_DELIMITER;
     private boolean trimDoubleQuotes;
     private int skipLines;
     private byte enclose;
@@ -53,20 +55,20 @@ public class CsvFileFormatConfigurator extends FileFormatConfigurator {
     // User specified csv columns, it will override columns got from file
     private final List<Column> csvSchema = Lists.newArrayList();
 
-    String defaultColumnSeparator = CsvFileFormatProperties.DEFAULT_COLUMN_SEPARATOR;
+    String defaultColumnSeparator = CsvProperties.DEFAULT_COLUMN_SEPARATOR;
 
-    public CsvFileFormatConfigurator(TFileFormatType fileFormatType) {
+    public CsvFileFormatProperties(TFileFormatType fileFormatType) {
         super(fileFormatType);
     }
 
-    public CsvFileFormatConfigurator(TFileFormatType fileFormatType, String defaultColumnSeparator,
+    public CsvFileFormatProperties(TFileFormatType fileFormatType, String defaultColumnSeparator,
             TTextSerdeType textSerdeType) {
         super(fileFormatType);
         this.defaultColumnSeparator = defaultColumnSeparator;
         this.textSerdeType = textSerdeType;
     }
 
-    public CsvFileFormatConfigurator(TFileFormatType fileFormatType, String headerType) {
+    public CsvFileFormatProperties(TFileFormatType fileFormatType, String headerType) {
         super(fileFormatType);
         this.headerType = headerType;
     }
@@ -77,21 +79,21 @@ public class CsvFileFormatConfigurator extends FileFormatConfigurator {
             throws AnalysisException {
         try {
             // check properties specified by user -- formatProperties
-            columnSeparator = getOrDefaultAndRemove(formatProperties, CsvFileFormatProperties.PROP_COLUMN_SEPARATOR,
+            columnSeparator = getOrDefaultAndRemove(formatProperties, CsvProperties.PROP_COLUMN_SEPARATOR,
                     defaultColumnSeparator, isRemoveOriginProperty);
             if (Strings.isNullOrEmpty(columnSeparator)) {
                 throw new AnalysisException("column_separator can not be empty.");
             }
             columnSeparator = Separator.convertSeparator(columnSeparator);
 
-            lineDelimiter = getOrDefaultAndRemove(formatProperties, CsvFileFormatProperties.PROP_LINE_DELIMITER,
-                    CsvFileFormatProperties.DEFAULT_LINE_DELIMITER, isRemoveOriginProperty);
+            lineDelimiter = getOrDefaultAndRemove(formatProperties, CsvProperties.PROP_LINE_DELIMITER,
+                    CsvProperties.DEFAULT_LINE_DELIMITER, isRemoveOriginProperty);
             if (Strings.isNullOrEmpty(lineDelimiter)) {
                 throw new AnalysisException("line_delimiter can not be empty.");
             }
             lineDelimiter = Separator.convertSeparator(lineDelimiter);
 
-            String enclosedString = getOrDefaultAndRemove(formatProperties, CsvFileFormatProperties.PROP_ENCLOSE,
+            String enclosedString = getOrDefaultAndRemove(formatProperties, CsvProperties.PROP_ENCLOSE,
                     "", isRemoveOriginProperty);
             if (!Strings.isNullOrEmpty(enclosedString)) {
                 if (enclosedString.length() > 1) {
@@ -104,16 +106,16 @@ public class CsvFileFormatConfigurator extends FileFormatConfigurator {
             }
 
             trimDoubleQuotes = Boolean.valueOf(getOrDefaultAndRemove(formatProperties,
-                    CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES, "", isRemoveOriginProperty))
+                    CsvProperties.PROP_TRIM_DOUBLE_QUOTES, "", isRemoveOriginProperty))
                     .booleanValue();
             skipLines = Integer.valueOf(getOrDefaultAndRemove(formatProperties,
-                    CsvFileFormatProperties.PROP_SKIP_LINES, "0", isRemoveOriginProperty)).intValue();
+                    CsvProperties.PROP_SKIP_LINES, "0", isRemoveOriginProperty)).intValue();
             if (skipLines < 0) {
                 throw new AnalysisException("skipLines should not be less than 0.");
             }
 
             String compressTypeStr = getOrDefaultAndRemove(formatProperties,
-                    CsvFileFormatProperties.PROP_COMPRESS_TYPE, "UNKNOWN", isRemoveOriginProperty);
+                    CsvProperties.PROP_COMPRESS_TYPE, "UNKNOWN", isRemoveOriginProperty);
             try {
                 compressionType = Util.getFileCompressType(compressTypeStr);
             } catch (IllegalArgumentException e) {
@@ -121,7 +123,7 @@ public class CsvFileFormatConfigurator extends FileFormatConfigurator {
             }
 
             FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(formatProperties,
-                    CsvFileFormatProperties.PROP_CSV_SCHEMA, "", isRemoveOriginProperty));
+                    CsvProperties.PROP_CSV_SCHEMA, "", isRemoveOriginProperty));
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get csv schema: {}", csvSchema);
             }
@@ -189,21 +191,5 @@ public class CsvFileFormatConfigurator extends FileFormatConfigurator {
 
     public List<Column> getCsvSchema() {
         return csvSchema;
-    }
-
-    public static class CsvFileFormatProperties {
-        public static final String DEFAULT_COLUMN_SEPARATOR = "\t";
-        public static final String DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR = "\001";
-        public static final String DEFAULT_LINE_DELIMITER = "\n";
-
-        public static final String PROP_COLUMN_SEPARATOR = "column_separator";
-        public static final String PROP_LINE_DELIMITER = "line_delimiter";
-
-        public static final String PROP_SKIP_LINES = "skip_lines";
-        public static final String PROP_CSV_SCHEMA = "csv_schema";
-        public static final String PROP_COMPRESS_TYPE = "compress_type";
-        public static final String PROP_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
-
-        public static final String PROP_ENCLOSE = "enclose";
     }
 }

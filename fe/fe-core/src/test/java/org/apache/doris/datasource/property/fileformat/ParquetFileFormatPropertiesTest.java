@@ -27,13 +27,13 @@ import org.junit.Test;
 import java.util.HashMap;
 import java.util.Map;
 
-public class ParquetFileFormatConfiguratorTest {
+public class ParquetFileFormatPropertiesTest {
 
-    private ParquetFileFormatConfigurator configurator;
+    private ParquetFileFormatProperties configurator;
 
     @Before
     public void setUp() {
-        configurator = new ParquetFileFormatConfigurator(TFileFormatType.FORMAT_PARQUET);
+        configurator = new ParquetFileFormatProperties(TFileFormatType.FORMAT_PARQUET);
     }
 
     @Test

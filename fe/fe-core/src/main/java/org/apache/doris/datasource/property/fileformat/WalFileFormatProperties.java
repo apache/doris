@@ -26,14 +26,9 @@ import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import java.util.Map;
 
-public class AvroFileFormatConfigurator extends FileFormatConfigurator {
-    public AvroFileFormatConfigurator(TFileFormatType fileFormatType) {
+public class WalFileFormatProperties extends FileFormatProperties {
+    public WalFileFormatProperties(TFileFormatType fileFormatType) {
         super(fileFormatType);
-    }
-
-    @Override
-    public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
-            throws AnalysisException {
     }
 
     @Override
@@ -52,5 +47,10 @@ public class AvroFileFormatConfigurator extends FileFormatConfigurator {
         TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
         fileAttributes.setTextParams(fileTextScanRangeParams);
         return fileAttributes;
+    }
+
+    @Override
+    public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
+            throws AnalysisException {
     }
 }

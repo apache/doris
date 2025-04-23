@@ -27,13 +27,13 @@ import org.junit.Test;
 import java.util.HashMap;
 import java.util.Map;
 
-public class OrcFileFormatConfiguratorTest {
+public class OrcFileFormatPropertiesTest {
 
-    private OrcFileFormatConfigurator configurator;
+    private OrcFileFormatProperties configurator;
 
     @Before
     public void setUp() {
-        configurator = new OrcFileFormatConfigurator(TFileFormatType.FORMAT_ORC);
+        configurator = new OrcFileFormatProperties(TFileFormatType.FORMAT_ORC);
     }
 
     @Test
