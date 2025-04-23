@@ -123,4 +123,76 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_astr_nullable) {
             ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
 }
 
+TEST_F(AggregateFunctionArrayAggTest, test_array_agg_astr_foreach) {
+    auto data_type = make_nullable(std::make_shared<DataTypeString>());
+    auto array_data_type = std::make_shared<DataTypeArray>(data_type);
+    create_agg("array_agg_foreach", false, {array_data_type});
+
+    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto data_column = data_type->create_column();
+    std::vector<ColumnArray::Offset64> offs = {0, 4};
+    std::vector<int64_t> vals = {1, 2, 3};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    data_column->insert_default();
+    for (auto& v : vals) {
+        data_column->insert_data((const char*)(&v), sizeof(v));
+    }
+    auto array_column = ColumnArray::create(data_column->clone(), off_column->clone());
+
+    auto off_column2 = ColumnVector<ColumnArray::Offset64>::create();
+    std::vector<ColumnArray::Offset64> offs2 = {0, 1, 2, 3, 4};
+    for (size_t i = 1; i < offs2.size(); ++i) {
+        off_column2->insert_data((const char*)(&offs2[i]), 0);
+    }
+
+    auto array_array_data_type = std::make_shared<DataTypeArray>(array_data_type);
+    auto array_array_off_column = ColumnVector<ColumnArray::Offset64>::create();
+    array_array_off_column->insert_value(4);
+    auto array_array_column =
+            ColumnArray::create(ColumnArray::create(data_column->clone(), off_column2->clone()),
+                                array_array_off_column->clone());
+
+    execute(Block({ColumnWithTypeAndName(array_column->clone(), array_data_type, "")}),
+            ColumnWithTypeAndName(std::move(array_array_column), array_array_data_type, "column"));
+}
+
+
+TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64_foreach) {
+    auto data_type = make_nullable(std::make_shared<DataTypeInt64>());
+    auto array_data_type = std::make_shared<DataTypeArray>(data_type);
+    create_agg("array_agg_foreach", false, {array_data_type});
+
+    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto data_column = data_type->create_column();
+    std::vector<ColumnArray::Offset64> offs = {0, 4};
+    std::vector<int64_t> vals = {1, 2, 3};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    data_column->insert_default();
+    for (auto& v : vals) {
+        data_column->insert_data((const char*)(&v), sizeof(v));
+    }
+    auto array_column = ColumnArray::create(data_column->clone(), off_column->clone());
+
+    auto off_column2 = ColumnVector<ColumnArray::Offset64>::create();
+    std::vector<ColumnArray::Offset64> offs2 = {0, 1, 2, 3, 4};
+    for (size_t i = 1; i < offs2.size(); ++i) {
+        off_column2->insert_data((const char*)(&offs2[i]), 0);
+    }
+
+    auto array_array_data_type = std::make_shared<DataTypeArray>(array_data_type);
+    auto array_array_off_column = ColumnVector<ColumnArray::Offset64>::create();
+    array_array_off_column->insert_value(4);
+    auto array_array_column =
+            ColumnArray::create(ColumnArray::create(data_column->clone(), off_column2->clone()),
+                                array_array_off_column->clone());
+
+    execute(Block({ColumnWithTypeAndName(array_column->clone(), array_data_type, "")}),
+            ColumnWithTypeAndName(std::move(array_array_column), array_array_data_type, "column"));
+}
+
+
 } // namespace doris::vectorized

@@ -217,7 +217,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64) {
     create_agg("collect_list", false, {std::make_shared<DataTypeInt64>()});
 
     auto data_type = std::make_shared<DataTypeInt64>();
-    auto array_data_type = std::make_shared<DataTypeArray>(data_type);
+    auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
     auto off_column = ColumnVector<ColumnArray::Offset64>::create();
     auto data_column = ColumnInt64::create();
@@ -229,7 +229,8 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64) {
     for (auto& v : vals) {
         data_column->insert_data((const char*)(&v), 0);
     }
-    auto array_column = ColumnArray::create(std::move(data_column), std::move(off_column));
+    auto array_column =
+            ColumnArray::create(make_nullable(data_column->clone()), std::move(off_column));
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
             ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
@@ -240,7 +241,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64_with_max_size) {
                {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()});
 
     auto data_type = std::make_shared<DataTypeInt64>();
-    auto array_data_type = std::make_shared<DataTypeArray>(data_type);
+    auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
     auto off_column = ColumnVector<ColumnArray::Offset64>::create();
     auto data_column = ColumnInt64::create();
@@ -252,7 +253,8 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64_with_max_size) {
     for (auto& v : vals) {
         data_column->insert_data((const char*)(&v), 0);
     }
-    auto array_column = ColumnArray::create(std::move(data_column), std::move(off_column));
+    auto array_column =
+            ColumnArray::create(make_nullable(data_column->clone()), std::move(off_column));
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4}),
                    ColumnHelper::create_column_with_name<DataTypeInt32>({3, 3, 3, 3})}),
@@ -263,7 +265,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64) {
     create_agg("collect_set", false, {std::make_shared<DataTypeInt64>()});
 
     auto data_type = std::make_shared<DataTypeInt64>();
-    auto array_data_type = std::make_shared<DataTypeArray>(data_type);
+    auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
     auto off_column = ColumnVector<ColumnArray::Offset64>::create();
     auto data_column = ColumnInt64::create();
@@ -275,7 +277,8 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64) {
     for (auto& v : vals) {
         data_column->insert_data((const char*)(&v), 0);
     }
-    auto array_column = ColumnArray::create(std::move(data_column), std::move(off_column));
+    auto array_column =
+            ColumnArray::create(make_nullable(data_column->clone()), std::move(off_column));
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
             ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
@@ -286,7 +289,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64_with_max_size) {
                {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt32>()});
 
     auto data_type = std::make_shared<DataTypeInt64>();
-    auto array_data_type = std::make_shared<DataTypeArray>(data_type);
+    auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
     auto off_column = ColumnVector<ColumnArray::Offset64>::create();
     auto data_column = ColumnInt64::create();
@@ -298,7 +301,8 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64_with_max_size) {
     for (auto& v : vals) {
         data_column->insert_data((const char*)(&v), 0);
     }
-    auto array_column = ColumnArray::create(std::move(data_column), std::move(off_column));
+    auto array_column =
+            ColumnArray::create(make_nullable(data_column->clone()), std::move(off_column));
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 3}),
                    ColumnHelper::create_column_with_name<DataTypeInt32>({3, 3, 3, 3, 3})}),

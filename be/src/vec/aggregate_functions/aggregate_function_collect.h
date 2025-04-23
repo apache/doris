@@ -57,6 +57,8 @@ struct AggregateFunctionCollectSetData {
     Set data_set;
     Int64 max_size = -1;
 
+    AggregateFunctionCollectSetData(const DataTypes& argument_types) {}
+
     size_t size() const { return data_set.size(); }
 
     void add(const IColumn& column, size_t row_num) {
@@ -119,6 +121,8 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
     using Set = phmap::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
+
+    AggregateFunctionCollectSetData(const DataTypes& argument_types) {}
 
     size_t size() const { return data_set.size(); }
 
@@ -185,7 +189,6 @@ struct AggregateFunctionCollectListData {
     PaddedPODArray<ElementType> data;
     Int64 max_size = -1;
 
-    AggregateFunctionCollectListData() = default;
     AggregateFunctionCollectListData(const DataTypes& argument_types) {}
 
     size_t size() const { return data.size(); }
@@ -244,7 +247,9 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
     MutableColumnPtr data;
     Int64 max_size = -1;
 
-    AggregateFunctionCollectListData() { data = ColVecType::create(); }
+    AggregateFunctionCollectListData(const DataTypes& argument_types) {
+        data = ColVecType::create();
+    }
 
     size_t size() const { return data->size(); }
 
@@ -308,7 +313,6 @@ struct AggregateFunctionCollectListData<void, HasLimit> {
     MutableColumnPtr column_data;
     Int64 max_size = -1;
 
-    AggregateFunctionCollectListData() = default;
     AggregateFunctionCollectListData(const DataTypes& argument_types) {
         DataTypePtr column_type = argument_types[0];
         column_data = column_type->create_column();
@@ -385,18 +389,17 @@ struct AggregateFunctionCollectListData<void, HasLimit> {
 
 template <typename Data, typename HasLimit>
 class AggregateFunctionCollect
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>,
+                                              true> {
     using GenericType = AggregateFunctionCollectSetData<StringRef, HasLimit>;
 
     static constexpr bool ENABLE_ARENA = std::is_same_v<Data, GenericType>;
-    static constexpr bool CREATE_NEED_ARG =
-            std::is_same_v<Data, AggregateFunctionCollectListData<void, HasLimit>>;
 
 public:
     AggregateFunctionCollect(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>>(
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>, true>(
                       {argument_types_}),
-              return_type(argument_types_[0]) {}
+              return_type(make_nullable(argument_types_[0])) {}
 
     std::string get_name() const override {
         if constexpr (std::is_same_v<AggregateFunctionCollectListData<typename Data::ElementType,
@@ -408,16 +411,8 @@ public:
         }
     }
 
-    void create(AggregateDataPtr __restrict place) const override {
-        if constexpr (CREATE_NEED_ARG) {
-            new (place) Data(argument_types);
-        } else {
-            new (place) Data();
-        }
-    }
-
     DataTypePtr get_return_type() const override {
-        return std::make_shared<DataTypeArray>(make_nullable(return_type));
+        return std::make_shared<DataTypeArray>(return_type);
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
@@ -464,19 +459,14 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& to_arr = assert_cast<ColumnArray&>(to);
         auto& to_nested_col = to_arr.get_data();
-        if (to_nested_col.is_nullable()) {
-            auto* col_null = assert_cast<ColumnNullable*>(&to_nested_col);
-            this->data(place).insert_result_into(col_null->get_nested_column());
-            col_null->get_null_map_data().resize_fill(col_null->get_nested_column().size(), 0);
-        } else {
-            this->data(place).insert_result_into(to_nested_col);
-        }
+        auto* col_null = assert_cast<ColumnNullable*>(&to_nested_col);
+        this->data(place).insert_result_into(col_null->get_nested_column());
+        col_null->get_null_map_data().resize_fill(col_null->get_nested_column().size(), 0);
         to_arr.get_offsets().push_back(to_nested_col.size());
     }
 
 private:
     DataTypePtr return_type;
-    using IAggregateFunction::argument_types;
 };
 
 } // namespace doris::vectorized

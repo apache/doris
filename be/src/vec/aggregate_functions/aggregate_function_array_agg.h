@@ -23,7 +23,6 @@
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
@@ -47,22 +46,11 @@ struct AggregateFunctionArrayAggData {
     NullMap* null_map = nullptr;
 
     AggregateFunctionArrayAggData(const DataTypes& argument_types) {
-        if constexpr (IsDecimalNumber<T>) {
-            DataTypePtr column_type = make_nullable(argument_types[0]);
-            column_data = column_type->create_column();
-            null_map = &(assert_cast<ColumnNullable&>(*column_data).get_null_map_data());
-            nested_column = assert_cast<ColVecType*>(
-                    assert_cast<ColumnNullable&>(*column_data).get_nested_column_ptr().get());
-        }
-    }
-
-    AggregateFunctionArrayAggData() {
-        if constexpr (!IsDecimalNumber<T>) {
-            column_data = ColumnNullable::create(ColVecType::create(), ColumnUInt8::create());
-            null_map = &(assert_cast<ColumnNullable&>(*column_data).get_null_map_data());
-            nested_column = assert_cast<ColVecType*>(
-                    assert_cast<ColumnNullable&>(*column_data).get_nested_column_ptr().get());
-        }
+        DataTypePtr column_type = make_nullable(argument_types[0]);
+        column_data = column_type->create_column();
+        null_map = &(assert_cast<ColumnNullable&>(*column_data).get_null_map_data());
+        nested_column = assert_cast<ColVecType*>(
+                assert_cast<ColumnNullable&>(*column_data).get_nested_column_ptr().get());
     }
 
     void add(const IColumn& column, size_t row_num) {
@@ -160,8 +148,9 @@ struct AggregateFunctionArrayAggData<StringRef> {
     ColVecType* nested_column = nullptr;
     NullMap* null_map = nullptr;
 
-    AggregateFunctionArrayAggData() {
-        column_data = ColumnNullable::create(ColVecType::create(), ColumnUInt8::create());
+    AggregateFunctionArrayAggData(const DataTypes& argument_types) {
+        DataTypePtr column_type = make_nullable(argument_types[0]);
+        column_data = column_type->create_column();
         null_map = &(assert_cast<ColumnNullable&>(*column_data).get_null_map_data());
         nested_column = assert_cast<ColVecType*>(
                 assert_cast<ColumnNullable&>(*column_data).get_nested_column_ptr().get());
@@ -260,8 +249,6 @@ struct AggregateFunctionArrayAggData<void> {
         column_data = column_type->create_column();
     }
 
-    AggregateFunctionArrayAggData() = default;
-
     void add(const IColumn& column, size_t row_num) { column_data->insert_from(column, row_num); }
 
     void deserialize_and_merge(const IColumn& column, size_t row_num) {
@@ -303,29 +290,17 @@ struct AggregateFunctionArrayAggData<void> {
 //todo: Supports order by sorting for array_agg
 template <typename Data>
 class AggregateFunctionArrayAgg
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>> {
-    static constexpr bool CREATE_NEED_ARG =
-            IsDecimalNumber<typename Data::ElementType> ||
-            std::is_same_v<Data, AggregateFunctionArrayAggData<void>>;
-
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>, true> {
 public:
     AggregateFunctionArrayAgg(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>>(
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionArrayAgg<Data>, true>(
                       {argument_types_}),
-              return_type(argument_types_[0]) {}
+              return_type(make_nullable(argument_types_[0])) {}
 
     std::string get_name() const override { return "array_agg"; }
 
-    void create(AggregateDataPtr __restrict place) const override {
-        if constexpr (CREATE_NEED_ARG) {
-            new (place) Data(argument_types);
-        } else {
-            new (place) Data();
-        }
-    }
-
     DataTypePtr get_return_type() const override {
-        return std::make_shared<DataTypeArray>(make_nullable(return_type));
+        return std::make_shared<DataTypeArray>(return_type);
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
@@ -448,12 +423,11 @@ public:
     }
 
     DataTypePtr get_serialized_type() const override {
-        return std::make_shared<DataTypeArray>(make_nullable(return_type));
+        return std::make_shared<DataTypeArray>(return_type);
     }
 
 private:
     DataTypePtr return_type;
-    using IAggregateFunction::argument_types;
 };
 
 } // namespace doris::vectorized
