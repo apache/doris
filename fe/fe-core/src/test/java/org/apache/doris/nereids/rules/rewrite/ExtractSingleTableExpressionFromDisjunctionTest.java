@@ -242,12 +242,12 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
                         logicalFilter()
-                                .when(filter -> verifySingleTableExpression5(filter.getConjuncts()))
+                                .when(filter -> verifyTestExtractRecursive(filter.getConjuncts()))
                 );
         Assertions.assertNotNull(studentGender);
     }
 
-    private boolean verifySingleTableExpression5(Set<Expression> conjuncts) {
+    private boolean verifyTestExtractRecursive(Set<Expression> conjuncts) {
         Expression or1 = new Or(
                 new And(new GreaterThan(courseCid, new IntegerLiteral(1)),
                         new Or(
