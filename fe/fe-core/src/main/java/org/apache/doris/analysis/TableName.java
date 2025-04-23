@@ -80,10 +80,19 @@ public class TableName implements Writable {
         this.tbl = tbl;
     }
 
-    public TableName(TableIf tableIf) {
+    public TableName(TableIf tableIf) throws AnalysisException {
         String tableName = tableIf.getName();
+        if (StringUtils.isEmpty(tableName)) {
+            throw new AnalysisException("tableName is empty");
+        }
         DatabaseIf db = tableIf.getDatabase();
+        if (db == null) {
+            throw new AnalysisException("db is null, tableName: " + tableName);
+        }
         CatalogIf catalog = db.getCatalog();
+        if (catalog == null) {
+            throw new AnalysisException("catalog is null, dbName: " + db.getFullName());
+        }
         if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
@@ -203,18 +212,6 @@ public class TableName implements Writable {
         }
         stringBuilder.append("`").append(tbl).append("`");
         return stringBuilder.toString();
-    }
-
-    /**
-     * if this.field is empty, we think they are like,otherwise they must equal to other's
-     *
-     * @param other
-     * @return
-     */
-    public boolean like(TableName other) {
-        return (StringUtils.isEmpty(tbl) || tbl.equals(other.tbl))
-                && (StringUtils.isEmpty(db) || db.equals(other.db))
-                && (StringUtils.isEmpty(ctl) || ctl.equals(other.ctl));
     }
 
     @Override

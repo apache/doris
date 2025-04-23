@@ -209,7 +209,15 @@ public class MTMVService implements EventListener {
     }
 
     private boolean canRefresh(MTMV mtmv, TableIf table) {
-        if (MTMVPartitionUtil.isTableExcluded(mtmv.getExcludedTriggerTables(), new TableName(table))) {
+        TableName tableName = null;
+        try {
+            tableName = new TableName(table);
+        } catch (AnalysisException e) {
+            LOG.warn("skip refresh mtmv: {}, because get TableName failed: {}",
+                    mtmv.getName(), table.getName());
+            return false;
+        }
+        if (MTMVPartitionUtil.isTableExcluded(mtmv.getExcludedTriggerTables(), tableName)) {
             LOG.info("skip refresh mtmv: {}, because exclude trigger table: {}",
                     mtmv.getName(), table.getName());
             return false;

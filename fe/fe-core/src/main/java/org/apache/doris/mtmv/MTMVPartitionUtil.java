@@ -43,6 +43,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -430,11 +431,40 @@ public class MTMVPartitionUtil {
 
     public static boolean isTableExcluded(Set<TableName> excludedTriggerTables, TableName tableNameToCheck) {
         for (TableName tableName : excludedTriggerTables) {
-            if (tableName.like(tableNameToCheck)) {
+            if (isTableNamelike(tableName, tableNameToCheck)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * if excludedTriggerTable.field is empty, we think they are like,otherwise they must equal to tableNameToCheck's
+     *
+     * @param excludedTriggerTable User-configured tables to excluded,
+     *         where dbName and ctlName are not mandatory fields and may therefore be empty.
+     * @param tableNameToCheck The table used to create an MTMV, must have non-empty tableName, dbName, and ctlName.
+     * @return
+     */
+    public static boolean isTableNamelike(TableName excludedTriggerTable, TableName tableNameToCheck) {
+        Objects.requireNonNull(excludedTriggerTable, "excludedTriggerTable can not be null");
+        Objects.requireNonNull(tableNameToCheck, "tableNameToCheck can not be null");
+
+        String excludedCtl = excludedTriggerTable.getCtl();
+        String excludedDb = excludedTriggerTable.getDb();
+        String excludedTbl = excludedTriggerTable.getTbl();
+        String checkCtl = tableNameToCheck.getCtl();
+        String checkDb = tableNameToCheck.getDb();
+        String checkTbl = tableNameToCheck.getTbl();
+
+        Objects.requireNonNull(excludedTbl, "excludedTbl can not be null");
+        Objects.requireNonNull(checkCtl, "checkCtl can not be null");
+        Objects.requireNonNull(checkDb, "checkDb can not be null");
+        Objects.requireNonNull(checkTbl, "checkTbl can not be null");
+
+        return (excludedTbl.equals(checkTbl))
+                && (StringUtils.isEmpty(excludedDb) || excludedDb.equals(checkDb))
+                && (StringUtils.isEmpty(excludedCtl) || excludedCtl.equals(checkCtl));
     }
 
     private static boolean isSyncWithBaseTable(MTMVRefreshContext context, String mtmvPartitionName,
