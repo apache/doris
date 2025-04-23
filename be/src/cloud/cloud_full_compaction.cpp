@@ -324,24 +324,60 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
         RETURN_IF_ERROR(cloud_tablet()->capture_consistent_rowsets_unlocked(
                 {_output_rowset->version().second + 1, max_version}, &tmp_rowsets));
     }
+    LOG_INFO(
+            "begin to update delete bitmap without lock in CloudFullCompaction, tablet={}, "
+            "range=[{}-{}], cur max_version={}, tmp_rowsets.size={}",
+            _tablet->tablet_id(), _input_rowsets.front()->start_version(),
+            _input_rowsets.back()->end_version(), max_version, tmp_rowsets.size())
+            .tag("job_id", _uuid)
+            .tag("initiator", initiator);
     for (const auto& it : tmp_rowsets) {
         int64_t cur_version = it->rowset_meta()->start_version();
         RETURN_IF_ERROR(_cloud_full_compaction_calc_delete_bitmap(it, cur_version, delete_bitmap));
     }
-
+    LOG_INFO("begin to get delete bitmap lock in CloudFullCompaction, tablet={}, range=[{}-{}]",
+             _tablet->tablet_id(), _input_rowsets.front()->start_version(),
+             _input_rowsets.back()->end_version())
+            .tag("job_id", _uuid)
+            .tag("initiator", initiator);
     RETURN_IF_ERROR(
             _engine.meta_mgr().get_delete_bitmap_update_lock(*cloud_tablet(), -1, initiator));
+    LOG_INFO("finish get delete bitmap lock in CloudFullCompaction, tablet={}, range=[{}-{}]",
+             _tablet->tablet_id(), _input_rowsets.front()->start_version(),
+             _input_rowsets.back()->end_version())
+            .tag("job_id", _uuid)
+            .tag("initiator", initiator);
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(cloud_tablet()));
     std::lock_guard rowset_update_lock(cloud_tablet()->get_rowset_update_lock());
     std::lock_guard header_lock(_tablet->get_header_lock());
+    int64_t new_max_version = cloud_tablet()->max_version_unlocked();
+    LOG_INFO(
+            "begin to update delete bitmap with lock in CloudFullCompaction, tablet={}, "
+            "range=[{}-{}], cur new_max_version={}",
+            _tablet->tablet_id(), _input_rowsets.front()->start_version(),
+            _input_rowsets.back()->end_version(), new_max_version)
+            .tag("job_id", _uuid)
+            .tag("initiator", initiator);
     for (const auto& it : cloud_tablet()->rowset_map()) {
         int64_t cur_version = it.first.first;
         const RowsetSharedPtr& published_rowset = it.second;
         if (cur_version > max_version) {
             RETURN_IF_ERROR(_cloud_full_compaction_calc_delete_bitmap(published_rowset, cur_version,
                                                                       delete_bitmap));
+            LOG_INFO(
+                    "calc delete bitmap for rowset={} in CloudFullCompaction, tablet={}, "
+                    "version={}",
+                    published_rowset->rowset_id().to_string(), _tablet->tablet_id(),
+                    published_rowset->version().to_string())
+                    .tag("job_id", _uuid)
+                    .tag("initiator", initiator);
         }
     }
+    LOG_INFO("begin to update delete bitmap lock in CloudFullCompaction, tablet={}, range=[{}-{}]",
+             _tablet->tablet_id(), _input_rowsets.front()->start_version(),
+             _input_rowsets.back()->end_version())
+            .tag("job_id", _uuid)
+            .tag("initiator", initiator);
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*cloud_tablet(), -1, initiator,
                                                             delete_bitmap.get()));
     LOG_INFO("update delete bitmap in CloudFullCompaction, tablet_id={}, range=[{}-{}]",
