@@ -21,10 +21,7 @@
 
 #include <memory>
 #include <string>
-<<<<<<< HEAD
 #include <utility>
-=======
->>>>>>> a25d457fa8 ( [opt](lambda) let lambda expression support refer outer slot (#44365))
 #include <vector>
 
 #include "common/status.h"
