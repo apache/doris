@@ -20,12 +20,12 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.protobuf.TextFormat;
 
@@ -41,7 +41,11 @@ public abstract class StorageVault {
     public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
     public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
     public static final String META_NAMES_MAPPING = "meta_names_mapping";
-    public static final String VAULT_NAME = "VAULT_NAME";
+
+    public static class PropertyKey {
+        public static final String VAULT_NAME = "VAULT_NAME"; // used when changing storage vault name
+        public static final String TYPE = "type";
+    }
 
     public enum StorageVaultType {
         UNKNOWN,
@@ -154,6 +158,7 @@ public abstract class StorageVault {
             default:
                 throw new DdlException("Unknown StorageVault type: " + type);
         }
+        vault.checkCreationProperties(stmt.getProperties());
         vault.pathVersion = stmt.getPathVersion();
         vault.numShard = stmt.getNumShard();
         return vault;
@@ -177,9 +182,14 @@ public abstract class StorageVault {
     /**
      * Check properties in child resources
      * @param properties
-     * @throws AnalysisException
+     * @throws UserException
      */
-    public void checkProperties(Map<String, String> properties) throws AnalysisException { }
+    public void checkCreationProperties(Map<String, String> properties) throws UserException {
+        Preconditions.checkArgument(
+                properties.get(PropertyKey.TYPE) != null, "Missing property " + PropertyKey.TYPE);
+        Preconditions.checkArgument(
+                !properties.get(PropertyKey.TYPE).isEmpty(), "Property " + PropertyKey.TYPE + " cannot be empty");
+    }
 
     protected void replaceIfEffectiveValue(Map<String, String> properties, String key, String value) {
         if (!Strings.isNullOrEmpty(value)) {

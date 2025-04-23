@@ -31,15 +31,11 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
-
 import java.util.Map;
 
 // CREATE STORAGE VAULT vault_name
 // PROPERTIES (key1 = value1, ...)
 public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInParser {
-    private static final String TYPE = "type";
-
     private static final String PATH_VERSION = "path_version";
 
     private static final String SHARD_NUM = "shard_num";
@@ -124,12 +120,15 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
 
         String type = null;
         for (Map.Entry<String, String> property : properties.entrySet()) {
-            if (property.getKey().equalsIgnoreCase(TYPE)) {
+            if (property.getKey().equalsIgnoreCase(StorageVault.PropertyKey.TYPE)) {
                 type = property.getValue();
             }
         }
-        if (Strings.isNullOrEmpty(type)) {
-            throw new AnalysisException("Storage Vault type can't be null");
+        if (type == null) {
+            throw new AnalysisException("Missing property " + StorageVault.PropertyKey.TYPE);
+        }
+        if (type.isEmpty()) {
+            throw new AnalysisException("Property " + StorageVault.PropertyKey.TYPE + " cannot be empty");
         }
 
         final String pathVersionString = properties.get(PATH_VERSION);

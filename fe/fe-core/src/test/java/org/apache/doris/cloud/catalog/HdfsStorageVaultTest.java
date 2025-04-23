@@ -30,7 +30,6 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.SystemInfoService;
@@ -84,10 +83,10 @@ public class HdfsStorageVaultTest {
                 "type", "hdfs",
                 "path", "abs/",
                 S3Properties.VALIDITY_CHECK, "false",
-                HdfsStorageVault.HADOOP_FS_NAME, "default"));
+                HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "default"));
         Map<String, String> properties = vault.getCopiedProperties();
         // To check if the properties is carried correctly
-        Assertions.assertEquals(properties.get(HdfsStorageVault.HADOOP_FS_NAME), "default");
+        Assertions.assertEquals(properties.get(HdfsStorageVault.PropertyKey.HADOOP_FS_NAME), "default");
         mgr.createHdfsVault(vault);
     }
 
@@ -238,9 +237,9 @@ public class HdfsStorageVaultTest {
             Assumptions.assumeTrue(!Strings.isNullOrEmpty(hadoopUser), "HADOOP_USER isNullOrEmpty.");
 
             Map<String, String> properties = new HashMap<>();
-            properties.put(HdfsStorageVault.HADOOP_FS_NAME, hadoopFsName);
-            properties.put(AuthenticationConfig.HADOOP_USER_NAME, hadoopUser);
-            properties.put(HdfsStorageVault.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix");
+            properties.put(HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, hadoopFsName);
+            properties.put(HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, hadoopUser);
+            properties.put(HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix");
 
             HdfsStorageVault vault = new HdfsStorageVault("testHdfsVault", false, false);
             vault.modifyProperties(properties);
@@ -253,9 +252,9 @@ public class HdfsStorageVaultTest {
     @Test
     public void testCheckConnectivityException() {
         Map<String, String> properties = new HashMap<>();
-        properties.put(HdfsStorageVault.HADOOP_FS_NAME, "hdfs://localhost:10000");
-        properties.put(AuthenticationConfig.HADOOP_USER_NAME, "notExistUser");
-        properties.put(HdfsStorageVault.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix");
+        properties.put(HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "hdfs://localhost:10000");
+        properties.put(HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, "notExistUser");
+        properties.put(HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix");
 
         HdfsStorageVault vault = new HdfsStorageVault("testHdfsVault", false, false);
         Assertions.assertThrows(DdlException.class, () -> {
@@ -266,9 +265,9 @@ public class HdfsStorageVaultTest {
     @Test
     public void testIgnoreCheckConnectivity() throws DdlException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(HdfsStorageVault.HADOOP_FS_NAME, "hdfs://localhost:10000");
-        properties.put(AuthenticationConfig.HADOOP_USER_NAME, "notExistUser");
-        properties.put(HdfsStorageVault.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix");
+        properties.put(HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "hdfs://localhost:10000");
+        properties.put(HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, "notExistUser");
+        properties.put(HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix");
         properties.put(S3Properties.VALIDITY_CHECK, "false");
 
         HdfsStorageVault vault = new HdfsStorageVault("testHdfsVault", false, false);
