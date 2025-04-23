@@ -220,7 +220,7 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
     }
 
     @Test
-    public void testExtract5() {
+    public void testExtractRecursive() {
         Expression expr = new Or(
                 new And(
                         new GreaterThan(courseCid, new IntegerLiteral(1)),
