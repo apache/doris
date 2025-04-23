@@ -2109,35 +2109,35 @@ struct JsonSearchNormal {
         get_##arg_name##_string = get_fn;                                                   \
     }
 
-#define JSON_SEARCH_EXTRA_PREPARE_ESCAPE()                                                        \
-    JsonSearchUtil::CheckNullFun escape_null_check = JsonSearchUtil::always_null;                 \
-    JsonSearchUtil::GetJsonEscapeFun get_escape_string;                                           \
-                                                                                                  \
-    ColumnPtr col_escape;                                                                         \
-    bool escape_is_const = false;                                                                 \
-    const ColumnString* col_escape_string;                                                        \
-                                                                                                  \
-    RETURN_IF_ERROR(JsonSearchUtil::parse_column_args(                                            \
-            context, block, arguments, 3, &escape_is_const, col_escape, col_escape_string));      \
-                                                                                                  \
-    if (!escape_is_const) {                                                                       \
-        /* return Status::RuntimeError("JsonSearch escape_char CANNOT be non-constant column");*/ \
-    }                                                                                             \
-    do {                                                                                          \
-        escape_null_check = [col_escape](size_t) { return col_escape->is_null_at(0); };           \
-        get_escape_string = [col_escape_string](std::shared_ptr<LikeState>& state) {              \
-            auto escape_string = col_escape_string->get_data_at(0).to_string();                   \
-            if (escape_string.length() == 0) {                                                    \
-                return Status::OK();                                                              \
-            }                                                                                     \
-                                                                                                  \
-            if (escape_string.length() > 1) {                                                     \
-                return Status::RuntimeError("Illegal arg pattern {} should be char",              \
-                                            col_escape_string->get_name());                       \
-            }                                                                                     \
-            state->search_state.escape_char = escape_string.at(0);                                \
-            return Status::OK();                                                                  \
-        };                                                                                        \
+#define JSON_SEARCH_EXTRA_PREPARE_ESCAPE()                                                   \
+    JsonSearchUtil::CheckNullFun escape_null_check = JsonSearchUtil::always_null;            \
+    JsonSearchUtil::GetJsonEscapeFun get_escape_string;                                      \
+                                                                                             \
+    ColumnPtr col_escape;                                                                    \
+    bool escape_is_const = false;                                                            \
+    const ColumnString* col_escape_string;                                                   \
+                                                                                             \
+    RETURN_IF_ERROR(JsonSearchUtil::parse_column_args(                                       \
+            context, block, arguments, 3, &escape_is_const, col_escape, col_escape_string)); \
+                                                                                             \
+    if (!escape_is_const) {                                                                  \
+        return Status::RuntimeError("JsonSearch escape_char CANNOT be non-constant column"); \
+    }                                                                                        \
+    do {                                                                                     \
+        escape_null_check = [col_escape](size_t) { return col_escape->is_null_at(0); };      \
+        get_escape_string = [col_escape_string](std::shared_ptr<LikeState>& state) {         \
+            auto escape_string = col_escape_string->get_data_at(0).to_string();              \
+            if (escape_string.length() == 0) {                                               \
+                return Status::OK();                                                         \
+            }                                                                                \
+                                                                                             \
+            if (escape_string.length() > 1) {                                                \
+                return Status::RuntimeError("Illegal arg pattern {} should be char",         \
+                                            col_escape_string->get_name());                  \
+            }                                                                                \
+            state->search_state.escape_char = escape_string.at(0);                           \
+            return Status::OK();                                                             \
+        };                                                                                   \
     } while (false)
 
 struct JsonSearchEscape {
