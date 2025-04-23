@@ -149,7 +149,7 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
                 for (Expression disjunct : disjuncts) {
                     Optional<Expression> extractedDisjunct = extractSingleTableExpression(disjunct, qualifier);
                     if (extractedDisjunct.isPresent()) {
-                        extracted.add(extractedDisjunct.get());
+                        extracted.addAll(ExpressionUtils.extractDisjunction(extractedDisjunct.get()));
                     } else {
                         // extract failed
                         success = false;
