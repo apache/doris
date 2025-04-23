@@ -149,7 +149,7 @@ public class CreateDataSyncJobCommandTest {
         ChannelDescription channelDescription = new ChannelDescription(
                 "mysql_db", "mysql_tbl", tblName, null, colNames);
         CreateDataSyncJobCommand command = new CreateDataSyncJobCommand(
-                dbName, jobName, Lists.newArrayList(channelDescription), binlogDesc, null);
+                dbName, jobName, Lists.newArrayList(channelDescription), binlogDesc, properties);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext), "Data sync job now only support CANAL type");
     }
 
@@ -172,8 +172,6 @@ public class CreateDataSyncJobCommandTest {
             {
                 table.getKeysType();
                 result = KeysType.DUP_KEYS;
-                table.hasDeleteSign();
-                result = true;
             }
         };
         properties.put("type", "canal");
@@ -209,6 +207,7 @@ public class CreateDataSyncJobCommandTest {
 
     @Test
     public void testNormal() {
+        runBefore();
         new Expectations() {
             {
                 table.getKeysType();
