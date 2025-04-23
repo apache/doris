@@ -330,7 +330,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     }
 
     if (!http_req->header(HTTP_TIMEOUT).empty()) {
-        ctx->timeout_second = DORIS_TRY(safe_stoi(http_req->header(HTTP_TIMEOUT)));
+        ctx->timeout_second = DORIS_TRY(safe_stoi(http_req->header(HTTP_TIMEOUT), HTTP_TIMEOUT));
     }
     if (!http_req->header(HTTP_COMMENT).empty()) {
         ctx->load_comment = http_req->header(HTTP_COMMENT);
@@ -562,7 +562,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     }
 
     if (!http_req->header(HTTP_SEND_BATCH_PARALLELISM).empty()) {
-        int parallelism = DORIS_TRY(safe_stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
+        int parallelism = DORIS_TRY(safe_stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM),
+                                              HTTP_SEND_BATCH_PARALLELISM));
         request.__set_send_batch_parallelism(parallelism);
     }
 
@@ -619,7 +620,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
     if (!http_req->header(HTTP_SKIP_LINES).empty()) {
-        int skip_lines = DORIS_TRY(safe_stoi(http_req->header(HTTP_SKIP_LINES)));
+        int skip_lines = DORIS_TRY(safe_stoi(http_req->header(HTTP_SKIP_LINES), HTTP_SKIP_LINES));
+        if (skip_lines < 0) {
+            return Status::InvalidArgument("Invalid 'skip_lines': {}", skip_lines);
+        }
         request.__set_skip_lines(skip_lines);
     }
     if (!http_req->header(HTTP_ENABLE_PROFILE).empty()) {
@@ -703,7 +707,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_memtable_on_sink_node(value);
     }
     if (!http_req->header(HTTP_LOAD_STREAM_PER_NODE).empty()) {
-        int stream_per_node = DORIS_TRY(safe_stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE)));
+        int stream_per_node = DORIS_TRY(
+                safe_stoi(http_req->header(HTTP_LOAD_STREAM_PER_NODE), HTTP_LOAD_STREAM_PER_NODE));
         request.__set_stream_per_node(stream_per_node);
     }
     if (ctx->group_commit) {

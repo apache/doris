@@ -41,12 +41,11 @@ suite("test_stream_load_illegal_skip_lines", "p0") {
     streamLoad {
         table "${tableName}"
         set 'column_separator', '\t'
-        set 'label', 'test_stream_load_illegal_skip_lines'
         set 'columns', 'k1, k2, v2, v10, v11'
         set 'strict_mode','true'
 
         file 'large_test_file.csv'
-        set 'HTTP_SKIP_LINES', '-3'
+        set 'skip_lines', '-3'
 
         check { result, exception, startTime, endTime ->
             if (exception != null) {
@@ -56,10 +55,8 @@ suite("test_stream_load_illegal_skip_lines", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
 
-            assertEquals("success", json.Status.toLowerCase())
-            assertTrue(json.Message.toLowerCase().contains("skip_lines") ||
-                       json.Message.toLowerCase().contains("invalid") ||
-                       json.Message.toLowerCase().contains("out of range"))
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[INVALID_ARGUMENT]Invalid 'skip_lines': -3", json.Message)
         }
     }
 }

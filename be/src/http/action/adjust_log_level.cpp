@@ -39,7 +39,7 @@ Result<std::tuple<std::string, int, int>> handle_request(HttpRequest* req) {
     };
     const auto& module = parse_param("module");
     const auto& level = parse_param("level");
-    auto result = safe_stoi(level);
+    auto result = safe_stoi(level, "level");
     if (result.has_value()) {
         return std::make_tuple(module, google::SetVLOGLevel(module.c_str(), result.value()),
                                result.value());

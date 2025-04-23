@@ -41,12 +41,11 @@ suite("test_stream_load_illegal_timeout", "p0") {
     streamLoad {
         table "${tableName}"
         set 'column_separator', '\t'
-        set 'label', 'test_stream_load_illegal_timeout'
         set 'columns', 'k1, k2, v2, v10, v11'
         set 'strict_mode','true'
 
         file 'large_test_file.csv'
-        set 'http_timeout', 'abc'
+        set 'timeout', 'abc'
         check { result, exception, startTime, endTime ->
             if (exception != null) {
                 throw exception
@@ -54,10 +53,8 @@ suite("test_stream_load_illegal_timeout", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
 
-            assertEquals("success", json.Status.toLowerCase())
-            assertTrue(json.Message.toLowerCase().contains("timeout") ||
-                        json.Message.toLowerCase().contains("invalid") ||
-                        json.Message.toLowerCase().contains("illegal"))
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[INVALID_ARGUMENT]Invalid format of 'timeout': 'abc', stoi", json.Message)
         }
     }
 
