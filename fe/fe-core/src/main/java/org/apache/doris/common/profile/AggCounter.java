@@ -56,6 +56,22 @@ public class AggCounter extends Counter {
         }
     }
 
+    public void mergeCounter(AggCounter rhsAggCounter) {
+        if (rhsAggCounter == null) {
+            return;
+        }
+        if (number == 0) {
+            max.setValue(rhsAggCounter.max.getValue());
+            sum.setValue(rhsAggCounter.sum.getValue());
+            min.setValue(rhsAggCounter.min.getValue());
+        } else {
+            max.maxValue(rhsAggCounter.max);
+            sum.addValue(rhsAggCounter.sum);
+            min.minValue(rhsAggCounter.min);
+        }
+        number += rhsAggCounter.number;
+    }
+
     public String print() {
         if (isTimeType()) {
             Counter avg = new Counter(sum.getType(), sum.getValue());

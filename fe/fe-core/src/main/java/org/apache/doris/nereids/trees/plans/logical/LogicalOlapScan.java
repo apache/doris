@@ -231,6 +231,20 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     }
 
     @Override
+    public String getFingerprint() {
+        String partitions = "";
+        int partitionCount = this.table.getPartitionNames().size();
+        if (selectedPartitionIds.size() != partitionCount) {
+            partitions = " partitions(" + selectedPartitionIds.size() + "/" + partitionCount + ")";
+        }
+        // NOTE: embed version info avoid mismatching under data maintaining
+        // TODO: more efficient way to ignore the ignorable data maintaining
+        return Utils.toSqlString("OlapScan[" + table.getNameWithFullQualifiers() + partitions + "]"
+                + "#" + getRelationId() + "@" + getTable().getVisibleVersion()
+                + "@" + getTable().getVisibleVersionTime());
+    }
+
+    @Override
     public OlapTable getTable() {
         Preconditions.checkArgument(table instanceof OlapTable);
         return (OlapTable) table;
@@ -497,6 +511,12 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
 
     public Optional<TableSample> getTableSample() {
         return tableSample;
+    }
+
+    public String getQualifierWithRelationId() {
+        String fullQualifier = getTable().getNameWithFullQualifiers();
+        String relationId = getRelationId().toString();
+        return fullQualifier + "#" + relationId;
     }
 
     public boolean isDirectMvScan() {

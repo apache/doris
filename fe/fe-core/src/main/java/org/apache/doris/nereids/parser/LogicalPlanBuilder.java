@@ -345,6 +345,7 @@ import org.apache.doris.nereids.DorisParser.ShowQueryProfileContext;
 import org.apache.doris.nereids.DorisParser.ShowQueuedAnalyzeJobsContext;
 import org.apache.doris.nereids.DorisParser.ShowReplicaDistributionContext;
 import org.apache.doris.nereids.DorisParser.ShowRepositoriesContext;
+import org.apache.doris.nereids.DorisParser.ShowResourcesContext;
 import org.apache.doris.nereids.DorisParser.ShowRestoreContext;
 import org.apache.doris.nereids.DorisParser.ShowRolesContext;
 import org.apache.doris.nereids.DorisParser.ShowRowPolicyContext;
@@ -569,6 +570,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -672,6 +674,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowResourcesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRowPolicyCommand;
@@ -740,6 +743,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateJobInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
@@ -5128,6 +5132,41 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowResources(ShowResourcesContext ctx) {
+        Expression wildWhere = null;
+        List<OrderKey> orderKeys = null;
+        String likePattern = null;
+        long limit = -1L;
+        long offset = 0L;
+        if (ctx.sortClause() != null) {
+            orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);
+        }
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+            if (ctx.wildWhere().LIKE() != null) {
+                likePattern = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
+            } else {
+                wildWhere = (Expression) ctx.wildWhere().expression().accept(this);
+            }
+        }
+        if (ctx.limitClause() != null) {
+            limit = ctx.limitClause().limit != null
+                    ? Long.parseLong(ctx.limitClause().limit.getText())
+                    : 0;
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", ctx.limitClause());
+            }
+            offset = ctx.limitClause().offset != null
+                    ? Long.parseLong(ctx.limitClause().offset.getText())
+                    : 0;
+            if (offset < 0) {
+                throw new ParseException("Offset requires non-negative number", ctx.limitClause());
+            }
+        }
+        return new ShowResourcesCommand(wildWhere, likePattern, orderKeys, limit, offset);
+    }
+
+    @Override
     public LogicalPlan visitShowRestore(ShowRestoreContext ctx) {
         String dbName = null;
         Expression wildWhere = null;
@@ -6705,5 +6744,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String password = stripQuotes(ctx.STRING_LITERAL().getText());
         boolean isPlain = ctx.PASSWORD() == null;
         return new UserDesc(userIdentity, new PassVar(password, isPlain));
+    }
+
+    @Override
+    public LogicalPlan visitCreateResource(DorisParser.CreateResourceContext ctx) {
+        String resourceName = visitIdentifierOrText(ctx.name);
+        Map<String, String> properties = new HashMap<>(visitPropertyClause(ctx.properties));
+
+        CreateResourceInfo createResourceInfo = new CreateResourceInfo(
+                ctx.EXTERNAL() != null,
+                ctx.IF() != null,
+                resourceName,
+                properties
+        );
+
+        return new CreateResourceCommand(createResourceInfo);
     }
 }

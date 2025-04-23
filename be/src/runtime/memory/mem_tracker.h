@@ -23,6 +23,7 @@
 #include "runtime/memory/mem_counter.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 /*
  * can be consumed manually by consume()/release(), or put into SCOPED_CONSUME_MEM_TRACKER,
@@ -55,4 +56,5 @@ private:
     std::string _label {"None"};
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

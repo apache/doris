@@ -237,7 +237,7 @@ struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>, DateType
     };
 
 DECLARE_DATE_FUNCTIONS(DateDiffImpl, datediff, DataTypeInt32, (ts0.daynr() - ts1.daynr()));
-// DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeTime, ts0.second_diff(ts1));
+// DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeTime, ts0.datetime_diff_in_seconds(ts1));
 // Expands to below here because it use Time type which need some special deal.
 template <typename DateType1, typename DateType2>
 struct TimeDiffImpl {
@@ -260,7 +260,7 @@ struct TimeDiffImpl {
         if constexpr (UsingTimev2) {
             // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
             // the time type value between '-838:59:59' and '838:59:59', so the return value should limited
-            int64_t diff_m = ts0.microsecond_diff(ts1);
+            int64_t diff_m = ts0.datetime_diff_in_microseconds(ts1);
             if (diff_m > limit_value) {
                 return (double)limit_value;
             } else if (diff_m < -1 * limit_value) {
@@ -269,7 +269,7 @@ struct TimeDiffImpl {
                 return (double)diff_m;
             }
         } else {
-            return TimeValue::from_second(ts0.second_diff(ts1));
+            return TimeValue::from_second(ts0.datetime_diff_in_seconds(ts1));
         }
     }
     static DataTypes get_variadic_argument_types() {

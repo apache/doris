@@ -615,7 +615,7 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
     int64_t query_mem_limit = 0;
     if (eos) {
         revocable_size = revocable_mem_size(state);
-        query_mem_limit = state->get_query_ctx()->get_mem_limit();
+        query_mem_limit = state->get_query_ctx()->resource_ctx()->memory_context()->mem_limit();
         LOG(INFO) << fmt::format(
                 "Query:{}, hash join sink:{}, task:{}, eos, need spill:{}, query mem limit:{}, "
                 "revocable memory:{}",
