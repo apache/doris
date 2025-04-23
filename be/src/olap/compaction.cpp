@@ -1335,7 +1335,8 @@ Status CloudCompactionMixin::execute_compact() {
     HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(
             execute_compact_impl(permits), [&](const doris::Exception& ex) {
                 auto st = garbage_collection();
-                if (!st.ok() && initiator() != INVALID_COMPACTION_INITIATOR_ID) {
+                if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                    _tablet->enable_unique_key_merge_on_write() && !st.ok()) {
                     // if compaction fail, be will try to abort compaction, and delete bitmap lock
                     // will release if abort job successfully, but if abort failed, delete bitmap
                     // lock will not release, in this situation, be need to send this rpc to ms
