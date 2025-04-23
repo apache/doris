@@ -36,12 +36,12 @@
 #include <tuple>
 #include <utility>
 
+#include "absl/strings/substitute.h"
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
 #include "common/exception.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "orc/Exceptions.hh"
@@ -129,7 +129,7 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
         Status st = _file_reader->read_at(offset + has_read, result, &loop_read, _io_ctx);
         if (!st.ok()) {
             throw orc::ParseError(
-                    strings::Substitute("Failed to read $0: $1", _file_name, st.to_string()));
+                    absl::Substitute("Failed to read $0: $1", _file_name, st.to_string()));
         }
         if (loop_read == 0) {
             break;
@@ -137,8 +137,8 @@ void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
         has_read += loop_read;
     }
     if (has_read != length) {
-        throw orc::ParseError(strings::Substitute("Try to read $0 bytes from $1, actually read $2",
-                                                  length, has_read, _file_name));
+        throw orc::ParseError(absl::Substitute("Try to read $0 bytes from $1, actually read $2",
+                                               length, has_read, _file_name));
     }
 }
 
@@ -157,7 +157,7 @@ void StripeStreamInputStream::read(void* buf, uint64_t length, uint64_t offset) 
         Status st = _inner_reader->read_at(offset + has_read, result, &loop_read, _io_ctx);
         if (!st.ok()) {
             throw orc::ParseError(
-                    strings::Substitute("Failed to read $0: $1", _file_name, st.to_string()));
+                    absl::Substitute("Failed to read $0: $1", _file_name, st.to_string()));
         }
         if (loop_read == 0) {
             break;
@@ -165,8 +165,8 @@ void StripeStreamInputStream::read(void* buf, uint64_t length, uint64_t offset) 
         has_read += loop_read;
     }
     if (has_read != length) {
-        throw orc::ParseError(strings::Substitute("Try to read $0 bytes from $1, actually read $2",
-                                                  length, has_read, _file_name));
+        throw orc::ParseError(absl::Substitute("Try to read $0 bytes from $1, actually read $2",
+                                               length, has_read, _file_name));
     }
 }
 

@@ -35,16 +35,15 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/substitute.h"
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/stringprintf.h"
-#include "gutil/strings/substitute.h"
 #include "testutil/test_util.h"
 #include "util/interval_tree-inl.h"
 
 using std::pair;
 using std::string;
 using std::vector;
-using strings::Substitute;
 
 namespace doris {
 
@@ -86,7 +85,7 @@ struct IntInterval {
         return true;
     }
 
-    string ToString() const { return strings::Substitute("[$0, $1]($2) ", left, right, id); }
+    string ToString() const { return absl::Substitute("[$0, $1]($2) ", left, right, id); }
 
     int left, right, id;
 };

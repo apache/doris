@@ -29,10 +29,10 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/substitute.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
@@ -112,8 +112,7 @@ void ConfigAction::handle_update_config(HttpRequest* req) {
                           << " success. persist: " << need_persist;
             } else {
                 LOG(WARNING) << "set_config " << key << "=" << value << " failed";
-                msg = strings::Substitute("set $0=$1 failed, reason: $2.", key, value,
-                                          s.to_string());
+                msg = absl::Substitute("set $0=$1 failed, reason: $2.", key, value, s.to_string());
             }
             std::string status(s.ok() ? "OK" : "BAD");
             rapidjson::Value result;

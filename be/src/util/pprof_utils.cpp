@@ -25,7 +25,7 @@
 #include <memory>
 
 #include "agent/utils.h"
-#include "gutil/strings/substitute.h"
+#include "absl/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 
 namespace doris {
@@ -112,7 +112,7 @@ Status PprofUtils::get_readable_profile(const std::string& file_or_content, bool
     // parse raw with "pprof --text cmdline raw_file"
     std::string cmd_output;
     std::string final_cmd =
-            pprof_cmd + strings::Substitute(" --text $0 $1", self_cmdline, final_file);
+            pprof_cmd + absl::Substitute(" --text $0 $1", self_cmdline, final_file);
     AgentUtils util;
     LOG(INFO) << "begin to run command: " << final_cmd;
     bool rc = util.exec_cmd(final_cmd, &cmd_output, false);

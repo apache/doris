@@ -40,7 +40,6 @@ SET(SOURCE_FILES
         strings/strip.cc
         strings/strcat.cc
         strings/stringpiece.cc
-        strings/substitute.cc
         strings/util.cc
         strtoint.cc
         threading/thread_collision_warner.cc

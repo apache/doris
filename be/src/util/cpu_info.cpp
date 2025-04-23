@@ -58,7 +58,7 @@
 #include "common/env_config.h"
 #include "gflags/gflags.h"
 #include "gutil/stringprintf.h"
-#include "gutil/strings/substitute.h"
+#include "absl/strings/substitute.h"
 #include "util/cgroup_util.h"
 #include "util/pretty_printer.h"
 
@@ -234,7 +234,7 @@ void CpuInfo::_init_numa() {
         bool found_numa_node = false;
         for (int node = 0; node < max_num_numa_nodes_; ++node) {
             if (fs::exists(
-                        strings::Substitute("/sys/devices/system/cpu/cpu$0/node$1", core, node))) {
+                        absl::Substitute("/sys/devices/system/cpu/cpu$0/node$1", core, node))) {
                 core_to_numa_node_[core] = node;
                 found_numa_node = true;
                 break;
@@ -280,9 +280,9 @@ void CpuInfo::verify_cpu_requirements() {
 
 void CpuInfo::verify_performance_governor() {
     for (int cpu_id = 0; cpu_id < CpuInfo::num_cores(); ++cpu_id) {
-        const string governor_file = strings::Substitute(
+        const string governor_file = absl::Substitute(
                 "/sys/devices/system/cpu/cpu$0/cpufreq/scaling_governor", cpu_id);
-        const string warning_text = strings::Substitute(
+        const string warning_text = absl::Substitute(
                 "WARNING: CPU $0 is not using 'performance' governor. Note that changing the "
                 "governor to 'performance' will reset the no_turbo setting to 0.",
                 cpu_id);
@@ -373,17 +373,17 @@ std::string CpuInfo::debug_string() {
     long cache_line_sizes[NUM_CACHE_LEVELS];
     _get_cache_info(cache_sizes, cache_line_sizes);
 
-    string L1 = strings::Substitute(
+    string L1 = absl::Substitute(
             "L1 Cache: $0 (Line: $1)",
             PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L1_CACHE]), TUnit::BYTES),
             PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes[L1_CACHE]), TUnit::BYTES));
-    string L2 = strings::Substitute(
+    string L2 = absl::Substitute(
             "L2 Cache: $0 (Line: $1)",
             PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L2_CACHE]), TUnit::BYTES),
             PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes[L2_CACHE]), TUnit::BYTES));
     string L3 =
             cache_sizes[L3_CACHE]
-                    ? strings::Substitute(
+                    ? absl::Substitute(
                               "L3 Cache: $0 (Line: $1)",
                               PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L3_CACHE]),
                                                    TUnit::BYTES),

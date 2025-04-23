@@ -48,7 +48,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/substitute.h"
+#include "absl/strings/substitute.h"
 #include "http/http_client.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
@@ -905,7 +905,7 @@ void BaseBackendService::get_next(TScanBatchResult& result_, const TScanNextBatc
         // invalid offset
         t_status.status_code = TStatusCode::NOT_FOUND;
         t_status.error_msgs.push_back(
-                strings::Substitute("context_id=$0, send_offset=$1, context_offset=$2", context_id,
+                absl::Substitute("context_id=$0, send_offset=$1, context_offset=$2", context_id,
                                     offset, context->offset));
         result_.status = t_status;
     } else {

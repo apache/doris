@@ -51,12 +51,12 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/substitute.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/atomicops.h"
 #include "gutil/dynamic_annotations.h"
 #include "gutil/stringprintf.h"
-#include "gutil/strings/substitute.h"
 #include "http/web_page_handler.h"
 #include "runtime/thread_context.h"
 #include "util/debug/sanitizer_scopes.h"
@@ -360,8 +360,7 @@ const std::string& Thread::category() const {
 }
 
 std::string Thread::to_string() const {
-    return strings::Substitute("Thread $0 (name: \"$1\", category: \"$2\")", tid(), _name,
-                               _category);
+    return absl::Substitute("Thread $0 (name: \"$1\", category: \"$2\")", tid(), _name, _category);
 }
 
 Thread* Thread::current_thread() {
@@ -485,7 +484,7 @@ void* Thread::supervise_thread(void* arg) {
     // WaitForTid().
     Release_Store(&t->_tid, system_tid);
 
-    std::string name = strings::Substitute("$0-$1", t->name(), system_tid);
+    std::string name = absl::Substitute("$0-$1", t->name(), system_tid);
     thread_manager->set_thread_name(name, t->_tid);
     thread_manager->add_thread(pthread_self(), name, t->category(), t->_tid);
 
@@ -560,8 +559,8 @@ Status ThreadJoiner::join() {
     bool keep_trying = true;
     while (keep_trying) {
         if (waited_ms >= _warn_after_ms) {
-            LOG(WARNING) << strings::Substitute("Waited for $0ms trying to join with $1 (tid $2)",
-                                                waited_ms, _thread->_name, _thread->_tid);
+            LOG(WARNING) << absl::Substitute("Waited for $0ms trying to join with $1 (tid $2)",
+                                             waited_ms, _thread->_name, _thread->_tid);
         }
 
         int remaining_before_giveup = std::numeric_limits<int>::max();

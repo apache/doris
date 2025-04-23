@@ -41,12 +41,10 @@
 #include <iostream>
 #include <random>
 
+#include "absl/strings/substitute.h"
 #include "gflags/gflags.h"
 #include "gutil/strings/numbers.h"
-#include "gutil/strings/substitute.h"
 #include "olap/olap_common.h"
-
-using strings::Substitute;
 
 DEFINE_bool(gen_out, false, "generate expected check data for test");
 
@@ -67,7 +65,8 @@ bool GetBooleanEnvironmentVariable(const char* env_var_name) {
     if ((strcasecmp(e, "true") == 0) || (strcasecmp(e, "1") == 0) || (strcasecmp(e, "yes") == 0)) {
         return true;
     }
-    LOG(FATAL) << Substitute("$0: invalid value for environment variable $0", e, env_var_name);
+    LOG(FATAL) << absl::Substitute("$0: invalid value for environment variable $0", e,
+                                   env_var_name);
     return false; // unreachable
 }
 

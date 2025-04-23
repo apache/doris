@@ -33,8 +33,8 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/substitute.h"
 #include "common/config.h"
-#include "gutil/strings/substitute.h"
 #include "util/doris_metrics.h"
 #include "util/jni_native_method.h"
 // #include "util/libjvm_loader.h"
@@ -287,7 +287,7 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
             env->CallStaticObjectMethod(jni_util_class(), throwable_to_string_id(), exc));
     if (env->ExceptionOccurred()) {
         env->ExceptionClear();
-        string oom_msg = strings::Substitute(oom_msg_template, "throwableToString");
+        string oom_msg = absl::Substitute(oom_msg_template, "throwableToString");
         LOG(WARNING) << oom_msg;
         return Status::InternalError(oom_msg);
     }
@@ -298,7 +298,7 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
                 env->CallStaticObjectMethod(jni_util_class(), throwable_to_stack_trace_id(), exc));
         if (env->ExceptionOccurred()) {
             env->ExceptionClear();
-            string oom_msg = strings::Substitute(oom_msg_template, "throwableToStackTrace");
+            string oom_msg = absl::Substitute(oom_msg_template, "throwableToStackTrace");
             LOG(WARNING) << oom_msg;
             return Status::InternalError(oom_msg);
         }

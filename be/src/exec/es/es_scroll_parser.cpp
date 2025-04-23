@@ -19,7 +19,7 @@
 
 #include <cctz/time_zone.h>
 #include <glog/logging.h>
-#include <gutil/strings/substitute.h>
+#include <absl/strings/substitute.h>
 #include <rapidjson/allocators.h>
 #include <rapidjson/encodings.h>
 #include <stdint.h>
@@ -668,7 +668,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 nullable_column->insert_data(nullptr, 0);
                 continue;
             } else {
-                std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
+                std::string details = absl::Substitute(INVALID_NULL_VALUE, col_name);
                 return Status::RuntimeError(details);
             }
         }
@@ -682,7 +682,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             col_ptr->insert_data(nullptr, 0);
             continue;
         } else if (col.IsNull() && !slot_desc->is_nullable()) {
-            std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
+            std::string details = absl::Substitute(INVALID_NULL_VALUE, col_name);
             return Status::RuntimeError(details);
         }
         switch (type) {
