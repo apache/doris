@@ -197,7 +197,7 @@ public class JdbcResource extends Resource {
     protected void setProperties(Map<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null);
         validateProperties(properties);
-        configs = properties;
+        configs = Maps.newHashMap(properties);
         applyDefaultProperties();
         String currentDateTime = LocalDateTime.now(ZoneId.systemDefault()).toString().replace("T", " ");
         configs.put(CREATE_TIME, currentDateTime);
