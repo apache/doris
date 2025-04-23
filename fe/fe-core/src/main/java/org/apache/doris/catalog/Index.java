@@ -332,4 +332,10 @@ public class Index implements Writable {
             bfColumns.add(column);
         }
     }
+
+    public boolean isAnalyzedInvertedIndex() {
+        return indexType == IndexDef.IndexType.INVERTED
+            && properties != null
+            && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY);
+    }
 }

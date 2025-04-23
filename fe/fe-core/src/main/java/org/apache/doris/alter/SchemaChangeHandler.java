@@ -2771,9 +2771,23 @@ public class SchemaChangeHandler extends AlterHandler {
             Set<String> existedIdxColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             existedIdxColSet.addAll(index.getColumns());
             if (index.getIndexType() == indexDef.getIndexType() && newColset.equals(existedIdxColSet)) {
-                throw new DdlException(
+                if (newColset.size() == 1) {
+                    String columnName = indexDef.getColumns().get(0);
+                    Column column = olapTable.getColumn(columnName);
+                    if (column != null && column.getType().isStringType()) {
+                        boolean isExistingIndexAnalyzer = index.isAnalyzedInvertedIndex();
+                        boolean isNewIndexAnalyzer = indexDef.isAnalyzedInvertedIndex();
+                        if (isExistingIndexAnalyzer == isNewIndexAnalyzer) {
+                            throw new DdlException(
+                                indexDef.getIndexType() + " index for column (" + columnName + ") with "
+                                    + (isNewIndexAnalyzer ? "analyzed" : "non-analyzed") + " type already exists.");
+                        }
+                    }
+                } else {
+                    throw new DdlException(
                         indexDef.getIndexType() + " index for columns (" + String.join(",", indexDef.getColumns())
-                                + ") already exist.");
+                            + ") already exist.");
+                }
             }
             existedIndexIdSet.add(index.getIndexId());
         }

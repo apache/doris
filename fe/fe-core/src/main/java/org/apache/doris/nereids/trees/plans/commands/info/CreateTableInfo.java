@@ -712,7 +712,8 @@ public class CreateTableInfo {
                 List<String> colNames = indexDef.getColumnNames().stream()
                         .map(String::toUpperCase)
                         .collect(Collectors.toList());
-                if (indexDef.isAllStringInvertedIndex(columns)) {
+                if (invertedIndexFileStorageFormat.compareTo(TInvertedIndexFileStorageFormat.V2) >= 0
+                        && indexDef.isAllStringInvertedIndex(columns)) {
                     boolean isAnalyzed = indexDef.isAnalyzedInvertedIndex();
                     Set<Boolean> analyzedSet = invertedIndexes.computeIfAbsent(colNames, k -> new HashSet<>());
                     if (!analyzedSet.add(isAnalyzed)) {

@@ -310,12 +310,6 @@ public class IndexDefinition {
                         && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY);
     }
 
-    public boolean isNonAnalyzedInvertedIndex() {
-        return indexType == IndexDef.IndexType.INVERTED
-                && (properties == null
-                        || !properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY));
-    }
-
     /**
      * Check whether all columns in this INVERTED index are of string type.
      */

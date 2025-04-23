@@ -286,6 +286,12 @@ public:
 
     void set_escaped_escaped_index_suffix_path(const std::string& name);
 
+    bool is_same_except_id(const TabletIndex& other) const {
+        return _escaped_index_suffix_path == other._escaped_index_suffix_path &&
+               _index_name == other._index_name && _index_type == other._index_type &&
+               _col_unique_ids == other._col_unique_ids && _properties == other._properties;
+    }
+
 private:
     int64_t _index_id = -1;
     // Identify the different index with the same _index_id

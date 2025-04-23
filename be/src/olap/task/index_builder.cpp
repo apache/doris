@@ -120,6 +120,9 @@ Status IndexBuilder::update_inverted_index_info() {
                     continue;
                 }
                 for (const auto& index_meta : index_metas) {
+                    if (index_meta->index_id() != t_inverted_index.index_id) {
+                        continue;
+                    }
                     if (output_rs_tablet_schema->get_inverted_index_storage_format() ==
                         InvertedIndexStorageFormatPB::V1) {
                         const auto& fs = io::global_local_filesystem();
@@ -175,13 +178,17 @@ Status IndexBuilder::update_inverted_index_info() {
                 auto exist_indexs = output_rs_tablet_schema->inverted_indexs(col);
                 for (const auto& exist_index : exist_indexs) {
                     if (exist_index->index_id() != index.index_id()) {
-                        LOG(WARNING) << fmt::format(
-                                "column: {} has a exist inverted index, but the index id not equal "
-                                "request's index id, , exist index id: {}, request's index id: {}, "
-                                "remove exist index in new output_rs_tablet_schema",
-                                column_uid, exist_index->index_id(), index.index_id());
-                        without_index_uids.insert(exist_index->index_id());
-                        output_rs_tablet_schema->remove_index(exist_index->index_id());
+                        if (exist_index->is_same_except_id(index)) {
+                            LOG(WARNING) << fmt::format(
+                                    "column: {} has a exist inverted index, but the index id not "
+                                    "equal "
+                                    "request's index id, , exist index id: {}, request's index id: "
+                                    "{}, "
+                                    "remove exist index in new output_rs_tablet_schema",
+                                    column_uid, exist_index->index_id(), index.index_id());
+                            without_index_uids.insert(exist_index->index_id());
+                            output_rs_tablet_schema->remove_index(exist_index->index_id());
+                        }
                     }
                 }
                 output_rs_tablet_schema->append_index(std::move(index));
@@ -431,6 +438,9 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 std::unique_ptr<Field> field(FieldFactory::create(column));
                 auto index_metas = output_rowset_schema->inverted_indexs(column);
                 for (const auto& index_meta : index_metas) {
+                    if (index_meta->index_id() != index_id) {
+                        continue;
+                    }
                     std::unique_ptr<segment_v2::InvertedIndexColumnWriter> inverted_index_builder;
                     try {
                         RETURN_IF_ERROR(segment_v2::InvertedIndexColumnWriter::create(
