@@ -1221,7 +1221,7 @@ int InstanceChecker::do_compaction_key_check() {
             k1.remove_prefix(1);
             std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
             decode_key(&k1, &out);
-            // 0x01 "mow" ${instance_id} "mow_tablet_comp" ${table_id} ${initiator}
+            // 0x01 "meta" ${instance_id} "mow_tablet_comp" ${table_id} ${initiator}
             auto table_id = std::get<int64_t>(std::get<0>(out[3]));
             auto initiator = std::get<int64_t>(std::get<0>(out[4]));
             LOG(INFO) << "table_id=" << table_id << ",initiator=" << initiator;
