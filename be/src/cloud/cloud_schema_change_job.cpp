@@ -59,7 +59,10 @@ CloudSchemaChangeJob::CloudSchemaChangeJob(CloudStorageEngine& cloud_storage_eng
                                            std::string job_id, int64_t expiration)
         : _cloud_storage_engine(cloud_storage_engine),
           _job_id(std::move(job_id)),
-          _expiration(expiration) {}
+          _expiration(expiration) {
+    _initiator = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
+                 std::numeric_limits<int64_t>::max();
+}
 
 CloudSchemaChangeJob::~CloudSchemaChangeJob() = default;
 
@@ -398,16 +401,14 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
     }};
     if (_new_tablet->enable_unique_key_merge_on_write()) {
         has_stop_token = true;
-        int64_t initiator = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
-                            std::numeric_limits<int64_t>::max();
         // If there are historical versions of rowsets, we need to recalculate their delete
         // bitmaps, otherwise we will miss the delete bitmaps of incremental rowsets
         int64_t start_calc_delete_bitmap_version =
                 // [0-1] is a placeholder rowset, start from 2.
                 already_exist_any_version ? 2 : sc_job->alter_version() + 1;
         RETURN_IF_ERROR(_process_delete_bitmap(sc_job->alter_version(),
-                                               start_calc_delete_bitmap_version, initiator));
-        sc_job->set_delete_bitmap_lock_initiator(initiator);
+                                               start_calc_delete_bitmap_version, _initiator));
+        sc_job->set_delete_bitmap_lock_initiator(_initiator);
     }
 
     cloud::FinishTabletJobResponse finish_resp;
@@ -541,6 +542,9 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
 }
 
 void CloudSchemaChangeJob::clean_up_on_failed() {
+    _cloud_storage_engine.meta_mgr().remove_delete_bitmap_update_lock(
+            _new_tablet->table_id(), SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, _initiator,
+            _new_tablet->tablet_id());
     for (const auto& output_rs : _output_rowsets) {
         if (output_rs.use_count() > 2) {
             LOG(WARNING) << "Rowset " << output_rs->rowset_id().to_string() << " has "
