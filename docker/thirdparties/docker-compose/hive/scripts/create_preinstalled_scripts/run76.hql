@@ -30,6 +30,38 @@ ROW FORMAT SERDE
 STORED AS TEXTFILE
 LOCATION '/user/doris/preinstalled_data/csv/csv_json_table_simple';
 
+CREATE TABLE open_csv_table_null_format (
+  id INT,
+  name STRING
+)
+ROW FORMAT SERDE 
+  'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+STORED AS TEXTFILE
+LOCATION '/user/doris/preinstalled_data/csv/open_csv_table_null_format';
+
+CREATE TABLE open_csv_complex_type (
+  id INT,
+  arr_col ARRAY<INT>,
+  map_col MAP<STRING, INT>,
+  struct_col STRUCT<name:STRING, age:INT>
+)
+ROW FORMAT SERDE 
+  'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+WITH SERDEPROPERTIES (
+  "separatorChar" = ",",
+  "quoteChar"     = "\"",
+  "escapeChar"    = "\\"
+)
+STORED AS TEXTFILE
+LOCATION '/user/doris/preinstalled_data/csv/open_csv_complex_type';
+
+INSERT INTO open_csv_complex_type VALUES
+  (1, '["apple","banana","cherry"]', '{"k1":"v1","k2":"v2"}', '{"name":"Tom","age":20}'),
+  (2, '["dog","cat"]', '{"animal":"pet","tree":"plant"}', '{"name":"Jerry","age":18}'),
+  (3, '[]', '{}', '{"name":"Empty","age":0}'),
+  (4, '["x","y","z"]', '{"x1":"y1","x2":"y2"}', '{"name":"Zack","age":35}'),
+  (5, '["one","two"]', '{"first":"1st","second":"2nd"}', '{"name":"Nina","age":27}');
+
 create database if not exists openx_json;
 use openx_json;
 

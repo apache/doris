@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -28,48 +27,30 @@ import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.Map;
 
-public class CsvFileFormatProperties extends FileFormatProperties {
+public class TextFileFormatProperties extends FileFormatProperties {
     public static final Logger LOG = LogManager.getLogger(
-            org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties.class);
+            org.apache.doris.datasource.property.fileformat.TextFileFormatProperties.class);
 
-    public static final String DEFAULT_COLUMN_SEPARATOR = "\t";
+    public static final String DEFAULT_COLUMN_SEPARATOR = "\001";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
 
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";
     public static final String PROP_LINE_DELIMITER = "line_delimiter";
 
     public static final String PROP_SKIP_LINES = "skip_lines";
-    public static final String PROP_CSV_SCHEMA = "csv_schema";
     public static final String PROP_COMPRESS_TYPE = "compress_type";
-    public static final String PROP_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
 
-    public static final String PROP_ENCLOSE = "enclose";
-
-    private String headerType = "";
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
-    private boolean trimDoubleQuotes;
     private int skipLines;
-    private byte enclose;
 
-    // used by tvf
-    // User specified csv columns, it will override columns got from file
-    private final List<Column> csvSchema = Lists.newArrayList();
-
-    public CsvFileFormatProperties() {
-        super(TFileFormatType.FORMAT_CSV_PLAIN);
-    }
-
-    public CsvFileFormatProperties(String headerType) {
-        super(TFileFormatType.FORMAT_CSV_PLAIN);
-        this.headerType = headerType;
+    public TextFileFormatProperties() {
+        super(TFileFormatType.FORMAT_TEXT);
     }
 
     @Override
@@ -91,21 +72,6 @@ public class CsvFileFormatProperties extends FileFormatProperties {
             }
             lineDelimiter = Separator.convertSeparator(lineDelimiter);
 
-            String enclosedString = getOrDefault(formatProperties, PROP_ENCLOSE,
-                    "", isRemoveOriginProperty);
-            if (!Strings.isNullOrEmpty(enclosedString)) {
-                if (enclosedString.length() > 1) {
-                    throw new AnalysisException("enclose should not be longer than one byte.");
-                }
-                enclose = (byte) enclosedString.charAt(0);
-                if (enclose == 0) {
-                    throw new AnalysisException("enclose should not be byte [0].");
-                }
-            }
-
-            trimDoubleQuotes = Boolean.valueOf(getOrDefault(formatProperties,
-                    PROP_TRIM_DOUBLE_QUOTES, "", isRemoveOriginProperty))
-                    .booleanValue();
             skipLines = Integer.valueOf(getOrDefault(formatProperties,
                     PROP_SKIP_LINES, "0", isRemoveOriginProperty)).intValue();
             if (skipLines < 0) {
@@ -127,27 +93,20 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         sinkOptions.setLineDelimiter(lineDelimiter);
     }
 
-    // The method `analyzeFileFormatProperties` must have been called once before this method
+    // The method `analyzeFileFormatProperties` must have been called once before
+    // this method
     @Override
     public TFileAttributes toTFileAttributes() {
         TFileAttributes fileAttributes = new TFileAttributes();
         TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
         fileTextScanRangeParams.setColumnSeparator(this.columnSeparator);
         fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
-        if (this.enclose != 0) {
-            fileTextScanRangeParams.setEnclose(this.enclose);
-        }
+
         fileAttributes.setTextParams(fileTextScanRangeParams);
-        fileAttributes.setHeaderType(headerType);
-        fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
         fileAttributes.setSkipLines(skipLines);
         fileAttributes.setEnableTextValidateUtf8(
                 ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
         return fileAttributes;
-    }
-
-    public String getHeaderType() {
-        return headerType;
     }
 
     public String getColumnSeparator() {
@@ -158,19 +117,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         return lineDelimiter;
     }
 
-    public boolean isTrimDoubleQuotes() {
-        return trimDoubleQuotes;
-    }
-
     public int getSkipLines() {
         return skipLines;
-    }
-
-    public byte getEnclose() {
-        return enclose;
-    }
-
-    public List<Column> getCsvSchema() {
-        return csvSchema;
     }
 }
