@@ -170,6 +170,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             // use jni reader
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
             fileDesc.setPaimonSplit(encodeObjectToString(split));
+            rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {
             // use native reader
             if (fileFormat.equals("orc")) {
