@@ -133,7 +133,7 @@ public:
 
         bool col_const[3];
         ColumnPtr argument_columns[3];
-        for (int i = 0; i < argument_size; ++i) {
+        for (int i = 0; i < 3; ++i) {
             col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
         }
         argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
