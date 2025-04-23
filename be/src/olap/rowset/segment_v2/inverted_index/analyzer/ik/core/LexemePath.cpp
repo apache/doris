@@ -19,11 +19,11 @@
 
 namespace doris::segment_v2 {
 
-LexemePath::LexemePath(IKMemoryPool<Cell>& pool)
-        : QuickSortSet(pool), path_begin_(-1), path_end_(-1), payload_length_(0) {}
+LexemePath::LexemePath(vectorized::Arena& arena)
+        : QuickSortSet(arena), path_begin_(-1), path_end_(-1), payload_length_(0) {}
 
-LexemePath::LexemePath(LexemePath& other, IKMemoryPool<Cell>& pool)
-        : QuickSortSet(pool),
+LexemePath::LexemePath(LexemePath& other, vectorized::Arena& arena)
+        : QuickSortSet(arena),
           path_begin_(other.path_begin_),
           path_end_(other.path_end_),
           payload_length_(other.payload_length_) {
@@ -34,8 +34,8 @@ LexemePath::LexemePath(LexemePath& other, IKMemoryPool<Cell>& pool)
     }
 }
 
-LexemePath::LexemePath(LexemePath&& other, IKMemoryPool<Cell>& pool) noexcept
-        : QuickSortSet(pool),
+LexemePath::LexemePath(LexemePath&& other, vectorized::Arena& arena) noexcept
+        : QuickSortSet(arena),
           path_begin_(other.path_begin_),
           path_end_(other.path_end_),
           payload_length_(other.payload_length_) {

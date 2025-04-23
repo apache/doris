@@ -24,6 +24,7 @@
 
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ik/IKAnalyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ik/core/AnalyzeContext.h"
+#include "vec/common/arena.h"
 using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
@@ -676,8 +677,8 @@ TEST_F(IKTokenizerTest, TestExceptionHandling) {
     {
         // Create AnalyzeContext
         std::shared_ptr<Configuration> config = std::make_shared<Configuration>();
-        IKMemoryPool<Cell> pool(1024);
-        AnalyzeContext context(pool, config);
+        vectorized::Arena arena {};
+        AnalyzeContext context(arena, config);
 
         // Test case 1: Reader throwing length error
         MockReader lengthErrorReader(MockReader::ExceptionType::LENGTH_ERROR);
