@@ -128,6 +128,11 @@ public class PaimonScanNode extends FileQueryScanNode {
         params.setHistorySchemaInfo(new ConcurrentHashMap<>());
     }
 
+    @VisibleForTesting
+    public void setSource(PaimonSource source) {
+        this.source = source;
+    }
+
     @Override
     protected void convertPredicate() {
         PaimonPredicateConverter paimonPredicateConverter = new PaimonPredicateConverter(
@@ -260,26 +265,14 @@ public class PaimonScanNode extends FileQueryScanNode {
         SessionVariable.IgnoreSplitType ignoreSplitType = SessionVariable.IgnoreSplitType
                 .valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
-        if (!source.getPaimonTable().options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key())) {
-            // an empty table in PaimonSnapshotCacheValue
-            return splits;
-        }
-        int[] projected = desc.getSlots().stream().mapToInt(
-                slot -> source.getPaimonTable().rowType()
-                        .getFieldNames()
-                        .stream()
-                        .map(String::toLowerCase)
-                        .collect(Collectors.toList())
-                        .indexOf(slot.getColumn().getName()))
-                .toArray();
-        ReadBuilder readBuilder = source.getPaimonTable().newReadBuilder();
-        List<org.apache.paimon.table.source.Split> paimonSplits = readBuilder.withFilter(predicates)
-                .withProjection(projected)
-                .newScan().plan().splits();
 
+        List<org.apache.paimon.table.source.Split> paimonSplits = getPaimonSplitFromAPI();
         boolean applyCountPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
         // Just for counting the number of selected partitions for this paimon table
         Set<BinaryRow> selectedPartitionValues = Sets.newHashSet();
+        // if applyCountPushdown is true, we cannot to split the file
+        // because the raw file and deletion vector is one-to-one mapping
+        long realFileSplitSize = getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0);
         for (org.apache.paimon.table.source.Split split : paimonSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(split.rowCount());
@@ -304,9 +297,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                         try {
                             List<Split> dorisSplits = FileSplitter.splitFile(
                                     locationPath,
-                                    // if applyCountPushdown is true, we can't to split the file
-                                    // becasue the raw file and deletion vector is one-to-one mapping
-                                    getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0),
+                                    realFileSplitSize,
                                     null,
                                     file.length(),
                                     -1,
@@ -344,6 +335,9 @@ public class PaimonScanNode extends FileQueryScanNode {
             splitStats.add(splitStat);
         }
 
+        // We need to set the target size for all splits so that we can calculate the proportion of each split later.
+        splits.forEach(s -> s.setTargetSplitSize(realFileSplitSize));
+
         // if applyCountPushdown is true, calcute row count for count pushdown
         if (applyCountPushdown) {
             // we can create a special empty split and skip the plan process
@@ -370,11 +364,32 @@ public class PaimonScanNode extends FileQueryScanNode {
         return splits;
     }
 
+    @VisibleForTesting
+    public List<org.apache.paimon.table.source.Split> getPaimonSplitFromAPI() {
+        if (!source.getPaimonTable().options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key())) {
+            // an empty table in PaimonSnapshotCacheValue
+            return Collections.emptyList();
+        }
+        int[] projected = desc.getSlots().stream().mapToInt(
+            slot -> source.getPaimonTable().rowType()
+                    .getFieldNames()
+                    .stream()
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toList())
+                    .indexOf(slot.getColumn().getName()))
+                    .toArray();
+        ReadBuilder readBuilder = source.getPaimonTable().newReadBuilder();
+        return readBuilder.withFilter(predicates)
+                .withProjection(projected)
+                .newScan().plan().splits();
+    }
+
     private String getFileFormat(String path) {
         return FileFormatUtils.getFileFormatBySuffix(path).orElse(source.getFileFormatFromTableProperties());
     }
 
-    private boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
+    @VisibleForTesting
+    public boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
         if (!optRawFiles.isPresent()) {
             return false;
         }
