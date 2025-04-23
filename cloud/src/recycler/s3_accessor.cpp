@@ -278,9 +278,9 @@ int S3Accessor::init() {
     }
     default: {
         if (conf_.prefix.empty()) {
-            uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
-        } else {
             uri_ = conf_.endpoint + '/' + conf_.bucket;
+        } else {
+            uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
         }
 
         static S3Environment s3_env;
