@@ -27,17 +27,17 @@ import java.util.Map;
 
 public class WalFileFormatPropertiesTest {
 
-    private WalFileFormatProperties configurator;
+    private WalFileFormatProperties walFileFormatProperties;
 
     @Before
     public void setUp() {
-        configurator = new WalFileFormatProperties(TFileFormatType.FORMAT_WAL);
+        walFileFormatProperties = new WalFileFormatProperties(TFileFormatType.FORMAT_WAL);
     }
 
     @Test
     public void testAnalyzeFileFormatProperties() {
         Map<String, String> properties = new HashMap<>();
         // Add properties if needed
-        configurator.analyzeFileFormatProperties(properties, true);
+        walFileFormatProperties.analyzeFileFormatProperties(properties, true);
     }
 }

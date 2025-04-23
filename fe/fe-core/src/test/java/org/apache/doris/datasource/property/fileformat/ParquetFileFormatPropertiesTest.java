@@ -29,20 +29,20 @@ import java.util.Map;
 
 public class ParquetFileFormatPropertiesTest {
 
-    private ParquetFileFormatProperties configurator;
+    private ParquetFileFormatProperties parquetFileFormatProperties;
 
     @Before
     public void setUp() {
-        configurator = new ParquetFileFormatProperties(TFileFormatType.FORMAT_PARQUET);
+        parquetFileFormatProperties = new ParquetFileFormatProperties(TFileFormatType.FORMAT_PARQUET);
     }
 
     @Test
     public void testAnalyzeFileFormatProperties() {
         Map<String, String> properties = new HashMap<>();
         // Add properties if needed
-        configurator.analyzeFileFormatProperties(properties, true);
+        parquetFileFormatProperties.analyzeFileFormatProperties(properties, true);
 
-        Assert.assertEquals(TParquetCompressionType.SNAPPY, configurator.getParquetCompressionType());
-        Assert.assertEquals(false, configurator.isParquetDisableDictionary());
+        Assert.assertEquals(TParquetCompressionType.SNAPPY, parquetFileFormatProperties.getParquetCompressionType());
+        Assert.assertEquals(false, parquetFileFormatProperties.isParquetDisableDictionary());
     }
 }

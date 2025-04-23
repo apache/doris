@@ -28,17 +28,17 @@ import java.util.Map;
 
 public class AvroFileFormatPropertiesTest {
 
-    private AvroFileFormatProperties checker;
+    private AvroFileFormatProperties avroFileFormatProperties;
 
     @Before
     public void setUp() {
-        checker = new AvroFileFormatProperties(TFileFormatType.FORMAT_AVRO);
+        avroFileFormatProperties = new AvroFileFormatProperties(TFileFormatType.FORMAT_AVRO);
     }
 
     @Test
     public void testAnalyzeFileFormatProperties() {
         Map<String, String> properties = new HashMap<>();
         // Add properties if needed
-        checker.analyzeFileFormatProperties(properties, true);
+        avroFileFormatProperties.analyzeFileFormatProperties(properties, true);
     }
 }

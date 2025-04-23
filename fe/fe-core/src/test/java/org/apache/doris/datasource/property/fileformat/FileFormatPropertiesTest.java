@@ -26,9 +26,9 @@ import org.junit.Test;
 public class FileFormatPropertiesTest {
 
     @Test
-    public void testCreateFileFormatCheckerInvalidFormat() {
+    public void testCreateFileFormatPropertiesInvalidFormat() {
         Assert.assertThrows(AnalysisException.class, () -> {
-            FileFormatProperties.createFileFormatChecker("invalid_format");
+            FileFormatProperties.createFileFormatProperties("invalid_format");
         });
     }
 }

@@ -29,18 +29,18 @@ import java.util.Map;
 
 public class OrcFileFormatPropertiesTest {
 
-    private OrcFileFormatProperties configurator;
+    private OrcFileFormatProperties orcFileFormatProperties;
 
     @Before
     public void setUp() {
-        configurator = new OrcFileFormatProperties(TFileFormatType.FORMAT_ORC);
+        orcFileFormatProperties = new OrcFileFormatProperties(TFileFormatType.FORMAT_ORC);
     }
 
     @Test
     public void testAnalyzeFileFormatProperties() {
         Map<String, String> properties = new HashMap<>();
         // Add properties if needed
-        configurator.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(TFileCompressType.ZLIB, configurator.getOrcCompressionType());
+        orcFileFormatProperties.analyzeFileFormatProperties(properties, true);
+        Assert.assertEquals(TFileCompressType.ZLIB, orcFileFormatProperties.getOrcCompressionType());
     }
 }

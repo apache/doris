@@ -61,7 +61,7 @@ public abstract class FileFormatProperties {
 
     public abstract TFileAttributes toTFileAttributes();
 
-    public static FileFormatProperties createFileFormatChecker(String formatString) {
+    public static FileFormatProperties createFileFormatProperties(String formatString) {
         switch (formatString) {
             case FileFormatBaseProperties.FORMAT_CSV:
                 return new CsvFileFormatProperties(TFileFormatType.FORMAT_CSV_PLAIN);
@@ -90,11 +90,11 @@ public abstract class FileFormatProperties {
         }
     }
 
-    public static FileFormatProperties createFileFormatChecker(Map<String, String> formatProperties)
+    public static FileFormatProperties createFileFormatProperties(Map<String, String> formatProperties)
             throws AnalysisException {
         String formatString = formatProperties.getOrDefault(FileFormatBaseProperties.PROP_FORMAT, "")
                 .toLowerCase();
-        return createFileFormatChecker(formatString);
+        return createFileFormatProperties(formatString);
     }
 
     protected String getOrDefaultAndRemove(Map<String, String> props, String key, String defaultValue,
