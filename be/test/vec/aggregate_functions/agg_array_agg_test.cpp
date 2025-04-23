@@ -158,7 +158,6 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_astr_foreach) {
             ColumnWithTypeAndName(std::move(array_array_column), array_array_data_type, "column"));
 }
 
-
 TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64_foreach) {
     auto data_type = make_nullable(std::make_shared<DataTypeInt64>());
     auto array_data_type = std::make_shared<DataTypeArray>(data_type);
@@ -193,6 +192,5 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64_foreach) {
     execute(Block({ColumnWithTypeAndName(array_column->clone(), array_data_type, "")}),
             ColumnWithTypeAndName(std::move(array_array_column), array_array_data_type, "column"));
 }
-
 
 } // namespace doris::vectorized
