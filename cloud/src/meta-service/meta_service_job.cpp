@@ -587,7 +587,7 @@ static void remove_delete_bitmap_update_lock_v1(std::unique_ptr<Transaction>& tx
     std::string lock_val;
     TxnErrorCode err = txn->get(lock_key, &lock_val);
     LOG(INFO) << "get remove delete bitmap update lock info, table_id=" << table_id
-              << " key=" << hex(lock_key) << " err=" << err;
+              << " key=" << hex(lock_key) << " err=" << err << " initiator=" << lock_initiator;
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to get delete bitmap update lock key, instance_id=" << instance_id
                      << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;

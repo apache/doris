@@ -56,6 +56,7 @@ private:
     int64_t _output_cumulative_point = 0;
     // absolute expiration time in second
     int64_t _expiration;
+    int64_t _initiator;
 };
 
 } // namespace doris
