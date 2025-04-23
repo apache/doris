@@ -43,6 +43,8 @@ public abstract class JniScanner {
     // to deserialize the predicate string to PaimonPredicate object.
     protected ScanPredicate[] predicates;
     protected int batchSize;
+    protected long appendDataTime = 0;
+    protected long createVectorTableTime = 0;
 
     // Initialize JniScanner
     public abstract void open() throws IOException;
@@ -87,7 +89,9 @@ public abstract class JniScanner {
 
     public long getNextBatchMeta() throws IOException {
         if (vectorTable == null) {
+            long l = System.nanoTime();
             vectorTable = VectorTable.createWritableTable(types, fields, batchSize);
+            createVectorTableTime += System.nanoTime() - l;
         }
         int numRows;
         try {
@@ -132,5 +136,13 @@ public abstract class JniScanner {
             vectorTable.close();
         }
         vectorTable = null;
+    }
+
+    public long getAppendDataTime() {
+        return appendDataTime;
+    }
+
+    public long getCreateVectorTableTime() {
+        return createVectorTableTime;
     }
 }

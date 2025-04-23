@@ -21,6 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.TransactionType;
@@ -30,14 +31,18 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.stream.Collectors;
 
 /**
  * SummaryProfile is part of a query profile.
@@ -122,6 +127,7 @@ public class SummaryProfile {
     public static final String RPC_QUEUE_TIME = "RPC Work Queue Time";
     public static final String RPC_WORK_TIME = "RPC Work Time";
     public static final String LATENCY_FROM_BE_TO_FE = "RPC Latency From BE To FE";
+    public static final String SPLITS_ASSIGNMENT_WEIGHT = "Splits Assignment Weight";
 
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
@@ -179,7 +185,10 @@ public class SummaryProfile {
             TRACE_ID,
             TRANSACTION_COMMIT_TIME,
             SYSTEM_MESSAGE,
-            EXECUTED_BY_FRONTEND
+            EXECUTED_BY_FRONTEND,
+            NEREIDS_BE_FOLD_CONST_TIME,
+            NEREIDS_GARBAGE_COLLECT_TIME,
+            SPLITS_ASSIGNMENT_WEIGHT
     );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
@@ -340,6 +349,8 @@ public class SummaryProfile {
     private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
     private Map<TNetworkAddress, List<Long>> rpcPhase2Latency;
 
+    private Map<Backend, Long> assignedWeightPerBackend;
+
     public SummaryProfile() {
         init();
     }
@@ -397,6 +408,24 @@ public class SummaryProfile {
     public void update(Map<String, String> summaryInfo) {
         updateSummaryProfile(summaryInfo);
         updateExecutionSummaryProfile();
+    }
+
+    // This method is used to display the final data status when the overall query ends.
+    // This can avoid recalculating some strings and so on every time during the update process.
+    public void queryFinished() {
+        if (assignedWeightPerBackend != null) {
+            Map<String, Long> m = assignedWeightPerBackend.entrySet().stream()
+                    .sorted(Map.Entry.comparingByValue())
+                    .collect(Collectors.toMap(
+                        entry -> entry.getKey().getAddress(),
+                        Entry::getValue,
+                        (v1, v2) -> v1,
+                        LinkedHashMap::new
+                ));
+            executionSummaryProfile.addInfoString(
+                    SPLITS_ASSIGNMENT_WEIGHT,
+                    new GsonBuilder().create().toJson(m));
+        }
     }
 
     private void updateSummaryProfile(Map<String, String> infos) {
@@ -950,5 +979,9 @@ public class SummaryProfile {
 
     public void write(DataOutput output) throws IOException {
         Text.writeString(output, GsonUtils.GSON.toJson(this));
+    }
+
+    public void setAssignedWeightPerBackend(Map<Backend, Long> assignedWeightPerBackend) {
+        this.assignedWeightPerBackend = assignedWeightPerBackend;
     }
 }
