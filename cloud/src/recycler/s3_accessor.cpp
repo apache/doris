@@ -213,7 +213,7 @@ S3Accessor::S3Accessor(S3Conf conf)
 S3Accessor::~S3Accessor() = default;
 
 std::string S3Accessor::get_key(const std::string& relative_path) const {
-    return conf_.prefix + '/' + relative_path;
+    return conf_.prefix.empty() ? relative_path : conf_.prefix + '/' + relative_path;
 }
 
 std::string S3Accessor::to_uri(const std::string& relative_path) const {
@@ -277,7 +277,11 @@ int S3Accessor::init() {
 #endif
     }
     default: {
-        uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
+        if (conf_.prefix.empty()) {
+            uri_ = conf_.endpoint + '/' + conf_.bucket;
+        } else {
+            uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
+        }
 
         static S3Environment s3_env;
 
