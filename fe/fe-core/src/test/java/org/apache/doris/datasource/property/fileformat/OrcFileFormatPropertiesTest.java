@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.thrift.TFileCompressType;
-import org.apache.doris.thrift.TFileFormatType;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -33,7 +32,7 @@ public class OrcFileFormatPropertiesTest {
 
     @Before
     public void setUp() {
-        orcFileFormatProperties = new OrcFileFormatProperties(TFileFormatType.FORMAT_ORC);
+        orcFileFormatProperties = new OrcFileFormatProperties();
     }
 
     @Test

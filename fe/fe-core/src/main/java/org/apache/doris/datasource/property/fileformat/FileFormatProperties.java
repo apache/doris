@@ -20,7 +20,6 @@ package org.apache.doris.datasource.property.fileformat;
 import org.apache.doris.datasource.property.constants.CsvProperties;
 import org.apache.doris.datasource.property.constants.FileFormatBaseProperties;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -39,13 +38,6 @@ public abstract class FileFormatProperties {
     }
 
     /**
-     *
-     * @param formatProperties
-     * @return properties needed by Doris
-     * @throws AnalysisException
-     */
-
-    /**
      * Analyze user properties
      * @param formatProperties properties specified by user
      * @param isRemoveOriginProperty if this param is set to true, then this method would remove the origin property
@@ -55,36 +47,41 @@ public abstract class FileFormatProperties {
             Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException;
 
-    public abstract PFetchTableSchemaRequest toPFetchTableSchemaRequest();
-
+    /**
+     * generate TResultFileSinkOptions according to the properties of specified file format
+     * You must call method `analyzeFileFormatProperties` once before calling method `toTResultFileSinkOptions`
+     */
     public abstract TResultFileSinkOptions toTResultFileSinkOptions();
 
+    /**
+     * generate TFileAttributes according to the properties of specified file format
+     * You must call method `analyzeFileFormatProperties` once before calling method `toTFileAttributes`
+     */
     public abstract TFileAttributes toTFileAttributes();
 
     public static FileFormatProperties createFileFormatProperties(String formatString) {
         switch (formatString) {
             case FileFormatBaseProperties.FORMAT_CSV:
-                return new CsvFileFormatProperties(TFileFormatType.FORMAT_CSV_PLAIN);
+                return new CsvFileFormatProperties();
             case FileFormatBaseProperties.FORMAT_HIVE_TEXT:
-                return new CsvFileFormatProperties(TFileFormatType.FORMAT_CSV_PLAIN,
-                        CsvProperties.DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR,
+                return new CsvFileFormatProperties(CsvProperties.DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR,
                         TTextSerdeType.HIVE_TEXT_SERDE);
             case FileFormatBaseProperties.FORMAT_CSV_WITH_NAMES:
-                return new CsvFileFormatProperties(TFileFormatType.FORMAT_CSV_PLAIN,
+                return new CsvFileFormatProperties(
                         FileFormatBaseProperties.FORMAT_CSV_WITH_NAMES);
             case FileFormatBaseProperties.FORMAT_CSV_WITH_NAMES_AND_TYPES:
-                return new CsvFileFormatProperties(TFileFormatType.FORMAT_CSV_PLAIN,
+                return new CsvFileFormatProperties(
                         FileFormatBaseProperties.FORMAT_CSV_WITH_NAMES_AND_TYPES);
             case FileFormatBaseProperties.FORMAT_PARQUET:
-                return new ParquetFileFormatProperties(TFileFormatType.FORMAT_PARQUET);
+                return new ParquetFileFormatProperties();
             case FileFormatBaseProperties.FORMAT_ORC:
-                return new OrcFileFormatProperties(TFileFormatType.FORMAT_ORC);
+                return new OrcFileFormatProperties();
             case FileFormatBaseProperties.FORMAT_JSON:
-                return new JsonFileFormatProperties(TFileFormatType.FORMAT_JSON);
+                return new JsonFileFormatProperties();
             case FileFormatBaseProperties.FORMAT_AVRO:
-                return new AvroFileFormatProperties(TFileFormatType.FORMAT_AVRO);
+                return new AvroFileFormatProperties();
             case FileFormatBaseProperties.FORMAT_WAL:
-                return new WalFileFormatProperties(TFileFormatType.FORMAT_WAL);
+                return new WalFileFormatProperties();
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
@@ -97,7 +94,7 @@ public abstract class FileFormatProperties {
         return createFileFormatProperties(formatString);
     }
 
-    protected String getOrDefaultAndRemove(Map<String, String> props, String key, String defaultValue,
+    protected String getOrDefault(Map<String, String> props, String key, String defaultValue,
             boolean isRemove) {
         String value = props.getOrDefault(key, defaultValue);
         if (isRemove) {

@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
@@ -27,13 +26,8 @@ import org.apache.doris.thrift.TResultFileSinkOptions;
 import java.util.Map;
 
 public class WalFileFormatProperties extends FileFormatProperties {
-    public WalFileFormatProperties(TFileFormatType fileFormatType) {
-        super(fileFormatType);
-    }
-
-    @Override
-    public PFetchTableSchemaRequest toPFetchTableSchemaRequest() {
-        return null;
+    public WalFileFormatProperties() {
+        super(TFileFormatType.FORMAT_WAL);
     }
 
     @Override

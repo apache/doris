@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
@@ -31,18 +30,13 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
     private TParquetCompressionType parquetCompressionType = TParquetCompressionType.SNAPPY;
     private boolean parquetDisableDictionary = false;
 
-    public ParquetFileFormatProperties(TFileFormatType fileFormatType) {
-        super(fileFormatType);
+    public ParquetFileFormatProperties() {
+        super(TFileFormatType.FORMAT_PARQUET);
     }
 
     @Override
     public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException {
-    }
-
-    @Override
-    public PFetchTableSchemaRequest toPFetchTableSchemaRequest() {
-        return null;
     }
 
     @Override

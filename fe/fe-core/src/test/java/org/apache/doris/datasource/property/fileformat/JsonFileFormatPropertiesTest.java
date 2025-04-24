@@ -19,7 +19,6 @@ package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.datasource.property.constants.JsonProperties;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.thrift.TFileFormatType;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -34,7 +33,7 @@ public class JsonFileFormatPropertiesTest {
 
     @Before
     public void setUp() {
-        jsonFileFormatProperties = new JsonFileFormatProperties(TFileFormatType.FORMAT_JSON);
+        jsonFileFormatProperties = new JsonFileFormatProperties();
     }
 
     @Test

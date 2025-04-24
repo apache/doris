@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
@@ -27,18 +26,13 @@ import org.apache.doris.thrift.TResultFileSinkOptions;
 import java.util.Map;
 
 public class AvroFileFormatProperties extends FileFormatProperties {
-    public AvroFileFormatProperties(TFileFormatType fileFormatType) {
-        super(fileFormatType);
+    public AvroFileFormatProperties() {
+        super(TFileFormatType.FORMAT_AVRO);
     }
 
     @Override
     public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException {
-    }
-
-    @Override
-    public PFetchTableSchemaRequest toPFetchTableSchemaRequest() {
-        return null;
     }
 
     @Override

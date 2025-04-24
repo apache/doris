@@ -20,7 +20,6 @@ package org.apache.doris.datasource.property.fileformat;
 import org.apache.doris.datasource.property.constants.CsvProperties;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFileCompressType;
-import org.apache.doris.thrift.TFileFormatType;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -35,7 +34,7 @@ public class CsvFileFormatPropertiesTest {
 
     @Before
     public void setUp() {
-        csvFileFormatProperties = new CsvFileFormatProperties(TFileFormatType.FORMAT_CSV_PLAIN);
+        csvFileFormatProperties = new CsvFileFormatProperties();
     }
 
     @Test

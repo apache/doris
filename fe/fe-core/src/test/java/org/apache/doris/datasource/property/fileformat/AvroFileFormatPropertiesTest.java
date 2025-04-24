@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource.property.fileformat;
 
-import org.apache.doris.thrift.TFileFormatType;
-
 import org.junit.Before;
 import org.junit.Test;
 
@@ -32,7 +30,7 @@ public class AvroFileFormatPropertiesTest {
 
     @Before
     public void setUp() {
-        avroFileFormatProperties = new AvroFileFormatProperties(TFileFormatType.FORMAT_AVRO);
+        avroFileFormatProperties = new AvroFileFormatProperties();
     }
 
     @Test

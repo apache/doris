@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.property.fileformat;
 
-import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetCompressionType;
 
 import org.junit.Assert;
@@ -33,7 +32,7 @@ public class ParquetFileFormatPropertiesTest {
 
     @Before
     public void setUp() {
-        parquetFileFormatProperties = new ParquetFileFormatProperties(TFileFormatType.FORMAT_PARQUET);
+        parquetFileFormatProperties = new ParquetFileFormatProperties();
     }
 
     @Test

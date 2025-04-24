@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource.property.fileformat;
 
-import org.apache.doris.thrift.TFileFormatType;
-
 import org.junit.Before;
 import org.junit.Test;
 
@@ -31,7 +29,7 @@ public class WalFileFormatPropertiesTest {
 
     @Before
     public void setUp() {
-        walFileFormatProperties = new WalFileFormatProperties(TFileFormatType.FORMAT_WAL);
+        walFileFormatProperties = new WalFileFormatProperties();
     }
 
     @Test

@@ -20,7 +20,6 @@ package org.apache.doris.datasource.property.fileformat;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
@@ -38,43 +37,33 @@ public class JsonFileFormatProperties extends FileFormatProperties {
     private boolean fuzzyParse;
 
 
-    public JsonFileFormatProperties(TFileFormatType fileFormatType) {
-        super(fileFormatType);
+    public JsonFileFormatProperties() {
+        super(TFileFormatType.FORMAT_JSON);
     }
 
     @Override
     public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException {
-        // 这几个json应该移到json checker中
-        jsonRoot = getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_JSON_ROOT,
+        jsonRoot = getOrDefault(formatProperties, FileFormatConstants.PROP_JSON_ROOT,
                 "", isRemoveOriginProperty);
-        jsonPaths = getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_JSON_PATHS,
+        jsonPaths = getOrDefault(formatProperties, FileFormatConstants.PROP_JSON_PATHS,
                 "", isRemoveOriginProperty);
         readJsonByLine = Boolean.valueOf(
-                getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_READ_JSON_BY_LINE,
+                getOrDefault(formatProperties, FileFormatConstants.PROP_READ_JSON_BY_LINE,
                         "", isRemoveOriginProperty)).booleanValue();
         stripOuterArray = Boolean.valueOf(
-                getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_STRIP_OUTER_ARRAY,
+                getOrDefault(formatProperties, FileFormatConstants.PROP_STRIP_OUTER_ARRAY,
                         "", isRemoveOriginProperty)).booleanValue();
         numAsString = Boolean.valueOf(
-                getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_NUM_AS_STRING,
+                getOrDefault(formatProperties, FileFormatConstants.PROP_NUM_AS_STRING,
                         "", isRemoveOriginProperty)).booleanValue();
         fuzzyParse = Boolean.valueOf(
-                getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_FUZZY_PARSE,
+                getOrDefault(formatProperties, FileFormatConstants.PROP_FUZZY_PARSE,
                         "", isRemoveOriginProperty)).booleanValue();
 
-        String compressTypeStr = getOrDefaultAndRemove(formatProperties, FileFormatConstants.PROP_COMPRESS_TYPE,
+        String compressTypeStr = getOrDefault(formatProperties, FileFormatConstants.PROP_COMPRESS_TYPE,
                 "UNKNOWN", isRemoveOriginProperty);
-        try {
-            compressionType = Util.getFileCompressType(compressTypeStr);
-        } catch (IllegalArgumentException e) {
-            throw new AnalysisException("Compress type : " +  compressTypeStr + " is not supported.");
-        }
-    }
-
-    @Override
-    public PFetchTableSchemaRequest toPFetchTableSchemaRequest() {
-        return null;
+        compressionType = Util.getFileCompressType(compressTypeStr);
     }
 
     @Override
