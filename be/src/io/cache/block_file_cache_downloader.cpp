@@ -198,7 +198,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
     });
 }
 
-void FileCacheBlockDownloader::download_segment_file(DownloadFileMeta& meta) {
+void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& meta) {
     FileReaderSPtr file_reader;
     FileReaderOptions opts {
             .cache_type = FileCachePolicy::FILE_BLOCK_CACHE,
