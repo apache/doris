@@ -31,6 +31,7 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
     bool base_rowset_exist = false;
     const int64_t point = tablet->cumulative_layer_point();
 
+    int64_t earliest_rowset_creation_time = INT64_MAX;
     int64_t level0_total_size = 0;
     RowsetMetaSharedPtr first_meta;
     int64_t first_version = INT64_MAX;
@@ -58,6 +59,9 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
                 level0_score += rs_meta->get_compaction_score();
             } else {
                 checked_rs_metas.push_back(rs_meta);
+            }
+            if (rs_meta->creation_time() < earliest_rowset_creation_time) {
+                earliest_rowset_creation_time = rs_meta->creation_time();
             }
         }
     }
@@ -102,21 +106,17 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
             }
         }
     }
-
-    int64_t now = UnixMillis();
-    int64_t last_cumu = tablet->last_cumu_compaction_success_time();
-    if (last_cumu != 0) {
-        int64_t cumu_interval = now - last_cumu;
+    // current time in seconds
+    int64_t now = time(nullptr);
+    if (earliest_rowset_creation_time < now) {
+        int64_t cumu_interval = now - earliest_rowset_creation_time;
 
         // Condition 4: the time interval between compactions exceeds the value specified by parameter _compaction_time_threshold_second
         if (cumu_interval >
-            (tablet->tablet_meta()->time_series_compaction_time_threshold_seconds() * 1000)) {
+                    tablet->tablet_meta()->time_series_compaction_time_threshold_seconds() &&
+            score > 0) {
             return score;
         }
-    } else if (score > 0) {
-        // If the compaction process has not been successfully executed,
-        // the condition for triggering compaction based on the last successful compaction time (condition 3) will never be met
-        tablet->set_last_cumu_compaction_success_time(now);
     }
 
     // Condition 5: If there is a continuous set of empty rowsets, prioritize merging.
@@ -310,14 +310,21 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         }
     }
 
-    int64_t now = UnixMillis();
-    int64_t last_cumu = tablet->last_cumu_compaction_success_time();
-    if (last_cumu != 0) {
-        int64_t cumu_interval = now - last_cumu;
+    // current time in seconds
+    int64_t now = time(nullptr);
+    if (!input_rowsets->empty()) {
+        LOG_EVERY_N(INFO, 1000)
+                << "tablet is: " << tablet->tablet_id() << ", now: " << now
+                << ", earliest rowset creation time: "
+                << input_rowsets->front()->rowset_meta()->creation_time()
+                << ", compaction_time_threshold_seconds: "
+                << tablet->tablet_meta()->time_series_compaction_time_threshold_seconds()
+                << ", rowset count: " << transient_size;
+        int64_t cumu_interval = now - input_rowsets->front()->rowset_meta()->creation_time();
 
         // Condition 4: the time interval between compactions exceeds the value specified by parameter compaction_time_threshold_second
         if (cumu_interval >
-            (tablet->tablet_meta()->time_series_compaction_time_threshold_seconds() * 1000)) {
+            tablet->tablet_meta()->time_series_compaction_time_threshold_seconds()) {
             if (tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {
                 if (input_rowsets->empty() && level1_rowsets.size() >= 2) {
                     input_rowsets->swap(level1_rowsets);
