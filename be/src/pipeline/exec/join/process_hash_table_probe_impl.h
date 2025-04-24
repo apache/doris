@@ -174,6 +174,18 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
     return typename HashTableType::State(_parent->_probe_columns);
 }
 
+static bool check_all_match_one(const auto& vecs, size_t size) {
+    if (!size || vecs[size - 1] != vecs[0] + size - 1) {
+        return false;
+    }
+    for (size_t i = 1; i < size; i++) {
+        if (vecs[i] == vecs[i - 1]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 template <int JoinOpType>
 template <typename HashTableType>
 Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
@@ -252,18 +264,6 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
 
     if (_have_other_join_conjunct ||
         (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN && JoinOpType != TJoinOp::RIGHT_ANTI_JOIN)) {
-        auto check_all_match_one = [](const auto& vecs, int size) {
-            if (!size || vecs[size - 1] != vecs[0] + size - 1) {
-                return false;
-            }
-            for (int i = 1; i < size; i++) {
-                if (vecs[i] == vecs[i - 1]) {
-                    return false;
-                }
-            }
-            return true;
-        };
-
         probe_side_output_column(mcol, current_offset,
                                  check_all_match_one(_probe_indexs.get_data(), current_offset));
     }
@@ -323,7 +323,8 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
 
     auto do_lazy_materialize = [&](const std::vector<bool>& output_slot_flags,
                                    vectorized::ColumnVector<unsigned int>& row_indexs,
-                                   int column_offset, vectorized::Block* source_block) {
+                                   int column_offset, vectorized::Block* source_block,
+                                   bool try_all_match_one) {
         std::vector<int> column_ids;
         for (int i = 0; i < output_slot_flags.size(); ++i) {
             if (output_slot_flags[i] &&
@@ -338,19 +339,15 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
         // input row_indexs's size may bigger than row_count coz _init_probe_side
         row_indexs.resize(row_count);
 
-        bool need_filter =
-                simd::count_zero_num(
-                        (int8_t*)assert_cast<const vectorized::ColumnUInt8*>(filter_ptr.get())
-                                ->get_data()
-                                .data(),
-                        row_count) != 0;
+        const auto& column_filter =
+                assert_cast<const vectorized::ColumnUInt8*>(filter_ptr.get())->get_data();
+        bool need_filter = simd::count_zero_num((int8_t*)column_filter.data(), row_count) != 0;
         if (need_filter) {
-            const auto& column_filter =
-                    assert_cast<const vectorized::ColumnUInt8*>(filter_ptr.get())->get_data();
             row_indexs.filter(column_filter);
         }
 
         const auto& container = row_indexs.get_data();
+        bool all_match_one = try_all_match_one && check_all_match_one(container, container.size());
         for (int column_id : column_ids) {
             int output_column_id = column_id + column_offset;
             output_block->get_by_position(output_column_id).column =
@@ -361,12 +358,18 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
             auto& src = source_block->get_by_position(column_id).column;
             auto dst = output_block->get_by_position(output_column_id).column->assume_mutable();
             dst->clear();
-            dst->insert_indices_from(*src, container.data(), container.data() + container.size());
+            if (all_match_one) {
+                dst->insert_range_from(*src, container[0], container.size());
+            } else {
+                dst->insert_indices_from(*src, container.data(),
+                                         container.data() + container.size());
+            }
         }
     };
     do_lazy_materialize(_right_output_slot_flags, _build_indexs, (int)_right_col_idx,
-                        _build_block.get());
-    do_lazy_materialize(_left_output_slot_flags, _probe_indexs, 0, &_parent->_probe_block);
+                        _build_block.get(), false);
+    // probe side indexs must be incremental so set try_all_match_one to true
+    do_lazy_materialize(_left_output_slot_flags, _probe_indexs, 0, &_parent->_probe_block, true);
     return Status::OK();
 }
 
