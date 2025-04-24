@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
@@ -471,9 +472,24 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 needRuntimeAssertCount = true;
             }
         }
+        LogicalApply.SubQueryType subQueryType;
+        boolean isNot = false;
+        Optional<Expression> compareExpr = Optional.empty();
+        if (subquery instanceof InSubquery) {
+            subQueryType = LogicalApply.SubQueryType.IN_SUBQUERY;
+            isNot = ((InSubquery) subquery).isNot();
+            compareExpr = Optional.of(((InSubquery) subquery).getCompareExpr());
+        } else if (subquery instanceof Exists) {
+            subQueryType = LogicalApply.SubQueryType.EXITS_SUBQUERY;
+            isNot = ((Exists) subquery).isNot();
+        } else if (subquery instanceof ScalarSubquery) {
+            subQueryType = LogicalApply.SubQueryType.SCALAR_SUBQUERY;
+        } else {
+            throw new AnalysisException(String.format("Unsupported subquery : %s", subquery.toString()));
+        }
         LogicalApply newApply = new LogicalApply(
                 subquery.getCorrelateSlots(),
-                subquery, Optional.empty(),
+                subQueryType, isNot, compareExpr, subquery.getTypeCoercionExpr(), Optional.empty(),
                 markJoinSlot,
                 needAddScalarSubqueryOutputToProjects, isProject, isMarkJoinSlotNotNull,
                 childPlan, subquery.getQueryPlan());
