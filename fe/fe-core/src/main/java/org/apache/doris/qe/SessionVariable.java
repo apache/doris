@@ -2095,6 +2095,12 @@ public class SessionVariable implements Serializable, Writable {
                 "use other health replica when the use_fix_replica meet error" })
     public boolean fallbackOtherReplicaWhenFixedCorrupt = false;
 
+    public static final String FE_DEBUG = "fe_debug";
+    @VariableMgr.VarAttr(name = FE_DEBUG, needForward = true, fuzzy = true,
+            description = {"when set true, FE will throw exceptions instead swallow them. This is used for test",
+                    "when set true, FE will throw exceptions instead swallow them. This is used for test"})
+    public boolean feDebug = false;
+
     @VariableMgr.VarAttr(name = SHOW_ALL_FE_CONNECTION,
             description = {"when it's true show processlist statement list all fe's connection",
                     "当变量为true时，show processlist命令展示所有fe的连接"})
@@ -2320,6 +2326,7 @@ public class SessionVariable implements Serializable, Writable {
     public void initFuzzyModeVariables() {
         Random random = new SecureRandom();
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
+        this.feDebug = true;
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
