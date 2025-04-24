@@ -55,7 +55,7 @@ suite("test_load_with_functions") {
         sql """
             select array_map(x -> x is null, "sss");
         """
-        exception "lambda argument must be array"
+        exception "The lambda function of params must be array type"
     }
     // column
     sql """ insert into test_table values(1, ["a", "b", "c"]) """
@@ -66,7 +66,7 @@ suite("test_load_with_functions") {
         sql """
             select array_map(x -> x is null, id) from test_table;
         """
-        exception "lambda argument must be array"
+        exception "The lambda function of params must be array type"
     }     
 
 
@@ -74,7 +74,7 @@ suite("test_load_with_functions") {
         sql """
             select array_map(x -> x is null, arr[0]) from test_table;
         """
-        exception "lambda argument must be array"
+        exception "The lambda function of params must be array type"
     } 
 
 }
