@@ -62,6 +62,7 @@
 #include "vec/sink/load_stream_stub.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
@@ -224,8 +225,9 @@ Status DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
 
     if (!indexes.empty() && !indexes[i]->columns.empty() &&
         indexes[i]->columns[0]->unique_id() >= 0) {
-        _tablet_schema->build_current_tablet_schema(index_id, table_schema_param->version(),
-                                                    indexes[i], ori_tablet_schema);
+        _tablet_schema->build_current_tablet_schema(
+                index_id, static_cast<int32_t>(table_schema_param->version()), indexes[i],
+                ori_tablet_schema);
     }
 
     _tablet_schema->set_table_id(table_schema_param->table_id());
@@ -245,4 +247,5 @@ Status DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris
