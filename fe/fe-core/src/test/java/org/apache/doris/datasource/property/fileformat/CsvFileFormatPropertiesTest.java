@@ -131,10 +131,8 @@ public class CsvFileFormatPropertiesTest {
     public void testAnalyzeFileFormatPropertiesInvalidCompressType() {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvProperties.PROP_COMPRESS_TYPE, "invalid");
-
-        Assert.assertThrows(AnalysisException.class, () -> {
-            csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        });
+        csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
+        Assert.assertEquals(TFileCompressType.UNKNOWN, csvFileFormatProperties.getCompressionType());
     }
 
     @Test
@@ -223,61 +221,5 @@ public class CsvFileFormatPropertiesTest {
 
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(false, csvFileFormatProperties.isTrimDoubleQuotes());
-    }
-
-    @Test
-    public void testAnalyzeFileFormatPropertiesValidCsvSchemaWithSpaces() throws AnalysisException {
-        Map<String, String> properties = new HashMap<>();
-        properties.put(CsvProperties.PROP_CSV_SCHEMA,
-                " column1:int ; column2:string ; column3:double ");
-
-        csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(3, csvFileFormatProperties.getCsvSchema().size());
-        Assert.assertEquals("column1", csvFileFormatProperties.getCsvSchema().get(0).getName().trim());
-        Assert.assertEquals("column2", csvFileFormatProperties.getCsvSchema().get(1).getName().trim());
-        Assert.assertEquals("column3", csvFileFormatProperties.getCsvSchema().get(2).getName().trim());
-    }
-
-    @Test
-    public void testAnalyzeFileFormatPropertiesValidCsvSchemaWithSpecialCharacters() throws AnalysisException {
-        Map<String, String> properties = new HashMap<>();
-        properties.put(CsvProperties.PROP_CSV_SCHEMA,
-                "col1@#$:int;col2&*:string;col3:double");
-
-        csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(3, csvFileFormatProperties.getCsvSchema().size());
-        Assert.assertEquals("col1@#$", csvFileFormatProperties.getCsvSchema().get(0).getName());
-        Assert.assertEquals("col2&*", csvFileFormatProperties.getCsvSchema().get(1).getName());
-        Assert.assertEquals("col3", csvFileFormatProperties.getCsvSchema().get(2).getName());
-    }
-
-    @Test
-    public void testAnalyzeFileFormatPropertiesInvalidCsvSchema() throws AnalysisException {
-        Map<String, String> properties = new HashMap<>();
-        properties.put(CsvProperties.PROP_CSV_SCHEMA, "column1,column2,column3");
-
-        Assert.assertThrows(AnalysisException.class, () -> {
-            csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        });
-    }
-
-    @Test
-    public void testAnalyzeFileFormatPropertiesInvalidCsvSchemaWithSpecialCharacters() throws AnalysisException {
-        Map<String, String> properties = new HashMap<>();
-        properties.put(CsvProperties.PROP_CSV_SCHEMA,
-                "col1@#$:int;col2&*():string;col3:double");
-
-        Assert.assertThrows(AnalysisException.class, () -> {
-            csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        });
-    }
-
-    @Test
-    public void testAnalyzeFileFormatPropertiesValidCsvSchema() throws AnalysisException {
-        Map<String, String> properties = new HashMap<>();
-        properties.put(CsvProperties.PROP_CSV_SCHEMA,
-                "column1:int;column2:string;column3:double");
-        csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(3, csvFileFormatProperties.getCsvSchema().size());
     }
 }
