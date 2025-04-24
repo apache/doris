@@ -57,6 +57,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BaseDeltaWriter::BaseDeltaWriter(const WriteRequest& req, RuntimeProfile* profile,
@@ -277,7 +278,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
     request->set_rowset_path(tablet_path);
     request->set_token(ExecEnv::GetInstance()->token());
     request->set_brpc_port(config::brpc_port);
-    request->set_node_id(node_info.id());
+    request->set_node_id(static_cast<int32_t>(node_info.id()));
     for (int segment_id = 0; segment_id < cur_rowset->rowset_meta()->num_segments(); segment_id++) {
         auto seg_path =
                 local_segment_path(tablet_path, cur_rowset->rowset_id().to_string(), segment_id);
@@ -364,4 +365,5 @@ int64_t BaseDeltaWriter::num_rows_filtered() const {
     return rowset_writer == nullptr ? 0 : rowset_writer->num_rows_filtered();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris
