@@ -319,14 +319,7 @@ Status FullSorter::_do_sort() {
             _block_priority_queue.emplace(MergeSortCursorImpl::create_shared(
                     _state->last_sorted_block(), _sort_description));
         } else {
-            auto tmp_cursor_impl = MergeSortCursorImpl::create_shared(
-                    Block::create_shared(std::move(desc_block)), _sort_description);
-            MergeSortBlockCursor block_cursor(tmp_cursor_impl);
-            if (!block_cursor.totally_greater(_block_priority_queue.top())) {
-                _state->add_sorted_block(tmp_cursor_impl->block);
-                _block_priority_queue.emplace(MergeSortCursorImpl::create_shared(
-                        _state->last_sorted_block(), _sort_description));
-            }
+            return Status::InternalError("only test");
         }
     } else {
         // dispose normal sort logic
