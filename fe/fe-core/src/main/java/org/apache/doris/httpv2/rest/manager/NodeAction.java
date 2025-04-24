@@ -313,7 +313,7 @@ public class NodeAction extends RestBaseController {
             @RequestParam(value = "type") String type,
             @RequestBody(required = false) ConfigInfoRequestBody requestBody) {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.OPERATOR);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN_OR_NODE);
 
         initHttpExecutor();
 

@@ -74,8 +74,8 @@ public class ShowFrontendsCommand extends ShowCommand {
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
                 InternalCatalog.INTERNAL_CATALOG_NAME, InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                PrivPredicate.SELECT.getPrivs().toString());
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                PrivPredicate.SELECT.getPrivs().toString(), InfoSchemaDb.DATABASE_NAME);
         }
 
         if (detail != null && !detail.equalsIgnoreCase("disks")) {
