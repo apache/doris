@@ -474,9 +474,7 @@ public class MTMV extends OlapTable {
     }
 
     public boolean canBeCandidate() {
-        // MTMVRefreshState.FAIL also can be candidate, because may have some sync partitions
-        return getStatus().getState() == MTMVState.NORMAL
-                && getStatus().getRefreshState() != MTMVRefreshState.INIT;
+        return getStatus().canBeCandidate();
     }
 
     public void readMvLock() {
