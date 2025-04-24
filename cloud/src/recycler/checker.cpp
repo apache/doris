@@ -199,6 +199,13 @@ int Checker::start() {
                 }
             }
 
+            if (config::enable_delete_bitmap_storage_optimize_v2_check) {
+                if (int ret = checker->do_delete_bitmap_storage_optimize_check(2 /*version*/);
+                    ret != 0) {
+                    success = false;
+                }
+            }
+
             // If instance checker has been aborted, don't finish this job
             if (!checker->stopped()) {
                 finish_instance_recycle_job(txn_kv_.get(), check_job_key, instance.instance_id(),
@@ -1171,14 +1178,111 @@ int InstanceChecker::check_delete_bitmap_storage_optimize(int64_t tablet_id) {
     return (abnormal_rowsets_num > 1 ? 1 : 0);
 }
 
-int InstanceChecker::do_delete_bitmap_storage_optimize_check() {
+int InstanceChecker::check_delete_bitmap_storage_optimize_v2(int64_t tablet_id) {
+    using Version = std::pair<int64_t, int64_t>;
+    struct RowsetDigest {
+        std::string rowset_id;
+        Version version;
+        doris::SegmentsOverlapPB segments_overlap;
+
+        bool operator<(const RowsetDigest& other) const {
+            return version.first < other.version.first;
+        }
+
+        bool produced_by_compaction() const {
+            return (version.first < version.second) ||
+                   ((version.first == version.second) && segments_overlap == NONOVERLAPPING);
+        }
+    };
+
+    // number of rowsets which may have problems
+    int64_t abnormal_rowsets_num {0};
+
+    // [end_version, create_time]
+    std::map<int64_t, int64_t> tablet_rowsets_map {};
+    // Get all visible rowsets of this tablet
+    auto collect_cb = [&tablet_rowsets_map](const doris::RowsetMetaCloudPB& rowset) {
+        if (rowset.start_version() == 0 && rowset.end_version() == 1) {
+            // ignore dummy rowset [0-1]
+            return;
+        }
+        tablet_rowsets_map[rowset.end_version()] = rowset.creation_time();
+    };
+    if (int ret = collect_tablet_rowsets(tablet_id, collect_cb); ret != 0) {
+        return ret;
+    }
+
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin = meta_delete_bitmap_key({instance_id_, tablet_id, "", 0, 0});
+    auto end = meta_delete_bitmap_key({instance_id_, tablet_id + 1, "", 0, 0});
+    std::string last_rowset_id = "";
+    int64_t last_version = 0;
+    std::string last_failed_rowset_id = "";
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get delete bitmap kv, err=" << err;
+            return -1;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
+            auto rowset_id = std::get<std::string>(std::get<0>(out[4]));
+            auto version = std::get<std::int64_t>(std::get<0>(out[5]));
+            if (!it->has_next()) {
+                begin = k;
+                begin.push_back('\x00'); // Update to next smallest key for iteration
+            }
+            if (rowset_id == last_rowset_id && version == last_version) {
+                // skip the same rowset and version
+                continue;
+            }
+            if (tablet_rowsets_map.find(version) == tablet_rowsets_map.end()) {
+                // 1. finish compaction
+                // 2. checker
+                // 3. finish agg and remove pre rowsets delete bitmap
+                if (rowset_id != last_failed_rowset_id) {
+                    abnormal_rowsets_num++;
+                    last_failed_rowset_id = rowset_id;
+                }
+                // log an error and continue to check the next delete bitmap
+                LOG(WARNING) << fmt::format(
+                        "[delete bitmap check fails] delete bitmap storage optimize v2 check fail "
+                        "for instance_id={}, tablet_id={}, rowset_id={}, found delete bitmap "
+                        "with version={}",
+                        instance_id_, tablet_id, rowset_id, version);
+            }
+            // check version exist
+            last_rowset_id = rowset_id;
+            last_version = version;
+        }
+    } while (it->more() && !stopped());
+
+    return (abnormal_rowsets_num > 1 ? 1 : 0);
+}
+
+int InstanceChecker::do_delete_bitmap_storage_optimize_check(int version) {
     int64_t total_tablets_num {0};
     int64_t failed_tablets_num {0};
 
     // check that for every visible rowset, there exists at least delete one bitmap in MS
     int ret = traverse_mow_tablet([&](int64_t tablet_id) {
         ++total_tablets_num;
-        int res = check_delete_bitmap_storage_optimize(tablet_id);
+        int res = version == 1 ? check_delete_bitmap_storage_optimize(tablet_id)
+                               : check_delete_bitmap_storage_optimize_v2(tablet_id);
         failed_tablets_num += (res != 0);
         return res;
     });
@@ -1189,8 +1293,8 @@ int InstanceChecker::do_delete_bitmap_storage_optimize_check() {
 
     LOG(INFO) << fmt::format(
             "[delete bitmap checker] check delete bitmap storage optimize for instance_id={}, "
-            "total_tablets_num={}, failed_tablets_num={}",
-            instance_id_, total_tablets_num, failed_tablets_num);
+            "total_tablets_num={}, failed_tablets_num={}, version={}",
+            instance_id_, total_tablets_num, failed_tablets_num, version);
 
     return (failed_tablets_num > 0) ? 1 : 0;
 }

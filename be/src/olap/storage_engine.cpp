@@ -1187,12 +1187,14 @@ void StorageEngine::_parse_default_rowset_type() {
 }
 
 void StorageEngine::start_delete_unused_rowset() {
-    LOG(INFO) << "start to delete unused rowset, size: " << _unused_rowsets.size();
+    LOG(INFO) << "start to delete unused rowset, size: " << _unused_rowsets.size()
+              << ", unused delete bitmap size: " << _unused_delete_bitmap.size();
     std::vector<RowsetSharedPtr> unused_rowsets_copy;
     unused_rowsets_copy.reserve(_unused_rowsets.size());
     auto due_to_use_count = 0;
     auto due_to_not_delete_file = 0;
     auto due_to_delayed_expired_ts = 0;
+    std::set<int64_t> tablets_to_save_meta;
     {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
@@ -1239,18 +1241,22 @@ void StorageEngine::start_delete_unused_rowset() {
                 continue;
             }
             tablet->tablet_meta()->delete_bitmap().remove(key_ranges);
-            {
-                std::shared_lock rlock(tablet->get_header_lock());
-                tablet->save_meta();
-            }
+            tablets_to_save_meta.emplace(tablet_id);
             it = _unused_delete_bitmap.erase(it);
         }
-        LOG(INFO) << "finish delete unused delete bitmap, size: " << _unused_delete_bitmap.size();
+    }
+    for (const auto& tablet_id : tablets_to_save_meta) {
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet) {
+            std::shared_lock rlock(tablet->get_header_lock());
+            tablet->save_meta();
+        }
     }
     LOG(INFO) << "collected " << unused_rowsets_copy.size() << " unused rowsets to remove, skipped "
               << due_to_use_count << " rowsets due to use count > 1, skipped "
               << due_to_not_delete_file << " rowsets due to don't need to delete file, skipped "
-              << due_to_delayed_expired_ts << " rowsets due to delayed expired timestamp.";
+              << due_to_delayed_expired_ts << " rowsets due to delayed expired timestamp. left "
+              << _unused_delete_bitmap.size() << " unused delete bitmap.";
     for (auto&& rs : unused_rowsets_copy) {
         VLOG_NOTICE << "start to remove rowset:" << rs->rowset_id()
                     << ", version:" << rs->version();

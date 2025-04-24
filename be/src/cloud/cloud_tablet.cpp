@@ -392,8 +392,8 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
         LOG_INFO("begin delete_expired_stale_rowset for tablet={}", tablet_id());
     }
     std::vector<RowsetSharedPtr> expired_rowsets;
-    // ATTN: trick, Use stale_rowsets or unused_rowsets to temporarily increase the reference count of the rowset shared pointer in _stale_rs_version_map so that in the recycle_cached_data function, it checks if the reference count is 2.
-    std::vector<RowsetSharedPtr> stale_rowsets;
+    // ATTN: trick, Use stale_rowsets to temporarily increase the reference count of the rowset shared pointer in _stale_rs_version_map so that in the recycle_cached_data function, it checks if the reference count is 2.
+    std::vector<std::pair<Version, std::vector<RowsetSharedPtr>>> deleted_stale_rowsets;
     int64_t expired_stale_sweep_endtime =
             ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
     std::vector<std::string> version_to_delete;
@@ -411,23 +411,14 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
         for (int64_t path_id : path_ids) {
             int64_t start_version = -1;
             int64_t end_version = -1;
+            std::vector<RowsetSharedPtr> stale_rowsets;
             // delete stale versions in version graph
             auto version_path = _timestamped_version_tracker.fetch_and_delete_path_by_id(path_id);
-
-            // agg delete bitmap for pre rowset
-            DeleteBitmapKeyRanges remove_delete_bitmap_key_ranges;
-            agg_delete_bitmap_for_stale_rowsets(version_path->timestamped_versions(),
-                                                remove_delete_bitmap_key_ranges);
-            std::vector<RowsetSharedPtr> unused_rowsets;
             for (auto& v_ts : version_path->timestamped_versions()) {
                 auto rs_it = _stale_rs_version_map.find(v_ts->version());
                 if (rs_it != _stale_rs_version_map.end()) {
                     expired_rowsets.push_back(rs_it->second);
-                    if (!remove_delete_bitmap_key_ranges.empty()) {
-                        unused_rowsets.push_back(rs_it->second);
-                    } else {
-                        stale_rowsets.push_back(rs_it->second);
-                    }
+                    stale_rowsets.push_back(rs_it->second);
                     LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
                               << " rowset_id=" << rs_it->second->rowset_id().to_string()
                               << " version=" << rs_it->first.to_string();
@@ -447,12 +438,8 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
             }
             Version version(start_version, end_version);
             version_to_delete.emplace_back(version.to_string());
-
-            // add remove delete bitmap
-            if (!remove_delete_bitmap_key_ranges.empty()) {
-                std::lock_guard<std::mutex> lock(_gc_mutex);
-                _unused_delete_bitmap.push_back(
-                        std::make_pair(unused_rowsets, remove_delete_bitmap_key_ranges));
+            if (!stale_rowsets.empty()) {
+                deleted_stale_rowsets.emplace_back(version, std::move(stale_rowsets));
             }
         }
         _reconstruct_version_tracker_if_necessary();
@@ -461,6 +448,26 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
     recycle_cached_data(expired_rowsets);
     if (config::enable_mow_verbose_log) {
         LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
+    }
+
+    if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write() &&
+        !deleted_stale_rowsets.empty()) {
+        // agg delete bitmap for pre rowsets; record unused delete bitmap key ranges
+        OlapStopWatch watch;
+        for (const auto& [version, unused_rowsets] : deleted_stale_rowsets) {
+            // agg delete bitmap for pre rowset
+            DeleteBitmapKeyRanges remove_delete_bitmap_key_ranges;
+            agg_delete_bitmap_for_stale_rowsets(version, remove_delete_bitmap_key_ranges);
+            // add remove delete bitmap
+            if (!remove_delete_bitmap_key_ranges.empty()) {
+                std::lock_guard<std::mutex> lock(_gc_mutex);
+                _unused_delete_bitmap.push_back(
+                        std::make_pair(unused_rowsets, remove_delete_bitmap_key_ranges));
+            }
+        }
+        LOG(INFO) << "agg pre rowsets delete bitmap. tablet_id=" << tablet_id()
+                  << ", size=" << deleted_stale_rowsets.size()
+                  << ", cost(us)=" << watch.get_elapse_time_us();
     }
     return expired_rowsets.size();
 }

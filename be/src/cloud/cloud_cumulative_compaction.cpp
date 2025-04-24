@@ -369,6 +369,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     if (config::enable_agg_and_remove_pre_rowsets_delete_bitmap &&
         _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
+        OlapStopWatch watch;
         std::vector<RowsetSharedPtr> pre_rowsets {};
         for (const auto& it2 : cloud_tablet()->rowset_map()) {
             if (it2.first.second < _output_rowset->start_version()) {
@@ -380,11 +381,21 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         cloud_tablet()->agg_delete_bitmap_for_compaction(_output_rowset->start_version(),
                                                          _output_rowset->end_version(), pre_rowsets,
                                                          pre_rowsets_delete_bitmap);
-        // update delete bitmap
-        RETURN_IF_ERROR(_engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
+        // update delete bitmap to ms
+        auto status = _engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
                 *cloud_tablet(), pre_rowsets_delete_bitmap.get(), _output_rowset->start_version(),
-                _output_rowset->end_version()));
-        _tablet->tablet_meta()->delete_bitmap().merge(*pre_rowsets_delete_bitmap);
+                _output_rowset->end_version());
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to agg pre rowsets delete bitmap to ms. tablet_id="
+                         << _tablet->tablet_id() << ", pre rowset num=" << pre_rowsets.size()
+                         << ", output version=" << _output_rowset->version().to_string()
+                         << ", status=" << status.to_string();
+        } else {
+            LOG(INFO) << "agg pre rowsets delete bitmap to ms. tablet_id=" << _tablet->tablet_id()
+                      << ", pre rowset num=" << pre_rowsets.size()
+                      << ", output version=" << _output_rowset->version().to_string()
+                      << ", cost(us)=" << watch.get_elapse_time_us();
+        }
     }
     DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset", {
         LOG(INFO) << "delete_expired_stale_rowsets for tablet=" << _tablet->tablet_id();

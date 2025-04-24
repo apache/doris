@@ -240,8 +240,8 @@ void CloudTabletMgr::erase_tablet(int64_t tablet_id) {
 void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
     LOG_INFO("begin to vacuum stale rowsets");
     std::vector<std::shared_ptr<CloudTablet>> tablets_to_vacuum;
-    std::vector<std::shared_ptr<CloudTablet>> tablets_to_remove_delete_bitmap;
     tablets_to_vacuum.reserve(_tablet_map->size());
+    std::vector<std::shared_ptr<CloudTablet>> tablets_to_remove_delete_bitmap;
     tablets_to_remove_delete_bitmap.reserve(_tablet_map->size());
     _tablet_map->traverse([&tablets_to_vacuum, &tablets_to_remove_delete_bitmap](auto&& t) {
         if (t->has_stale_rowsets()) {

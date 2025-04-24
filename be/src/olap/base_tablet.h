@@ -266,8 +266,7 @@ public:
     using DeleteBitmapKeyRanges =
             std::vector<std::tuple<DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>;
     void agg_delete_bitmap_for_stale_rowsets(
-            const std::vector<TimestampedVersionSharedPtr>& to_delete_version,
-            DeleteBitmapKeyRanges& remove_delete_bitmap_key_ranges);
+            Version version, DeleteBitmapKeyRanges& remove_delete_bitmap_key_ranges);
     ////////////////////////////////////////////////////////////////////////////
     // end MoW functions
     ////////////////////////////////////////////////////////////////////////////
