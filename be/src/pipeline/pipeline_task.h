@@ -67,13 +67,14 @@ public:
 
     int get_core_id() const { return _core_id; }
 
-    void set_core_id(int id) {
+    PipelineTask& set_core_id(int id) {
         if (id != _core_id) {
             if (_core_id != -1) {
                 COUNTER_UPDATE(_core_change_times, 1);
             }
             _core_id = id;
         }
+        return *this;
     }
 
     Status finalize();
@@ -122,14 +123,11 @@ public:
     // Execution phase should be terminated. This is called if this task is canceled or waken up early.
     void terminate();
 
-    void set_task_queue(MultiCoreTaskQueue* task_queue) { _task_queue = task_queue; }
+    PipelineTask& set_task_queue(MultiCoreTaskQueue* task_queue) {
+        _task_queue = task_queue;
+        return *this;
+    }
     MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
-
-#ifdef BE_TEST
-    unsigned long long THREAD_TIME_SLICE = 100'000'000ULL;
-#else
-    static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
-#endif
 
     // 1 used for update priority queue
     // note(wb) an ugly implementation, need refactor later
@@ -150,7 +148,10 @@ public:
 
     bool is_running() { return _running.load(); }
     bool is_revoking() const;
-    bool set_running(bool running) { return _running.exchange(running); }
+    PipelineTask& set_running(bool running) {
+        _running.exchange(running);
+        return *this;
+    }
 
     RuntimeState* runtime_state() const { return _state; }
 
@@ -248,7 +249,8 @@ private:
             _shared_state_map;
     int _task_idx;
     bool _dry_run = false;
-
+    MOCK_REMOVE(const)
+    unsigned long long _exec_time_slice = config::pipeline_task_exec_time_slice * NANOS_PER_MILLIS;
     Dependency* _blocked_dep = nullptr;
 
     Dependency* _execution_dep = nullptr;

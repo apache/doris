@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
 
     ::testing::TestEventListeners& listeners = ::testing::UnitTest::GetInstance()->listeners();
     listeners.Append(new TestListener);
-    doris::ExecEnv::GetInstance()->set_tracking_memory(false);
+    doris::ExecEnv::set_tracking_memory(false);
 
     google::ParseCommandLineFlags(&argc, &argv, false);
 

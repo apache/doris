@@ -281,10 +281,6 @@ public:
         return Status::OK();
     }
 
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        return Status::OK();
-    }
-
 private:
     template <typename T>
     static void search_hash_set_check_null(InState* in_state, size_t input_rows_count,

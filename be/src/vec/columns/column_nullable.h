@@ -442,6 +442,11 @@ public:
 
     void finalize() override { get_nested_column().finalize(); }
 
+    void erase(size_t start, size_t length) override {
+        get_nested_column().erase(start, length);
+        get_null_map_column().erase(start, length);
+    }
+
 private:
     void _update_has_null();
 
