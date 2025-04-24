@@ -178,7 +178,6 @@ public:
                     vector_const_const(sources->get_data(), arg1.get<Int32>(),
                                        arg2.get<NativeType>(), col_to->get_data(),
                                        null_map->get_data());
-
                 } else if (arg1_const && !arg2_const) {
                     Field arg1;
                     arg1_col->get(0, arg1);
@@ -252,10 +251,16 @@ private:
     static void vector_const_const(const PaddedPODArray<NativeType>& dates, const Int32 period,
                                    NativeType origin_date, PaddedPODArray<NativeType>& res,
                                    NullMap& null_map) {
+        if ((DateValueType&)(origin_date) == DateValueType::FIRST_DAY) {
+            vector_const_period(dates, period, res, null_map);
+            return;
+        }
+
         if (period < 1) {
             memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
+
         // expand codes for const input periods
 #define EXPAND_CODE_FOR_CONST_INPUT(X)                                   \
     case X: {                                                            \

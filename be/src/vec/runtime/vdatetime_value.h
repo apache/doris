@@ -1370,7 +1370,7 @@ private:
 };
 
 template <typename T>
-inline const DateV2Value<T> DateV2Value<T>::FIRST_DAY = DateV2Value<T>(1, 1, 1, 0, 0, 0, 0);
+inline const DateV2Value<T> DateV2Value<T>::FIRST_DAY = DateV2Value<T>(0001, 1, 1, 0, 0, 0, 0);
 
 // only support DATE - DATE (no support DATETIME - DATETIME)
 std::size_t operator-(const VecDateTimeValue& v1, const VecDateTimeValue& v2);
