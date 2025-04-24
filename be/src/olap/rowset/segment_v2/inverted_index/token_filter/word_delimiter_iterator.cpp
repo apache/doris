@@ -198,7 +198,7 @@ char WordDelimiterIterator::get_type(UChar32 ch) {
     case U_LETTER_NUMBER:
     case U_OTHER_NUMBER:
         return DIGIT;
-    case U_SURROGATE:
+    case U_OTHER_SYMBOL:
         return ALPHA | DIGIT;
     default:
         return SUBWORD_DELIM;

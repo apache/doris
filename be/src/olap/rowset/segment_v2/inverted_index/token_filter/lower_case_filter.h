@@ -23,6 +23,12 @@
 
 namespace doris::segment_v2::inverted_index {
 
+/**
+ * @brief A token filter that converts Unicode text to lowercase using ICU library.
+ * 
+ * This filter handles full Unicode case conversion, not just ASCII characters.
+ * It uses ICU's ucasemap functionality to properly handle case folding for all Unicode characters.
+ */
 class LowerCaseFilter : public DorisTokenFilter {
 public:
     LowerCaseFilter(const TokenStreamPtr& in)
