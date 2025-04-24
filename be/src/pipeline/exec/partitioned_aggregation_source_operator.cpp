@@ -145,7 +145,7 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized:
                 auto block_ = std::move(local_state._blocks.front());
                 merged_rows += block_.rows();
                 local_state._blocks.erase(local_state._blocks.begin());
-                status = _agg_source_operator->merge_with_serialized_key_helper<false>(
+                status = _agg_source_operator->merge_with_serialized_key_helper(
                         local_state._runtime_state.get(), &block_);
                 RETURN_IF_ERROR(status);
             }
