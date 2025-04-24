@@ -17,12 +17,23 @@
 
 #pragma once
 #include "mock_query_context.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/workload_group/dummy_workload_group.h"
 
 namespace doris {
 
 class MockContext : public TaskExecutionContext {};
+
+class MockFragmentManager : public FragmentMgr {
+public:
+    MockFragmentManager(Status& status_, ExecEnv* exec_env)
+            : FragmentMgr(exec_env), status(status_) {}
+    void cancel_query(const TUniqueId query_id, const Status reason) override { status = reason; }
+
+private:
+    Status& status;
+};
 
 class MockRuntimeState : public RuntimeState {
 public:
@@ -44,6 +55,8 @@ public:
     bool enable_share_hash_table_for_broadcast_join() const override {
         return _enable_share_hash_table_for_broadcast_join;
     }
+
+    void set_enable_spill(bool enable) { _query_options.__set_enable_spill(enable); }
 
     bool enable_local_exchange() const override { return true; }
     WorkloadGroupPtr workload_group() override { return _workload_group; }

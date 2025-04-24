@@ -121,7 +121,6 @@ private:
 
     RuntimeProfile* _profile = nullptr;
     std::list<MultiCastBlock> _multi_cast_blocks;
-    std::list<MultiCastBlock> _spilling_blocks;
     std::vector<std::vector<vectorized::Block>> _cached_blocks;
     std::vector<std::list<MultiCastBlock>::iterator> _sender_pos_to_read;
     std::mutex _mutex;
