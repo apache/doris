@@ -140,6 +140,9 @@ public class CastExpr extends Expr {
             if (type.isStructType() && e.type.isStructType()) {
                 getChild(0).setType(type);
             }
+            if (type.isScalarType()) {
+                targetTypeDef = new TypeDef(type);
+            }
             analysisDone();
             return;
         }
