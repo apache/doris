@@ -104,6 +104,13 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             }
         }
     }
+    std::cout<<"has window: "<<p._has_window<<std::endl;
+    std::cout<<"has range window: "<<p._has_range_window<<std::endl;
+    std::cout<<"has window start: "<<p._has_window_start<<std::endl;
+    std::cout<<"has window end: "<<p._has_window_end<<std::endl;
+    std::cout<<"rows start offset: "<<_rows_start_offset<<std::endl;
+    std::cout<<"rows end offset: "<<_rows_end_offset<<std::endl;
+    std::cout<<"streaming mode: "<<_streaming_mode<<std::endl;
     profile()->add_info_string("streaming mode: ", std::to_string(_streaming_mode));
     return Status::OK();
 }
@@ -160,8 +167,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     }
 
     // only support one order by column, so need two columns upper and lower bound
+    _range_between_expr_ctxs.resize(p._range_between_expr_ctxs.size());
     _range_result_columns.resize(_range_between_expr_ctxs.size());
-    _range_between_expr_ctxs = p._range_between_expr_ctxs;
     for (size_t i = 0; i < _range_between_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._range_between_expr_ctxs[i]->clone(state, _range_between_expr_ctxs[i]));
         _range_result_columns[i] =
@@ -194,6 +201,7 @@ Status AnalyticSinkLocalState::close(RuntimeState* state, Status exec_status) {
 
 bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t batch_rows,
                                                         int64_t current_block_base_pos) {
+    std::cout << "_get_next_for_sliding_rows " <<_current_row_position<<" "<<_partition_by_pose.end<< std::endl;
     while (_current_row_position < _partition_by_pose.end) {
         int64_t current_row_start = 0;
         int64_t current_row_end = _current_row_position + _rows_end_offset + 1;
@@ -221,6 +229,7 @@ bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t batch_rows,
 
 bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t batch_rows,
                                                           int64_t current_block_base_pos) {
+    std::cout << "_get_next_for_unbounded_rows" << std::endl;
     while (_current_row_position < _partition_by_pose.end) {
         // [preceding, current_row], [current_row, following] rewrite it's same
         // as could reuse the previous calculate result, so don't call _reset_agg_status function
@@ -239,6 +248,7 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t batch_rows,
 
 bool AnalyticSinkLocalState::_get_next_for_partition(int64_t batch_rows,
                                                      int64_t current_block_base_pos) {
+    std::cout << "_get_next_for_partition" << std::endl;
     if (_current_row_position == _partition_by_pose.start) {
         _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
                               _partition_by_pose.start, _partition_by_pose.end);
@@ -261,6 +271,7 @@ bool AnalyticSinkLocalState::_get_next_for_partition(int64_t batch_rows,
 
 bool AnalyticSinkLocalState::_get_next_for_unbounded_range(int64_t batch_rows,
                                                            int64_t current_block_base_pos) {
+    std::cout << "_get_next_for_unbounded_range " <<_current_row_position<<" "<<_partition_by_pose.end<< std::endl;
     while (_current_row_position < _partition_by_pose.end) {
         _update_order_by_range();
         if (_current_row_position == _order_by_pose.start) {
