@@ -219,6 +219,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
 
     _recycle_keys_length_recorder = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_recycle_keys_length");
+    _ttl_gc_latency_us = std::make_shared<bvar::LatencyRecorder>(_cache_base_path.c_str(),
+                                                                 "file_cache_ttl_gc_latency_us");
 
     _disposable_queue = LRUQueue(cache_settings.disposable_queue_size,
                                  cache_settings.disposable_queue_elements, 60 * 60);
@@ -1829,9 +1831,10 @@ void BlockFileCache::run_background_monitor() {
     }
 }
 
-void BlockFileCache::run_background_ttl_gc() { // TODO(zhengyu): fix!
+void BlockFileCache::run_background_ttl_gc() {
     while (!_close) {
         int64_t interval_ms = config::file_cache_background_ttl_gc_interval_ms;
+        int64_t batch_size = config::file_cache_background_ttl_gc_batch;
         TEST_SYNC_POINT_CALLBACK("BlockFileCache::set_sleep_time", &interval_ms);
         {
             std::unique_lock close_lock(_close_mtx);
@@ -1840,17 +1843,22 @@ void BlockFileCache::run_background_ttl_gc() { // TODO(zhengyu): fix!
                 break;
             }
         }
+        int64_t duration_ns = 0;
         {
             int64_t cur_time = UnixSeconds();
+            int64_t count = 0;
             SCOPED_CACHE_LOCK(_mutex, this);
+            SCOPED_RAW_TIMER(&duration_ns);
             while (!_time_to_key.empty()) {
                 auto begin = _time_to_key.begin();
-                if (cur_time < begin->first) {
+                if (cur_time < begin->first || count > batch_size) {
                     break;
                 }
                 remove_if_ttl_file_blocks(begin->second, false, cache_lock, false);
+                ++count;
             }
         }
+        *_ttl_gc_latency_us << (duration_ns / 1000);
     }
 }
 
