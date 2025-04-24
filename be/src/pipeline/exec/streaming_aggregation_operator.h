@@ -58,28 +58,14 @@ private:
     Status _pre_agg_with_serialized_key(doris::vectorized::Block* in_block,
                                         doris::vectorized::Block* out_block);
     bool _should_expand_preagg_hash_tables();
-    void _make_nullable_output_key(vectorized::Block* block);
-    Status _execute_without_key(vectorized::Block* block);
-    Status _merge_without_key(vectorized::Block* block);
-    void _update_memusage_without_key();
+
+    bool _should_not_do_pre_agg(size_t rows);
+
     Status _execute_with_serialized_key(vectorized::Block* block);
-    Status _merge_with_serialized_key(vectorized::Block* block);
     void _update_memusage_with_serialized_key();
     Status _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
-    Status _get_without_key_result(RuntimeState* state, vectorized::Block* block, bool* eos);
-    Status _get_results_without_key(RuntimeState* state, vectorized::Block* block, bool* eos);
-    Status _get_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
-                                           bool* eos);
     Status _get_results_with_serialized_key(RuntimeState* state, vectorized::Block* block,
                                             bool* eos);
-
-    template <bool limit, bool for_spill = false>
-    Status _merge_with_serialized_key_helper(vectorized::Block* block);
-    template <bool limit>
-    Status _execute_with_serialized_key_helper(vectorized::Block* block);
-    void _find_in_hash_table(vectorized::AggregateDataPtr* places,
-                             vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
-    int _get_slot_column_id(const vectorized::AggFnEvaluator* evaluator);
     void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                   vectorized::ColumnRawPtrs& key_columns, const size_t num_rows);
     Status _create_agg_status(vectorized::AggregateDataPtr data);
@@ -116,58 +102,6 @@ private:
 
     vectorized::PODArray<vectorized::AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;
-
-    struct ExecutorBase {
-        virtual Status execute(StreamingAggLocalState* local_state, vectorized::Block* block) = 0;
-        virtual void update_memusage(StreamingAggLocalState* local_state) = 0;
-        virtual Status get_result(StreamingAggLocalState* local_state, RuntimeState* state,
-                                  vectorized::Block* block, bool* eos) = 0;
-        virtual ~ExecutorBase() = default;
-    };
-    template <bool WithoutKey, bool NeedToMerge, bool NeedFinalize>
-    struct Executor final : public ExecutorBase {
-        Status get_result(StreamingAggLocalState* local_state, RuntimeState* state,
-                          vectorized::Block* block, bool* eos) override {
-            if constexpr (WithoutKey) {
-                if constexpr (NeedFinalize) {
-                    return local_state->_get_without_key_result(state, block, eos);
-                } else {
-                    return local_state->_get_results_without_key(state, block, eos);
-                }
-            } else {
-                if constexpr (NeedFinalize) {
-                    return local_state->_get_with_serialized_key_result(state, block, eos);
-                } else {
-                    return local_state->_get_results_with_serialized_key(state, block, eos);
-                }
-            }
-        }
-
-        Status execute(StreamingAggLocalState* local_state, vectorized::Block* block) override {
-            if constexpr (WithoutKey) {
-                if constexpr (NeedToMerge) {
-                    return local_state->_merge_without_key(block);
-                } else {
-                    return local_state->_execute_without_key(block);
-                }
-            } else {
-                if constexpr (NeedToMerge) {
-                    return local_state->_merge_with_serialized_key(block);
-                } else {
-                    return local_state->_execute_with_serialized_key(block);
-                }
-            }
-        }
-
-        void update_memusage(StreamingAggLocalState* local_state) override {
-            if constexpr (WithoutKey) {
-                local_state->_update_memusage_without_key();
-            } else {
-                local_state->_update_memusage_with_serialized_key();
-            }
-        }
-    };
-    std::unique_ptr<ExecutorBase> _executor = nullptr;
 
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
     bool _child_eos = false;
@@ -215,6 +149,13 @@ public:
 
 private:
     friend class StreamingAggLocalState;
+
+    Status _init_probe_expr_ctx(RuntimeState* state);
+
+    Status _init_aggregate_evaluators(RuntimeState* state);
+
+    Status _calc_aggregate_evaluators();
+
     // may be we don't have to know the tuple id
     TupleId _intermediate_tuple_id;
     TupleDescriptor* _intermediate_tuple_desc = nullptr;
