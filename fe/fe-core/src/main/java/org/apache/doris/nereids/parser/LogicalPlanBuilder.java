@@ -29,6 +29,7 @@ import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.StageAndPattern;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableScanParams;
@@ -561,6 +562,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
+import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
@@ -740,6 +742,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CopyFromDesc;
+import org.apache.doris.nereids.trees.plans.commands.info.CopyIntoInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateJobInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
@@ -1010,6 +1014,82 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String jobName = stripQuotes(ctx.jobNameValue.getText());
         Long taskId = Long.valueOf(ctx.taskIdValue.getText());
         return new CancelJobTaskCommand(jobName, taskId);
+    }
+
+    private StageAndPattern getStageAndPattern(DorisParser.StageAndPatternContext ctx) {
+        if (ctx.pattern != null) {
+            return new StageAndPattern(stripQuotes(ctx.stage.getText()), stripQuotes(ctx.pattern.getText()));
+        } else {
+            return new StageAndPattern(stripQuotes(ctx.stage.getText()), null);
+        }
+    }
+
+    @Override
+    public LogicalPlan visitCopyInto(DorisParser.CopyIntoContext ctx) {
+        ImmutableList.Builder<String> tableName = ImmutableList.builder();
+        if (null != ctx.name) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.name);
+            tableName.addAll(nameParts);
+        }
+        List<String> columns = (null != ctx.columns) ? visitIdentifierList(ctx.columns) : null;
+        StageAndPattern stageAndPattern = getStageAndPattern(ctx.stageAndPattern());
+        CopyFromDesc copyFromDesc = null;
+        if (null != ctx.SELECT()) {
+            List<NamedExpression> projects = getNamedExpressions(ctx.selectColumnClause().namedExpressionSeq());
+            Optional<Expression> where = Optional.empty();
+            if (ctx.whereClause() != null) {
+                where = Optional.of(getExpression(ctx.whereClause().booleanExpression()));
+            }
+            copyFromDesc = new CopyFromDesc(stageAndPattern, projects, where);
+        } else {
+            copyFromDesc = new CopyFromDesc(stageAndPattern);
+        }
+        Map<String, String> properties = visitPropertyClause(ctx.properties);
+        copyFromDesc.setTargetColumns(columns);
+        CopyIntoInfo copyInfoInfo = null;
+        if (null != ctx.selectHint()) {
+            if ((selectHintMap == null) || selectHintMap.isEmpty()) {
+                throw new AnalysisException("hint should be in right place: " + ctx.getText());
+            }
+            List<ParserRuleContext> selectHintContexts = Lists.newArrayList();
+            for (Integer key : selectHintMap.keySet()) {
+                if (key > ctx.getStart().getStopIndex() && key < ctx.getStop().getStartIndex()) {
+                    selectHintContexts.add(selectHintMap.get(key));
+                }
+            }
+            if (selectHintContexts.size() != 1) {
+                throw new AnalysisException("only one hint is allowed in: " + ctx.getText());
+            }
+            SelectHintContext selectHintContext = (SelectHintContext) selectHintContexts.get(0);
+            Map<String, String> parameterNames = Maps.newLinkedHashMap();
+            for (HintStatementContext hintStatement : selectHintContext.hintStatements) {
+                String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
+                if (!hintName.equalsIgnoreCase("set_var")) {
+                    throw new AnalysisException("only set_var hint is allowed in: " + ctx.getText());
+                }
+                for (HintAssignmentContext kv : hintStatement.parameters) {
+                    if (kv.key != null) {
+                        String parameterName = visitIdentifierOrText(kv.key);
+                        Optional<String> value = Optional.empty();
+                        if (kv.constantValue != null) {
+                            Literal literal = (Literal) visit(kv.constantValue);
+                            value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
+                        } else if (kv.identifierValue != null) {
+                            // maybe we should throw exception when the identifierValue is quoted identifier
+                            value = Optional.ofNullable(kv.identifierValue.getText());
+                        }
+                        parameterNames.put(parameterName, value.get());
+                    }
+                }
+            }
+            Map<String, Map<String, String>> setVarHint = Maps.newLinkedHashMap();
+            setVarHint.put("set_var", parameterNames);
+            copyInfoInfo = new CopyIntoInfo(tableName.build(), copyFromDesc, properties, setVarHint);
+        } else {
+            copyInfoInfo = new CopyIntoInfo(tableName.build(), copyFromDesc, properties, null);
+        }
+
+        return new CopyIntoCommand(copyInfoInfo);
     }
 
     @Override
