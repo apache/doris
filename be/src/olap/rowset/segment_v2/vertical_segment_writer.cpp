@@ -229,7 +229,6 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
             }
             opts.need_inverted_index = true;
             DCHECK(_inverted_index_file_writer != nullptr);
-            opts.inverted_index_file_writer = _inverted_index_file_writer;
         }
     }
     opts.inverted_index_file_writer = _inverted_index_file_writer;

@@ -617,9 +617,16 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     return Status::OK();
 }
 
-TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const std::string& path) {
+std::vector<const TabletIndex*> VariantColumnReader::find_subcolumn_tablet_indexes(
+        const std::string& path) {
     auto it = _variant_subcolumns_indexes.find(path);
-    return it == _variant_subcolumns_indexes.end() ? TabletIndexes() : it->second;
+    std::vector<const TabletIndex*> indexes;
+    if (it != _variant_subcolumns_indexes.end()) {
+        for (const auto& index : it->second) {
+            indexes.push_back(index.get());
+        }
+    }
+    return indexes;
 }
 
 std::vector<std::string> VariantColumnReader::get_typed_paths() const {

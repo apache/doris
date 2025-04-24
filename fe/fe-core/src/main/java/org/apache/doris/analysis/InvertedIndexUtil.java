@@ -19,11 +19,14 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -257,5 +260,30 @@ public class InvertedIndexUtil {
                         "dict_compression can only be set when storage format is V3");
             }
         }
+    }
+
+    public static boolean canHaveMultipleInvertedIndexes(DataType colType, List<IndexDefinition> indexDefs) {
+        if (indexDefs.size() == 0 || indexDefs.size() == 1) {
+            return true;
+        }
+        if (!colType.isStringLikeType() && !colType.isVariantType()) {
+            return false;
+        }
+        if (indexDefs.size() > 2) {
+            return false;
+        }
+        boolean findParsedInvertedIndex = false;
+        boolean findNonParsedInvertedIndex = false;
+        for (IndexDefinition indexDef : indexDefs) {
+            if (indexDef.isAnalyzedInvertedIndex()) {
+                findParsedInvertedIndex = true;
+            } else {
+                findNonParsedInvertedIndex = true;
+            }
+        }
+        if (findParsedInvertedIndex && findNonParsedInvertedIndex) {
+            return true;
+        }
+        return false;
     }
 }

@@ -75,8 +75,8 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                              const TabletSchemaSPtr& tablet_schema,
                              InvertedIndexFileWriter* inverted_index_file_writer,
                              std::unique_ptr<ColumnWriter>* writer,
-                             TabletIndexes& subcolumn_indexes,
-                             ColumnWriterOptions* opt, int64_t none_null_value_size) {
+                             TabletIndexes& subcolumn_indexes, ColumnWriterOptions* opt,
+                             int64_t none_null_value_size) {
     _init_column_meta(opt->meta, cid, column, opt->compression_type);
     // no need to record none null value size for typed column
     if (!column.path_info_ptr()->get_is_typed()) {
@@ -735,8 +735,8 @@ Status VariantSubcolumnWriter::finalize() {
                << " is_bf_column: " << parent_column.is_bf_column() << " "
                << flush_column.is_bf_column();
     RETURN_IF_ERROR(_create_column_writer(0, flush_column, _opts.rowset_ctx->tablet_schema,
-                                          _opts.inverted_index_file_writer, &_writer, _indexes, &opts,
-                                          none_null_value_size));
+                                          _opts.inverted_index_file_writer, &_writer, _indexes,
+                                          &opts, none_null_value_size));
     _opts = opts;
     auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
     int column_id = 0;
