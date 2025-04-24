@@ -261,16 +261,15 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                     ? 0
                                     : rowset_meta->newest_write_timestamp() +
                                               _tablet_meta->ttl_seconds();
+                    // clang-format off
                     _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
-                            .path = storage_resource.value()->remote_segment_path(*rowset_meta,
-                                                                                  seg_id),
+                            .path = storage_resource.value()->remote_segment_path(*rowset_meta, seg_id),
                             .file_size = rs->rowset_meta()->segment_file_size(seg_id),
                             .file_system = storage_resource.value()->fs,
                             .ctx =
                                     {
                                             .expiration_time = expiration_time,
-                                            .is_dryrun = config::
-                                                    enable_reader_dryrun_when_download_file_cache,
+                                            .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                     },
                             .download_done {},
                     });
@@ -283,13 +282,13 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                 .ctx =
                                         {
                                                 .expiration_time = expiration_time,
-                                                .is_dryrun = config::
-                                                        enable_reader_dryrun_when_download_file_cache,
+                                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                         },
                                 .download_done {},
                         };
                         _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
                     };
+                    // clang-format on
                     auto schema_ptr = rowset_meta->tablet_schema();
                     auto idx_version = schema_ptr->get_inverted_index_storage_format();
                     if (idx_version == InvertedIndexStorageFormatPB::V1) {
