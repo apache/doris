@@ -537,5 +537,20 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " THRIFT " ]]; then
     echo "Finished patching ${THRIFT_SOURCE}"
 fi
 
+# patch re2
+if [[ " ${TP_ARCHIVES[*]} " =~ " RE2 " ]]; then
+    if [[ "${RE2_SOURCE}" == 're2-2021-02-02' ]]; then
+        cd "${TP_SOURCE_DIR}/${RE2_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            for patch_file in "${TP_PATCH_DIR}"/re2-*; do
+                echo "patch ${patch_file}"
+                patch -p1 --ignore-whitespace <"${patch_file}"
+            done
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${RE2_SOURCE}"
+fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:
