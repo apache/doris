@@ -1299,6 +1299,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         LOG.info("try to abort transaction, dbId:{}, transactionId:{}, reason: {}", dbId, transactionId, reason);
 
         AbortTxnRequest.Builder builder = AbortTxnRequest.newBuilder();
+        if (reason != null && reason.length() > 1024) {
+            reason = reason.substring(0, 1024) + " ... (reason is truncated, check fe.log with txnId for details)";
+        }
         builder.setDbId(dbId);
         builder.setTxnId(transactionId);
         builder.setReason(reason);

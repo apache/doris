@@ -65,6 +65,10 @@ public:
     Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false,
                                bool sync_delete_bitmap = true, bool full_sync = false,
                                SyncRowsetStats* sync_stats = nullptr);
+    Status sync_tablet_rowsets_unlocked(
+            CloudTablet* tablet, std::unique_lock<bthread::Mutex>& lock /* _sync_meta_lock */,
+            bool warmup_delta_data = false, bool sync_delete_bitmap = true, bool full_sync = false,
+            SyncRowsetStats* sync_stats = nullptr);
 
     Status prepare_rowset(const RowsetMeta& rs_meta,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);

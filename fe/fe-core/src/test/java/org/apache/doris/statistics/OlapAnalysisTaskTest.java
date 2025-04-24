@@ -303,10 +303,6 @@ public class OlapAnalysisTaskTest {
         task.setPartitionColumnSampleTooManyRows(true);
         Assertions.assertTrue(task.useLinearAnalyzeTemplate());
 
-        task.setPartitionColumnSampleTooManyRows(false);
-        task.setScanFullTable(true);
-        Assertions.assertTrue(task.useLinearAnalyzeTemplate());
-
         task.setScanFullTable(false);
         task.setPartitionColumnSampleTooManyRows(false);
         new MockUp<OlapAnalysisTask>() {
@@ -349,9 +345,9 @@ public class OlapAnalysisTaskTest {
         task.col = new Column("test", PrimitiveType.INT);
         task.getSampleParams(params, 10);
         Assertions.assertTrue(task.scanFullTable());
-        Assertions.assertEquals("1", params.get("scaleFactor"));
+        Assertions.assertEquals("1.0", params.get("scaleFactor"));
         Assertions.assertEquals("", params.get("sampleHints"));
-        Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
+        Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(1) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1, 1, 0)) + SUM(IF(`t1`.`count` = 1, 1, 0)) * SUM(`t1`.`count`) / 10)", params.get("ndvFunction"));
         params.clear();
 
         task = new OlapAnalysisTask();

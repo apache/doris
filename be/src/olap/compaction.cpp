@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <cstdlib>
 #include <list>
 #include <map>
@@ -45,6 +46,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "io/io_common.h"
+#include "olap/cumulative_compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
@@ -1232,6 +1234,26 @@ int64_t CompactionMixin::get_compaction_permits() {
     return permits;
 }
 
+int64_t CompactionMixin::calc_input_rowsets_total_size() const {
+    int64_t input_rowsets_total_size = 0;
+    for (const auto& rowset : _input_rowsets) {
+        const auto& rowset_meta = rowset->rowset_meta();
+        auto total_size = rowset_meta->total_disk_size();
+        input_rowsets_total_size += total_size;
+    }
+    return input_rowsets_total_size;
+}
+
+int64_t CompactionMixin::calc_input_rowsets_row_num() const {
+    int64_t input_rowsets_row_num = 0;
+    for (const auto& rowset : _input_rowsets) {
+        const auto& rowset_meta = rowset->rowset_meta();
+        auto total_size = rowset_meta->total_disk_size();
+        input_rowsets_row_num += total_size;
+    }
+    return input_rowsets_row_num;
+}
+
 void Compaction::_load_segment_to_cache() {
     // Load new rowset's segments to cache.
     SegmentCacheHandle handle;
@@ -1313,7 +1335,8 @@ Status CloudCompactionMixin::execute_compact() {
     HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(
             execute_compact_impl(permits), [&](const doris::Exception& ex) {
                 auto st = garbage_collection();
-                if (!st.ok() && initiator() != INVALID_COMPACTION_INITIATOR_ID) {
+                if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                    _tablet->enable_unique_key_merge_on_write() && !st.ok()) {
                     // if compaction fail, be will try to abort compaction, and delete bitmap lock
                     // will release if abort job successfully, but if abort failed, delete bitmap
                     // lock will not release, in this situation, be need to send this rpc to ms
