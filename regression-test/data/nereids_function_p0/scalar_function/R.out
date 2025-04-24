@@ -116,62 +116,62 @@ false
 
 
 -- !sql_regexp_extract_all_Varchar_Varchar --
-
-
-
-
-
-
-
-
-
-
-
-
-
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
 
 -- !sql_regexp_extract_all_Varchar_Varchar_notnull --
-
-
-
-
-
-
-
-
-
-
-
-
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
 
 -- !sql_regexp_extract_all_String_String --
-
-
-
-
-
-
-
-
-
-
-
-
-
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
 
 -- !sql_regexp_extract_all_String_String_notnull --
-
-
-
-
-
-
-
-
-
-
-
-
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
+[]
 
 -- !sql_regexp_replace_Varchar_Varchar_Varchar --
 null

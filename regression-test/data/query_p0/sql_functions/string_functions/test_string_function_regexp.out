@@ -62,28 +62,28 @@ d
 \N
 
 -- !sql --
-['18','17']
+["18", "17"]
 
 -- !sql --
-['41915','73660']
+["41915", "73660"]
 
 -- !sql --
-['abc','def','ghi']
+["abc", "def", "ghi"]
 
 -- !sql --
-
-
--- !sql --
-
+[]
 
 -- !sql --
-['ab','c','c','c']
+[]
+
+-- !sql --
+["ab", "c", "c", "c"]
 
 -- !sql_regexp_extract_all --
-	0
-	0
-	0
-	0
+[]	0
+[]	0
+[]	0
+[]	0
 
 -- !sql --
 a-b-c
@@ -247,4 +247,23 @@ Ben
 
 -- !sql_field5 --
 2
+
+-- !sql_regexp_extract_all_column --
+1	Ben	([A-Z])e([a-z])	-1	[]	0
+2	Ben	([A-Z])e([a-z])	0	["Ben"]	1
+3	Ben	([A-Z])e([a-z])	1	["B"]	1
+4	Ben	([A-Z])e([a-z])	\N	\N	\N
+5	Ben	([A-Z])e([a-z])	2	["n"]	1
+6	Ben	([A-Z])e([a-z])	3	[]	0
+7	BenxxBen	([A-Z])e([a-z])	-1	[]	0
+8	BenxxBen	([A-Z])e([a-z])	0	["Ben", "Ben"]	2
+9	BenxxBen	([A-Z])e([a-z])	1	["B", "B"]	2
+10	BenxxBen	([A-Z])e([a-z])	\N	\N	\N
+11	BenxxBen	([A-Z])e([a-z])	2	["n", "n"]	2
+12	BenxxBen	([A-Z])e([a-z])	3	[]	0
+13	BenxxBen	([A-Z]{2})e([a-z])	0	[]	0
+14	BenxxBen	([A-Z]{2})e([a-z])	1	[]	0
+15	BenxxBen	([A-Z]{2})e([a-z])	2	[]	0
+16	BenxxBen	([A-Z]{2})e([a-z])	3	[]	0
+17	BenxxBen	([A-Z]{2})e([a-z])	-1	[]	0
 

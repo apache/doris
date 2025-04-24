@@ -20,7 +20,6 @@
 #include <re2/stringpiece.h>
 #include <stddef.h>
 
-#include <algorithm>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -32,18 +31,22 @@
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
@@ -286,100 +289,106 @@ struct RegexpExtractImpl {
 struct RegexpExtractAllImpl {
     static constexpr auto name = "regexp_extract_all";
 
-    size_t get_number_of_arguments() const { return 2; }
-
-    static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
-                             size_t input_rows_count, ColumnString::Chars& result_data,
-                             ColumnString::Offsets& result_offset, NullMap& null_map) {
+    template <bool first_const, bool second_const, bool third_const>
+    static void execute_impl(FunctionContext* context, const ColumnPtr* argument_columns,
+                             size_t input_rows_count, ColumnArray::MutablePtr& result_column) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        for (int i = 0; i < input_rows_count; ++i) {
-            if (null_map[i]) {
-                StringOP::push_null_string(i, result_data, result_offset, null_map);
-                continue;
+        const auto* group_idx_col = check_and_get_column<ColumnInt32>(argument_columns[2].get());
+
+        auto& result_array_col = assert_cast<ColumnArray&>(*result_column);
+        if constexpr (second_const && third_const) {
+            auto* re = reinterpret_cast<re2::RE2*>(
+                    context->get_function_state(FunctionContext::THREAD_LOCAL));
+            if (re != nullptr) {
+                auto group_idx = group_idx_col->get_int(0);
+
+                if (re->NumberOfCapturingGroups() < group_idx) {
+                    result_array_col.insert_many_defaults(input_rows_count);
+                    return;
+                }
             }
-            _execute_inner_loop<false>(context, str_col, pattern_col, result_data, result_offset,
-                                       null_map, i);
+        }
+
+        auto& column_nullable = assert_cast<ColumnNullable&>(result_array_col.get_data());
+        auto& null_map = column_nullable.get_null_map_data();
+        auto& column_string = assert_cast<ColumnString&>(column_nullable.get_nested_column());
+        auto& offsets = result_array_col.get_offsets();
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            _execute_inner_loop<first_const, second_const, third_const>(
+                    context, str_col, pattern_col, group_idx_col, i, column_string, null_map,
+                    offsets);
         }
     }
 
-    static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
-                                        size_t input_rows_count, ColumnString::Chars& result_data,
-                                        ColumnString::Offsets& result_offset, NullMap& null_map) {
-        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        for (int i = 0; i < input_rows_count; ++i) {
-            if (null_map[i]) {
-                StringOP::push_null_string(i, result_data, result_offset, null_map);
-                continue;
-            }
-            _execute_inner_loop<true>(context, str_col, pattern_col, result_data, result_offset,
-                                      null_map, i);
-        }
-    }
-    template <bool Const>
+    template <bool first_const, bool second_const, bool third_const>
     static void _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
                                     const ColumnString* pattern_col,
-                                    ColumnString::Chars& result_data,
-                                    ColumnString::Offsets& result_offset, NullMap& null_map,
-                                    const size_t index_now) {
-        re2::RE2* re = reinterpret_cast<re2::RE2*>(
+                                    const ColumnInt32* group_idx_col, const size_t index_now,
+                                    ColumnString& result_string_column, NullMap& null_map,
+                                    ColumnArray::Offsets64& result_offsets) {
+        auto* re = reinterpret_cast<re2::RE2*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
         std::unique_ptr<re2::RE2> scoped_re;
+
         if (re == nullptr) {
             std::string error_str;
-            const auto& pattern = pattern_col->get_data_at(index_check_const(index_now, Const));
+            const auto& pattern =
+                    pattern_col->get_data_at(index_check_const(index_now, second_const));
             bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), scoped_re);
             if (!st) {
                 context->add_warning(error_str.c_str());
-                StringOP::push_null_string(index_now, result_data, result_offset, null_map);
+                null_map.push_back(1);
+                result_string_column.insert_default();
+                result_offsets.emplace_back(result_offsets.back() + 1);
                 return;
             }
             re = scoped_re.get();
         }
-        if (re->NumberOfCapturingGroups() == 0) {
-            StringOP::push_empty_string(index_now, result_data, result_offset);
+
+        auto group_idx = group_idx_col->get_element(index_check_const(index_now, third_const));
+
+        if (re->NumberOfCapturingGroups() < group_idx || group_idx < 0) {
+            result_offsets.emplace_back(result_offsets.back());
             return;
         }
-        const auto& str = str_col->get_data_at(index_now);
-        int max_matches = 1 + re->NumberOfCapturingGroups();
+
+        const auto& str = str_col->get_data_at(index_check_const(index_now, first_const));
+        int max_matches = 1 + group_idx;
         std::vector<re2::StringPiece> res_matches;
         size_t pos = 0;
         while (pos < str.size) {
-            auto str_pos = str.data + pos;
+            const auto* str_pos = str.data + pos;
             auto str_size = str.size - pos;
             re2::StringPiece str_sp = re2::StringPiece(str_pos, str_size);
             std::vector<re2::StringPiece> matches(max_matches);
-            bool success =
-                    re->Match(str_sp, 0, str_size, re2::RE2::UNANCHORED, &matches[0], max_matches);
+            bool success = re->Match(str_sp, 0, str_size, re2::RE2::UNANCHORED, matches.data(),
+                                     max_matches);
             if (!success) {
-                StringOP::push_empty_string(index_now, result_data, result_offset);
                 break;
             }
+
             if (matches[0].empty()) {
-                StringOP::push_empty_string(index_now, result_data, result_offset);
                 pos += 1;
                 continue;
             }
-            res_matches.push_back(matches[1]);
+
+            res_matches.push_back(matches[group_idx]);
             auto offset = std::string(str_pos, str_size).find(std::string(matches[0].as_string()));
             pos += offset + matches[0].size();
         }
 
         if (res_matches.empty()) {
-            StringOP::push_empty_string(index_now, result_data, result_offset);
+            result_offsets.emplace_back(result_offsets.back());
             return;
         }
 
-        std::string res = "[";
-        for (int j = 0; j < res_matches.size(); ++j) {
-            res += "'" + res_matches[j].as_string() + "'";
-            if (j < res_matches.size() - 1) {
-                res += ",";
-            }
+        for (auto res_match : res_matches) {
+            result_string_column.insert_data(res_match.data(), res_match.size());
+            null_map.push_back(0);
         }
-        res += "]";
-        StringOP::push_value_string(std::string_view(res), index_now, result_data, result_offset);
+        result_offsets.emplace_back(result_offsets.back() + res_matches.size());
     }
 };
 
@@ -395,13 +404,21 @@ public:
 
     size_t get_number_of_arguments() const override {
         if constexpr (std::is_same_v<Impl, RegexpExtractAllImpl>) {
-            return 2;
+            return 0;
+        } else {
+            return 3;
         }
-        return 3;
     }
 
+    bool is_variadic() const override { return std::is_same_v<Impl, RegexpExtractAllImpl>; }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
+        if constexpr (std::is_same_v<Impl, RegexpExtractAllImpl>) {
+            return std::make_shared<DataTypeArray>(
+                    std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()));
+        } else {
+            return make_nullable(std::make_shared<DataTypeString>());
+        }
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
@@ -433,12 +450,6 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         size_t argument_size = arguments.size();
 
-        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto result_data_column = ColumnString::create();
-        auto& result_data = result_data_column->get_chars();
-        auto& result_offset = result_data_column->get_offsets();
-        result_offset.resize(input_rows_count);
-
         bool col_const[3];
         ColumnPtr argument_columns[3];
         for (int i = 0; i < argument_size; ++i) {
@@ -449,23 +460,45 @@ public:
                                                      .convert_to_full_column()
                                            : block.get_by_position(arguments[0]).column;
         if constexpr (std::is_same_v<Impl, RegexpExtractAllImpl>) {
-            default_preprocess_parameter_columns(argument_columns, col_const, {1}, block,
-                                                 arguments);
+            DCHECK_LE(argument_size, 3);
+            DCHECK_GE(argument_size, 2);
+            auto actual_arguments = arguments;
+            if (argument_size == 2) {
+                // Default value of is 1.
+                auto third_arg_column =
+                        ColumnConst::create(ColumnInt32::create(1, 1), input_rows_count);
+                auto third_arg_idx = block.columns();
+                block.insert({std::move(third_arg_column), std::make_shared<DataTypeInt32>(),
+                              "group_idx"});
+                col_const[2] = true;
+                actual_arguments.emplace_back(third_arg_idx);
+            }
+
+            default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block,
+                                                 actual_arguments);
+
+            auto result_column = ColumnArray::create(
+                    ColumnNullable::create(ColumnString::create(), ColumnUInt8::create()),
+                    ColumnArray::ColumnOffsets::create());
+
+            std::visit(
+                    [&](auto first_const, auto second_const, auto third_const) {
+                        Impl::template execute_impl<first_const, second_const, third_const>(
+                                context, argument_columns, input_rows_count, result_column);
+                    },
+                    make_bool_variant(col_const[0]), make_bool_variant(col_const[1]),
+                    make_bool_variant(col_const[2]));
+            block.get_by_position(result).column = std::move(result_column);
+            return Status::OK();
         } else {
             default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block,
                                                  arguments);
-        }
 
-        if constexpr (std::is_same_v<Impl, RegexpExtractAllImpl>) {
-            if (col_const[1]) {
-                Impl::execute_impl_const_args(context, argument_columns, input_rows_count,
-                                              result_data, result_offset,
-                                              result_null_map->get_data());
-            } else {
-                Impl::execute_impl(context, argument_columns, input_rows_count, result_data,
-                                   result_offset, result_null_map->get_data());
-            }
-        } else {
+            auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
+            auto result_data_column = ColumnString::create();
+            auto& result_data = result_data_column->get_chars();
+            auto& result_offset = result_data_column->get_offsets();
+            result_offset.resize(input_rows_count);
             if (col_const[1] && col_const[2]) {
                 Impl::execute_impl_const_args(context, argument_columns, input_rows_count,
                                               result_data, result_offset,
@@ -474,11 +507,11 @@ public:
                 Impl::execute_impl(context, argument_columns, input_rows_count, result_data,
                                    result_offset, result_null_map->get_data());
             }
-        }
 
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(result_data_column), std::move(result_null_map));
-        return Status::OK();
+            block.get_by_position(result).column = ColumnNullable::create(
+                    std::move(result_data_column), std::move(result_null_map));
+            return Status::OK();
+        }
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {

@@ -15,13 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gtest/gtest.h>
+
 #include <cstdint>
 #include <string>
 
 #include "function_test_util.h"
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -196,22 +200,21 @@ TEST(FunctionLikeTest, regexp_extract_or_null) {
 
 TEST(FunctionLikeTest, regexp_extract_all) {
     std::string func_name = "regexp_extract_all";
-
     DataSet data_set = {
             {{std::string("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd"), std::string("x=([0-9]+)([a-z]+)")},
-             std::string("['18','17']")},
+             TestArray {(std::string("18")), (std::string("17"))}},
             {{std::string("x=a3&x=18abc&x=2&y=3&x=4"), std::string("^x=([a-z]+)([0-9]+)")},
-             std::string("['a']")},
+             TestArray {(string("a"))}},
             {{std::string("http://a.m.baidu.com/i41915173660.htm"), std::string("i([0-9]+)")},
-             std::string("['41915173660']")},
+             TestArray {(std::string("41915173660"))}},
             {{std::string("http://a.m.baidu.com/i41915i73660.htm"), std::string("i([0-9]+)")},
-             std::string("['41915','73660']")},
-
-            {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)")}, std::string("['i']")},
+             TestArray {(std::string("41915")), (std::string("73660"))}},
+            {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)")},
+             TestArray {(std::string("i"))}},
             {{std::string("hitdecisioendlist"), std::string("(i)(.*?)(e)")},
-             std::string("['i','i']")},
+             TestArray {(std::string("i")), (std::string("i"))}},
             {{std::string("hitdecisioendliset"), std::string("(i)(.*?)(e)")},
-             std::string("['i','i','i']")},
+             TestArray {(std::string("i")), (std::string("i")), (std::string("i"))}},
             // null
             {{std::string("abc"), Null()}, Null()},
             {{Null(), std::string("i([0-9]+)")}, Null()}};
@@ -220,8 +223,8 @@ TEST(FunctionLikeTest, regexp_extract_all) {
     InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String}};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
-        static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
-                                                               const_pattern_dataset));
+        static_cast<void>(check_function<DataTypeArray, true, -1, -1, DataTypeString>(
+                func_name, const_pattern_input_types, const_pattern_dataset));
     }
 }
 
