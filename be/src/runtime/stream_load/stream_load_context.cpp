@@ -31,6 +31,7 @@
 #include "common/logging.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 std::string StreamLoadContext::to_json() const {
@@ -106,9 +107,9 @@ std::string StreamLoadContext::to_json() const {
     writer.Key("ReadDataTimeMs");
     writer.Int64(read_data_cost_nanos / 1000000);
     writer.Key("WriteDataTimeMs");
-    writer.Int(write_data_cost_nanos / 1000000);
+    writer.Int64(write_data_cost_nanos / 1000000);
     writer.Key("ReceiveDataTimeMs");
-    writer.Int((receive_and_read_data_cost_nanos - read_data_cost_nanos) / 1000000);
+    writer.Int64((receive_and_read_data_cost_nanos - read_data_cost_nanos) / 1000000);
     if (!group_commit) {
         writer.Key("CommitAndPublishTimeMs");
         writer.Int64(commit_and_publish_txn_cost_nanos / 1000000);
@@ -133,37 +134,40 @@ std::string StreamLoadContext::prepare_stream_load_record(const std::string& str
     rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
 
     rapidjson::Value cluster_value(rapidjson::kStringType);
-    cluster_value.SetString(auth.cluster.c_str(), auth.cluster.size());
+    cluster_value.SetString(auth.cluster.c_str(),
+                            static_cast<rapidjson::SizeType>(auth.cluster.size()));
     if (!cluster_value.IsNull()) {
         document.AddMember("cluster", cluster_value, allocator);
     }
 
     rapidjson::Value db_value(rapidjson::kStringType);
-    db_value.SetString(db.c_str(), db.size());
+    db_value.SetString(db.c_str(), static_cast<rapidjson::SizeType>(db.size()));
     if (!db_value.IsNull()) {
         document.AddMember("Db", db_value, allocator);
     }
 
     rapidjson::Value table_value(rapidjson::kStringType);
-    table_value.SetString(table.c_str(), table.size());
+    table_value.SetString(table.c_str(), static_cast<rapidjson::SizeType>(table.size()));
     if (!table_value.IsNull()) {
         document.AddMember("Table", table_value, allocator);
     }
 
     rapidjson::Value user_value(rapidjson::kStringType);
-    user_value.SetString(auth.user.c_str(), auth.user.size());
+    user_value.SetString(auth.user.c_str(), static_cast<rapidjson::SizeType>(auth.user.size()));
     if (!user_value.IsNull()) {
         document.AddMember("User", user_value, allocator);
     }
 
     rapidjson::Value client_ip_value(rapidjson::kStringType);
-    client_ip_value.SetString(auth.user_ip.c_str(), auth.user_ip.size());
+    client_ip_value.SetString(auth.user_ip.c_str(),
+                              static_cast<rapidjson::SizeType>(auth.user_ip.size()));
     if (!client_ip_value.IsNull()) {
         document.AddMember("ClientIp", client_ip_value, allocator);
     }
 
     rapidjson::Value comment_value(rapidjson::kStringType);
-    comment_value.SetString(load_comment.c_str(), load_comment.size());
+    comment_value.SetString(load_comment.c_str(),
+                            static_cast<rapidjson::SizeType>(load_comment.size()));
     if (!comment_value.IsNull()) {
         document.AddMember("Comment", comment_value, allocator);
     }
@@ -359,4 +363,5 @@ bool StreamLoadContext::is_mow_table() const {
             put_result.pipeline_params.is_mow_table);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris
