@@ -220,6 +220,9 @@ public class IndexDef {
     public boolean isSupportIdxType(Type colType) {
         if (colType.isArrayType()) {
             Type itemType = ((ArrayType) colType).getItemType();
+            if (itemType.isArrayType()) {
+                return false;
+            }
             return isSupportIdxType(itemType);
         }
         PrimitiveType primitiveType = colType.getPrimitiveType();

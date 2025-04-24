@@ -87,6 +87,17 @@ public class IndexDefinitionTest {
         }
 
         try {
+            // Array<Array<String>>
+            def.checkColumn(new ColumnDefinition("col1",
+                    ArrayType.of(ArrayType.of(StringType.INSTANCE)), false,
+                    AggregateType.NONE, true, null, "comment"),
+                    KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.V1);
+            Assertions.fail("No exception throws for array of array type.");
+        } catch (AnalysisException e) {
+            Assertions.assertTrue(e.getMessage().contains("is not supported in"));
+        }
+
+        try {
             // Array<Map<String, Int>>
             def.checkColumn(new ColumnDefinition("col1",
                     ArrayType.of(MapType.of(StringType.INSTANCE, IntegerType.INSTANCE)), false,
