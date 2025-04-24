@@ -126,16 +126,6 @@ void ColumnMap::get(size_t n, Field& res) const {
     res = operator[](n);
 }
 
-StringRef ColumnMap::get_data_at(size_t n) const {
-    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                           "Method get_data_at is not supported for {}", get_name());
-}
-
-void ColumnMap::insert_data(const char*, size_t) {
-    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                           "Method insert_data is not supported for {}", get_name());
-}
-
 void ColumnMap::insert(const Field& x) {
     DCHECK_EQ(x.get_type(), Field::Types::Map);
     const auto& map = doris::vectorized::get<const Map&>(x);
