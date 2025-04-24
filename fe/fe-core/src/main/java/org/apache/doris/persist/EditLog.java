@@ -849,6 +849,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_DISTRIBUTION_TYPE: {
                     TableInfo tableInfo = (TableInfo) journal.getData();
                     env.replayConvertDistributionType(tableInfo);
+                    env.getBinlogManager().addModifyDistributionType(tableInfo, logId);
                     break;
                 }
                 case OperationType.OP_DYNAMIC_PARTITION:
@@ -1937,7 +1938,9 @@ public class EditLog {
     }
 
     public void logModifyDistributionType(TableInfo tableInfo) {
-        logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
+        long logId = logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
+        LOG.info("add modify distribution type binlog, logId: {}, infos: {}", logId, tableInfo);
+        Env.getCurrentEnv().getBinlogManager().addModifyDistributionType(tableInfo, logId);
     }
 
     public void logModifyCloudWarmUpJob(CloudWarmUpJob cloudWarmUpJob) {
