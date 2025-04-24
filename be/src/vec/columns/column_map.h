@@ -102,9 +102,6 @@ public:
 
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
-    StringRef get_data_at(size_t n) const override;
-
-    void insert_data(const char* pos, size_t length) override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
                                            size_t length) override;
