@@ -65,7 +65,7 @@ public interface MTMVHookService {
      *
      * @param mtmv
      */
-    void deregisterMTMV(MTMV mtmv);
+    void unregisterMTMV(MTMV mtmv);
 
     /**
      * triggered when alter mtmv, only once
@@ -104,7 +104,8 @@ public interface MTMVHookService {
     /**
      * Triggered when baseTable is altered
      *
-     * @param table
+     * @param oldTableInfo info before alter
+     * @param newTableInfo info after alter
      * @param isReplace
      */
     void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace);

@@ -174,6 +174,17 @@ public class MTMVPlanUtil {
         }
     }
 
+    /**
+     * Derive the MTMV columns based on the query statement.
+     *
+     * @param querySql
+     * @param ctx
+     * @param partitionCol partition column name of MTMV
+     * @param distributionColumnNames distribution column names of MTMV
+     * @param simpleColumnDefinitions Use custom column names if provided (non-empty); otherwise, auto-generate the column names.
+     * @param properties properties of MTMV, it determines whether row storage needs to be generated based on this.
+     * @return ColumnDefinitions of MTMV
+     */
     public static List<ColumnDefinition> generateColumnsBySql(String querySql, ConnectContext ctx, String partitionCol,
             Set<String> distributionColumnNames, List<SimpleColumnDefinition> simpleColumnDefinitions,
             Map<String, String> properties) {
@@ -199,6 +210,17 @@ public class MTMVPlanUtil {
         }
     }
 
+    /**
+     * Derive the MTMV columns based on the analyzed plan.
+     *
+     * @param plan should be analyzed plan
+     * @param ctx
+     * @param partitionCol partition column name of MTMV
+     * @param distributionColumnNames distribution column names of MTMV
+     * @param simpleColumnDefinitions Use custom column names if provided (non-empty); otherwise, auto-generate the column names.
+     * @param properties properties of MTMV, it determines whether row storage needs to be generated based on this.
+     * @return ColumnDefinitions of MTMV
+     */
     public static List<ColumnDefinition> generateColumns(Plan plan, ConnectContext ctx, String partitionCol,
             Set<String> distributionColumnNames, List<SimpleColumnDefinition> simpleColumnDefinitions,
             Map<String, String> properties) {

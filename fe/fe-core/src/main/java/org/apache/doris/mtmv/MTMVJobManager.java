@@ -145,7 +145,7 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void deregisterMTMV(MTMV mtmv) {
+    public void unregisterMTMV(MTMV mtmv) {
 
     }
 

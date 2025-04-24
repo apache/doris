@@ -253,21 +253,26 @@ public class MTMVTask extends AbstractTask {
     }
 
     private void checkColumnTypeIfChange(MTMV mtmv, ConnectContext ctx) throws JobException {
-        List<ColumnDefinition> derivedColumnsDefinition = MTMVPlanUtil.generateColumnsBySql(mtmv.getQuerySql(), ctx,
+        List<ColumnDefinition> currentColumnsDefinition = MTMVPlanUtil.generateColumnsBySql(mtmv.getQuerySql(), ctx,
                 mtmv.getMvPartitionInfo().getPartitionCol(),
                 mtmv.getDistributionColumnNames(), null, mtmv.getTableProperty().getProperties());
-        List<Column> derivedColumns = derivedColumnsDefinition.stream()
+        List<Column> currentColumns = currentColumnsDefinition.stream()
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
-        List<Column> currentColumns = mtmv.getBaseSchemaColumns();
-        if (derivedColumns.size() != currentColumns.size()) {
-            throw new JobException("column length not equals, please check columns of base table if changed");
+        List<Column> originalColumns = mtmv.getBaseSchema(true);
+        if (currentColumns.size() != originalColumns.size()) {
+            throw new JobException(String.format(
+                    "column length not equals, please check whether columns of base table have changed, "
+                            + "original length is: %s, current length is: %s",
+                    originalColumns.size(), currentColumns.size()));
         }
-        for (int i = 0; i < currentColumns.size(); i++) {
-            if (!isTypeLike(currentColumns.get(i).getType(), derivedColumns.get(i).getType())) {
-                throw new JobException(
-                        "column type not like, please check columns of base table if changed, columnName: "
-                                + currentColumns.get(i).getName());
+        for (int i = 0; i < originalColumns.size(); i++) {
+            if (!isTypeLike(originalColumns.get(i).getType(), currentColumns.get(i).getType())) {
+                throw new JobException(String.format(
+                        "column type not same, please check whether columns of base table have changed, "
+                                + "column name is: %s, original type is: %s, current type is: %s",
+                        originalColumns.get(i).getName(), originalColumns.get(i).getType().toSql(),
+                        currentColumns.get(i).getType().toSql()));
             }
         }
     }

@@ -1049,9 +1049,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (table.getType() == TableType.ELASTICSEARCH) {
             esRepository.deRegisterTable(table.getId());
         }
-        if (table.getType() == TableType.MATERIALIZED_VIEW) {
-            Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
-        }
 
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         db.unregisterTable(table.getName());

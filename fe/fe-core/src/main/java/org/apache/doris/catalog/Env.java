@@ -4997,14 +4997,12 @@ public class Env {
                 }
 
                 if (table.isManagedTable()) {
-                    // only check
+                    // If not checked first, execute db.unregisterTable first,
+                    // and then check the name in setName, it cannot guarantee atomicity
                     ((OlapTable) table).checkAndSetName(newTableName, true);
                 }
 
                 db.unregisterTable(oldTableName);
-                if (table instanceof MTMV) {
-                    Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
-                }
 
                 if (table.isManagedTable()) {
                     // olap table should also check if any rollup has same name as "newTableName"
@@ -5014,9 +5012,6 @@ public class Env {
                 }
 
                 db.registerTable(table);
-                if (table instanceof MTMV) {
-                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, db.getId());
-                }
                 TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), oldTableName,
                         newTableName);
                 editLog.logTableRename(tableInfo);
@@ -5049,14 +5044,8 @@ public class Env {
             try {
                 String tableName = table.getName();
                 db.unregisterTable(tableName);
-                if (table instanceof MTMV) {
-                    Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
-                }
                 table.setName(newTableName);
                 db.registerTable(table);
-                if (table instanceof MTMV) {
-                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, dbId);
-                }
                 LOG.info("replay rename table[{}] to {}", tableName, newTableName);
             } finally {
                 table.writeUnlock();

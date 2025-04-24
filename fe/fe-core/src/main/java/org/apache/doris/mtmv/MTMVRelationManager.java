@@ -214,7 +214,7 @@ public class MTMVRelationManager implements MTMVHookService {
      * @param mtmv
      */
     @Override
-    public void deregisterMTMV(MTMV mtmv) {
+    public void unregisterMTMV(MTMV mtmv) {
         removeMTMV(new BaseTableInfo(mtmv));
     }
 

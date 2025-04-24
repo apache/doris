@@ -2616,11 +2616,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return baseIndexMeta.getSchemaVersion();
     }
 
-    public List<Column> getBaseSchemaColumns() {
-        MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
-        return baseIndexMeta.getSchema();
-    }
-
     public void setEnableSingleReplicaCompaction(boolean enableSingleReplicaCompaction) {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());

@@ -818,26 +818,14 @@ public class Alter {
         String newTblName = newTbl.getName();
         // drop origin table and new table
         db.unregisterTable(oldTblName);
-        if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
-            Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) origTable);
-        }
         db.unregisterTable(newTblName);
-        if (newTbl.getType() == TableType.MATERIALIZED_VIEW) {
-            Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) newTbl);
-        }
         // rename new table name to origin table name and add it to database
         newTbl.checkAndSetName(oldTblName, false);
         db.registerTable(newTbl);
-        if (newTbl.getType() == TableType.MATERIALIZED_VIEW) {
-            Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) newTbl, db.getId());
-        }
         if (swapTable) {
             // rename origin table name to new table name and add it to database
             origTable.checkAndSetName(newTblName, false);
             db.registerTable(origTable);
-            if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
-                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) origTable, db.getId());
-            }
         } else {
 
             // not swap, the origin table is not used anymore, need to drop all its tablets.
