@@ -977,4 +977,28 @@ class Syncer {
         )
         """
     }
+
+    void createS3RepositoryWithRole(String name, boolean readOnly = false) {
+        String roleArn = suite.context.config.awsRoleArn
+        String externalId = suite.context.config.awsExternalId
+        String sk = suite.context.config.awsSecretKey
+        String endpoint = suite.context.config.awsEndpoint
+        String region = suite.context.config.awsRegion
+        String bucket = suite.context.config.awsBucket
+        String prefix = suite.context.config.awsPrefix
+
+        suite.try_sql "DROP REPOSITORY `${name}`"
+        suite.sql """
+        CREATE ${readOnly ? "READ ONLY" : ""} REPOSITORY `${name}`
+        WITH S3
+        ON LOCATION "s3://${bucket}/${prefix}/aws_iam_role_p0/${name}"
+        PROPERTIES
+        (
+            "s3.endpoint" = "${endpoint}",
+            "s3.region" = "${region}",
+            "s3.role_arn" = "${roleArn}",
+            "s3.external_id" = "${externalId}"
+        )
+        """
+    }
 }
