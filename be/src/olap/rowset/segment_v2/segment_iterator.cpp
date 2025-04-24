@@ -1077,10 +1077,21 @@ Status SegmentIterator::_init_inverted_index_iterators() {
             // This is because the sub-column is created in create_materialized_variant_column.
             // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
             const auto& column = _opts.tablet_schema->column(cid);
-            int32_t col_unique_id =
-                    column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
-            auto inverted_indexs =
-                    _segment->_tablet_schema->inverted_indexs(col_unique_id, column.suffix_path());
+            std::vector<const TabletIndex*> inverted_indexs;
+            // If the column is an extracted column, we need to find the sub-column in the parent column reader.
+            if (column.is_extracted_column()) {
+                if (_segment->_column_readers.find(column.parent_unique_id()) ==
+                    _segment->_column_readers.end()) {
+                    continue;
+                }
+                auto* column_reader = _segment->_column_readers.at(column.parent_unique_id()).get();
+                inverted_indexs = assert_cast<VariantColumnReader*>(column_reader)
+                                          ->find_subcolumn_tablet_indexes(column.suffix_path());
+            }
+            // If the column is not an extracted column, we can directly get the inverted index metadata from the tablet schema.
+            else {
+                inverted_indexs = _segment->_tablet_schema->inverted_indexs(column);
+            }
             for (const auto& inverted_index : inverted_indexs) {
                 RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
                         column, inverted_index, _opts, &_inverted_index_iterators[cid]));

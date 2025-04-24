@@ -36,13 +36,13 @@
 #include "io/fs/file_system.h"
 #include "io/io_common.h"
 #include "olap/olap_common.h"
-#include "olap/tablet_schema.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/parsed_page.h" // for ParsedPage
 #include "olap/rowset/segment_v2/stream_reader.h"
+#include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
 #include "util/once.h"
@@ -330,7 +330,7 @@ public:
 
     int64_t get_metadata_size() const override;
 
-    TabletIndexes find_subcolumn_tablet_indexes(const std::string&);
+    std::vector<const TabletIndex*> find_subcolumn_tablet_indexes(const std::string&);
 
     bool exist_in_sparse_column(const vectorized::PathInData& path) const;
 
