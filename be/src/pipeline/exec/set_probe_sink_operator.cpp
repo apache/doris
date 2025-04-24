@@ -95,7 +95,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                 local_state._shared_state->hash_table_variants->method_variant));
     }
 
-    if (eos && !state->get_task()->wake_up_early()) {
+    if (eos && !local_state._terminated) {
         _finalize_probe(local_state);
     }
     return Status::OK();
@@ -144,22 +144,25 @@ Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
         vectorized::ColumnRawPtrs& raw_ptrs, int child_id) {
     auto& build_not_ignore_null = local_state._shared_state->build_not_ignore_null;
 
-    for (size_t i = 0; i < _child_exprs.size(); ++i) {
+    auto& child_exprs = local_state._child_exprs;
+    for (size_t i = 0; i < child_exprs.size(); ++i) {
         int result_col_id = -1;
-        RETURN_IF_ERROR(_child_exprs[i]->execute(&block, &result_col_id));
+        RETURN_IF_ERROR(child_exprs[i]->execute(&block, &result_col_id));
 
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        auto column = block.get_by_position(result_col_id).column.get();
+        const auto* column = block.get_by_position(result_col_id).column.get();
 
-        if (auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
-            auto& col_nested = nullable->get_nested_column();
-            if (build_not_ignore_null[i]) { //same as build column
-                raw_ptrs[i] = nullable;
-            } else {
-                raw_ptrs[i] = &col_nested;
+        if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
+            if (!build_not_ignore_null[i]) {
+                return Status::InternalError(
+                        "SET operator expects a nullable : {} column in column {}, but the "
+                        "computed "
+                        "output is a nullable : {} column",
+                        build_not_ignore_null[i], i,
+                        nullable->get_nested_column_ptr()->is_nullable());
             }
-
+            raw_ptrs[i] = nullable;
         } else {
             if (build_not_ignore_null[i]) {
                 auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);
@@ -179,22 +182,10 @@ template <bool is_intersect>
 void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
         SetProbeSinkLocalState<is_intersect>& local_state) {
     auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
-    auto& hash_table_variants = local_state._shared_state->hash_table_variants;
-
     if (_cur_child_id != (local_state._shared_state->child_quantity - 1)) {
         _refresh_hash_table(local_state);
-        if constexpr (is_intersect) {
-            valid_element_in_hash_tbl = 0;
-        } else {
-            std::visit(
-                    [&](auto&& arg) {
-                        using HashTableCtxType = std::decay_t<decltype(arg)>;
-                        if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                            valid_element_in_hash_tbl = arg.hash_table->size();
-                        }
-                    },
-                    hash_table_variants->method_variant);
-        }
+        uint64_t hash_table_size = local_state._shared_state->get_hash_table_size();
+        valid_element_in_hash_tbl = is_intersect ? 0 : hash_table_size;
         local_state._probe_columns.resize(
                 local_state._shared_state->child_exprs_lists[_cur_child_id + 1].size());
         local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
@@ -256,6 +247,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                         }
                         arg.hash_table = std::move(tmp_hash_table);
                     } else if (is_intersect) {
+                        DCHECK_EQ(valid_element_in_hash_tbl, arg.hash_table->size());
                         while (iter != iter_end) {
                             auto& mapped = iter->get_second();
                             auto* it = &mapped;

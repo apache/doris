@@ -41,6 +41,7 @@ public:
     Status open(RuntimeState* state) override;
 
 private:
+    void _add_result_columns();
     friend class SetSourceOperatorX<is_intersect>;
     friend class OperatorX<SetSourceLocalState<is_intersect>>;
     std::vector<vectorized::MutableColumnPtr> _mutable_cols;
@@ -49,10 +50,11 @@ private:
 
     RuntimeProfile::Counter* _get_data_timer = nullptr;
     RuntimeProfile::Counter* _filter_timer = nullptr;
+    vectorized::IColumn::Selector _result_indexs;
 };
 
 template <bool is_intersect>
-class SetSourceOperatorX final : public OperatorX<SetSourceLocalState<is_intersect>> {
+class SetSourceOperatorX MOCK_REMOVE(final) : public OperatorX<SetSourceLocalState<is_intersect>> {
 public:
     using Base = OperatorX<SetSourceLocalState<is_intersect>>;
     // for non-delay tempalte instantiation
@@ -66,6 +68,10 @@ public:
               _child_quantity(tnode.node_type == TPlanNodeType::type::INTERSECT_NODE
                                       ? tnode.intersect_node.result_expr_lists.size()
                                       : tnode.except_node.result_expr_lists.size()) {};
+
+#ifdef BE_TEST
+    SetSourceOperatorX(size_t child_quantity) : _child_quantity(child_quantity) {}
+#endif
     ~SetSourceOperatorX() override = default;
 
     [[nodiscard]] bool is_source() const override { return true; }
@@ -86,9 +92,6 @@ private:
     Status _get_data_in_hashtable(SetSourceLocalState<is_intersect>& local_state,
                                   HashTableContext& hash_table_ctx, vectorized::Block* output_block,
                                   const int batch_size, bool* eos);
-
-    void _add_result_columns(SetSourceLocalState<is_intersect>& local_state, RowRefWithFlag& value,
-                             int& block_size);
     const size_t _child_quantity;
 };
 #include "common/compile_check_end.h"

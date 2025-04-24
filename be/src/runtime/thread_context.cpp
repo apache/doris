@@ -35,6 +35,9 @@ AttachTask::AttachTask(const std::shared_ptr<ResourceContext>& rc) {
 }
 
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
+    // if parameter is `orphan_mem_tracker`, if you do not switch thraed mem tracker afterwards,
+    // alloc or free memory from Allocator will fail DCHECK. unless you know for sure that
+    // the thread will not alloc or free memory from Allocator later.
     std::shared_ptr<ResourceContext> rc = ResourceContext::create_shared();
     rc->memory_context()->set_mem_tracker(mem_tracker);
     init(rc);

@@ -20,6 +20,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/phdr_cache.h"
 #include "common/status.h"
 #include "gtest/gtest.h"
 #include "olap/page_cache.h"
@@ -94,11 +95,26 @@ int main(int argc, char** argv) {
 
     ::testing::TestEventListeners& listeners = ::testing::UnitTest::GetInstance()->listeners();
     listeners.Append(new TestListener);
-    doris::ExecEnv::GetInstance()->set_tracking_memory(false);
+    doris::ExecEnv::set_tracking_memory(false);
 
     google::ParseCommandLineFlags(&argc, &argv, false);
-    int res = RUN_ALL_TESTS();
 
-    doris::ExecEnv::GetInstance()->set_non_block_close_thread_pool(nullptr);
-    return res;
+    updatePHDRCache();
+    try {
+        int res = RUN_ALL_TESTS();
+        doris::ExecEnv::GetInstance()->set_non_block_close_thread_pool(nullptr);
+        return res;
+    } catch (doris::Exception& e) {
+        LOG(FATAL) << "Exception: " << e.what();
+    } catch (...) {
+        auto eptr = std::current_exception();
+        try {
+            std::rethrow_exception(eptr);
+        } catch (const std::exception& e) {
+            LOG(FATAL) << "Unknown exception: " << e.what();
+        } catch (...) {
+            LOG(FATAL) << "Unknown exception";
+        }
+        return -1;
+    }
 }

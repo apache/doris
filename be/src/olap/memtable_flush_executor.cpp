@@ -148,13 +148,12 @@ Status FlushToken::_try_reserve_memory(const std::shared_ptr<ResourceContext>& r
     Status st;
     do {
         // only try to reserve process memory
-        st = thread_context->try_reserve_process_memory(size);
+        st = thread_context->thread_mem_tracker_mgr->try_reserve(size, true);
         if (st.ok()) {
             memtable_flush_executor->inc_flushing_task();
             break;
         }
-        if (_is_shutdown() ||
-            resource_context->memory_context()->mem_tracker()->is_query_cancelled()) {
+        if (_is_shutdown() || resource_context->task_controller()->is_cancelled()) {
             st = Status::Cancelled("flush memtable already cancelled");
             break;
         }
@@ -189,7 +188,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
         DEFER_RELEASE_RESERVED();
 
 /// FIXME: support UT
-#ifndef BE_TEST
+#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
         auto reserve_size = memtable->get_flush_reserve_memory_size();
         RETURN_IF_ERROR(_try_reserve_memory(memtable->resource_ctx(), reserve_size));
 #endif

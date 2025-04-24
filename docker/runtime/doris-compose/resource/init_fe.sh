@@ -22,7 +22,7 @@ DIR=$(
 
 source $DIR/common.sh
 
-REGISTER_FILE=$DORIS_HOME/status/fe-$MY_IP-register
+REGISTER_FILE="${DORIS_HOME}/status/fe-${MY_ID}-register"
 MASTER_EDITLOG_PORT=""
 
 add_local_fe() {

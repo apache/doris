@@ -82,7 +82,8 @@ struct TResourceLimit {
 
 enum TSerdeDialect {
   DORIS = 0,
-  PRESTO = 1
+  PRESTO = 1,
+  HIVE = 2
 }
 
 // Query options that correspond to PaloService.PaloQueryOptions,
@@ -390,6 +391,8 @@ struct TQueryOptions {
   160: optional i32 spill_hash_join_partition_count = 32
   161: optional i64 low_memory_mode_buffer_limit = 33554432
   162: optional bool dump_heap_profile_when_mem_limit_exceeded = false
+  163: optional bool inverted_index_compatible_read = false
+  164: optional bool check_orc_init_sargs_success = false
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
@@ -470,9 +473,9 @@ struct TPlanFragmentExecParams {
   10: optional i32 num_senders
   11: optional bool send_query_statistics_with_every_batch
   // Used to merge and send runtime filter
-  12: optional TRuntimeFilterParams runtime_filter_params
+  12: optional TRuntimeFilterParams runtime_filter_params //deprecated
   13: optional bool group_commit // deprecated
-  14: optional list<i32> topn_filter_source_node_ids
+  14: optional list<i32> topn_filter_source_node_ids //deprecated
 }
 
 // Global query parameters assigned by the coordinator.
@@ -803,6 +806,14 @@ struct TPipelineFragmentParams {
   1000: optional bool is_mow_table;
 }
 
+// pull up runtime filter info from instance level to BE level
+struct TRuntimeFilterInfo {
+  // for join runtime filter and setop runtime filter
+  1: optional TRuntimeFilterParams runtime_filter_params
+  // for topn runtime filter
+  2: optional list<PlanNodes.TTopnFilterDesc> topn_filter_descs
+}
+
 struct TPipelineFragmentParamsList {
   1: optional list<TPipelineFragmentParams> params_list;
   2: optional Descriptors.TDescriptorTable desc_tbl;
@@ -819,4 +830,5 @@ struct TPipelineFragmentParamsList {
   11: optional Types.TUniqueId query_id
   12: optional list<i32> topn_filter_source_node_ids
   13: optional Types.TNetworkAddress runtime_filter_merge_addr
+  14: optional TRuntimeFilterInfo runtime_filter_info
 }

@@ -23,20 +23,16 @@
 #include <cstring>
 #include <functional>
 #include <memory>
-#include <optional>
-#include <ostream>
 #include <vector>
 
-#include "common/object_pool.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
-#include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
 #include "olap/tablet_schema.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/arena.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -122,8 +118,8 @@ public:
     Tie(size_t begin, size_t end) : _begin(begin), _end(end) {
         _bits = std::vector<uint8_t>(_end - _begin, 1);
     }
-    uint8_t operator[](int i) const { return _bits[i - _begin]; }
-    uint8_t& operator[](int i) { return _bits[i - _begin]; }
+    uint8_t operator[](size_t i) const { return _bits[i - _begin]; }
+    uint8_t& operator[](size_t i) { return _bits[i - _begin]; }
     Iter iter() { return Iter(*this); }
 
 private:

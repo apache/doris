@@ -199,6 +199,11 @@ Status OlapScanner::init() {
                 LOG(WARNING) << "fail to init reader.res=" << st;
                 return st;
             }
+            if (config::enable_mow_verbose_log && tablet->enable_unique_key_merge_on_write()) {
+                LOG_INFO("finish capture_rs_readers for tablet={}, query_id={}",
+                         tablet->tablet_id(), print_id(_state->query_id()));
+            }
+
             if (!_state->skip_delete_predicate()) {
                 read_source.fill_delete_predicates();
             }
@@ -592,9 +597,6 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);
     COUNTER_UPDATE(local_state->_rows_expr_cond_input_counter, stats.expr_cond_input_rows);
-    for (const auto& [id, info] : stats.filter_info) {
-        local_state->add_filter_info(id, info);
-    }
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(local_state->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);
     COUNTER_UPDATE(local_state->_dict_filtered_counter, stats.rows_dict_filtered);

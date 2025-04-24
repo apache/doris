@@ -183,7 +183,7 @@ public class SchemaTable extends Table {
                                     .column("COLUMN_KEY", ScalarType.createVarchar(3))
                                     .column("EXTRA", ScalarType.createVarchar(27))
                                     .column("PRIVILEGES", ScalarType.createVarchar(80))
-                                    .column("COLUMN_COMMENT", ScalarType.createVarchar(255))
+                                    .column("COLUMN_COMMENT", ScalarType.createVarchar(1024))
                                     .column("COLUMN_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("DECIMAL_DIGITS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("GENERATION_EXPRESSION", ScalarType.createVarchar(64))
@@ -597,8 +597,8 @@ public class SchemaTable extends Table {
                                     .column("REFRESH_INTERVAL_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
-            .put("routine_load_job",
-                    new SchemaTable(SystemIdGenerator.getNextId(), "routine_load_job", TableType.SCHEMA,
+            .put("routine_load_jobs",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "routine_load_jobs", TableType.SCHEMA,
                             builder().column("JOB_ID", ScalarType.createStringType())
                                     .column("JOB_NAME", ScalarType.createStringType())
                                     .column("CREATE_TIME", ScalarType.createStringType())

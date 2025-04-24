@@ -33,7 +33,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "vec/columns/column.h"
@@ -559,6 +558,8 @@ public:
                           uint8* __restrict filter) const override;
 
     ColumnPtr convert_column_if_overflow() override;
+
+    void erase(size_t start, size_t length) override;
 };
 
 using ColumnString = ColumnStr<UInt32>;

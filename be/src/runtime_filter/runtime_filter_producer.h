@@ -22,7 +22,7 @@
 #include "pipeline/dependency.h"
 #include "runtime/query_context.h"
 #include "runtime_filter/runtime_filter.h"
-#include "vec/runtime/shared_hash_table_controller.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -46,22 +46,22 @@ public:
         PUBLISHED = 4 // Publish is complete, entering the final state of rf
     };
 
-    static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
-                         std::shared_ptr<RuntimeFilterProducer>* res,
-                         RuntimeProfile* parent_profile) {
-        *res = std::shared_ptr<RuntimeFilterProducer>(
-                new RuntimeFilterProducer(state, desc, parent_profile));
-        RETURN_IF_ERROR((*res)->_init_with_desc(desc, &state->get_query_ctx()->query_options()));
+    static Status create(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
+                         std::shared_ptr<RuntimeFilterProducer>* res) {
+        *res = std::shared_ptr<RuntimeFilterProducer>(new RuntimeFilterProducer(query_ctx, desc));
+        RETURN_IF_ERROR((*res)->_init_with_desc(desc, &query_ctx->query_options()));
         return Status::OK();
     }
 
     Status init(size_t local_size);
 
-    Status send_size(RuntimeState* state, uint64_t local_filter_size,
-                     const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
+    Status send_size(RuntimeState* state, uint64_t local_filter_size);
+
+    void latch_dependency(const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
 
     // insert data to build filter
     Status insert(vectorized::ColumnPtr column, size_t start) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         if (!_wrapper->is_valid() || _rf_state == State::READY_TO_PUBLISH ||
             _rf_state == State::PUBLISHED) {
             return Status::OK();
@@ -69,9 +69,11 @@ public:
         _check_state({State::WAITING_FOR_DATA});
         return _wrapper->insert(column, start);
     }
+
     Status publish(RuntimeState* state, bool build_hash_table);
 
-    std::string debug_string() const override {
+    std::string debug_string() override {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         auto result =
                 fmt::format("Producer: ({}, state: {}", _debug_string(), to_string(_rf_state));
         if (_need_sync_filter_size) {
@@ -85,6 +87,7 @@ public:
 
     void set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State state,
                                                 std::string reason = "") {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         if (_rf_state == State::PUBLISHED || _rf_state == State::READY_TO_PUBLISH) {
             return;
         }
@@ -109,39 +112,45 @@ public:
         }
     }
 
-    void copy_to_shared_context(const vectorized::SharedHashTableContextPtr& context) {
-        DCHECK(!context->runtime_filters.contains(_wrapper->filter_id()));
-        context->runtime_filters[_wrapper->filter_id()] = _wrapper;
-    }
-    void copy_from_shared_context(const vectorized::SharedHashTableContextPtr& context) {
-        DCHECK(context->runtime_filters.contains(_wrapper->filter_id()));
-        _wrapper = context->runtime_filters[_wrapper->filter_id()];
-    }
-
     bool set_state(State state) {
-        std::unique_lock<std::mutex> l(_mtx);
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         if (_rf_state == State::PUBLISHED ||
             (state != State::PUBLISHED && _rf_state == State::READY_TO_PUBLISH)) {
             return false;
         }
         _rf_state = state;
-        _profile->add_info_string("Info", debug_string());
         return true;
     }
 
-private:
-    RuntimeFilterProducer(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
-                          RuntimeProfile* parent_profile)
-            : RuntimeFilter(state, desc),
-              _is_broadcast_join(desc->is_broadcast_join),
-              _profile(new RuntimeProfile(fmt::format("RF{}", desc->filter_id))) {
-        if (parent_profile) { //tmp filter for mgr has no profile
-            parent_profile->add_child(_profile.get(), true, nullptr);
-        }
+    std::shared_ptr<RuntimeFilterWrapper> wrapper() {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
+        return _wrapper;
+    }
+    void set_wrapper(std::shared_ptr<RuntimeFilterWrapper> wrapper) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
+        _wrapper = wrapper;
     }
 
+    void collect_realtime_profile(RuntimeProfile* parent_operator_profile) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
+        DCHECK(parent_operator_profile != nullptr);
+        if (parent_operator_profile == nullptr) {
+            return;
+        }
+        /*
+        RuntimeFilterInfo:
+            - RF0 Info: xxxx
+        */
+        parent_operator_profile->add_description(fmt::format("RF{} Info", _wrapper->filter_id()),
+                                                 debug_string(), "RuntimeFilterInfo");
+    }
+
+private:
+    RuntimeFilterProducer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc)
+            : RuntimeFilter(desc), _is_broadcast_join(desc->is_broadcast_join) {}
+
     Status _send_to_remote_targets(RuntimeState* state, RuntimeFilter* merger_filter);
-    Status _send_to_local_targets(RuntimeFilter* merger_filter, bool global);
+    Status _send_to_local_targets(RuntimeState* state, RuntimeFilter* merger_filter, bool global);
 
     void _check_state(std::vector<State> assumed_states) {
         if (!check_state_impl<RuntimeFilterProducer>(_rf_state, assumed_states)) {
@@ -155,7 +164,6 @@ private:
         RETURN_IF_ERROR(RuntimeFilter::_init_with_desc(desc, options));
         _need_sync_filter_size = _wrapper->build_bf_by_runtime_size() && !_is_broadcast_join;
         _rf_state = _need_sync_filter_size ? State::WAITING_FOR_SEND_SIZE : State::WAITING_FOR_DATA;
-        _profile->add_info_string("Info", debug_string());
         return Status::OK();
     }
 
@@ -166,8 +174,6 @@ private:
     std::shared_ptr<pipeline::CountedFinishDependency> _dependency;
 
     std::atomic<State> _rf_state;
-    std::unique_ptr<RuntimeProfile> _profile;
-    std::mutex _mtx;
 };
 #include "common/compile_check_end.h"
 } // namespace doris

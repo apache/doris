@@ -22,7 +22,6 @@
 #include <aws/core/client/DefaultRetryStrategy.h>
 #include <aws/s3/S3Client.h>
 #include <bvar/reducer.h>
-#include <cpp/sync_point.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
@@ -40,8 +39,10 @@
 #include "common/simple_thread_pool.h"
 #include "common/string_util.h"
 #include "common/util.h"
+#include "cpp/aws_logger.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/s3_rate_limiter.h"
+#include "cpp/sync_point.h"
 #ifdef USE_AZURE
 #include "recycler/azure_obj_client.h"
 #endif
@@ -108,7 +109,15 @@ int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_bur
 
 class S3Environment {
 public:
-    S3Environment() { Aws::InitAPI(aws_options_); }
+    S3Environment() {
+        aws_options_ = Aws::SDKOptions {};
+        auto logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
+        aws_options_.loggingOptions.logLevel = logLevel;
+        aws_options_.loggingOptions.logger_create_fn = [logLevel] {
+            return std::make_shared<DorisAWSLogger>(logLevel);
+        };
+        Aws::InitAPI(aws_options_);
+    }
 
     ~S3Environment() { Aws::ShutdownAPI(aws_options_); }
 
@@ -204,7 +213,7 @@ S3Accessor::S3Accessor(S3Conf conf)
 S3Accessor::~S3Accessor() = default;
 
 std::string S3Accessor::get_key(const std::string& relative_path) const {
-    return conf_.prefix + '/' + relative_path;
+    return conf_.prefix.empty() ? relative_path : conf_.prefix + '/' + relative_path;
 }
 
 std::string S3Accessor::to_uri(const std::string& relative_path) const {
@@ -268,7 +277,11 @@ int S3Accessor::init() {
 #endif
     }
     default: {
-        uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
+        if (conf_.prefix.empty()) {
+            uri_ = conf_.endpoint + '/' + conf_.bucket;
+        } else {
+            uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
+        }
 
         static S3Environment s3_env;
 

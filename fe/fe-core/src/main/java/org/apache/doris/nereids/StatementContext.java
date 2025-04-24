@@ -18,6 +18,7 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -158,6 +159,7 @@ public class StatementContext implements Closeable {
     private final List<Expression> joinFilters = new ArrayList<>();
 
     private final List<Hint> hints = new ArrayList<>();
+    private boolean hintForcePreAggOn = false;
 
     // the columns in Plan.getExpressions(), such as columns in join condition or filter condition, group by expression
     private final Set<SlotReference> keySlots = Sets.newHashSet();
@@ -214,6 +216,8 @@ public class StatementContext implements Closeable {
 
     private boolean privChecked;
 
+    private boolean prepareStage = false;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -248,6 +252,14 @@ public class StatementContext implements Closeable {
 
     public void setNeedLockTables(boolean needLockTables) {
         this.needLockTables = needLockTables;
+    }
+
+    public void setHintForcePreAggOn(boolean preAggOn) {
+        this.hintForcePreAggOn = preAggOn;
+    }
+
+    public boolean isHintForcePreAggOn() {
+        return hintForcePreAggOn;
     }
 
     /**
@@ -658,13 +670,13 @@ public class StatementContext implements Closeable {
     /**
      * Load snapshot information of mvcc
      */
-    public void loadSnapshots() {
+    public void loadSnapshots(Optional<TableSnapshot> tableSnapshot) {
         for (TableIf tableIf : tables.values()) {
             if (tableIf instanceof MvccTable) {
                 MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
                 // may be set by MTMV, we can not load again
                 if (!snapshots.containsKey(mvccTableInfo)) {
-                    snapshots.put(mvccTableInfo, ((MvccTable) tableIf).loadSnapshot());
+                    snapshots.put(mvccTableInfo, ((MvccTable) tableIf).loadSnapshot(tableSnapshot));
                 }
             }
         }
@@ -773,5 +785,13 @@ public class StatementContext implements Closeable {
 
     public void setPrivChecked(boolean privChecked) {
         this.privChecked = privChecked;
+    }
+
+    public void setPrepareStage(boolean isPrepare) {
+        this.prepareStage = isPrepare;
+    }
+
+    public boolean isPrepareStage() {
+        return prepareStage;
     }
 }
