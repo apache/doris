@@ -1079,7 +1079,7 @@ Status SegmentIterator::_init_inverted_index_iterators() {
             const auto& column = _opts.tablet_schema->column(cid);
             std::vector<const TabletIndex*> inverted_indexs;
             // If the column is an extracted column, we need to find the sub-column in the parent column reader.
-            if (column.is_extracted_column()) {
+            if (column.is_extracted_column() && InvertedIndexColumnWriter::check_support_inverted_index(column)) {
                 if (_segment->_column_readers.find(column.parent_unique_id()) ==
                     _segment->_column_readers.end()) {
                     continue;
