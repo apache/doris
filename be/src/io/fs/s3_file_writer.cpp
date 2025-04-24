@@ -313,6 +313,55 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
     _completed_parts.emplace_back(std::move(completed_part));
 }
 
+// if enabled check
+// 1. issue a head object request for existence check
+// 2. check the file size
+Status check_after_upload(ObjStorageClient* client, const ObjectStorageResponse& upload_res,
+                          const ObjectStoragePathOptions& path_opt, int64_t bytes_appended,
+                          const std::string& put_or_comp) {
+    if (!config::enable_s3_object_check_after_upload) return Status::OK();
+
+    auto head_res = client->head_object(path_opt);
+
+    // clang-format off
+    auto err_msg = [&]() {
+        std::stringstream ss;
+        ss << "failed to check object after upload=" << put_or_comp
+            << " file_path=" << path_opt.path.native()
+            << fmt::format(" {}_err=", put_or_comp) << upload_res.status.msg
+            << fmt::format(" {}_code=", put_or_comp) << upload_res.status.code
+            << fmt::format(" {}_http_code=", put_or_comp) << upload_res.http_code
+            << fmt::format(" {}_request_id=", put_or_comp) << upload_res.request_id
+            << " head_err=" << head_res.resp.status.msg
+            << " head_code=" << head_res.resp.status.code
+            << " head_http_code=" << head_res.resp.http_code
+            << " head_request_id=" << head_res.resp.request_id;
+        return ss.str();
+    };
+    // clang-format on
+
+    // TODO(gavin): make it fail by injection
+    TEST_SYNC_POINT_CALLBACK("S3FileWriter::check_after_load", &head_res);
+    if (head_res.resp.status.code != ErrorCode::OK && head_res.resp.http_code != 200) {
+        LOG(WARNING) << "failed to issue head object after upload, " << err_msg();
+        DCHECK(false) << "failed to issue head object after upload, " << err_msg();
+        // FIXME(gavin): we should retry if this HEAD fails?
+        return Status::IOError(
+                "failed to issue head object after upload, status_code={}, http_code={}, err={}",
+                head_res.resp.status.code, head_res.resp.http_code, head_res.resp.status.msg);
+    }
+    if (head_res.file_size != bytes_appended) {
+        LOG(WARNING) << "failed to check size after upload, expected_size=" << bytes_appended
+                     << " actual_size=" << head_res.file_size << err_msg();
+        DCHECK_EQ(bytes_appended, head_res.file_size)
+                << "failed to check size after upload," << err_msg();
+        return Status::IOError(
+                "failed to check object size after upload, expected_size={} actual_size={}",
+                bytes_appended, head_res.file_size);
+    }
+    return Status::OK();
+}
+
 Status S3FileWriter::_complete() {
     const auto& client = _obj_client->get();
     if (nullptr == client) {
@@ -368,6 +417,10 @@ Status S3FileWriter::_complete() {
                     _obj_storage_path_opts.path.native());
         return {resp.status.code, std::move(resp.status.msg)};
     }
+
+    RETURN_IF_ERROR(check_after_upload(client.get(), resp, _obj_storage_path_opts, _bytes_appended,
+                                       "complete_multipart"));
+
     s3_file_created_total << 1;
     return Status::OK();
 }
@@ -414,6 +467,14 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         buf.set_status({resp.status.code, std::move(resp.status.msg)});
         return;
     }
+
+    auto st = check_after_upload(client.get(), resp, _obj_storage_path_opts, _bytes_appended,
+                                 "put_object");
+    if (!st.ok()) {
+        buf.set_status(st);
+        return;
+    }
+
     s3_file_created_total << 1;
 }
 

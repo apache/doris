@@ -53,4 +53,6 @@ public interface Split {
     }
 
     void setTargetSplitSize(Long targetSplitSize);
+
+    long getSelfSplitWeight();
 }

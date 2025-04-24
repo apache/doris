@@ -118,7 +118,7 @@ TEST_F(PipelineTaskTest, TEST_CONSTRUCTOR) {
     shared_state_map[3] = {std::make_shared<BasicSharedState>(), {}};
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
-    task->THREAD_TIME_SLICE = 10'000'000'000ULL;
+    task->_exec_time_slice = 10'000'000'000ULL;
     EXPECT_EQ(task->_sink_shared_state, nullptr);
 
     // shared state not exists
@@ -154,7 +154,7 @@ TEST_F(PipelineTaskTest, TEST_PREPARE) {
     _runtime_state->resize_op_id_to_local_state(-1);
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
-    task->THREAD_TIME_SLICE = 10'000'000'000ULL;
+    task->_exec_time_slice = 10'000'000'000ULL;
     {
         std::vector<TScanRangeParams> scan_range;
         int sender_id = 0;
@@ -189,7 +189,7 @@ TEST_F(PipelineTaskTest, TEST_PREPARE_ERROR) {
     _runtime_state->resize_op_id_to_local_state(-1);
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
-    task->THREAD_TIME_SLICE = 10'000'000'000ULL;
+    task->_exec_time_slice = 10'000'000'000ULL;
     {
         _context.reset();
         std::vector<TScanRangeParams> scan_range;
@@ -224,7 +224,7 @@ TEST_F(PipelineTaskTest, TEST_EXTRACT_DEPENDENCIES_ERROR) {
             shared_state_map;
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
-    task->THREAD_TIME_SLICE = 10'000'000'000ULL;
+    task->_exec_time_slice = 10'000'000'000ULL;
     {
         EXPECT_FALSE(task->_extract_dependencies().ok());
         EXPECT_TRUE(task->_read_dependencies.empty());
@@ -259,7 +259,7 @@ TEST_F(PipelineTaskTest, TEST_OPEN) {
     _runtime_state->resize_op_id_to_local_state(-1);
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
-    task->THREAD_TIME_SLICE = 10'000'000'000ULL;
+    task->_exec_time_slice = 10'000'000'000ULL;
     {
         std::vector<TScanRangeParams> scan_range;
         int sender_id = 0;
@@ -305,7 +305,7 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
     _runtime_state->resize_op_id_to_local_state(-1);
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
-    task->THREAD_TIME_SLICE = 10'000'000'000ULL;
+    task->_exec_time_slice = 10'000'000'000ULL;
     task->set_task_queue(_task_queue.get());
     {
         // `execute` should be called after `prepare`
@@ -438,7 +438,7 @@ TEST_F(PipelineTaskTest, TEST_TERMINATE) {
     _runtime_state->resize_op_id_to_local_state(-1);
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
-    task->THREAD_TIME_SLICE = 10'000'000'000ULL;
+    task->_exec_time_slice = 10'000'000'000ULL;
     task->set_task_queue(_task_queue.get());
     {
         std::vector<TScanRangeParams> scan_range;
@@ -503,7 +503,7 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
     _runtime_state->resize_op_id_to_local_state(-1);
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
-    task->THREAD_TIME_SLICE = 10'000'000'000ULL;
+    task->_exec_time_slice = 10'000'000'000ULL;
     task->set_task_queue(_task_queue.get());
     {
         std::vector<TScanRangeParams> scan_range;
@@ -548,7 +548,7 @@ TEST_F(PipelineTaskTest, TEST_SINK_FINISHED) {
     _runtime_state->resize_op_id_to_local_state(-1);
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
-    task->THREAD_TIME_SLICE = 10'000'000'000ULL;
+    task->_exec_time_slice = 10'000'000'000ULL;
     task->set_task_queue(_task_queue.get());
     {
         std::vector<TScanRangeParams> scan_range;
@@ -629,7 +629,7 @@ TEST_F(PipelineTaskTest, TEST_SINK_EOF) {
     _runtime_state->resize_op_id_to_local_state(-1);
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
-    task->THREAD_TIME_SLICE = 10'000'000'000ULL;
+    task->_exec_time_slice = 10'000'000'000ULL;
     task->set_task_queue(_task_queue.get());
     {
         std::vector<TScanRangeParams> scan_range;
@@ -744,13 +744,13 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
     {
         // set low memory mode and do not pause.
         read_dep->set_ready();
-        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         bool done = false;
         EXPECT_TRUE(task->execute(&done).ok());
-        EXPECT_TRUE(_query_ctx->_low_memory_mode);
+        EXPECT_TRUE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_FALSE(task->_eos);
@@ -763,11 +763,11 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
     {
         // set low memory mode and do not pause.
         task->_operators.front()->cast<DummyOperator>()._eos = true;
-        _query_ctx->_low_memory_mode = false;
+        _query_ctx->resource_ctx()->task_controller()->set_low_memory_mode(false);
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         bool done = false;
         EXPECT_TRUE(task->execute(&done).ok());
-        EXPECT_TRUE(_query_ctx->_low_memory_mode);
+        EXPECT_TRUE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_TRUE(task->_eos);
@@ -878,14 +878,14 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
     {
         // Reserve failed and paused.
         read_dep->set_ready();
-        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_FALSE(task->_spilling);
         bool done = false;
         EXPECT_TRUE(task->execute(&done).ok());
-        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_FALSE(task->_eos);
@@ -906,7 +906,7 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         bool done = false;
         EXPECT_TRUE(task->execute(&done).ok());
-        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_TRUE(task->_eos);
@@ -926,7 +926,7 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         bool done = false;
         EXPECT_TRUE(task->execute(&done).ok());
-        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_TRUE(task->_eos);
