@@ -846,8 +846,7 @@ public class ExpressionUtils {
     public static ImmutableMap<Slot, Expression> extractUniformSlot(Expression expression) {
         ImmutableMap.Builder<Slot, Expression> builder = new ImmutableMap.Builder<>();
         if (expression instanceof And) {
-            builder.putAll(extractUniformSlot(expression.child(0)));
-            builder.putAll(extractUniformSlot(expression.child(1)));
+            expression.children().forEach(child -> builder.putAll(extractUniformSlot(child)));
         }
         if (expression instanceof EqualTo) {
             if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
