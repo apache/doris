@@ -1500,7 +1500,6 @@ bool Tablet::do_tablet_meta_checkpoint() {
         _newly_created_rowset_num < config::tablet_meta_checkpoint_min_new_rowsets_num) {
         return false;
     }
-
     // hold read-lock other than write-lock, because it will not modify meta structure
     std::shared_lock rdlock(_meta_lock);
     if (tablet_state() != TABLET_RUNNING) {
