@@ -41,6 +41,7 @@ import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
+import org.apache.doris.nereids.rules.analysis.EliminateLogicalPreAggOnHint;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -263,7 +264,8 @@ public class BaseViewInfo {
 
         private static List<RewriteJob> buildAnalyzeViewJobsForStar() {
             return jobs(
-                    topDown(new EliminateLogicalSelectHint()),
+                    topDown(new EliminateLogicalSelectHint(),
+                            new EliminateLogicalPreAggOnHint()),
                     topDown(new AnalyzeCTE()),
                     bottomUp(
                             new BindRelation(),

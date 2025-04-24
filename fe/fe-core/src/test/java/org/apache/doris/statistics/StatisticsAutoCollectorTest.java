@@ -29,6 +29,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -163,13 +164,13 @@ public class StatisticsAutoCollectorTest {
                 return false;
             }
         };
-        Assertions.assertNull(collector.createAnalyzeJobForTbl(table, null, null));
+        Assertions.assertNull(collector.createAnalyzeJobForTbl(table, null, null, AnalysisMethod.SAMPLE));
         new MockUp<OlapTable>() {
             @Mock
             public long getRowCountForIndex(long indexId, boolean strict) {
                 return 100;
             }
         };
-        Assertions.assertNull(collector.createAnalyzeJobForTbl(table, null, null));
+        Assertions.assertNull(collector.createAnalyzeJobForTbl(table, null, null, AnalysisMethod.SAMPLE));
     }
 }
