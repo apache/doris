@@ -46,9 +46,9 @@ struct ProcessHashTableProbe {
     ~ProcessHashTableProbe() = default;
 
     // output build side result column
-    void build_side_output_column(vectorized::MutableColumns& mcol, int size, bool is_mark_join);
+    void build_side_output_column(vectorized::MutableColumns& mcol, bool is_mark_join);
 
-    void probe_side_output_column(vectorized::MutableColumns& mcol, int size, bool all_match_one);
+    void probe_side_output_column(vectorized::MutableColumns& mcol);
 
     // Only process the join with no other join conjunct, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify

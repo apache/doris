@@ -33,6 +33,28 @@
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
+
+static bool check_all_match_one(const auto& vecs) {
+    size_t size = vecs.size();
+    if (!size || vecs[size - 1] != vecs[0] + size - 1) {
+        return false;
+    }
+    for (size_t i = 1; i < size; i++) {
+        if (vecs[i] == vecs[i - 1]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void insert_with_indexs(auto& dst, const auto& src, const auto& indexs, bool all_match_one) {
+    if (all_match_one) {
+        dst->insert_range_from(*src, indexs[0], indexs.size());
+    } else {
+        dst->insert_indices_from(*src, indexs.data(), indexs.data() + indexs.size());
+    }
+}
+
 template <int JoinOpType>
 ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState* parent,
                                                          int batch_size)
@@ -55,13 +77,14 @@ ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState
 
 template <int JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::build_side_output_column(vectorized::MutableColumns& mcol,
-                                                                 int size, bool is_mark_join) {
+                                                                 bool is_mark_join) {
     SCOPED_TIMER(_build_side_output_timer);
 
     // indicates whether build_indexs contain 0
     bool build_index_has_zero =
             (JoinOpType != TJoinOp::INNER_JOIN && JoinOpType != TJoinOp::RIGHT_OUTER_JOIN) ||
             _have_other_join_conjunct || is_mark_join;
+    size_t size = _build_indexs.size();
     if (!size) {
         return;
     }
@@ -115,10 +138,10 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(vectorized::Mut
 }
 
 template <int JoinOpType>
-void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(vectorized::MutableColumns& mcol,
-                                                                 int size, bool all_match_one) {
+void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(vectorized::MutableColumns& mcol) {
     SCOPED_TIMER(_probe_side_output_timer);
     auto& probe_block = _parent->_probe_block;
+    bool all_match_one = check_all_match_one(_probe_indexs.get_data());
 
     for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
         if (_left_output_slot_flags[i]) {
@@ -129,15 +152,10 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(vectorized::Mut
 
         if (_left_output_slot_flags[i] && !_parent_operator->is_lazy_materialized_column(i)) {
             auto& column = probe_block.get_by_position(i).column;
-            if (all_match_one) {
-                mcol[i]->insert_range_from(*column, _probe_indexs.get_element(0), size);
-            } else {
-                mcol[i]->insert_indices_from(*column, _probe_indexs.get_data().data(),
-                                             _probe_indexs.get_data().data() + size);
-            }
+            insert_with_indexs(mcol[i], column, _probe_indexs.get_data(), all_match_one);
         } else {
             mcol[i]->insert_default();
-            mcol[i] = vectorized::ColumnConst::create(std::move(mcol[i]), size);
+            mcol[i] = vectorized::ColumnConst::create(std::move(mcol[i]), _probe_indexs.size());
         }
     }
 }
@@ -172,18 +190,6 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
     }
 
     return typename HashTableType::State(_parent->_probe_columns);
-}
-
-static bool check_all_match_one(const auto& vecs, size_t size) {
-    if (!size || vecs[size - 1] != vecs[0] + size - 1) {
-        return false;
-    }
-    for (size_t i = 1; i < size; i++) {
-        if (vecs[i] == vecs[i - 1]) {
-            return false;
-        }
-    }
-    return true;
 }
 
 template <int JoinOpType>
@@ -260,12 +266,15 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
         current_offset = new_current_offset;
     }
 
-    build_side_output_column(mcol, current_offset, is_mark_join);
+    // input row_indexs's size may bigger than current_offset coz _init_probe_side
+    _probe_indexs.resize(current_offset);
+    _build_indexs.resize(current_offset);
+
+    build_side_output_column(mcol, is_mark_join);
 
     if (_have_other_join_conjunct ||
         (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN && JoinOpType != TJoinOp::RIGHT_ANTI_JOIN)) {
-        probe_side_output_column(mcol, current_offset,
-                                 check_all_match_one(_probe_indexs.get_data(), current_offset));
+        probe_side_output_column(mcol);
     }
 
     output_block->swap(mutable_block.to_block());
@@ -335,19 +344,16 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
         if (column_ids.empty()) {
             return;
         }
-        size_t row_count = filter_ptr->size();
-        // input row_indexs's size may bigger than row_count coz _init_probe_side
-        row_indexs.resize(row_count);
-
         const auto& column_filter =
                 assert_cast<const vectorized::ColumnUInt8*>(filter_ptr.get())->get_data();
-        bool need_filter = simd::count_zero_num((int8_t*)column_filter.data(), row_count) != 0;
+        bool need_filter =
+                simd::count_zero_num((int8_t*)column_filter.data(), column_filter.size()) != 0;
         if (need_filter) {
             row_indexs.filter(column_filter);
         }
 
         const auto& container = row_indexs.get_data();
-        bool all_match_one = try_all_match_one && check_all_match_one(container, container.size());
+        bool all_match_one = try_all_match_one && check_all_match_one(container);
         for (int column_id : column_ids) {
             int output_column_id = column_id + column_offset;
             output_block->get_by_position(output_column_id).column =
@@ -358,12 +364,7 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
             auto& src = source_block->get_by_position(column_id).column;
             auto dst = output_block->get_by_position(output_column_id).column->assume_mutable();
             dst->clear();
-            if (all_match_one) {
-                dst->insert_range_from(*src, container[0], container.size());
-            } else {
-                dst->insert_indices_from(*src, container.data(),
-                                         container.data() + container.size());
-            }
+            insert_with_indexs(dst, src, container, all_match_one);
         }
     };
     do_lazy_materialize(_right_output_slot_flags, _build_indexs, (int)_right_col_idx,
