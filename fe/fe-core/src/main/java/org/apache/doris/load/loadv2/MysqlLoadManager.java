@@ -347,14 +347,17 @@ public class MysqlLoadManager {
         if (!fields.isEmpty()) {
             StringBuilder fieldString = new StringBuilder();
             fieldString.append(Joiner.on(",").join(fields));
+
             List<Expression> columnMappingList = new ArrayList<>();
             desc.getColumnsMapping().forEach((key, value) -> columnMappingList.add(value));
-            fieldString.append(",");
-            List<String> mappings = new ArrayList<>();
-            for (Expression expression : columnMappingList) {
-                mappings.add(expression.toSql().replaceAll("`", ""));
+            if (!columnMappingList.isEmpty()) {
+                fieldString.append(",");
+                List<String> mappings = new ArrayList<>();
+                for (Expression expression : columnMappingList) {
+                    mappings.add(expression.toSql().replaceAll("`", ""));
+                }
+                fieldString.append(Joiner.on(",").join(mappings));
             }
-            fieldString.append(Joiner.on(",").join(mappings));
             return fieldString.toString();
         }
         return null;
