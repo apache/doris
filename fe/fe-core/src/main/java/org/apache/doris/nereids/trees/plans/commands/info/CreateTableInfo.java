@@ -984,6 +984,8 @@ public class CreateTableInfo {
         }
     }
 
+    // 1. if the column is variant type, check it's field pattern is valid
+    // 2. if the column is not variant type, check it's index def is valid
     private void columnToIndexesCheck() {
         for (Map.Entry<ColumnDefinition, List<IndexDefinition>> entry : columnToIndexes.entrySet()) {
             ColumnDefinition column = entry.getKey();
@@ -1000,17 +1002,24 @@ public class CreateTableInfo {
                         continue;
                     }
                     boolean findFieldPattern = false;
+                    boolean fieldSupportedIndex = false;
                     VariantType variantType = (VariantType) column.getType();
                     List<VariantField> predefinedFields = variantType.getPredefinedFields();
                     for (VariantField field : predefinedFields) {
                         if (field.getPattern().equals(fieldPattern)) {
                             findFieldPattern = true;
+                            fieldSupportedIndex = IndexDefinition.isSupportIdxType(field.getDataType());
                             break;
                         }
                     }
                     if (!findFieldPattern) {
                         throw new AnalysisException("can not find field pattern: " + fieldPattern
                                                                 + " in column: " + column.getName());
+                    }
+                    if (!fieldSupportedIndex) {
+                        throw new AnalysisException("field pattern: "
+                            + fieldPattern + " is not supported for inverted index"
+                            + " of column: " + column.getName());
                     }
                 }
                 if (variantIndex > 1) {

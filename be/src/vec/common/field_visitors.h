@@ -76,7 +76,7 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
         return visitor(field.template get<VariantField>());
     case Field::Types::IPv6:
         return visitor(field.template get<IPv6>());
-    case Field::Types::Int256:
+    case Field::Types::Int128:
         return visitor(field.template get<Int128>());
     default:
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Bad type of Field {}",

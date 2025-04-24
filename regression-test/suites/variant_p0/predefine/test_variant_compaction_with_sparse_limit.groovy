@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
-suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
+suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
@@ -52,9 +52,9 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
         }
         def create_table = { tableName, buckets="auto", key_type="DUPLICATE" ->
             sql "DROP TABLE IF EXISTS ${tableName}"
-            def var_def = "variant"
+            def var_def = "variant <'sala' : int, 'ddd' : double, 'z' : double>"
             if (key_type == "AGGREGATE") {
-                var_def = "variant replace"
+                var_def = "variant <'sala' : int, 'ddd' : double, 'z' : double> replace"
             }
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -72,7 +72,7 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
             def tableName = "simple_variant_${key_types[i]}"
             // 1. simple cases
             create_table.call(tableName, "1", key_types[i])
-            def insert = {
+            def insert1 = {
                 sql """insert into ${tableName} values (1,  '{"x" : [1]}'),(13,  '{"a" : 1}');"""
                 sql """insert into ${tableName} values (2,  '{"a" : "1"}'),(14,  '{"a" : [[[1]]]}');"""
                 sql """insert into ${tableName} values (3,  '{"x" : [3]}'),(15,  '{"a" : 1}')"""
@@ -86,8 +86,8 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
                 sql """insert into ${tableName} values (11, '{"sala" : 0}'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
                 sql """insert into ${tableName} values (12, '{"dddd" : 0.1}'),(1022,  '{"a" : 1, "b" : 10}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
             }
-            insert.call();
-            insert.call();
+            insert1.call();
+            insert1.call();
             qt_sql_1 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
             qt_sql_2 "select k, cast(v['a'] as array<int>) from  ${tableName} where  size(cast(v['a'] as array<int>)) > 0 order by k"
             qt_sql_3 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
@@ -118,7 +118,23 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
             qt_sql_33 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
             qt_sql_55 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) != '{}' order by k desc limit 10;"
         }
-
+        for (int i = 0; i < key_types.size(); i++) {
+            def tableName = "simple_variant_${key_types[i]}"
+            def insert2 = {
+                sql """insert into ${tableName} values (1, '{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1022,  '{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
+                sql """insert into ${tableName} values (2, '{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1022,  '{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
+                sql """insert into ${tableName} values (3, '{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1022,  '{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
+                sql """insert into ${tableName} values (4, '{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1022,  '{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
+                sql """insert into ${tableName} values (5, '{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1022,  '{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
+            }
+            insert2.call();
+            insert2.call();
+            trigger_and_wait_compaction(tableName, "cumulative")
+            sql "set topn_opt_limit_threshold = 1"
+            qt_sql "select * from ${tableName} order by k limit 5;"
+            sql "set topn_opt_limit_threshold = 10"
+            qt_sql "select * from ${tableName} order by k limit 5;"
+        }
     } finally {
         // set back to default
         set_be_config("variant_max_sparse_column_statistics_size", "10000")

@@ -576,38 +576,48 @@ Status Segment::healthy_status() {
 }
 
 // Return the storage datatype of related column to field.
-// Return nullptr meaning no such storage infomation for this column
 vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
                                                   bool read_flat_leaves) const {
-    // Path has higher priority
-    auto path = column.path_info_ptr();
-    auto relative_path = path != nullptr ? path->copy_pop_front() : vectorized::PathInData();
-    if (!relative_path.empty()) {
-        int32_t unique_id = column.unique_id() > 0 ? column.unique_id() : column.parent_unique_id();
-        const auto* node = _column_readers.contains(unique_id)
-                                   ? ((VariantColumnReader*)(_column_readers.at(unique_id).get()))
-                                             ->get_reader_by_path(relative_path)
-                                   : nullptr;
-        if (node) {
-            bool exist_in_sparse = ((VariantColumnReader*)(_column_readers.at(unique_id).get()))
-                                           ->exist_in_sparse_column(relative_path);
-            if (read_flat_leaves || (node->children.empty() && !exist_in_sparse)) {
-                return node->data.file_column_type;
-            }
-        }
-        // missing in storage, treat it using input data type
-        if (read_flat_leaves && !node) {
-            return nullptr;
-        }
-        // it contains children, exist in sparse column or column missing in storage, so treat it as variant
-        return column.is_nullable()
-                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>(
-                                 column.variant_max_subcolumns_count()))
-                       : std::make_shared<vectorized::DataTypeObject>(
-                                 column.variant_max_subcolumns_count());
+    const vectorized::PathInDataPtr path = column.path_info_ptr();
+
+    // none variant column
+    if (path == nullptr || path->empty()) {
+        return vectorized::DataTypeFactory::instance().create_data_type(column);
     }
-    // TODO support normal column type
-    return nullptr;
+
+    // Path exists, proceed with variant logic.
+    vectorized::PathInData relative_path = path->copy_pop_front();
+    int32_t unique_id = column.unique_id() > 0 ? column.unique_id() : column.parent_unique_id();
+
+    // Find the reader for the base variant column.
+    if (!_column_readers.contains(unique_id)) {
+        return vectorized::DataTypeFactory::instance().create_data_type(column);
+    }
+
+    const auto* variant_reader =
+            static_cast<const VariantColumnReader*>(_column_readers.at(unique_id).get());
+
+    // Find the specific node within the variant structure using the relative path.
+    const auto* node = variant_reader->get_reader_by_path(relative_path);
+
+    // Case 1: Node not found for the given path within the variant reader.
+    // If relative_path is empty, it means the original path pointed to the root
+    // of the variant column itself. We should return the Variant type.
+    if (node == nullptr || relative_path.empty()) {
+        return vectorized::DataTypeFactory::instance().create_data_type(column);
+    }
+
+    bool exist_in_sparse = variant_reader->exist_in_sparse_column(relative_path);
+    bool is_physical_leaf = node->children.empty();
+
+    // Condition to return the specific underlying type of the node:
+    // 1. We are reading flat leaves (ignoring hierarchy).
+    // 2. OR It's a leaf in the physical column structure AND it doesn't *also* exist
+    //    in the sparse column (meaning it's purely a materialized leaf).
+    if (read_flat_leaves || (is_physical_leaf && !exist_in_sparse)) {
+        return node->data.file_column_type;
+    }
+    return vectorized::DataTypeFactory::instance().create_data_type(column);
 }
 
 Status Segment::_create_column_readers_once(OlapReaderStatistics* stats) {
@@ -652,92 +662,6 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         _column_readers.emplace(column.unique_id(), std::move(reader));
     }
 
-    // for (const auto& [path, ordinal] : column_path_to_footer_ordinal) {
-    //     const ColumnMetaPB& column_pb = footer.columns(ordinal);
-    //     ColumnReaderOptions opts {
-    //             .kept_in_memory = _tablet_schema->is_in_memory(),
-    //             .be_exec_version = _be_exec_version,
-    //     };
-    //     std::unique_ptr<ColumnReader> reader;
-    //     RETURN_IF_ERROR(
-    //             ColumnReader::create(opts, column_pb, footer.num_rows(), _file_reader, &reader));
-    //     int32_t unique_id = column_pb.unique_id();
-    //     auto relative_path = path.copy_pop_front();
-    //     if (_sub_column_tree[unique_id].get_root() == nullptr) {
-    //         _sub_column_tree[unique_id].create_root(SubcolumnReader {nullptr, nullptr});
-    //     }
-    //     if (relative_path.empty()) {
-    //         // root column
-    //         _sub_column_tree[unique_id].get_mutable_root()->modify_to_scalar(SubcolumnReader {
-    //                 std::move(reader),
-    //                 vectorized::DataTypeFactory::instance().create_data_type(column_pb)});
-    //     } else {
-    //         // check the root is already a leaf node
-    //         // DCHECK(_sub_column_tree[unique_id].get_leaves()[0]->path.empty());
-    //         _sub_column_tree[unique_id].add(
-    //                 relative_path,
-    //                 SubcolumnReader {
-    //                         std::move(reader),
-    //                         vectorized::DataTypeFactory::instance().create_data_type(column_pb)});
-    //     }
-    // }
-
-    // compability reason use tablet schema
-    // init by column path
-    // for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
-    //     const auto& column = _tablet_schema->column(ordinal);
-    //     if (!column.has_path_info()) {
-    //         continue;
-    //     }
-    //     auto path = column.has_path_info() ? *column.path_info_ptr()
-    //                                        : vectorized::PathInData(column.name_lower_case());
-    //     auto iter = column_path_to_footer_ordinal.find(path);
-    //     if (iter == column_path_to_footer_ordinal.end()) {
-    //         continue;
-    //     }
-    //     const ColumnMetaPB& column_pb = footer.columns(iter->second);
-    //     ColumnReaderOptions opts {
-    //             .kept_in_memory = _tablet_schema->is_in_memory(),
-    //             .be_exec_version = _be_exec_version,
-    //     };
-    //     std::unique_ptr<ColumnReader> reader;
-    //     RETURN_IF_ERROR(
-    //             ColumnReader::create(opts, column_pb, footer.num_rows(), _file_reader, &reader));
-    //     // root column use unique id, leaf column use parent_unique_id
-    //     int32_t unique_id =
-    //             column.parent_unique_id() > 0 ? column.parent_unique_id() : column.unique_id();
-    //     auto relative_path = path.copy_pop_front();
-    //     if (relative_path.empty()) {
-    //         // root column
-    //         _sub_column_tree[unique_id].create_root(SubcolumnReader {
-    //                 std::move(reader),
-    //                 vectorized::DataTypeFactory::instance().create_data_type(column_pb)});
-    //     } else {
-    //         // check the root is already a leaf node
-    //         DCHECK(_sub_column_tree[unique_id].get_leaves()[0]->path.empty());
-    //         _sub_column_tree[unique_id].add(
-    //                 relative_path,
-    //                 SubcolumnReader {
-    //                         std::move(reader),
-    //                         vectorized::DataTypeFactory::instance().create_data_type(column_pb)});
-    //     }
-
-    //     // init sparse columns paths and type info
-    //     for (uint32_t ordinal = 0; ordinal < column_pb.sparse_columns().size(); ++ordinal) {
-    //         const auto& spase_column_pb = column_pb.sparse_columns(ordinal);
-    //         if (spase_column_pb.has_column_path_info()) {
-    //             vectorized::PathInData path;
-    //             path.from_protobuf(spase_column_pb.column_path_info());
-    //             // Read from root column, so reader is nullptr
-    //             _sparse_column_tree[unique_id].add(
-    //                     path.copy_pop_front(),
-    //                     SubcolumnReader {nullptr,
-    //                                      vectorized::DataTypeFactory::instance().create_data_type(
-    //                                              spase_column_pb)});
-    //         }
-    //     }
-    // }
-
     return Status::OK();
 }
 
@@ -761,49 +685,6 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
     return Status::OK();
 }
 
-// Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
-//                                               std::unique_ptr<ColumnIterator>* iter,
-//                                               const StorageReadOptions* opt) {
-//     // root column use unique id, leaf column use parent_unique_id
-//     int32_t unique_id = tablet_column.unique_id() > 0 ? tablet_column.unique_id()
-//                                                       : tablet_column.parent_unique_id();
-//     if (!_sub_column_tree.contains(unique_id)) {
-//         // No such variant column in this segment, get a default one
-//         RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
-//         return Status::OK();
-//     }
-//     auto relative_path = tablet_column.path_info_ptr()->copy_pop_front();
-//     const auto* root = _sub_column_tree[unique_id].get_root();
-//     const auto* node = tablet_column.has_path_info()
-//                                ? _sub_column_tree[unique_id].find_exact(relative_path)
-//                                : nullptr;
-//
-//     if (node != nullptr) {
-//         if (node->is_leaf_node()) {
-//             // Node contains column without any child sub columns and no corresponding sparse columns
-//             // Direct read extracted columns
-//             const auto* node = _sub_column_tree[unique_id].find_leaf(relative_path);
-//             ColumnIterator* it;
-//             RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
-//             iter->reset(it);
-//         } else {
-//             // Node contains column with children columns or has correspoding sparse columns
-//             // Create reader with hirachical data.
-//             // If sparse column exists or read the full path of variant read in MERGE_ROOT, otherwise READ_DIRECT
-//             HierarchicalDataReader::ReadType read_type =
-//                     (relative_path == root->path) ? HierarchicalDataReader::ReadType::MERGE_ROOT
-//                                                   : HierarchicalDataReader::ReadType::READ_DIRECT;
-//             RETURN_IF_ERROR(
-//                     HierarchicalDataReader::create(iter, relative_path, node, root, read_type));
-//         }
-//     } else {
-//         // No such node, read from sparse column
-//         // TODO test if in VariantStatisticsPB.sparse_column_non_null_size, otherwise generate a default iterator
-//     }
-//
-//     return Status::OK();
-// }
-
 // Not use cid anymore, for example original table schema is colA int, then user do following actions
 // 1.add column b
 // 2. drop column b
@@ -818,11 +699,6 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         _be_exec_version = opt->runtime_state->be_exec_version();
     }
     RETURN_IF_ERROR(_create_column_readers_once(opt->stats));
-
-    // init column iterator by path info
-    // if (tablet_column.has_path_info() || tablet_column.is_variant_type()) {
-    //     return new_column_iterator_with_path(tablet_column, iter, opt);
-    // }
 
     // For compability reason unique_id may less than 0 for variant extracted column
     int32_t unique_id = tablet_column.unique_id() >= 0 ? tablet_column.unique_id()

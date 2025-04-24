@@ -782,6 +782,8 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         return !engineName.equals("olap");
     }
 
+    // 1. if the column is variant type, check it's field pattern is valid
+    // 2. if the column is not variant type, check it's index def is valid
     private void columnToIndexesCheck() throws AnalysisException {
         for (Map.Entry<Column, List<IndexDef>> entry : columnToIndexes.entrySet()) {
             Column column = entry.getKey();
@@ -798,16 +800,23 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                         continue;
                     }
                     boolean findFieldPattern = false;
+                    boolean fieldSupportedIndex = false;
                     VariantType variantType = (VariantType) column.getType();
                     for (VariantField field : variantType.getPredefinedFields()) {
                         if (field.getPattern().equals(fieldPattern)) {
                             findFieldPattern = true;
+                            fieldSupportedIndex = IndexDef.isSupportIdxType(field.getType());
                             break;
                         }
                     }
                     if (!findFieldPattern) {
                         throw new AnalysisException("can not find field pattern: "
                                                 + fieldPattern + " in variant column: " + column.getName());
+                    }
+                    if (!fieldSupportedIndex) {
+                        throw new AnalysisException("field pattern: "
+                                + fieldPattern + " is not supported for inverted index"
+                                + " of column: " + column.getName());
                     }
                 }
                 if (variantIndex > 1) {
