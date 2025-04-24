@@ -200,10 +200,9 @@ public:
     bool is_attach_task() { return resource_ctx_ != nullptr; }
 
     std::shared_ptr<ResourceContext> resource_ctx() {
-#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
-        CHECK(is_attach_task());
-        return resource_ctx_;
-#else
+#if defined(USE_MEM_TRACKER) && !defined(BE_TEST) // FIX ME
+        DCHECK(is_attach_task());
+#endif
         if (is_attach_task()) {
             return resource_ctx_;
         } else {
@@ -212,7 +211,6 @@ public:
                     doris::ExecEnv::GetInstance()->orphan_mem_tracker());
             return ctx;
         }
-#endif
     }
 
     static std::string get_thread_id() {

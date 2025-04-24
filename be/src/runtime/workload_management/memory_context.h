@@ -82,9 +82,6 @@ public:
         mem_tracker_ = mem_tracker;
         _user_set_mem_limit = mem_tracker_->limit();
         _adjusted_mem_limit = mem_tracker_->limit();
-        if (_user_set_mem_limit > 0) {
-            _enable_check_mem_limit = true;
-        }
     }
 
     // This method is called by workload group manager to set query's memlimit using slot
@@ -128,7 +125,7 @@ protected:
 
     int64_t _user_set_mem_limit = 0;
     std::atomic<int64_t> _adjusted_mem_limit = 0;
-    bool _enable_check_mem_limit = false;
+    bool _enable_check_mem_limit = true;
 };
 
 #include "common/compile_check_end.h"
