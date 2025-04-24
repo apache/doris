@@ -42,7 +42,7 @@
 
 namespace doris::vectorized {
 
-struct FullSorterTest : public testing::Test {
+struct TopNSorterTest : public testing::Test {
     void SetUp() override {
         row_desc.reset(new MockRowDescriptor({std::make_shared<DataTypeInt64>()}, &pool));
 
@@ -60,7 +60,7 @@ struct FullSorterTest : public testing::Test {
     MockRuntimeState _state;
     RuntimeProfile _profile {"test"};
 
-    std::unique_ptr<FullSorter> sorter;
+    std::unique_ptr<TopNSorter> sorter;
 
     std::unique_ptr<MockRowDescriptor> row_desc;
 
@@ -72,54 +72,37 @@ struct FullSorterTest : public testing::Test {
     std::vector<bool> nulls_first {false};
 };
 
-TEST_F(FullSorterTest, test_full_sorter1) {
-    sorter = FullSorter::create_unique(sort_exec_exprs, -1, 0, &pool, is_asc_order, nulls_first,
-                                       *row_desc, nullptr, nullptr);
-
-    Block block1 = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
-    Block block2 = ColumnHelper::create_block<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1});
-
-    EXPECT_TRUE(sorter->has_enough_capacity(&block1, &block2));
-    EXPECT_TRUE(block1.get_by_position(0).column->has_enough_capacity(
-            *block2.get_by_position(0).column));
-}
-
-TEST_F(FullSorterTest, test_full_sorter2) {
-    sorter = FullSorter::create_unique(sort_exec_exprs, -1, 0, &pool, is_asc_order, nulls_first,
-                                       *row_desc, nullptr, nullptr);
-    {
-        Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
-        EXPECT_TRUE(sorter->append_block(&block).ok());
-    }
-
-    {
-        auto col_const = ColumnConst::create(ColumnHelper::create_column<DataTypeInt64>({1}), 10);
-        Block block = {ColumnWithTypeAndName(std::move(col_const),
-                                             std::make_shared<DataTypeInt64>(), "col")};
-
-        EXPECT_TRUE(sorter->append_block(&block).ok());
-    }
-
-    std::cout << sorter->get_reserve_mem_size(&_state, false) << std::endl;
-}
-
-TEST_F(FullSorterTest, test_full_sorter3) {
-    sorter = FullSorter::create_unique(sort_exec_exprs, 3, 3, &pool, is_asc_order, nulls_first,
+TEST_F(TopNSorterTest, test_topn_sorter1) {
+    sorter = TopNSorter::create_unique(sort_exec_exprs, 3, 3, &pool, is_asc_order, nulls_first,
                                        *row_desc, nullptr, nullptr);
     sorter->init_profile(&_profile);
     {
-        Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1});
         EXPECT_TRUE(sorter->append_block(&block).ok());
-        EXPECT_TRUE(sorter->_do_sort());
     }
 
     {
         Block block = ColumnHelper::create_block<DataTypeInt64>({4, 5, 6, 7});
         EXPECT_TRUE(sorter->append_block(&block).ok());
-        EXPECT_TRUE(sorter->_do_sort());
     }
     EXPECT_EQ(sorter->_state->get_sorted_block()[0]->rows(), 6);
+
+    EXPECT_TRUE(ColumnHelper::block_equal(
+            *sorter->_state->get_sorted_block()[0],
+            ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6})));
     EXPECT_EQ(sorter->_state->get_sorted_block()[1]->rows(), 4);
+}
+
+TEST_F(TopNSorterTest, test_topn_sorter2) {
+    sorter = TopNSorter::create_unique(sort_exec_exprs, -1, 3, &pool, is_asc_order, nulls_first,
+                                       *row_desc, nullptr, nullptr);
+    sorter->init_profile(&_profile);
+    {
+        Block block = ColumnHelper::create_block<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1});
+        auto st = sorter->append_block(&block);
+        EXPECT_TRUE(!st.ok());
+        std::cout << st.msg() << std::endl;
+    }
 }
 
 } // namespace doris::vectorized

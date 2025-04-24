@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/common/sort/heap_sorter.h"
+
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
@@ -34,7 +36,6 @@
 #include "testutil/mock/mock_slot_ref.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/sort/heap_sorter.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/common/sort/topn_sorter.h"
 #include "vec/common/sort/vsort_exec_exprs.h"
@@ -42,7 +43,7 @@
 
 namespace doris::vectorized {
 
-struct FullSorterTest : public testing::Test {
+struct HeapSorterTest : public testing::Test {
     void SetUp() override {
         row_desc.reset(new MockRowDescriptor({std::make_shared<DataTypeInt64>()}, &pool));
 
@@ -60,7 +61,7 @@ struct FullSorterTest : public testing::Test {
     MockRuntimeState _state;
     RuntimeProfile _profile {"test"};
 
-    std::unique_ptr<FullSorter> sorter;
+    std::unique_ptr<HeapSorter> sorter;
 
     std::unique_ptr<MockRowDescriptor> row_desc;
 
@@ -72,54 +73,59 @@ struct FullSorterTest : public testing::Test {
     std::vector<bool> nulls_first {false};
 };
 
-TEST_F(FullSorterTest, test_full_sorter1) {
-    sorter = FullSorter::create_unique(sort_exec_exprs, -1, 0, &pool, is_asc_order, nulls_first,
-                                       *row_desc, nullptr, nullptr);
+TEST_F(HeapSorterTest, test_topn_sorter1) {
+    DataTypes data_types {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()};
+    row_desc.reset(new MockRowDescriptor(data_types, &pool));
 
-    Block block1 = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
-    Block block2 = ColumnHelper::create_block<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1});
+    sort_exec_exprs._sort_tuple_slot_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
 
-    EXPECT_TRUE(sorter->has_enough_capacity(&block1, &block2));
-    EXPECT_TRUE(block1.get_by_position(0).column->has_enough_capacity(
-            *block2.get_by_position(0).column));
-}
+    sort_exec_exprs._materialize_tuple = true;
 
-TEST_F(FullSorterTest, test_full_sorter2) {
-    sorter = FullSorter::create_unique(sort_exec_exprs, -1, 0, &pool, is_asc_order, nulls_first,
-                                       *row_desc, nullptr, nullptr);
-    {
-        Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
-        EXPECT_TRUE(sorter->append_block(&block).ok());
-    }
+    sort_exec_exprs._ordering_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
 
-    {
-        auto col_const = ColumnConst::create(ColumnHelper::create_column<DataTypeInt64>({1}), 10);
-        Block block = {ColumnWithTypeAndName(std::move(col_const),
-                                             std::make_shared<DataTypeInt64>(), "col")};
+    sort_exec_exprs._sort_tuple_slot_expr_ctxs = MockSlotRef::create_mock_contexts(data_types);
 
-        EXPECT_TRUE(sorter->append_block(&block).ok());
-    }
+    sort_exec_exprs._need_convert_to_nullable_flags = {true, false};
 
-    std::cout << sorter->get_reserve_mem_size(&_state, false) << std::endl;
-}
+    sorter = HeapSorter::create_unique(sort_exec_exprs, 6, 0, &pool, is_asc_order, nulls_first,
+                                       *row_desc);
 
-TEST_F(FullSorterTest, test_full_sorter3) {
-    sorter = FullSorter::create_unique(sort_exec_exprs, 3, 3, &pool, is_asc_order, nulls_first,
-                                       *row_desc, nullptr, nullptr);
     sorter->init_profile(&_profile);
-    {
-        Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
-        EXPECT_TRUE(sorter->append_block(&block).ok());
-        EXPECT_TRUE(sorter->_do_sort());
-    }
 
     {
-        Block block = ColumnHelper::create_block<DataTypeInt64>({4, 5, 6, 7});
-        EXPECT_TRUE(sorter->append_block(&block).ok());
-        EXPECT_TRUE(sorter->_do_sort());
+        Block block =
+                ColumnHelper::create_block<DataTypeInt64>({7, 5, 4, 3, 2, 1}, {7, 5, 4, 3, 2, 1});
+        auto st = sorter->append_block(&block);
+        EXPECT_TRUE(st.ok());
     }
-    EXPECT_EQ(sorter->_state->get_sorted_block()[0]->rows(), 6);
-    EXPECT_EQ(sorter->_state->get_sorted_block()[1]->rows(), 4);
+
+    EXPECT_EQ(sorter->_heap->size(), 6);
+
+    {
+        Block block = ColumnHelper::create_block<DataTypeInt64>({6}, {6});
+        auto st = sorter->append_block(&block);
+        EXPECT_TRUE(st.ok());
+    }
+
+    EXPECT_EQ(sorter->_heap->size(), 6);
+
+    static_cast<void>(sorter->get_top_value());
+
+    EXPECT_TRUE(sorter->prepare_for_read());
+
+    {
+        Block block;
+        bool eos;
+        EXPECT_TRUE(sorter->get_next(&_state, &block, &eos));
+        std::cout << block.dump_data() << std::endl;
+        EXPECT_EQ(block.rows(), 6);
+
+        EXPECT_TRUE(ColumnHelper::block_equal(
+                block,
+                Block {ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
+                               {1, 2, 3, 4, 5, 6}, {false, false, false, false, false, false}),
+                       ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5, 6})}));
+    }
 }
 
 } // namespace doris::vectorized
