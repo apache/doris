@@ -289,8 +289,7 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
                         ->empty_build_side(); // empty build side will return false to instead null
         return do_mark_join_conjuncts(output_block, ignore_null_map ? nullptr : null_map);
     } else if (_have_other_join_conjunct) {
-        return do_other_join_conjuncts(output_block, hash_table_ctx.hash_table->get_visited(),
-                                       hash_table_ctx.hash_table->has_null_key());
+        return do_other_join_conjuncts(output_block, hash_table_ctx.hash_table->get_visited());
     }
 
     return Status::OK();
@@ -524,8 +523,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
 
 template <int JoinOpType>
 Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(vectorized::Block* output_block,
-                                                                  DorisVector<uint8_t>& visited,
-                                                                  bool has_null_in_build_side) {
+                                                                  DorisVector<uint8_t>& visited) {
     // dispose the other join conjunct exec
     auto row_count = output_block->rows();
     if (!row_count) {
