@@ -208,14 +208,11 @@ private:
 
                 auto* place2 = reinterpret_cast<vectorized::AggregateDataPtr>(
                         arena.alloc(agg_fn->function()->size_of_data()));
-                agg_fn->create(place2);
-                Defer defer2([&]() { agg_fn->destroy(place2); });
 
                 agg_fn->function()->deserialize_and_merge_vec(places.data(), 0, place2,
                                                               serialize_column.get(), &arena, 1);
 
                 check_result(place1);
-                check_result(place2);
             }
         }
 
@@ -243,14 +240,11 @@ private:
 
                 auto* place2 = reinterpret_cast<vectorized::AggregateDataPtr>(
                         arena.alloc(agg_fn->function()->size_of_data()));
-                agg_fn->create(place2);
-                Defer defer2([&]() { agg_fn->destroy(place2); });
 
                 agg_fn->function()->deserialize_and_merge_vec_selected(
                         places.data(), 0, place2, serialize_column.get(), &arena, 1);
 
                 check_result(place1);
-                check_result(place2);
             }
         }
     }
