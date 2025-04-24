@@ -201,6 +201,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
+import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
@@ -532,6 +533,8 @@ public class Env {
 
     private AnalysisManager analysisManager;
 
+    private HboPlanStatisticsManager hboPlanStatisticsManager;
+
     private ExternalMetaCacheMgr extMetaCacheMgr;
 
     private AtomicLong stmtIdCounter;
@@ -819,6 +822,7 @@ public class Env {
         this.policyMgr = new PolicyMgr();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr(isCheckpointCatalog);
         this.analysisManager = new AnalysisManager();
+        this.hboPlanStatisticsManager = new HboPlanStatisticsManager();
         this.statisticsCleaner = new StatisticsCleaner();
         this.statisticsAutoCollector = new StatisticsAutoCollector();
         this.statisticsJobAppender = new StatisticsJobAppender();
@@ -5752,8 +5756,9 @@ public class Env {
                 defaultDistributionInfo.setBucketNum(bucketNum);
 
                 ModifyTableDefaultDistributionBucketNumOperationLog info
-                        = new ModifyTableDefaultDistributionBucketNumOperationLog(
-                        db.getId(), olapTable.getId(), bucketNum);
+                        = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), olapTable.getId(),
+                                distributionInfo.getType(), distributionInfo.getAutoBucket(), bucketNum,
+                                defaultDistributionInfo.getColumnsName());
                 editLog.logModifyDefaultDistributionBucketNum(info);
                 LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), bucketNum);
             }
@@ -6856,6 +6861,10 @@ public class Env {
 
     public AnalysisManager getAnalysisManager() {
         return analysisManager;
+    }
+
+    public HboPlanStatisticsManager getHboPlanStatisticsManager() {
+        return hboPlanStatisticsManager;
     }
 
     public GlobalFunctionMgr getGlobalFunctionMgr() {

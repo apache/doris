@@ -18,6 +18,7 @@
 #include "scan_operator.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
 
 #include <cstdint>
 #include <memory>
@@ -27,6 +28,7 @@
 #include "pipeline/exec/group_commit_scan_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
+#include "pipeline/exec/mock_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/types.h"
@@ -73,9 +75,8 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
-    RETURN_IF_ERROR(_helper.init(state, profile(), p.is_serial_operator(), _filter_dependencies,
-                                 p.operator_id(), p.node_id(),
-                                 p.get_name() + "_FILTER_DEPENDENCY"));
+    RETURN_IF_ERROR(_helper.init(state, p.is_serial_operator(), p.node_id(), p.operator_id(),
+                                 _filter_dependencies, p.get_name() + "_FILTER_DEPENDENCY"));
     RETURN_IF_ERROR(_init_profile());
     set_scan_ranges(state, info.scan_ranges);
 
@@ -97,7 +98,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
-    RETURN_IF_ERROR(_helper.acquire_runtime_filter(_conjuncts));
+    RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.row_descriptor()));
     _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
     for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
@@ -287,7 +288,9 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                                 if (need_set_runtime_filter_id) {
                                     auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(
                                             conjunct_expr_root.get());
-                                    value_range.set_runtime_filter_info(
+                                    DCHECK(rf_expr->predicate_filtered_rows_counter() != nullptr);
+                                    DCHECK(rf_expr->predicate_input_rows_counter() != nullptr);
+                                    value_range.attach_profile_counter(
                                             rf_expr->filter_id(),
                                             rf_expr->predicate_filtered_rows_counter(),
                                             rf_expr->predicate_input_rows_counter());
@@ -336,6 +339,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 return Status::OK();
             }
         } else {
+            /// TODO: The FE should ensure that all equality predicates are divided by AND, and there should no longer be cases where the root node is AND
             vectorized::VExprSPtr left_child;
             RETURN_IF_ERROR(
                     _normalize_predicate(conjunct_expr_root->children()[0], context, left_child));
@@ -453,6 +457,9 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
         return false;
     }
 
+    // slot_ref is a specific expr
+    // child_contains_slot may include a cast expr
+
     auto entry = _slot_id_to_value_range.find(slot_ref->slot_id());
     if (_slot_id_to_value_range.end() == entry) {
         return false;
@@ -549,6 +556,7 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                          << "] should return a const column but actually is "
                          << const_col_wrapper->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
+            /// TODO: There is a DCHECK here, but an additional check is still needed. It should return an error code.
             if (bool_column->size() == 1) {
                 constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
                 if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
@@ -591,8 +599,8 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                 iter = hybrid_set->begin();
             } else {
                 int runtime_filter_id = -1;
-                RuntimeProfile::Counter* predicate_filtered_rows_counter = nullptr;
-                RuntimeProfile::Counter* predicate_input_rows_counter = nullptr;
+                std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter = nullptr;
+                std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter = nullptr;
                 if (expr_ctx->root()->is_rf_wrapper()) {
                     auto* rf_expr =
                             assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
@@ -630,6 +638,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
         while (iter->has_next()) {
             // column in (nullptr) is always false so continue to
             // dispose next item
+            /// TODO: This should not return nullptr, consider removing it.
             if (nullptr == iter->get_value()) {
                 iter->next();
                 continue;
@@ -777,6 +786,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         }
         while (iter->has_next()) {
             // column not in (nullptr) is always true
+            /// TODO: This should not return nullptr, consider removing it.
             if (nullptr == iter->get_value()) {
                 continue;
             }
@@ -1275,7 +1285,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> {}.swap(_scanners);
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, rf_time);
-
+    _helper.collect_realtime_profile(profile());
     return PipelineXLocalState<>::close(state);
 }
 
@@ -1358,5 +1368,10 @@ template class ScanLocalState<MetaScanLocalState>;
 template class ScanOperatorX<MetaScanLocalState>;
 template class ScanOperatorX<GroupCommitLocalState>;
 template class ScanLocalState<GroupCommitLocalState>;
+
+#ifdef BE_TEST
+template class ScanOperatorX<MockScanLocalState>;
+template class ScanLocalState<MockScanLocalState>;
+#endif
 
 } // namespace doris::pipeline

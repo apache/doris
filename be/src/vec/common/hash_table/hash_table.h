@@ -29,7 +29,6 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/runtime_profile.h"
-#include "vec/common/hash_table/hash_table_allocator.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 

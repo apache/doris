@@ -113,7 +113,7 @@ public:
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
     [[nodiscard]] Dependency* is_blocked_by(std::shared_ptr<PipelineTask> task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
-    virtual void set_ready();
+    void set_ready();
     void set_ready_to_read(int channel_id = 0) {
         DCHECK_LT(channel_id, _shared_state->source_deps.size()) << debug_string();
         _shared_state->source_deps[channel_id]->set_ready();
@@ -199,12 +199,11 @@ private:
     uint32_t _counter = 0;
 };
 
-class RuntimeFilterDependency;
 struct RuntimeFilterTimerQueue;
 class RuntimeFilterTimer {
 public:
     RuntimeFilterTimer(int64_t registration_time, int32_t wait_time_ms,
-                       std::shared_ptr<RuntimeFilterDependency> parent)
+                       std::shared_ptr<Dependency> parent)
             : _parent(std::move(parent)),
               _registration_time(registration_time),
               _wait_time_ms(wait_time_ms) {}
@@ -219,7 +218,7 @@ public:
     int32_t wait_time_ms() const { return _wait_time_ms; }
 
     void set_local_runtime_filter_dependencies(
-            const std::vector<std::shared_ptr<RuntimeFilterDependency>>& deps) {
+            const std::vector<std::shared_ptr<Dependency>>& deps) {
         _local_runtime_filter_dependencies = deps;
     }
 
@@ -227,8 +226,8 @@ public:
 
 private:
     friend struct RuntimeFilterTimerQueue;
-    std::shared_ptr<RuntimeFilterDependency> _parent = nullptr;
-    std::vector<std::shared_ptr<RuntimeFilterDependency>> _local_runtime_filter_dependencies;
+    std::shared_ptr<Dependency> _parent = nullptr;
+    std::vector<std::shared_ptr<Dependency>> _local_runtime_filter_dependencies;
     std::mutex _lock;
     int64_t _registration_time;
     const int32_t _wait_time_ms;
@@ -266,17 +265,6 @@ struct RuntimeFilterTimerQueue {
     std::atomic_bool _stop = false;
     std::atomic_bool _shutdown = false;
     std::list<std::shared_ptr<pipeline::RuntimeFilterTimer>> _que;
-};
-
-class RuntimeFilterDependency final : public Dependency {
-public:
-    RuntimeFilterDependency(int id, int node_id, std::string name,
-                            RuntimeFilterConsumer* runtime_filter)
-            : Dependency(id, node_id, std::move(name)), _runtime_filter(runtime_filter) {}
-    std::string debug_string(int indentation_level = 0) override;
-
-private:
-    const RuntimeFilterConsumer* _runtime_filter = nullptr;
 };
 
 struct AggSharedState : public BasicSharedState {
@@ -688,6 +676,7 @@ public:
     // If a calculation involves both nullable and non-nullable columns, the final output should be a nullable column
     Status update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs);
 
+    size_t get_hash_table_size() const;
     /// init in both upstream side.
     //The i-th result expr list refers to the i-th child.
     std::vector<vectorized::VExprContextSPtrs> child_exprs_lists;

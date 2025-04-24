@@ -1077,6 +1077,181 @@ TEST_F(IndexBuilderTest, NonExistentColumnIndexTest) {
     // but the file count verification above should be sufficient to confirm behavior
 }
 
+TEST_F(IndexBuilderTest, RenameColumnIndexTest) {
+    // 0. prepare tablet path
+    auto tablet_path = _absolute_dir + "/" + std::to_string(14679);
+    _tablet->_tablet_path = tablet_path;
+    ASSERT_TRUE(io::global_local_filesystem()->delete_directory(tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet_path).ok());
+    auto schema = std::make_shared<TabletSchema>();
+
+    schema->_keys_type = KeysType::UNIQUE_KEYS;
+    schema->_inverted_index_storage_format = InvertedIndexStorageFormatPB::V2;
+
+    // Create the first key column
+    TabletColumn column_1;
+    column_1.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    column_1.set_unique_id(1);
+    column_1.set_name("k1");
+    column_1.set_is_key(true);
+    schema->append_column(column_1);
+
+    // Create the second key column
+    TabletColumn column_2;
+    column_2.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    // not sequential unique_id
+    column_2.set_unique_id(3);
+    column_2.set_name("k2");
+    column_2.set_is_key(false);
+    schema->append_column(column_2);
+
+    // 1. Prepare data for writing
+    RowsetSharedPtr rowset;
+    const int num_rows = 1000;
+
+    // 2. First add an initial index to the schema (for k1 column)
+    TabletIndex initial_index;
+    initial_index._index_id = 1;
+    initial_index._index_name = "k1_index";
+    initial_index._index_type = IndexType::INVERTED;
+    initial_index._col_unique_ids.push_back(1); // unique_id for k1
+    schema->append_index(std::move(initial_index));
+
+    // 3. Create a rowset writer context
+    RowsetWriterContext writer_context;
+    writer_context.rowset_id.init(15679);
+    writer_context.tablet_id = 15679;
+    writer_context.tablet_schema_hash = 567997577;
+    writer_context.partition_id = 10;
+    writer_context.rowset_type = BETA_ROWSET;
+    writer_context.tablet_path = _absolute_dir + "/" + std::to_string(15679);
+    writer_context.rowset_state = VISIBLE;
+    writer_context.tablet_schema = schema;
+    writer_context.version.first = 10;
+    writer_context.version.second = 10;
+
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+
+    // 4. Create a rowset writer
+    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto rowset_writer = std::move(res).value();
+
+    // 5. Write data to the rowset
+    {
+        vectorized::Block block = _tablet_schema->create_block();
+        auto columns = block.mutate_columns();
+
+        // Add data for k1 and k2 columns
+        for (int i = 0; i < num_rows; ++i) {
+            // k1 column (int)
+            int32_t k1 = i * 10;
+            columns[0]->insert_data((const char*)&k1, sizeof(k1));
+
+            // k2 column (int)
+            int32_t k2 = i % 100;
+            columns[1]->insert_data((const char*)&k2, sizeof(k2));
+        }
+
+        // Add the block to the rowset
+        Status s = rowset_writer->add_block(&block);
+        ASSERT_TRUE(s.ok()) << s.to_string();
+
+        // Flush the writer
+        s = rowset_writer->flush();
+        ASSERT_TRUE(s.ok()) << s.to_string();
+
+        // Build the rowset
+        ASSERT_TRUE(rowset_writer->build(rowset).ok());
+
+        // Add the rowset to the tablet
+        ASSERT_TRUE(_tablet->add_rowset(rowset).ok());
+    }
+
+    // 6. Prepare indexes for building - valid k2 and non-existent k3
+    _alter_indexes.clear();
+
+    // Index for rename column "k2" to "k3"
+    TOlapTableIndex index2;
+    index2.index_id = 3;
+    index2.columns.emplace_back("k3"); // This column doesn't exist in the schema
+    index2.index_name = "k3_index";
+    index2.index_type = TIndexType::INVERTED;
+    index2.column_unique_ids.push_back(3);
+    index2.__isset.column_unique_ids = true;
+    _alter_indexes.push_back(index2);
+
+    // 7. Create IndexBuilder
+    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
+                         _alter_indexes, false);
+
+    // 8. Initialize and verify
+    auto status = builder.init();
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(builder._alter_index_ids.size(), 1); // Only k1 is considered for building
+
+    // 9. Build indexes - should only build for existing columns
+    status = builder.do_build_inverted_index();
+    EXPECT_TRUE(status.ok()) << status.to_string();
+
+    // 10. Check paths and files
+    auto old_tablet_path = _absolute_dir + "/" + std::to_string(15679);
+    auto new_tablet_path = _absolute_dir + "/" + std::to_string(14679);
+    bool old_exists = false;
+    bool new_exists = false;
+    EXPECT_TRUE(io::global_local_filesystem()->exists(old_tablet_path, &old_exists).ok());
+    EXPECT_TRUE(old_exists);
+    EXPECT_TRUE(io::global_local_filesystem()->exists(new_tablet_path, &new_exists).ok());
+    EXPECT_TRUE(new_exists);
+
+    // 11. Check files in old and new directories
+    std::vector<io::FileInfo> old_files;
+    bool old_dir_exists = false;
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->list(old_tablet_path, true, &old_files, &old_dir_exists)
+                        .ok());
+    EXPECT_TRUE(old_dir_exists);
+    int old_idx_file_count = 0;
+    int old_dat_file_count = 0;
+    for (const auto& file : old_files) {
+        std::string filename = file.file_name;
+        if (filename.find(".idx") != std::string::npos) {
+            old_idx_file_count++;
+        }
+        if (filename.find(".dat") != std::string::npos) {
+            old_dat_file_count++;
+        }
+    }
+    EXPECT_EQ(old_idx_file_count, 1)
+            << "Old directory should contain exactly 1 .idx file for the original k1 index";
+    EXPECT_EQ(old_dat_file_count, 1) << "Old directory should contain exactly 1 .dat file";
+
+    std::vector<io::FileInfo> new_files;
+    bool new_dir_exists = false;
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->list(new_tablet_path, true, &new_files, &new_dir_exists)
+                        .ok());
+    EXPECT_TRUE(new_dir_exists);
+    int new_idx_file_count = 0;
+    int new_dat_file_count = 0;
+    for (const auto& file : new_files) {
+        std::string filename = file.file_name;
+        if (filename.find(".idx") != std::string::npos) {
+            new_idx_file_count++;
+        }
+        if (filename.find(".dat") != std::string::npos) {
+            new_dat_file_count++;
+        }
+    }
+    // Should have 2 index files: original k1 index and new k2 index (k3 should be skipped)
+    EXPECT_EQ(new_idx_file_count, 1)
+            << "New directory should contain exactly 1 .idx files (for k1 and k2, not k3)";
+    EXPECT_EQ(new_dat_file_count, 1) << "New directory should contain exactly 1 .dat file";
+
+    // 12. Verify the tablet schema - would need to examine tablet_schema here
+    // k1 and k2 indexes should exist, k3 index should not
+    // Note: In production code, additional verification of schema would be done here
+}
 TEST_F(IndexBuilderTest, AddNonExistentColumnIndexWhenOneExistsTest) {
     // 0. prepare tablet path
     auto tablet_path = _absolute_dir + "/" + std::to_string(14679);

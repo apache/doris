@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/exec_env.h"
@@ -37,6 +38,7 @@
 #include "util/stack_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 constexpr size_t SYNC_PROC_RESERVED_INTERVAL_BYTES = (1ULL << 20); // 1M
 static std::string MEMORY_ORPHAN_CHECK_MSG =
@@ -52,7 +54,7 @@ class ThreadMemTrackerMgr {
 public:
     ThreadMemTrackerMgr() = default;
 
-    ~ThreadMemTrackerMgr() {
+    MOCK_FUNCTION ~ThreadMemTrackerMgr() {
         // if _init == false, exec env is not initialized when init(). and never consumed mem tracker once.
         if (_init) {
             DCHECK(_reserved_mem == 0);
@@ -83,7 +85,7 @@ public:
     void flush_untracked_mem();
 
     // if only_check_process_memory == true, still reserve query, wg, process memory, only check process memory.
-    doris::Status try_reserve(int64_t size, bool only_check_process_memory = false);
+    MOCK_FUNCTION doris::Status try_reserve(int64_t size, bool only_check_process_memory = false);
 
     void shrink_reserved();
 
@@ -351,4 +353,5 @@ inline void ThreadMemTrackerMgr::shrink_reserved() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

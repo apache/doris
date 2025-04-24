@@ -26,6 +26,17 @@ namespace doris {
 
 class CloudStorageEngine;
 
+struct SyncRowsetStats {
+    int64_t get_remote_rowsets_num {0};
+    int64_t get_remote_rowsets_rpc_ms {0};
+
+    int64_t get_local_delete_bitmap_rowsets_num {0};
+    int64_t get_remote_delete_bitmap_rowsets_num {0};
+    int64_t get_remote_delete_bitmap_key_count {0};
+    int64_t get_remote_delete_bitmap_bytes {0};
+    int64_t get_remote_delete_bitmap_rpc_ms {0};
+};
+
 struct SyncOptions {
     bool warmup_delta_data = false;
     bool sync_delete_bitmap = true;
@@ -76,7 +87,7 @@ public:
     // If `query_version` > 0 and local max_version of the tablet >= `query_version`, do nothing.
     // If 'need_download_data_async' is true, it means that we need to download the new version
     // rowsets datum async.
-    Status sync_rowsets(const SyncOptions& options = {});
+    Status sync_rowsets(const SyncOptions& options = {}, SyncRowsetStats* stats = nullptr);
 
     // Synchronize the tablet meta from meta service.
     Status sync_meta();
@@ -202,6 +213,8 @@ public:
 
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
 
+    bthread::Mutex& get_sync_meta_lock() { return _sync_meta_lock; }
+
     const auto& rowset_map() const { return _rs_version_map; }
 
     // Merge all rowset schemas within a CloudTablet
@@ -228,12 +241,13 @@ private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
 
-    Status sync_if_not_running();
+    Status sync_if_not_running(SyncRowsetStats* stats = nullptr);
 
     CloudStorageEngine& _engine;
 
     // this mutex MUST ONLY be used when sync meta
     bthread::Mutex _sync_meta_lock;
+    // ATTENTION: lock order should be: _sync_meta_lock -> _meta_lock
 
     std::atomic<int64_t> _cumulative_point {-1};
     std::atomic<int64_t> _approximate_num_rowsets {-1};

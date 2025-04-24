@@ -955,6 +955,11 @@ void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
                                        {(*it)->rowset_id(), UINT32_MAX, 0});
                 rowset_cache_version_size =
                         delete_bitmap().remove_rowset_cache_version((*it)->rowset_id());
+                if (config::enable_mow_verbose_log) {
+                    LOG_INFO(
+                            "delete stale rowset's delete bitmap. tablet={}, version={}, rowset={}",
+                            tablet_id(), version.to_string(), (*it)->rowset_id().to_string());
+                }
             }
             it = _stale_rs_metas.erase(it);
         } else {
@@ -1217,6 +1222,7 @@ bool DeleteBitmap::contains_agg_without_cache(const BitmapKey& bmk, uint32_t row
 }
 
 void DeleteBitmap::remove_sentinel_marks() {
+    std::lock_guard l(lock);
     for (auto it = delete_bitmap.begin(), end = delete_bitmap.end(); it != end;) {
         if (std::get<1>(it->first) == DeleteBitmap::INVALID_SEGMENT_ID) {
             it = delete_bitmap.erase(it);

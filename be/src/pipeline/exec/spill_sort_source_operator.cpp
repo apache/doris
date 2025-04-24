@@ -180,7 +180,7 @@ Status SpillSortLocalState::_create_intermediate_merger(
         int num_blocks, const vectorized::SortDescription& sort_description) {
     std::vector<vectorized::BlockSupplier> child_block_suppliers;
     _merger = std::make_unique<vectorized::VSortedRunMerger>(
-            sort_description, _shared_state->spill_block_batch_row_count,
+            sort_description, _runtime_state->batch_size(),
             Base::_shared_state->in_mem_shared_state->sorter->limit(),
             Base::_shared_state->in_mem_shared_state->sorter->offset(), profile());
 
