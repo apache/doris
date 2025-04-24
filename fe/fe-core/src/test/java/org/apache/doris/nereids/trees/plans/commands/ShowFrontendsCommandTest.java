@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.AnalysisException;
@@ -27,16 +25,13 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
-import org.junit.Test;
+
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-
-/**
- * @Author zhaorongsheng
- * @Date 2025/4/23 19:43
- * @Version 1.0
- */
-public class ShowFrontendsCommandTest  extends TestWithFeService {
+public class ShowFrontendsCommandTest extends TestWithFeService {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     private static final String infoDB = InfoSchemaDb.DATABASE_NAME;
 

@@ -17,13 +17,14 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;

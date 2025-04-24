@@ -62,7 +62,7 @@ public class ShowBackendsCommand extends ShowCommand {
         if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
                 InternalCatalog.INTERNAL_CATALOG_NAME, InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
-                PrivPredicate.SELECT.getPrivs().toString(), InfoSchemaDb.DATABASE_NAME);
+                    PrivPredicate.SELECT.getPrivs().toString(), InfoSchemaDb.DATABASE_NAME);
         }
 
         List<List<String>> backendInfos = BackendsProcDir.getBackendInfos();
