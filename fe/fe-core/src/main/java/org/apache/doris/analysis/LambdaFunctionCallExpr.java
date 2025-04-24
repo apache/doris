@@ -38,7 +38,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_map").add("array_filter").add("array_exists").add("array_sortby")
             .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
-            .add("array_split").add("array_reverse_split")
+            .add("array_split").add("array_reverse_split").add("array_reduce")
             .build();
     // The functions in this set are all normal array functions when implemented initially.
     // and then wants add lambda expr as the input param, so we rewrite it to contains an array_map lambda function
@@ -94,7 +94,8 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             argTypes[i] = this.children.get(i).getType();
         }
 
-        if (fnName.getFunction().equalsIgnoreCase("array_map")) {
+        if (fnName.getFunction().equalsIgnoreCase("array_map")
+                ||  fnName.getFunction().equalsIgnoreCase("array_reduce")) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 2) {
                 throw new AnalysisException("The " + fnName.getFunction() + " function must have at least two params");
             }
@@ -118,11 +119,11 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
             Expr lambda = this.children.get(0);
             if (!(lambda instanceof LambdaFunctionExpr)) {
-                throw new AnalysisException("array_map must use lambda as first input params, now is"
+                throw new AnalysisException("must use lambda as first input params, now is"
                         + lambda.debugString());
             }
             fn = new Function(fnName, Arrays.asList(argTypes), ArrayType.create(lambda.getChild(0).getType(), true),
-                    true, true, NullableMode.CUSTOM);
+                true, true, NullableMode.CUSTOM);
         } else if (fnName.getFunction().equalsIgnoreCase("array_exists")
                 || fnName.getFunction().equalsIgnoreCase("array_first_index")
                 || fnName.getFunction().equalsIgnoreCase("array_last_index")
