@@ -18,13 +18,13 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.analysis.ShowRepositoriesStmt;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.common.UserException;
+import org.apache.doris.fsv2.FileSystemFactory;
+import org.apache.doris.fsv2.remote.RemoteFile;
+import org.apache.doris.fsv2.remote.RemoteFileSystem;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.collect.Lists;
@@ -318,12 +318,12 @@ public class RepositoryTest {
     }
 
     @Test
-    public void testPersist() {
+    public void testPersist() throws UserException {
         Map<String, String> properties = Maps.newHashMap();
         properties.put("bos_endpoint", "http://gz.bcebos.com");
         properties.put("bos_accesskey", "a");
         properties.put("bos_secret_accesskey", "b");
-        RemoteFileSystem fs = FileSystemFactory.get(brokerName, StorageBackend.StorageType.BROKER, properties);
+        RemoteFileSystem fs = FileSystemFactory.get(properties);
         repo = new Repository(10000, "repo", false, location, fs);
 
         File file = new File("./Repository");

@@ -45,15 +45,17 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.AzureFileSystem;
-import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fsv2.FileSystemFactory;
+import org.apache.doris.fsv2.remote.AzureFileSystem;
+import org.apache.doris.fsv2.remote.RemoteFileSystem;
+import org.apache.doris.fsv2.remote.S3FileSystem;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -214,8 +216,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     "broker does not exist: " + stmt.getBrokerName());
         }
 
-        RemoteFileSystem fileSystem = FileSystemFactory.get(stmt.getBrokerName(), stmt.getStorageType(),
-                    stmt.getProperties());
+        RemoteFileSystem fileSystem;
+        try {
+            fileSystem = FileSystemFactory.get(stmt.getProperties());
+        } catch (UserException e) {
+            throw new DdlException("Failed to initialize remote file system: " + e.getMessage());
+        }
         long repoId = env.getNextId();
         Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(), fileSystem);
 
@@ -231,8 +237,40 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
     public void alterRepository(AlterRepositoryStmt stmt) throws DdlException {
-        alterRepositoryInternal(stmt.getName(), stmt.getProperties());
+        tryLock();
+        try {
+            Repository repo = repoMgr.getRepo(stmt.getName());
+            if (repo == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
+            }
+            Map<String, String> allProperties = new HashMap<>(repo.getRemoteFileSystem().getProperties());
+            allProperties.putAll(stmt.getProperties());
+            StorageProperties newStorageProperties = StorageProperties.createPrimary(allProperties);
+            RemoteFileSystem fileSystem = FileSystemFactory.get(newStorageProperties);
+
+            Repository newRepo = new Repository(repo.getId(), repo.getName(), repo.isReadOnly(),
+                    repo.getLocation(), fileSystem);
+            if (!newRepo.ping()) {
+                LOG.warn("Failed to connect repository {}. msg: {}", repo.getName(), repo.getErrorMsg());
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Repo can not ping with new storage properties");
+            }
+
+            Status st = repoMgr.alterRepo(newRepo, false /* not replay */);
+            if (!st.ok()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Failed to alter repository: " + st.getErrMsg());
+            }
+            for (AbstractJob job : getAllCurrentJobs()) {
+                if (!job.isDone() && job.getRepoId() == repo.getId()) {
+                    job.updateRepo(newRepo);
+                }
+            }
+        } finally {
+            seqlock.unlock();
+        }
     }
+
 
     public void alterRepositoryInternal(String repoName, Map<String, String> properties) throws DdlException {
         tryLock();
@@ -249,14 +287,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 if (!status.ok()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, status.getErrMsg());
                 }
-                RemoteFileSystem fileSystem = null;
-                if (repo.getRemoteFileSystem() instanceof S3FileSystem) {
-                    fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
-                            StorageBackend.StorageType.S3, oldProperties);
-                } else if (repo.getRemoteFileSystem() instanceof AzureFileSystem) {
-                    fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
-                            StorageBackend.StorageType.AZURE, oldProperties);
-                }
+                RemoteFileSystem fileSystem = FileSystemFactory.get(oldProperties);
 
                 Repository newRepo = new Repository(repo.getId(), repo.getName(), repo.isReadOnly(),
                         repo.getLocation(), fileSystem);
@@ -280,6 +311,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                         "Only support alter s3 or azure repository");
             }
+        } catch (UserException e) {
+            LOG.warn("Failed to alter repository {}. msg: {}", repoName, e.getMessage());
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Failed to alter repository: " + e.getMessage());
         } finally {
             seqlock.unlock();
         }

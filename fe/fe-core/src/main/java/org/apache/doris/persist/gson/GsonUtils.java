@@ -579,6 +579,22 @@ public class GsonUtils {
             .registerSubtype(S3FileSystem.class, S3FileSystem.class.getSimpleName())
             .registerSubtype(AzureFileSystem.class, AzureFileSystem.class.getSimpleName());
 
+    private static RuntimeTypeAdapterFactory<org.apache.doris.fsv2.PersistentFileSystem>
+            remoteFileSystemTypeAdapterFactoryV2
+            = RuntimeTypeAdapterFactory.of(org.apache.doris.fsv2.PersistentFileSystem.class, "clazz")
+            .registerSubtype(org.apache.doris.fsv2.remote.dfs.DFSFileSystem.class,
+                    org.apache.doris.fsv2.remote.dfs.DFSFileSystem.class.getSimpleName())
+            .registerSubtype(org.apache.doris.fsv2.remote.dfs.JFSFileSystem.class,
+                    org.apache.doris.fsv2.remote.dfs.JFSFileSystem.class.getSimpleName())
+            .registerSubtype(org.apache.doris.fsv2.remote.dfs.OFSFileSystem.class,
+                    org.apache.doris.fsv2.remote.dfs.OFSFileSystem.class.getSimpleName())
+            .registerSubtype(org.apache.doris.fsv2.remote.ObjFileSystem.class,
+                    org.apache.doris.fsv2.remote.ObjFileSystem.class.getSimpleName())
+            .registerSubtype(org.apache.doris.fsv2.remote.S3FileSystem.class,
+                    org.apache.doris.fsv2.remote.S3FileSystem.class.getSimpleName())
+            .registerSubtype(org.apache.doris.fsv2.remote.AzureFileSystem.class,
+                    org.apache.doris.fsv2.remote.AzureFileSystem.class.getSimpleName());
+
     private static RuntimeTypeAdapterFactory<org.apache.doris.backup.AbstractJob>
             jobBackupTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(org.apache.doris.backup.AbstractJob.class, "clazz")
@@ -643,6 +659,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(routineLoadTypeAdapterFactory)
             .registerTypeAdapterFactory(routineLoadJobTypeAdapterFactory)
             .registerTypeAdapterFactory(remoteFileSystemTypeAdapterFactory)
+            .registerTypeAdapterFactory(remoteFileSystemTypeAdapterFactoryV2)
             .registerTypeAdapterFactory(jobBackupTypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionItemTypeAdapterFactory)

@@ -43,14 +43,20 @@ public class S3PropertyUtils {
      */
     public static String constructEndpointFromUrl(Map<String, String> props,
                                                   String stringUsePathStyle,
-                                                  String stringForceParsingByStandardUri) throws UserException {
+                                                  String stringForceParsingByStandardUri) {
         String uri = props.get(URI_KEY);
         if (uri == null || uri.isEmpty()) {
             return null;
         }
         boolean usePathStyle = Boolean.parseBoolean(stringUsePathStyle);
         boolean forceParsingByStandardUri = Boolean.parseBoolean(stringForceParsingByStandardUri);
-        S3URI s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
+        S3URI s3uri;
+        try {
+            s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
+        } catch (UserException e) {
+            throw new IllegalArgumentException("Invalid S3 URI: " + uri + ",usePathStyle: " + usePathStyle
+                    + " forceParsingByStandardUri: " + forceParsingByStandardUri, e);
+        }
         return s3uri.getEndpoint().orElse(null);
     }
 
@@ -68,14 +74,20 @@ public class S3PropertyUtils {
      */
     public static String constructRegionFromUrl(Map<String, String> props,
                                                 String stringUsePathStyle,
-                                                String stringForceParsingByStandardUri) throws UserException {
+                                                String stringForceParsingByStandardUri) {
         String uri = props.get(URI_KEY);
         if (uri == null || uri.isEmpty()) {
             return null;
         }
         boolean usePathStyle = Boolean.parseBoolean(stringUsePathStyle);
         boolean forceParsingByStandardUri = Boolean.parseBoolean(stringForceParsingByStandardUri);
-        S3URI s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
+        S3URI s3uri = null;
+        try {
+            s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
+        } catch (UserException e) {
+            throw new IllegalArgumentException("Invalid S3 URI: " + uri + ",usePathStyle: " + usePathStyle
+                    + " forceParsingByStandardUri: " + forceParsingByStandardUri, e);
+        }
         return s3uri.getRegion().orElse(null);
 
     }

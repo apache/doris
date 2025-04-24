@@ -42,6 +42,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanNodeId;
@@ -106,6 +107,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> locationProperties = Maps.newHashMap();
+    protected StorageProperties storageProperties;
     protected String filePath;
 
     protected Optional<String> resourceName = Optional.empty();

@@ -38,12 +38,12 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
     protected String endpoint = "";
 
     @Getter
-    @ConnectorProperty(names = {"obs.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
+    @ConnectorProperty(names = {"obs.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key", "s3.access_key"},
             description = "The access key of OBS.")
     protected String accessKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"obs.secret_key", "secret_key", "s3.secret_key"},
+    @ConnectorProperty(names = {"obs.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
             description = "The secret key of OBS.")
     protected String secretKey = "";
 

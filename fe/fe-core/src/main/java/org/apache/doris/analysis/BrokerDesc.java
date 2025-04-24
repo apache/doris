@@ -20,17 +20,17 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.property.S3ClientBEProperties;
-import org.apache.doris.datasource.property.constants.BosProperties;
-import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -53,6 +53,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
     // just for multi load
     public static final String MULTI_LOAD_BROKER = "__DORIS_MULTI_LOAD_BROKER__";
     public static final String MULTI_LOAD_BROKER_BACKEND_KEY = "__DORIS_MULTI_LOAD_BROKER_BACKEND__";
+    @Deprecated
     @SerializedName("cts3")
     private boolean convertedToS3 = false;
 
@@ -75,15 +76,17 @@ public class BrokerDesc extends StorageDesc implements Writable {
         if (properties != null) {
             this.properties.putAll(properties);
         }
+        this.storageProperties = StorageProperties.createPrimary(properties);
+        // we should use storage properties?
+        this.properties.putAll(storageProperties.getBackendConfigProperties());
+        this.storageType = StorageBackend.StorageType.convertToStorageType(storageProperties.getStorageName());
+        this.name = name;
+        this.properties = Maps.newHashMap();
+        if (properties != null) {
+            this.properties.putAll(properties);
+        }
         if (isMultiLoadBroker()) {
             this.storageType = StorageBackend.StorageType.LOCAL;
-        } else {
-            this.storageType = StorageBackend.StorageType.BROKER;
-        }
-        this.properties.putAll(S3ClientBEProperties.getBeFSProperties(this.properties));
-        this.convertedToS3 = BosProperties.tryConvertBosToS3(this.properties, this.storageType);
-        if (this.convertedToS3) {
-            this.storageType = StorageBackend.StorageType.S3;
         }
     }
 
@@ -93,24 +96,23 @@ public class BrokerDesc extends StorageDesc implements Writable {
         if (properties != null) {
             this.properties.putAll(properties);
         }
+        this.storageProperties = StorageProperties.createPrimary(properties);
+        // we should use storage properties?
+        this.properties.putAll(storageProperties.getBackendConfigProperties());
         this.storageType = storageType;
-        this.properties.putAll(S3ClientBEProperties.getBeFSProperties(this.properties));
-        this.convertedToS3 = BosProperties.tryConvertBosToS3(this.properties, this.storageType);
-        if (this.convertedToS3) {
-            this.storageType = StorageBackend.StorageType.S3;
-        }
     }
 
-    public String getFileLocation(String location) {
-        return this.convertedToS3 ? BosProperties.convertPathToS3(location) : location;
+
+    public String getFileLocation(String location) throws UserException {
+        return storageProperties.validateAndNormalizeUri(location);
     }
 
-    public static BrokerDesc createForStreamLoad() {
+    public static BrokerDesc createForStreamLoad() throws UserException {
         return new BrokerDesc("", StorageType.STREAM, null);
     }
 
     public boolean isMultiLoadBroker() {
-        return this.name.equalsIgnoreCase(MULTI_LOAD_BROKER);
+        return StringUtils.isNotBlank(this.name) && this.name.equalsIgnoreCase(MULTI_LOAD_BROKER);
     }
 
     public TFileType getFileType() {
@@ -150,16 +152,8 @@ public class BrokerDesc extends StorageDesc implements Writable {
             final String val = Text.readString(in);
             properties.put(key, val);
         }
-        StorageBackend.StorageType st = StorageBackend.StorageType.BROKER;
-        String typeStr = properties.remove(PersistentFileSystem.STORAGE_TYPE);
-        if (typeStr != null) {
-            try {
-                st = StorageBackend.StorageType.valueOf(typeStr);
-            }  catch (IllegalArgumentException e) {
-                LOG.warn("set to BROKER, because of exception", e);
-            }
-        }
-        storageType = st;
+        this.storageProperties = StorageProperties.createPrimary(properties);
+        this.storageType = StorageBackend.StorageType.convertToStorageType(storageProperties.getStorageName());
     }
 
     public static BrokerDesc read(DataInput in) throws IOException {

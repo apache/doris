@@ -22,9 +22,9 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.fsv2.FileSystemFactory;
+import org.apache.doris.fsv2.remote.RemoteFile;
+import org.apache.doris.fsv2.remote.S3FileSystem;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -105,7 +105,7 @@ public class S3FileSystemTest {
             S3ObjStorage mockedStorage = new S3ObjStorage(properties);
             Assertions.assertTrue(mockedStorage.getClient() instanceof MockedS3Client);
             // inject storage to file system.
-            fileSystem = new S3FileSystem(mockedStorage);
+            fileSystem = (S3FileSystem) FileSystemFactory.get(properties);
             new MockUp<S3FileSystem>(S3FileSystem.class) {
                 @Mock
                 public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
@@ -124,7 +124,7 @@ public class S3FileSystemTest {
             };
         } else {
             // can also real file system to test.
-            fileSystem = (S3FileSystem) FileSystemFactory.getS3FileSystem(properties);
+            fileSystem = (S3FileSystem) FileSystemFactory.get(properties);
         }
         testFile = bucket + basePath + "/Ode_to_the_West_Wind";
         Assertions.assertEquals(Status.OK, fileSystem.directUpload(content, testFile));
