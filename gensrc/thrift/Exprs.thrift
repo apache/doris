@@ -182,6 +182,7 @@ struct TSlotRef {
   1: required Types.TSlotId slot_id
   2: required Types.TTupleId tuple_id
   3: optional i32 col_unique_id
+  4: optional bool is_virtual_slot
 }
 
 struct TColumnRef {
