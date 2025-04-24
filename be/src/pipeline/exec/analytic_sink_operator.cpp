@@ -261,8 +261,6 @@ bool AnalyticSinkLocalState::_get_next_for_partition(int64_t batch_rows,
 
 bool AnalyticSinkLocalState::_get_next_for_unbounded_range(int64_t batch_rows,
                                                            int64_t current_block_base_pos) {
-    std::cout << "_get_next_for_unbounded_range " << _current_row_position << " "
-              << _partition_by_pose.end << std::endl;
     while (_current_row_position < _partition_by_pose.end) {
         _update_order_by_range();
         if (_current_row_position == _order_by_pose.start) {
