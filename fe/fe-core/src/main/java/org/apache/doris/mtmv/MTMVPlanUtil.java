@@ -181,7 +181,8 @@ public class MTMVPlanUtil {
      * @param ctx
      * @param partitionCol partition column name of MTMV
      * @param distributionColumnNames distribution column names of MTMV
-     * @param simpleColumnDefinitions Use custom column names if provided (non-empty); otherwise, auto-generate the column names.
+     * @param simpleColumnDefinitions Use custom column names if provided (non-empty);
+     *         otherwise, auto-generate the column names.
      * @param properties properties of MTMV, it determines whether row storage needs to be generated based on this.
      * @return ColumnDefinitions of MTMV
      */
@@ -217,7 +218,8 @@ public class MTMVPlanUtil {
      * @param ctx
      * @param partitionCol partition column name of MTMV
      * @param distributionColumnNames distribution column names of MTMV
-     * @param simpleColumnDefinitions Use custom column names if provided (non-empty); otherwise, auto-generate the column names.
+     * @param simpleColumnDefinitions Use custom column names if provided (non-empty);
+     *         otherwise, auto-generate the column names.
      * @param properties properties of MTMV, it determines whether row storage needs to be generated based on this.
      * @return ColumnDefinitions of MTMV
      */
