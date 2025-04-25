@@ -112,6 +112,9 @@ void TaskScheduler::_do_work(int index) {
         if (task->is_finalized()) {
             continue;
         }
+
+        SCOPED_ATTACH_TASK(task->runtime_state()); // put it at the beginning.
+
         auto fragment_context = task->fragment_context().lock();
         if (!fragment_context) {
             // Fragment already finished
