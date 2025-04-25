@@ -110,7 +110,7 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
     public Plan visitPhysicalOlapScan(PhysicalOlapScan scan, Context context) {
         if (scan.getOutput().containsAll(context.lazySlots)) {
             PhysicalLazyMaterializeOlapScan lazyScan = new PhysicalLazyMaterializeOlapScan(scan,
-                    context.rowIdSlot.withNullable(false), context.lazySlots);
+                    context.rowIdSlot, context.lazySlots);
             return lazyScan;
         } else {
             // should not hit here
@@ -122,7 +122,7 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
     public Plan visitPhysicalFileScan(PhysicalFileScan scan, Context context) {
         if (scan.getOutput().containsAll(context.lazySlots)) {
             PhysicalLazyMaterializeFileScan lazyScan = new PhysicalLazyMaterializeFileScan(scan,
-                    context.rowIdSlot.withNullable(false), context.lazySlots);
+                    context.rowIdSlot, context.lazySlots);
             return lazyScan;
         } else {
             // should not hit here
@@ -229,8 +229,15 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
                     .copyStatsAndGroupIdFrom(physicalPlan).resetLogicalProperties();
             // update rowIdSlot.nullable after outer join
             int rowIdPos = plan.getOutput().indexOf(context.rowIdSlot);
-            if (rowIdPos != -1) {
-                context.updateRowIdSlot((SlotReference) plan.getOutput().get(rowIdPos));
+            if (rowIdPos != -1 && !context.rowIdSlot.nullable()) {
+                SlotReference rowIdSlot = (SlotReference) plan.getOutput().get(rowIdPos);
+                if (join.getJoinType().isFullOuterJoin()) {
+                    context.updateRowIdSlot(rowIdSlot.withNullable(true));
+                } else if (join.getJoinType().isLeftOuterJoin() && plan.child(1).getOutput().contains(rowIdSlot)) {
+                    context.updateRowIdSlot(rowIdSlot.withNullable(true));
+                } else if (join.getJoinType().isRightOuterJoin() && join.left().getOutput().contains(rowIdSlot)) {
+                    context.updateRowIdSlot(rowIdSlot.withNullable(true));
+                }
             }
         }
         return plan;
