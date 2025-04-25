@@ -4221,7 +4221,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             List<String> l = Lists.newArrayList(dataType);
             ctx.INTEGER_VALUE().stream().map(ParseTree::getText).forEach(l::add);
-            return DataType.convertPrimitiveFromStrings(l);
+            return DataType.convertPrimitiveFromStrings(l).conversion();
         });
     }
 
