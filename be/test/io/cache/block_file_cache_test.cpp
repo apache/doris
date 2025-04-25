@@ -2898,6 +2898,70 @@ TEST_F(BlockFileCacheTest, remove_directly_when_normal_change_to_ttl) {
     }
 }
 
+TEST_F(BlockFileCacheTest, ttl_gc) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard1;
+    sp->enable_processing();
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 50;
+    settings.query_queue_elements = 5;
+    settings.ttl_queue_size = 500;
+    settings.ttl_queue_elements = 500;
+    settings.capacity = 100;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+
+    config::file_cache_background_ttl_gc_batch = 6;
+    config::file_cache_background_ttl_gc_interval_ms =
+            3000; // make it big enough to disable auto ttl_gc
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        };
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.query_id = query_id;
+    int64_t cur_time = UnixSeconds();
+    context.expiration_time = cur_time + 2;
+
+    for (int64_t i = 0; i < 12; ++i) {
+        auto key = io::BlockFileCache::hash(fmt::format("key{}", i));
+        auto holder = cache.get_or_set(key, 0, 5, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(0, 4), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(1, blocks[0], io::FileBlock::Range(0, 4), io::FileBlock::State::DOWNLOADED);
+    }
+    ASSERT_EQ(cache._time_to_key.size(), 12);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    ASSERT_GT(cache._time_to_key.size(), 0);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    ASSERT_EQ(cache._time_to_key.size(), 0);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
 TEST_F(BlockFileCacheTest, recyle_cache_async) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
