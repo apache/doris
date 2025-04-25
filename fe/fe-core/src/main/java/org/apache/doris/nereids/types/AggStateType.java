@@ -65,6 +65,7 @@ public class AggStateType extends DataType {
 
     /**
      * Constructor for AggStateType
+     * 
      * @param functionName     nested function's name
      * @param subTypes         nested function's argument list
      * @param subTypeNullables nested nested function's argument's nullable list
@@ -102,6 +103,12 @@ public class AggStateType extends DataType {
     public Type toCatalogDataType() {
         List<Type> types = subTypes.stream().map(DataType::toCatalogDataType).collect(Collectors.toList());
         return Expr.createAggStateType(functionName, types, subTypeNullables);
+    }
+
+    @Override
+    public DataType conversion() {
+        return new AggStateType(functionName, subTypes.stream().map(DataType::conversion).collect(Collectors.toList()),
+                subTypeNullables);
     }
 
     @Override

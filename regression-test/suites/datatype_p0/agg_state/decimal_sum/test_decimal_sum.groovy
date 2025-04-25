@@ -26,6 +26,6 @@ suite("test_decimal_sum") {
 """
 
 
-    qt_select """ select sum_merge(decimal_col) from t01 group by id;
+    qt_select """ select sum_merge(decimal_col) from t01 group by id order by id;
              """
 }
