@@ -1098,7 +1098,8 @@ DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
-DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "20000");
+DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
+DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1334,6 +1335,7 @@ DEFINE_mBool(force_azure_blob_global_endpoint, "false");
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
 DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
+DEFINE_mBool(enable_s3_object_check_after_upload, "true");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
 DEFINE_mInt64(s3_get_bucket_tokens, "1000000000000000000");

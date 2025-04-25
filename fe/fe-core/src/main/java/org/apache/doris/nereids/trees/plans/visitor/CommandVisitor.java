@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
@@ -159,6 +160,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowResourcesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRowPolicyCommand;
@@ -260,6 +262,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitExportCommand(ExportCommand exportCommand, C context) {
         return visitCommand(exportCommand, context);
+    }
+
+    default R visitCopyIntoCommand(CopyIntoCommand copyIntoCommand, C context) {
+        return visitCommand(copyIntoCommand, context);
     }
 
     default R visitCreateEncryptKeyCommand(CreateEncryptkeyCommand createEncryptKeyCommand, C context) {
@@ -578,6 +584,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowRepositoriesCommand(ShowRepositoriesCommand showRepositoriesCommand, C context) {
         return visitCommand(showRepositoriesCommand, context);
+    }
+
+    default R visitShowResourcesCommand(ShowResourcesCommand showResourcesCommand, C context) {
+        return visitCommand(showResourcesCommand, context);
     }
 
     default R visitShowRestoreCommand(ShowRestoreCommand showRestoreCommand, C context) {

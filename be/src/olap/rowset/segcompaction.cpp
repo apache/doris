@@ -65,6 +65,7 @@
 #include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 SegcompactionWorker::SegcompactionWorker(BetaRowsetWriter* writer) : _writer(writer) {}
@@ -380,7 +381,7 @@ void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segm
         return;
     }
     if (!status.ok()) {
-        int16_t errcode = status.code();
+        int errcode = status.code();
         switch (errcode) {
         case FETCH_MEMORY_EXCEEDED:
         case SEGCOMPACTION_INIT_READER:
@@ -464,4 +465,5 @@ bool SegcompactionWorker::cancel() {
     return _is_compacting_state_mutable.exchange(false);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

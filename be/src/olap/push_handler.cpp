@@ -64,6 +64,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 // Process push command, the main logical is as follows:
@@ -227,7 +228,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
 
 Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
                                 TabletSchemaSPtr tablet_schema, PushType push_type) {
-    Status res = Status::OK();
+    Status st = Status::OK();
     uint32_t num_rows = 0;
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -266,18 +267,18 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             // init schema
             std::unique_ptr<Schema> schema(new (std::nothrow) Schema(tablet_schema));
             if (schema == nullptr) {
-                res = Status::Error<MEM_ALLOC_FAILED>("fail to create schema. tablet={}",
-                                                      cur_tablet->tablet_id());
+                st = Status::Error<MEM_ALLOC_FAILED>("fail to create schema. tablet={}",
+                                                     cur_tablet->tablet_id());
                 break;
             }
 
             // init Reader
             std::unique_ptr<PushBrokerReader> reader = PushBrokerReader::create_unique(
                     schema.get(), _request.broker_scan_range, _request.desc_tbl);
-            res = reader->init();
-            if (reader == nullptr || !res.ok()) {
-                res = Status::Error<PUSH_INIT_ERROR>("fail to init reader. res={}, tablet={}", res,
-                                                     cur_tablet->tablet_id());
+            st = reader->init();
+            if (reader == nullptr || !st.ok()) {
+                st = Status::Error<PUSH_INIT_ERROR>("fail to init reader. st={}, tablet={}", st,
+                                                    cur_tablet->tablet_id());
                 break;
             }
 
@@ -287,18 +288,18 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             // 4. Read data from broker and write into cur_tablet
             VLOG_NOTICE << "start to convert etl file to delta.";
             while (!reader->eof()) {
-                res = reader->next(&block);
-                if (!res.ok()) {
+                st = reader->next(&block);
+                if (!st.ok()) {
                     LOG(WARNING) << "read next row failed."
-                                 << " res=" << res << " read_rows=" << num_rows;
+                                 << " st=" << st << " read_rows=" << num_rows;
                     break;
                 } else {
                     if (reader->eof()) {
                         break;
                     }
-                    if (!(res = rowset_writer->add_block(&block)).ok()) {
+                    if (!(st = rowset_writer->add_block(&block)).ok()) {
                         LOG(WARNING) << "fail to attach block to rowset_writer. "
-                                     << "res=" << res << ", tablet=" << cur_tablet->tablet_id()
+                                     << "st=" << st << ", tablet=" << cur_tablet->tablet_id()
                                      << ", read_rows=" << num_rows;
                         break;
                     }
@@ -310,16 +311,16 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             RETURN_IF_ERROR(reader->close());
         }
 
-        if (!res.ok()) {
+        if (!st.ok()) {
             break;
         }
 
-        if (!(res = rowset_writer->flush()).ok()) {
+        if (!(st = rowset_writer->flush()).ok()) {
             LOG(WARNING) << "failed to finalize writer";
             break;
         }
 
-        if (!(res = rowset_writer->build(*cur_rowset)).ok()) {
+        if (!(st = rowset_writer->build(*cur_rowset)).ok()) {
             LOG(WARNING) << "failed to build rowset";
             break;
         }
@@ -328,9 +329,9 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         _write_rows += (*cur_rowset)->num_rows();
     } while (false);
 
-    VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->tablet_id()
+    VLOG_TRACE << "convert delta file end. st=" << st << ", tablet=" << cur_tablet->tablet_id()
                << ", processed_rows" << num_rows;
-    return res;
+    return st;
 }
 
 PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange& t_scan_range,
@@ -585,7 +586,7 @@ Status PushBrokerReader::_init_expr_ctxes() {
 
     std::map<SlotId, SlotDescriptor*> src_slot_desc_map;
     std::unordered_map<SlotDescriptor*, int> src_slot_desc_to_index {};
-    for (int i = 0, len = src_tuple_desc->slots().size(); i < len; ++i) {
+    for (size_t i = 0, len = src_tuple_desc->slots().size(); i < len; ++i) {
         auto* slot_desc = src_tuple_desc->slots()[i];
         src_slot_desc_to_index.emplace(slot_desc, i);
         src_slot_desc_map.emplace(slot_desc->id(), slot_desc);
@@ -692,4 +693,5 @@ Status PushBrokerReader::_get_next_reader() {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

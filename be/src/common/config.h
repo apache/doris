@@ -1145,6 +1145,7 @@ DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
+DECLARE_mInt64(file_cache_background_ttl_gc_batch);
 // inverted index searcher cache
 // cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
@@ -1427,6 +1428,7 @@ DECLARE_mInt32(max_s3_client_retry);
 // and the max retry time is max_s3_client_retry
 DECLARE_mInt32(s3_read_base_wait_time_ms);
 DECLARE_mInt32(s3_read_max_wait_time_ms);
+DECLARE_mBool(enable_s3_object_check_after_upload);
 
 // write as inverted index tmp directory
 DECLARE_String(tmp_file_dir);
