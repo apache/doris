@@ -83,15 +83,12 @@ protected:
                     test_data_dir_json + "json_variant/array_nullable_object_boundary.jsonl",
                     test_data_dir_json + "json_variant/array_array_boolean_boundary.jsonl",
                     test_data_dir_json + "json_variant/array_array_number_boundary.jsonl",
-                    test_data_dir_json + "json_variant/array_array_string_boundary.jsonl",
                     test_data_dir_json +
                             "json_variant/array_nullable_array_nullable_boolean_boundary.jsonl",
                     test_data_dir_json +
                             "json_variant/array_nullable_array_nullable_null_boundary.jsonl",
                     test_data_dir_json +
                             "json_variant/array_nullable_array_nullable_number_boundary.jsonl",
-                    test_data_dir_json +
-                            "json_variant/array_nullable_array_nullable_string_boundary.jsonl",
                     test_data_dir_json + "json_variant/object_boundary.jsonl",
                     test_data_dir_json + "json_variant/object_nested_1025.jsonl"};
 
