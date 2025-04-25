@@ -87,6 +87,12 @@ public class AlterSystemCommandTest {
         Assertions.assertThrows(AnalysisException.class, () -> addBackend2.validate(connectContext),
                 "Encounter unknown exception: errCode = 2, detailMessage = Port is out of range: 89050");
 
+        Map<String, String> properties = ImmutableMap.of("tag.compute_group_name", "another_compute_group",
+                "tag.location", "location");
+        AlterSystemCommand addBackend3 = new AlterSystemCommand(
+                new AddBackendOp(hostPorts, properties), PlanType.ALTER_SYSTEM_ADD_BACKEND);
+        Assertions.assertDoesNotThrow(() -> addBackend3.validate(connectContext));
+
         // test dropBackend
         AlterSystemCommand dropBackend = new AlterSystemCommand(
                 new DropBackendOp(hostPorts, false), PlanType.ALTER_SYSTEM_DROP_BACKEND);
