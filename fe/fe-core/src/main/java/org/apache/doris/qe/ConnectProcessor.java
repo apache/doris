@@ -381,7 +381,6 @@ public abstract class ConnectProcessor {
                         break;
                     }
                 } catch (Throwable throwable) {
-                    LOG.warn("throw exception for query: {}", DebugUtil.printId(ctx.queryId), throwable);
                     handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
                             executor.getQueryStatisticsForAuditLog());
                     // execute failed, skip remaining stmts
