@@ -17,8 +17,6 @@
 
 package org.apache.doris.datasource.property.fileformat;
 
-import org.apache.doris.datasource.property.constants.CsvProperties;
-import org.apache.doris.datasource.property.constants.FileFormatBaseProperties;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
@@ -29,6 +27,19 @@ import org.apache.doris.thrift.TTextSerdeType;
 import java.util.Map;
 
 public abstract class FileFormatProperties {
+    public static final String PROP_FORMAT = "format";
+    public static final String FORMAT_PARQUET = "parquet";
+    public static final String FORMAT_CSV = "csv";
+    public static final String FORMAT_CSV_WITH_NAMES = "csv_with_names";
+    public static final String FORMAT_CSV_WITH_NAMES_AND_TYPES = "csv_with_names_and_types";
+    public static final String FORMAT_HIVE_TEXT = "hive_text";
+    public static final String FORMAT_ORC = "orc";
+    public static final String FORMAT_JSON = "json";
+    public static final String FORMAT_AVRO = "avro";
+    public static final String FORMAT_WAL = "wal";
+    public static final String FORMAT_ARROW = "arrow";
+    public static final String PROP_COMPRESS_TYPE = "compress_type";
+
     protected TFileFormatType fileFormatType;
 
     protected TFileCompressType compressionType;
@@ -61,26 +72,26 @@ public abstract class FileFormatProperties {
 
     public static FileFormatProperties createFileFormatProperties(String formatString) {
         switch (formatString) {
-            case FileFormatBaseProperties.FORMAT_CSV:
+            case FORMAT_CSV:
                 return new CsvFileFormatProperties();
-            case FileFormatBaseProperties.FORMAT_HIVE_TEXT:
-                return new CsvFileFormatProperties(CsvProperties.DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR,
+            case FORMAT_HIVE_TEXT:
+                return new CsvFileFormatProperties(CsvFileFormatProperties.DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR,
                         TTextSerdeType.HIVE_TEXT_SERDE);
-            case FileFormatBaseProperties.FORMAT_CSV_WITH_NAMES:
+            case FORMAT_CSV_WITH_NAMES:
                 return new CsvFileFormatProperties(
-                        FileFormatBaseProperties.FORMAT_CSV_WITH_NAMES);
-            case FileFormatBaseProperties.FORMAT_CSV_WITH_NAMES_AND_TYPES:
+                        FORMAT_CSV_WITH_NAMES);
+            case FORMAT_CSV_WITH_NAMES_AND_TYPES:
                 return new CsvFileFormatProperties(
-                        FileFormatBaseProperties.FORMAT_CSV_WITH_NAMES_AND_TYPES);
-            case FileFormatBaseProperties.FORMAT_PARQUET:
+                        FORMAT_CSV_WITH_NAMES_AND_TYPES);
+            case FORMAT_PARQUET:
                 return new ParquetFileFormatProperties();
-            case FileFormatBaseProperties.FORMAT_ORC:
+            case FORMAT_ORC:
                 return new OrcFileFormatProperties();
-            case FileFormatBaseProperties.FORMAT_JSON:
+            case FORMAT_JSON:
                 return new JsonFileFormatProperties();
-            case FileFormatBaseProperties.FORMAT_AVRO:
+            case FORMAT_AVRO:
                 return new AvroFileFormatProperties();
-            case FileFormatBaseProperties.FORMAT_WAL:
+            case FORMAT_WAL:
                 return new WalFileFormatProperties();
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
@@ -89,7 +100,7 @@ public abstract class FileFormatProperties {
 
     public static FileFormatProperties createFileFormatProperties(Map<String, String> formatProperties)
             throws AnalysisException {
-        String formatString = formatProperties.getOrDefault(FileFormatBaseProperties.PROP_FORMAT, "")
+        String formatString = formatProperties.getOrDefault(PROP_FORMAT, "")
                 .toLowerCase();
         return createFileFormatProperties(formatString);
     }

@@ -22,11 +22,16 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TParquetCompressionType;
+import org.apache.doris.thrift.TParquetVersion;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import java.util.Map;
 
 public class ParquetFileFormatProperties extends FileFormatProperties {
+    public static final String PARQUET_DISABLE_DICTIONARY = "disable_dictionary";
+    public static final TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
+    public static final String PARQUET_VERSION = "version";
+
     private TParquetCompressionType parquetCompressionType = TParquetCompressionType.SNAPPY;
     private boolean parquetDisableDictionary = false;
 

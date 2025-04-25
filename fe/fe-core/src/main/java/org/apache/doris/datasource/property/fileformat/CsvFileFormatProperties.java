@@ -20,7 +20,6 @@ package org.apache.doris.datasource.property.fileformat;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.property.constants.CsvProperties;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileAttributes;
@@ -41,10 +40,24 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     public static final Logger LOG = LogManager.getLogger(
             org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties.class);
 
+    public static final String DEFAULT_COLUMN_SEPARATOR = "\t";
+    public static final String DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR = "\001";
+    public static final String DEFAULT_LINE_DELIMITER = "\n";
+
+    public static final String PROP_COLUMN_SEPARATOR = "column_separator";
+    public static final String PROP_LINE_DELIMITER = "line_delimiter";
+
+    public static final String PROP_SKIP_LINES = "skip_lines";
+    public static final String PROP_CSV_SCHEMA = "csv_schema";
+    public static final String PROP_COMPRESS_TYPE = "compress_type";
+    public static final String PROP_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
+
+    public static final String PROP_ENCLOSE = "enclose";
+
     private String headerType = "";
     private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
-    private String columnSeparator = CsvProperties.DEFAULT_COLUMN_SEPARATOR;
-    private String lineDelimiter = CsvProperties.DEFAULT_LINE_DELIMITER;
+    private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
+    private String lineDelimiter = DEFAULT_LINE_DELIMITER;
     private boolean trimDoubleQuotes;
     private int skipLines;
     private byte enclose;
@@ -53,7 +66,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     // User specified csv columns, it will override columns got from file
     private final List<Column> csvSchema = Lists.newArrayList();
 
-    String defaultColumnSeparator = CsvProperties.DEFAULT_COLUMN_SEPARATOR;
+    String defaultColumnSeparator = DEFAULT_COLUMN_SEPARATOR;
 
     public CsvFileFormatProperties() {
         super(TFileFormatType.FORMAT_CSV_PLAIN);
@@ -76,21 +89,21 @@ public class CsvFileFormatProperties extends FileFormatProperties {
             throws AnalysisException {
         try {
             // analyze properties specified by user
-            columnSeparator = getOrDefault(formatProperties, CsvProperties.PROP_COLUMN_SEPARATOR,
+            columnSeparator = getOrDefault(formatProperties, PROP_COLUMN_SEPARATOR,
                     defaultColumnSeparator, isRemoveOriginProperty);
             if (Strings.isNullOrEmpty(columnSeparator)) {
                 throw new AnalysisException("column_separator can not be empty.");
             }
             columnSeparator = Separator.convertSeparator(columnSeparator);
 
-            lineDelimiter = getOrDefault(formatProperties, CsvProperties.PROP_LINE_DELIMITER,
-                    CsvProperties.DEFAULT_LINE_DELIMITER, isRemoveOriginProperty);
+            lineDelimiter = getOrDefault(formatProperties, PROP_LINE_DELIMITER,
+                    DEFAULT_LINE_DELIMITER, isRemoveOriginProperty);
             if (Strings.isNullOrEmpty(lineDelimiter)) {
                 throw new AnalysisException("line_delimiter can not be empty.");
             }
             lineDelimiter = Separator.convertSeparator(lineDelimiter);
 
-            String enclosedString = getOrDefault(formatProperties, CsvProperties.PROP_ENCLOSE,
+            String enclosedString = getOrDefault(formatProperties, PROP_ENCLOSE,
                     "", isRemoveOriginProperty);
             if (!Strings.isNullOrEmpty(enclosedString)) {
                 if (enclosedString.length() > 1) {
@@ -103,16 +116,16 @@ public class CsvFileFormatProperties extends FileFormatProperties {
             }
 
             trimDoubleQuotes = Boolean.valueOf(getOrDefault(formatProperties,
-                    CsvProperties.PROP_TRIM_DOUBLE_QUOTES, "", isRemoveOriginProperty))
+                    PROP_TRIM_DOUBLE_QUOTES, "", isRemoveOriginProperty))
                     .booleanValue();
             skipLines = Integer.valueOf(getOrDefault(formatProperties,
-                    CsvProperties.PROP_SKIP_LINES, "0", isRemoveOriginProperty)).intValue();
+                    PROP_SKIP_LINES, "0", isRemoveOriginProperty)).intValue();
             if (skipLines < 0) {
                 throw new AnalysisException("skipLines should not be less than 0.");
             }
 
             String compressTypeStr = getOrDefault(formatProperties,
-                    CsvProperties.PROP_COMPRESS_TYPE, "UNKNOWN", isRemoveOriginProperty);
+                    PROP_COMPRESS_TYPE, "UNKNOWN", isRemoveOriginProperty);
             compressionType = Util.getFileCompressType(compressTypeStr);
 
         } catch (org.apache.doris.common.AnalysisException e) {

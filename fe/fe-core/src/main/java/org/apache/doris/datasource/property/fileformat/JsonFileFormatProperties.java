@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.property.fileformat;
 
-import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFileAttributes;
@@ -28,6 +27,13 @@ import org.apache.doris.thrift.TResultFileSinkOptions;
 import java.util.Map;
 
 public class JsonFileFormatProperties extends FileFormatProperties {
+    public static final String PROP_JSON_ROOT = "json_root";
+    public static final String PROP_JSON_PATHS = "jsonpaths";
+    public static final String PROP_STRIP_OUTER_ARRAY = "strip_outer_array";
+    public static final String PROP_READ_JSON_BY_LINE = "read_json_by_line";
+    public static final String PROP_NUM_AS_STRING = "num_as_string";
+    public static final String PROP_FUZZY_PARSE = "fuzzy_parse";
+
     // from ExternalFileTableValuedFunction:
     private String jsonRoot = "";
     private String jsonPaths = "";
@@ -44,24 +50,24 @@ public class JsonFileFormatProperties extends FileFormatProperties {
     @Override
     public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException {
-        jsonRoot = getOrDefault(formatProperties, FileFormatConstants.PROP_JSON_ROOT,
+        jsonRoot = getOrDefault(formatProperties, PROP_JSON_ROOT,
                 "", isRemoveOriginProperty);
-        jsonPaths = getOrDefault(formatProperties, FileFormatConstants.PROP_JSON_PATHS,
+        jsonPaths = getOrDefault(formatProperties, PROP_JSON_PATHS,
                 "", isRemoveOriginProperty);
         readJsonByLine = Boolean.valueOf(
-                getOrDefault(formatProperties, FileFormatConstants.PROP_READ_JSON_BY_LINE,
+                getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
                         "", isRemoveOriginProperty)).booleanValue();
         stripOuterArray = Boolean.valueOf(
-                getOrDefault(formatProperties, FileFormatConstants.PROP_STRIP_OUTER_ARRAY,
+                getOrDefault(formatProperties, PROP_STRIP_OUTER_ARRAY,
                         "", isRemoveOriginProperty)).booleanValue();
         numAsString = Boolean.valueOf(
-                getOrDefault(formatProperties, FileFormatConstants.PROP_NUM_AS_STRING,
+                getOrDefault(formatProperties, PROP_NUM_AS_STRING,
                         "", isRemoveOriginProperty)).booleanValue();
         fuzzyParse = Boolean.valueOf(
-                getOrDefault(formatProperties, FileFormatConstants.PROP_FUZZY_PARSE,
+                getOrDefault(formatProperties, PROP_FUZZY_PARSE,
                         "", isRemoveOriginProperty)).booleanValue();
 
-        String compressTypeStr = getOrDefault(formatProperties, FileFormatConstants.PROP_COMPRESS_TYPE,
+        String compressTypeStr = getOrDefault(formatProperties, PROP_COMPRESS_TYPE,
                 "UNKNOWN", isRemoveOriginProperty);
         compressionType = Util.getFileCompressType(compressTypeStr);
     }
