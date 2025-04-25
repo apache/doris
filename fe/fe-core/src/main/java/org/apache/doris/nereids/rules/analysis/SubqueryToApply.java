@@ -408,6 +408,10 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         Optional<MarkJoinSlotReference> markJoinSlot = subqueryToMarkJoinSlot.get(subquery);
         boolean needAddScalarSubqueryOutputToProjects = isConjunctContainsScalarSubqueryOutput(
                 subquery, conjunct, isProject, singleSubquery);
+        // for scalar subquery, we need ensure it output at most 1 row
+        // by doing that, we add an aggregate function any_value() to the project list
+        // we use needRuntimeAnyValue to indicate if any_value() is needed
+        // if needRuntimeAnyValue is true, we will add it to the project list
         boolean needRuntimeAnyValue = false;
         NamedExpression oldSubqueryOutput = subquery.getQueryPlan().getOutput().get(0);
         Slot countSlot = null;
