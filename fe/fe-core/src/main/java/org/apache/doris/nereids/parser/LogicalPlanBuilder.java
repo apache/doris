@@ -28,7 +28,6 @@ import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.SetType;
@@ -6657,11 +6656,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             TableNameInfo targetTableInfo = new TableNameInfo(targetParts);
 
-            PartitionNames partitionNames = null;
+            PartitionNamesInfo partitionNamesInfo = null;
             if (channelDescriptionContext.partitionSpec() != null) {
                 Pair<Boolean, List<String>> partitionSpec =
                         visitPartitionSpec(channelDescriptionContext.partitionSpec());
-                partitionNames = new PartitionNames(partitionSpec.first, partitionSpec.second);
+                partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
             }
 
             List<String> columns;
@@ -6675,7 +6674,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     srcTableInfo.getDb(),
                     srcTableInfo.getTbl(),
                     targetTableInfo.getTbl(),
-                    partitionNames,
+                    partitionNamesInfo != null ? partitionNamesInfo.translateToLegacyPartitionNames() : null,
                     columns
             );
             channelDescriptions.add(channelDescription);
@@ -6689,10 +6688,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> labelParts = visitMultipartIdentifier(ctx.multipartIdentifier());
         int size = labelParts.size();
         String jobName = labelParts.get(size - 1);
-        String dbName = null;
-        if (size >= 2) {
-            dbName = labelParts.get(size - 2);
+
+        String dbName;
+        if (size == 1) {
+            dbName = null;
+        } else if (size == 2) {
+            dbName = labelParts.get(0);
+        } else {
+            throw new ParseException("only support <mysql_db>.<src_tbl>", ctx.multipartIdentifier());
         }
+
         Map<String, String> propertieItem = visitPropertyItemList(ctx.propertyItemList());
         BinlogDesc binlogDesc = new BinlogDesc(propertieItem);
         Map<String, String> properties = visitPropertyClause(ctx.properties);
