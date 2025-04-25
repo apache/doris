@@ -127,7 +127,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         }
     }
 
-    public List<AuditEvent> getQueryNeedAudit() {
+    private List<AuditEvent> getQueryNeedAudit() {
         List<AuditEvent> ret = new ArrayList<>();
         long currentTime = System.currentTimeMillis();
         queryAuditEventLogWriteLock();
