@@ -1179,22 +1179,6 @@ int InstanceChecker::check_delete_bitmap_storage_optimize(int64_t tablet_id) {
 }
 
 int InstanceChecker::check_delete_bitmap_storage_optimize_v2(int64_t tablet_id) {
-    using Version = std::pair<int64_t, int64_t>;
-    struct RowsetDigest {
-        std::string rowset_id;
-        Version version;
-        doris::SegmentsOverlapPB segments_overlap;
-
-        bool operator<(const RowsetDigest& other) const {
-            return version.first < other.version.first;
-        }
-
-        bool produced_by_compaction() const {
-            return (version.first < version.second) ||
-                   ((version.first == version.second) && segments_overlap == NONOVERLAPPING);
-        }
-    };
-
     // number of rowsets which may have problems
     int64_t abnormal_rowsets_num {0};
 
@@ -1218,6 +1202,8 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(int64_t tablet_id) 
     std::string last_rowset_id = "";
     int64_t last_version = 0;
     std::string last_failed_rowset_id = "";
+    using namespace std::chrono;
+    int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     do {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -1251,12 +1237,31 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(int64_t tablet_id) 
                 continue;
             }
             if (tablet_rowsets_map.find(version) == tablet_rowsets_map.end()) {
-                // 1. finish compaction
-                // 2. checker
-                // 3. finish agg and remove pre rowsets delete bitmap
+                // there may be an interval in this situation:
+                // 1. finish compaction job; 2. checker; 3. finish agg and remove delete bitmap to ms
+                auto rowset_it = tablet_rowsets_map.upper_bound(version);
+                if (rowset_it != tablet_rowsets_map.end()) {
+                    if (rowset_it->second +
+                                config::delete_bitmap_storage_optimize_v2_check_skip_seconds >=
+                        now) {
+                        LOG(INFO) << fmt::format(
+                                "[delete bitmap check] delete bitmap storage optimize v2 check "
+                                "for instance_id={}, tablet_id={}, rowset_id={}, found delete "
+                                "bitmap with version={}. related rowset end version={}, "
+                                "create_time={}",
+                                instance_id_, tablet_id, rowset_id, version, rowset_it->first,
+                                rowset_it->second);
+                        continue;
+                    }
+                }
+
                 if (rowset_id != last_failed_rowset_id) {
                     abnormal_rowsets_num++;
                     last_failed_rowset_id = rowset_id;
+                    TEST_SYNC_POINT_CALLBACK(
+                            "InstanceChecker::check_delete_bitmap_storage_optimize_v2.get_abnormal_"
+                            "rowset",
+                            &tablet_id, &rowset_id);
                 }
                 // log an error and continue to check the next delete bitmap
                 LOG(WARNING) << fmt::format(
@@ -1270,7 +1275,10 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(int64_t tablet_id) 
             last_version = version;
         }
     } while (it->more() && !stopped());
-
+    LOG(INFO) << fmt::format(
+            "[delete bitmap checker] finish check delete bitmap storage optimize v2 for "
+            "instance_id={}, tablet_id={}, rowsets_num={}, abnormal_rowsets_num={}",
+            instance_id_, tablet_id, tablet_rowsets_map.size(), abnormal_rowsets_num);
     return (abnormal_rowsets_num > 1 ? 1 : 0);
 }
 
@@ -1292,9 +1300,9 @@ int InstanceChecker::do_delete_bitmap_storage_optimize_check(int version) {
     }
 
     LOG(INFO) << fmt::format(
-            "[delete bitmap checker] check delete bitmap storage optimize for instance_id={}, "
-            "total_tablets_num={}, failed_tablets_num={}, version={}",
-            instance_id_, total_tablets_num, failed_tablets_num, version);
+            "[delete bitmap checker] check delete bitmap storage optimize v{} for instance_id={}, "
+            "total_tablets_num={}, failed_tablets_num={}",
+            version, instance_id_, total_tablets_num, failed_tablets_num);
 
     return (failed_tablets_num > 0) ? 1 : 0;
 }

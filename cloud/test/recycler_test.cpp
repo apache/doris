@@ -288,7 +288,8 @@ static int create_committed_rowset_with_rowset_id(TxnKv* txn_kv, StorageVaultAcc
                                                   const std::string& resource_id, int64_t tablet_id,
                                                   int64_t start_version, int64_t end_version,
                                                   std::string rowset_id, bool segments_overlap,
-                                                  int num_segments) {
+                                                  int num_segments,
+                                                  int64_t create_time = current_time) {
     std::string key;
     std::string val;
 
@@ -301,7 +302,7 @@ static int create_committed_rowset_with_rowset_id(TxnKv* txn_kv, StorageVaultAcc
     rowset_pb.set_num_segments(num_segments);
     rowset_pb.set_tablet_id(tablet_id);
     rowset_pb.set_resource_id(resource_id);
-    rowset_pb.set_creation_time(current_time);
+    rowset_pb.set_creation_time(create_time);
     rowset_pb.set_start_version(start_version);
     rowset_pb.set_end_version(end_version);
     rowset_pb.set_segments_overlap_pb(segments_overlap ? OVERLAPPING : NONOVERLAPPING);
@@ -329,6 +330,17 @@ static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::stri
         auto key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
         std::string val {"test_data"};
         txn->put(key, val);
+    }
+}
+
+static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::string rowset_id,
+                                  std::vector<int64_t> versions, int64_t segment_num = 1) {
+    for (int64_t ver : versions) {
+        for (int64_t segment_id {0}; segment_id < segment_num; segment_id++) {
+            auto key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, segment_id});
+            std::string val {"test_data"};
+            txn->put(key, val);
+        }
     }
 }
 
@@ -3045,6 +3057,7 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_check_normal) {
 
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
     ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(), 0);
+    ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), 0);
 }
 
 TEST(CheckerTest, delete_bitmap_storage_optimize_check_abnormal) {
@@ -3109,6 +3122,7 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_check_abnormal) {
     ASSERT_EQ(expected_abnormal_rowsets, real_abnormal_rowsets);
 }
 
+<<<<<<< HEAD
 std::unique_ptr<MetaServiceProxy> get_meta_service() {
     int ret = 0;
     // MemKv
@@ -3231,6 +3245,116 @@ TEST(CheckerTest, check_compaction_key) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
     remove_delete_bitmap_lock(meta_service.get(), table_id);
     ASSERT_EQ(checker.do_mow_compaction_key_check(), -1);
+}
+
+TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    int64_t rowset_start_id = 600;
+
+    for (int tablet_id = 900011; tablet_id <= 900015; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        std::vector<std::pair<int64_t, int64_t>> rowset_vers {{2, 2}, {3, 3}, {4, 4}, {5, 5},
+                                                              {6, 7}, {8, 8}, {9, 9}};
+        std::vector<std::vector<int64_t>> delete_bitmaps_vers {
+                {3, 5, 7, 9}, {4, 5, 7, 8, 9}, {7, 8, 9}, {8, 9}, {8, 9}, {}, {9}};
+        std::vector<bool> segments_overlap {true, true, true, true, false, true, true};
+        for (size_t i {0}; i < 7; i++) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   rowset_vers[i].first, rowset_vers[i].second,
+                                                   rowset_id, segments_overlap[i], 1);
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i],
+                                  i == 2 ? 2 : 1 /*segment_num*/);
+        }
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    // tablet_id -> [rowset_id]
+    std::map<std::int64_t, std::set<std::string>> expected_abnormal_rowsets {};
+    std::map<std::int64_t, std::set<std::string>> real_abnormal_rowsets {};
+    auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back(
+            "InstanceChecker::check_delete_bitmap_storage_optimize_v2.get_abnormal_rowset",
+            [&](auto&& args) {
+                int64_t tablet_id = *try_any_cast<int64_t*>(args[0]);
+                std::string rowset_id = *try_any_cast<std::string*>(args[1]);
+                real_abnormal_rowsets[tablet_id].insert(rowset_id);
+            });
+    sp->enable_processing();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    int64_t rowset_start_id = 600;
+
+    for (int tablet_id = 900021; tablet_id <= 900025; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        std::vector<std::pair<int64_t, int64_t>> rowset_vers {
+                {2, 2}, {3, 3}, {4, 4}, {5, 5}, {6, 7} /*created before 5 min*/, {8, 10}, {11, 11}};
+        std::vector<std::vector<int64_t>> delete_bitmaps_vers {{3, 5, 6, 7, 8, 9},
+                                                               {4, 5, 6, 7, 8},
+                                                               {6, 7, 8, 9},
+                                                               {7, 8, 9, 10},
+                                                               {10, 11},
+                                                               {},
+                                                               {11}};
+        std::vector<bool> segments_overlap {true, true, true, true, false, true, true};
+        for (size_t i {0}; i < 7; i++) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            int64_t create_time = current_time;
+            if (i == 4) {
+                create_time = current_time - 500;
+            }
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   rowset_vers[i].first, rowset_vers[i].second,
+                                                   rowset_id, segments_overlap[i], 1, create_time);
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i],
+                                  i == 2 ? 2 : 1 /*segment_num*/);
+            if (i < 3) {
+                expected_abnormal_rowsets[tablet_id].insert(rowset_id);
+            }
+        }
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), 1);
+    ASSERT_EQ(expected_abnormal_rowsets, real_abnormal_rowsets);
 }
 
 TEST(RecyclerTest, delete_rowset_data) {
