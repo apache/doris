@@ -1289,6 +1289,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM, needForward = true, fuzzy = true)
     private int runtimeFilterMaxInNum = 40960;
 
+    public static final String RUNTIME_FILTER_BUILD_MAX_SIZE = "runtime_filter_build_max_size";
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_BUILD_MAX_SIZE, needForward = true, fuzzy = false)
+    public long runtimeFilterBuildMaxSize = 64L * 1024L * 1024L;
+
+
     @VariableMgr.VarAttr(name = ENABLE_SYNC_RUNTIME_FILTER_SIZE, needForward = true, fuzzy = true)
     private boolean enableSyncRuntimeFilterSize = true;
 

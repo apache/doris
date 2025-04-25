@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -260,6 +261,14 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             // do not generate RF on this join
             return join;
         }
+        AbstractPlan right = (AbstractPlan) join.right();
+        if (ConnectContext.get() != null
+                && right.getStats() != null
+                && right.getStats().getRowCount()
+                > ConnectContext.get().getSessionVariable().runtimeFilterBuildMaxSize) {
+            return join;
+        }
+
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
                 .filter(type -> ctx.getSessionVariable().allowedRuntimeFilterType(type))
