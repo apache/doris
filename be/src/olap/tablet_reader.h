@@ -32,7 +32,6 @@
 #include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "exprs/function_filter.h"
-#include "gutil/strings/substitute.h"
 #include "io/io_common.h"
 #include "olap/delete_handler.h"
 #include "olap/filter_olap_param.h"

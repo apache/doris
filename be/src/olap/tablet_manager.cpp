@@ -33,12 +33,12 @@
 #include <ostream>
 #include <string_view>
 
+#include "absl/strings/substitute.h"
 #include "bvar/bvar.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/strcat.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
@@ -218,9 +218,9 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "DropOldTablet", "AddTablet"),
                        static_cast<int64_t>(watch.reset()));
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                status, strings::Substitute("failed to drop old tablet when add new tablet. "
-                                            "tablet_id=$0",
-                                            tablet_id));
+                status, absl::Substitute("failed to drop old tablet when add new tablet. "
+                                         "tablet_id=$0",
+                                         tablet_id));
     }
     // Register tablet into DataDir, so that we can manage tablet from
     // the perspective of root path.
@@ -952,14 +952,13 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
     }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
-            tablet->init(),
-            strings::Substitute("tablet init failed. tablet=$0", tablet->tablet_id()));
+            tablet->init(), absl::Substitute("tablet init failed. tablet=$0", tablet->tablet_id()));
 
     RuntimeProfile profile("CreateTablet");
     std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
     RETURN_NOT_OK_STATUS_WITH_WARN(
             _add_tablet_unlocked(tablet_id, tablet, update_meta, force, &profile),
-            strings::Substitute("fail to add tablet. tablet=$0", tablet->tablet_id()));
+            absl::Substitute("fail to add tablet. tablet=$0", tablet->tablet_id()));
 
     return Status::OK();
 }
@@ -1057,7 +1056,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     RETURN_NOT_OK_STATUS_WITH_WARN(
             load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force, restore,
                                   true),
-            strings::Substitute("fail to load tablet. header_path=$0", header_path));
+            absl::Substitute("fail to load tablet. header_path=$0", header_path));
 
     return Status::OK();
 }
