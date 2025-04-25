@@ -28,6 +28,7 @@
 #include <thread>
 #include <utility>
 
+#include "absl/strings/substitute.h"
 #include "cloud/cloud_base_compaction.h"
 #include "cloud/cloud_compaction_action.h"
 #include "cloud/cloud_cumulative_compaction.h"
@@ -36,7 +37,6 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
@@ -201,7 +201,7 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
             compaction_type = "cumulative";
             run_status = true;
             *json_result =
-                    strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+                    absl::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
             return Status::OK();
         }
 
@@ -210,7 +210,7 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
             compaction_type = "base";
             run_status = true;
             *json_result =
-                    strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+                    absl::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
             return Status::OK();
         }
 
@@ -219,12 +219,11 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
             compaction_type = "full";
             run_status = true;
             *json_result =
-                    strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+                    absl::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
             return Status::OK();
         }
         // not running any compaction
-        *json_result =
-                strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+        *json_result = absl::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
     }
     LOG(INFO) << "finished to handle run status compaction, tablet id: " << tablet_id;
     return Status::OK();

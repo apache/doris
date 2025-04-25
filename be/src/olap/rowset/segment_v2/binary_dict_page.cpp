@@ -27,7 +27,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/port.h"
-#include "gutil/strings/substitute.h" // for Substitute
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "util/coding.h"
 #include "util/slice.h" // for Slice
@@ -37,8 +36,6 @@ namespace doris {
 struct StringRef;
 
 namespace segment_v2 {
-
-using strings::Substitute;
 
 BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
         : _options(options),

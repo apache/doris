@@ -34,7 +34,6 @@
 #include <utility>
 #include <vector>
 
-#include "gutil/strings/substitute.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
@@ -44,8 +43,6 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
-
-using strings::Substitute;
 
 Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::DataType>* result,
                              const std::string& timezone) {

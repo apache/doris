@@ -22,11 +22,11 @@
 #include <functional>
 #include <memory>
 
+#include "absl/strings/substitute.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/stl_util.h"
 #include "gutil/strings/numbers.h"
-#include "gutil/strings/substitute.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
@@ -41,8 +41,6 @@
 #include "util/easy_json.h"
 #include "util/mem_info.h"
 #include "util/mustache/mustache.h"
-
-using strings::Substitute;
 
 namespace doris {
 
@@ -175,7 +173,7 @@ static const std::string kMainTemplate = R"(
 )";
 
 std::string WebPageHandler::mustache_partial_tag(const std::string& path) const {
-    return strings::Substitute("{{> $0.mustache}}", path);
+    return absl::Substitute("{{> $0.mustache}}", path);
 }
 
 bool WebPageHandler::static_pages_available() const {
@@ -189,7 +187,7 @@ bool WebPageHandler::mustache_template_available(const std::string& path) const 
     }
     bool exists;
     return io::global_local_filesystem()
-                   ->exists(strings::Substitute("$0/$1.mustache", _www_path, path), &exists)
+                   ->exists(absl::Substitute("$0/$1.mustache", _www_path, path), &exists)
                    .ok() &&
            exists;
 }

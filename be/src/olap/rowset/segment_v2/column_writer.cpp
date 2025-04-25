@@ -25,7 +25,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"

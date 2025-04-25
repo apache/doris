@@ -25,7 +25,6 @@
 #include "gutil/stringprintf.h"
 #include "gutil/strings/escaping.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "util/error_util.h"
 #include "util/string_parser.hpp"

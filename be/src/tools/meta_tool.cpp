@@ -29,7 +29,6 @@
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/pb_to_json.h"
@@ -53,7 +52,6 @@ using doris::Status;
 using doris::TabletMeta;
 using doris::TabletMetaManager;
 using doris::Slice;
-using strings::Substitute;
 using doris::segment_v2::SegmentFooterPB;
 using doris::segment_v2::ColumnReader;
 using doris::segment_v2::PageHandle;
