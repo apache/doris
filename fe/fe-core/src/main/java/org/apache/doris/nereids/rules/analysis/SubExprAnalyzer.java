@@ -124,6 +124,10 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         boolean isCorrelated = analyzedResult.isCorrelated();
         LogicalPlan analyzedSubqueryPlan = analyzedResult.logicalPlan;
         checkOutputColumn(analyzedSubqueryPlan);
+        // use limitOneIsEliminated to indicate if subquery has limit 1 clause
+        // because limit 1 clause will ensure subquery output at most 1 row
+        // we eliminate limit 1 clause and pass this info to later SubqueryToApply rule
+        // so when creating LogicalApply node, we don't need to add AssertTrue function
         boolean limitOneIsEliminated = false;
         if (isCorrelated) {
             if (analyzedSubqueryPlan instanceof LogicalLimit) {
