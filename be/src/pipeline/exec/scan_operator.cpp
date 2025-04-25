@@ -219,7 +219,6 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_normalize_predicate(
         const vectorized::VExprSPtr& conjunct_expr_root, vectorized::VExprContext* context,
         vectorized::VExprSPtr& output_expr) {
-    static constexpr auto is_leaf = [](auto&& expr) { return !expr->is_and_expr(); };
     auto in_predicate_checker = [](const vectorized::VExprSPtrs& children,
                                    std::shared_ptr<vectorized::VSlotRef>& slot,
                                    vectorized::VExprSPtr& child_contains_slot) {
@@ -252,121 +251,88 @@ Status ScanLocalState<Derived>::_normalize_predicate(
     };
 
     if (conjunct_expr_root != nullptr) {
-        if (is_leaf(conjunct_expr_root)) {
-            auto impl = conjunct_expr_root->get_impl();
-            // If impl is not null, which means this a conjuncts from runtime filter.
-            auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
-            SlotDescriptor* slot = nullptr;
-            ColumnValueRangeType* range = nullptr;
-            PushDownType pdt = PushDownType::UNACCEPTABLE;
-            RETURN_IF_ERROR(_eval_const_conjuncts(cur_expr, context, &pdt));
-            if (pdt == PushDownType::ACCEPTABLE) {
-                output_expr = nullptr;
-                return Status::OK();
+        auto impl = conjunct_expr_root->get_impl();
+        // If impl is not null, which means this a conjuncts from runtime filter.
+        auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
+        SlotDescriptor* slot = nullptr;
+        ColumnValueRangeType* range = nullptr;
+        PushDownType pdt = PushDownType::UNACCEPTABLE;
+        RETURN_IF_ERROR(_eval_const_conjuncts(cur_expr, context, &pdt));
+        if (pdt == PushDownType::ACCEPTABLE) {
+            output_expr = nullptr;
+            return Status::OK();
+        }
+        std::shared_ptr<vectorized::VSlotRef> slotref;
+        for (const auto& child : cur_expr->children()) {
+            if (vectorized::VExpr::expr_without_cast(child)->node_type() !=
+                TExprNodeType::SLOT_REF) {
+                // not a slot ref(column)
+                continue;
             }
-            std::shared_ptr<vectorized::VSlotRef> slotref;
-            for (const auto& child : cur_expr->children()) {
-                if (vectorized::VExpr::expr_without_cast(child)->node_type() !=
-                    TExprNodeType::SLOT_REF) {
-                    // not a slot ref(column)
-                    continue;
-                }
-                slotref = std::dynamic_pointer_cast<vectorized::VSlotRef>(
-                        vectorized::VExpr::expr_without_cast(child));
-            }
-            if (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
-                _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range)) {
-                Status status = Status::OK();
-                std::visit(
-                        [&](auto& value_range) {
-                            bool need_set_runtime_filter_id = value_range.is_whole_value_range() &&
-                                                              conjunct_expr_root->is_rf_wrapper();
-                            Defer set_runtime_filter_id {[&]() {
-                                // rf predicates is always appended to the end of conjuncts. We need to ensure that there is no non-rf predicate after rf-predicate
-                                // If it is not a whole range, it means that the column has other non-rf predicates, so it cannot be marked as rf predicate.
-                                // If the range where non-rf predicates are located is incorrectly marked as rf, can_ignore will return true, resulting in the predicate not taking effect and getting an incorrect result.
-                                if (need_set_runtime_filter_id) {
-                                    auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(
-                                            conjunct_expr_root.get());
-                                    DCHECK(rf_expr->predicate_filtered_rows_counter() != nullptr);
-                                    DCHECK(rf_expr->predicate_input_rows_counter() != nullptr);
-                                    value_range.attach_profile_counter(
-                                            rf_expr->filter_id(),
-                                            rf_expr->predicate_filtered_rows_counter(),
-                                            rf_expr->predicate_input_rows_counter());
-                                }
-                            }};
-                            RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
-                                                        cur_expr, context, slot, value_range, &pdt),
-                                                status);
-                            RETURN_IF_PUSH_DOWN(_normalize_not_in_and_not_eq_predicate(
-                                                        cur_expr, context, slot, value_range, &pdt),
-                                                status);
-                            RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(
-                                                        cur_expr, context, slot, value_range, &pdt),
-                                                status);
-                            RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
-                                                        cur_expr, context, slot, value_range, &pdt),
-                                                status);
-                            RETURN_IF_PUSH_DOWN(
-                                    _normalize_bitmap_filter(cur_expr, context, slot, &pdt),
-                                    status);
-                            RETURN_IF_PUSH_DOWN(
-                                    _normalize_bloom_filter(cur_expr, context, slot, &pdt), status);
-                            if (state()->enable_function_pushdown()) {
-                                RETURN_IF_PUSH_DOWN(
-                                        _normalize_function_filters(cur_expr, context, slot, &pdt),
-                                        status);
+            slotref = std::dynamic_pointer_cast<vectorized::VSlotRef>(
+                    vectorized::VExpr::expr_without_cast(child));
+        }
+        if (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
+            _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range)) {
+            Status status = Status::OK();
+            std::visit(
+                    [&](auto& value_range) {
+                        bool need_set_runtime_filter_id = value_range.is_whole_value_range() &&
+                                                          conjunct_expr_root->is_rf_wrapper();
+                        Defer set_runtime_filter_id {[&]() {
+                            // rf predicates is always appended to the end of conjuncts. We need to ensure that there is no non-rf predicate after rf-predicate
+                            // If it is not a whole range, it means that the column has other non-rf predicates, so it cannot be marked as rf predicate.
+                            // If the range where non-rf predicates are located is incorrectly marked as rf, can_ignore will return true, resulting in the predicate not taking effect and getting an incorrect result.
+                            if (need_set_runtime_filter_id) {
+                                auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(
+                                        conjunct_expr_root.get());
+                                DCHECK(rf_expr->predicate_filtered_rows_counter() != nullptr);
+                                DCHECK(rf_expr->predicate_input_rows_counter() != nullptr);
+                                value_range.attach_profile_counter(
+                                        rf_expr->filter_id(),
+                                        rf_expr->predicate_filtered_rows_counter(),
+                                        rf_expr->predicate_input_rows_counter());
                             }
-                        },
-                        *range);
-                RETURN_IF_ERROR(status);
-            }
-            if (pdt == PushDownType::ACCEPTABLE && slotref != nullptr &&
-                slotref->type().is_variant_type()) {
-                // remaining it in the expr tree, in order to filter by function if the pushdown
-                // predicate is not applied
-                output_expr = conjunct_expr_root; // remaining in conjunct tree
-                return Status::OK();
-            }
+                        }};
+                        RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(cur_expr, context, slot,
+                                                                           value_range, &pdt),
+                                            status);
+                        RETURN_IF_PUSH_DOWN(_normalize_not_in_and_not_eq_predicate(
+                                                    cur_expr, context, slot, value_range, &pdt),
+                                            status);
+                        RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(cur_expr, context, slot,
+                                                                         value_range, &pdt),
+                                            status);
+                        RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
+                                                    cur_expr, context, slot, value_range, &pdt),
+                                            status);
+                        RETURN_IF_PUSH_DOWN(_normalize_bitmap_filter(cur_expr, context, slot, &pdt),
+                                            status);
+                        RETURN_IF_PUSH_DOWN(_normalize_bloom_filter(cur_expr, context, slot, &pdt),
+                                            status);
+                        if (state()->enable_function_pushdown()) {
+                            RETURN_IF_PUSH_DOWN(
+                                    _normalize_function_filters(cur_expr, context, slot, &pdt),
+                                    status);
+                        }
+                    },
+                    *range);
+            RETURN_IF_ERROR(status);
+        }
+        if (pdt == PushDownType::ACCEPTABLE && slotref != nullptr &&
+            slotref->type().is_variant_type()) {
+            // remaining it in the expr tree, in order to filter by function if the pushdown
+            // predicate is not applied
+            output_expr = conjunct_expr_root; // remaining in conjunct tree
+            return Status::OK();
+        }
 
-            if (pdt == PushDownType::ACCEPTABLE && (_is_key_column(slot->col_name()))) {
-                output_expr = nullptr;
-                return Status::OK();
-            } else {
-                // for PARTIAL_ACCEPTABLE and UNACCEPTABLE, do not remove expr from the tree
-                output_expr = conjunct_expr_root;
-                return Status::OK();
-            }
+        if (pdt == PushDownType::ACCEPTABLE && (_is_key_column(slot->col_name()))) {
+            output_expr = nullptr;
+            return Status::OK();
         } else {
-            /// TODO: The FE should ensure that all equality predicates are divided by AND, and there should no longer be cases where the root node is AND
-            vectorized::VExprSPtr left_child;
-            RETURN_IF_ERROR(
-                    _normalize_predicate(conjunct_expr_root->children()[0], context, left_child));
-            vectorized::VExprSPtr right_child;
-            RETURN_IF_ERROR(
-                    _normalize_predicate(conjunct_expr_root->children()[1], context, right_child));
-
-            if (left_child != nullptr && right_child != nullptr) {
-                conjunct_expr_root->set_children({left_child, right_child});
-                output_expr = conjunct_expr_root;
-                return Status::OK();
-            } else {
-                if (left_child == nullptr) {
-                    conjunct_expr_root->children()[0]->close(context,
-                                                             context->get_function_state_scope());
-                }
-                if (right_child == nullptr) {
-                    conjunct_expr_root->children()[1]->close(context,
-                                                             context->get_function_state_scope());
-                }
-                // here only close the and expr self, do not close the child
-                conjunct_expr_root->set_children({});
-                conjunct_expr_root->close(context, context->get_function_state_scope());
-            }
-
-            // here do not close VExpr* now
-            output_expr = left_child != nullptr ? left_child : right_child;
+            // for PARTIAL_ACCEPTABLE and UNACCEPTABLE, do not remove expr from the tree
+            output_expr = conjunct_expr_root;
             return Status::OK();
         }
     }
