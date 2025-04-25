@@ -198,8 +198,11 @@ char WordDelimiterIterator::get_type(UChar32 ch) {
     case U_LETTER_NUMBER:
     case U_OTHER_NUMBER:
         return DIGIT;
-    case U_OTHER_SYMBOL:
-        return ALPHA | DIGIT;
+    case U_OTHER_SYMBOL: {
+        if (U_IS_UNICODE_CHAR(ch) && ch >= 0x10000 && ch <= 0x10FFFF) {
+            return ALPHA | DIGIT;
+        }
+    }
     default:
         return SUBWORD_DELIM;
     }
