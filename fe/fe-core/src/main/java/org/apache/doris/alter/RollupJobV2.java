@@ -348,6 +348,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
         this.jobState = JobState.WAITING_TXN;
 
+        stateWait("FE.CREATE_ROLLUP_WAIT_LOG");
+
         // write edit log
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
         LOG.info("transfer rollup job {} state to {}, watershed txn id: {}", jobId, this.jobState, watershedTxnId);

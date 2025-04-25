@@ -409,6 +409,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
         this.jobState = JobState.WAITING_TXN;
 
+        stateWait("FE.SCHEMA_CHANGE_WAIT_LOG");
+
         // write edit log
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
         LOG.info("transfer schema change job {} state to {}, watershed txn id: {}",

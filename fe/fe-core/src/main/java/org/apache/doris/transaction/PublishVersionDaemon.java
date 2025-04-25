@@ -158,9 +158,22 @@ public class PublishVersionDaemon extends MasterDaemon {
                 transactionState.getDbId());
     }
 
+    protected void stateWait(final String name) {
+        long waitTimeMs = DebugPointUtil.getDebugParamOrDefault(name, 0);
+        if (waitTimeMs > 0) {
+            try {
+                LOG.info("debug point {} wait {} ms", name, waitTimeMs);
+                Thread.sleep(waitTimeMs);
+            } catch (InterruptedException e) {
+                LOG.warn(name, e);
+            }
+        }
+    }
+
     private void tryFinishTxn(List<TransactionState> readyTransactionStates,
                                      SystemInfoService infoService, GlobalTransactionMgrIface globalTransactionMgr,
                                      Map<Long, Long> partitionVisibleVersions, Map<Long, Set<Long>> backendPartitions) {
+        stateWait("FE.TRY_FINISHED_TXN");
         for (TransactionState transactionState : readyTransactionStates) {
             try {
                 // try to finish the transaction, if failed just retry in next loop

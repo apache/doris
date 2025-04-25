@@ -2173,8 +2173,21 @@ public class DatabaseTransactionMgr {
         }
     }
 
+    protected void stateWait(final String name) {
+        long waitTimeMs = DebugPointUtil.getDebugParamOrDefault(name, 0);
+        if (waitTimeMs > 0) {
+            try {
+                LOG.info("debug point {} wait {} ms", name, waitTimeMs);
+                Thread.sleep(waitTimeMs);
+            } catch (InterruptedException e) {
+                LOG.warn(name, e);
+            }
+        }
+    }
+
     private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db,
             Map<Long, Long> partitionVisibleVersions, Map<Long, Set<Long>> backendPartitions) {
+        stateWait("FE.UPDATE_CATALOG_AFTER_VISIBLE");
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         List<Long> newPartitionLoadedTableIds = new ArrayList<>();
