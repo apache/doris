@@ -457,7 +457,7 @@ public abstract class ConnectProcessor {
         }
         if (throwable instanceof ConnectionException) {
             // Throw this exception to close the connection outside.
-            LOG.warn("yy debug Process one query failed because ConnectionException: ", throwable);
+            LOG.warn("Process one query failed because ConnectionException: ", throwable);
             throw (ConnectionException) throwable;
         } else if (throwable instanceof IOException) {
             // Client failed.
