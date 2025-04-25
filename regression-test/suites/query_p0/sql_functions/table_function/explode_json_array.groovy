@@ -89,5 +89,32 @@ suite("explode_json_array") {
     qt_explode_json_array16 """ SELECT id, name, age, class, address, d, c FROM person
                         LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[null, "b", null]') t1 as c 
                         LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
-                        ORDER BY id, c, d """        
+                        ORDER BY id, c, d """    
+    sql """ DROP TABLE IF EXISTS json_array_example """
+    sql """
+        CREATE TABLE json_array_example (
+            id INT,
+            json_array STRING
+        )DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS AUTO
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1");
+    """   
+    sql """ 
+                INSERT INTO json_array_example (id, json_array) VALUES
+            (1, '[1, 2, 3, 4, 5]'),
+            (2, '[1.1, 2.2, 3.3, 4.4]'),
+            (3, '["apple", "banana", "cherry"]'),
+            (4, '[{"a": 1}, {"b": 2}, {"c": 3}]'),
+            (5, '[]'),
+            (6, 'NULL');
+    """ 
+
+    qt_explode_json_array17 """ 
+        SELECT id, e1
+        FROM json_array_example
+        LATERAL VIEW EXPLODE_JSON_ARRAY_JSON_OUTER(json_array) tmp1 AS e1
+        WHERE id = 4 order by id, e1;
+    """ 
+
 }
