@@ -248,6 +248,7 @@ public class BindSink implements AnalysisRuleFactory {
                 // we skip it.
                 continue;
             }
+            expr = expr.toSlot();
             DataType inputType = expr.getDataType();
             DataType targetType = DataType.fromCatalogType(tableSchema.get(i).getType());
             Expression castExpr = expr;
