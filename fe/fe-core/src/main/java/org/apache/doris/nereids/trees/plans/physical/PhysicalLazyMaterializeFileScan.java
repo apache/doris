@@ -34,6 +34,9 @@ public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
     private final List<Slot> lazySlots;
     private List<Slot> output;
 
+    /**
+     * PhysicalLazyMaterializeFileScan
+     */
     public PhysicalLazyMaterializeFileScan(PhysicalFileScan scan, SlotReference rowId, List<Slot> lazySlots) {
         super(scan.getRelationId(), scan.getTable(), scan.getQualifier(), scan.getDistributionSpec(),
                 Optional.empty(), null, scan.selectedPartitions, scan.getTableSample(),
@@ -47,7 +50,6 @@ public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
     public List<String> getQualifier() {
         return scan.getQualifier();
     }
-
 
     @Override
     public List<Slot> computeOutput() {

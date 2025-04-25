@@ -56,6 +56,7 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
     protected final TableIf table;
     protected final ImmutableList<String> qualifier;
     protected final ImmutableList<Slot> operativeSlots;
+
     /**
      * Constructor for PhysicalCatalogRelation.
      *
