@@ -28,6 +28,8 @@ import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
+import org.apache.doris.analysis.ResourcePattern;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StageAndPattern;
 import org.apache.doris.analysis.StorageBackend;
@@ -37,6 +39,9 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.WorkloadGroupPattern;
+import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.catalog.BuiltinTableGeneratingFunctions;
@@ -625,6 +630,7 @@ import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
@@ -6781,5 +6787,81 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         );
 
         return new CreateResourceCommand(createResourceInfo);
+    }
+
+    @Override
+    public LogicalPlan visitRevokeResourcePrivilege(DorisParser.RevokeResourcePrivilegeContext ctx) {
+        List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
+
+        String name = visitIdentifierOrTextOrAsterisk(ctx.identifierOrTextOrAsterisk());
+        ResourcePattern resourcePattern = null;
+        WorkloadGroupPattern workloadGroupPattern = null;
+
+        if (ctx.CLUSTER() != null) {
+            resourcePattern = new ResourcePattern(name, ResourceTypeEnum.CLUSTER);
+        } else if (ctx.STAGE() != null) {
+            resourcePattern = new ResourcePattern(name, ResourceTypeEnum.STAGE);
+        } else if (ctx.STORAGE() != null) {
+            resourcePattern = new ResourcePattern(name, ResourceTypeEnum.STORAGE_VAULT);
+        } else if (ctx.RESOURCE() != null) {
+            resourcePattern = new ResourcePattern(name, ResourceTypeEnum.CLUSTER);
+        }
+
+        if (ctx.WORKLOAD() != null) {
+            workloadGroupPattern = new WorkloadGroupPattern(name);
+        }
+
+        if (ctx.ROLE() != null) {
+            String role = visitIdentifierOrText(ctx.identifierOrText());
+            return new RevokeResourcePrivilegeCommand(
+                accessPrivilegeWithCols,
+                resourcePattern == null ? Optional.empty() : Optional.of(resourcePattern),
+                workloadGroupPattern == null ? Optional.empty() : Optional.of(workloadGroupPattern),
+                Optional.of(role),
+                Optional.empty());
+        }
+
+        UserIdentity userIdentity = visitUserIdentify(ctx.userIdentify());
+        return new RevokeResourcePrivilegeCommand(
+            accessPrivilegeWithCols,
+            resourcePattern == null ? Optional.empty() : Optional.of(resourcePattern),
+            workloadGroupPattern == null ? Optional.empty() : Optional.of(workloadGroupPattern),
+            Optional.empty(),
+            Optional.of(userIdentity));
+    }
+
+    @Override
+    public String visitIdentifierOrTextOrAsterisk(DorisParser.IdentifierOrTextOrAsteriskContext ctx) {
+        if (ctx.ASTERISK() != null) {
+            return stripQuotes(ctx.ASTERISK().getText());
+        } else if (ctx.STRING_LITERAL() != null) {
+            return ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
+        } else {
+            return ctx.identifier().getText();
+        }
+    }
+
+    @Override
+    public AccessPrivilegeWithCols visitPrivilege(DorisParser.PrivilegeContext ctx) {
+        AccessPrivilegeWithCols accessPrivilegeWithCols;
+        if (ctx.ALL() != null) {
+            AccessPrivilege accessPrivilege = AccessPrivilege.ALL;
+            accessPrivilegeWithCols = new AccessPrivilegeWithCols(accessPrivilege, ImmutableList.of());
+        } else {
+            String privilegeName = ctx.name.strictIdentifier().getText();
+            AccessPrivilege accessPrivilege = AccessPrivilege.fromName(privilegeName);
+            List<String> columns = ctx.identifierList() == null
+                    ? ImmutableList.of() : visitIdentifierList(ctx.identifierList());
+            accessPrivilegeWithCols = new AccessPrivilegeWithCols(accessPrivilege, columns);
+        }
+
+        return accessPrivilegeWithCols;
+    }
+
+    @Override
+    public List<AccessPrivilegeWithCols> visitPrivilegeList(DorisParser.PrivilegeListContext ctx) {
+        return ctx.privilege().stream()
+            .map(this::visitPrivilege)
+            .collect(Collectors.toList());
     }
 }
