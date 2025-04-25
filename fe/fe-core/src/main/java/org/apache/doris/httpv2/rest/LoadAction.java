@@ -104,10 +104,6 @@ public class LoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         if (Config.disable_mini_load) {
             ResponseEntity entity = ResponseEntityBuilder.notFound("The mini load operation has been"
                     + " disabled by default, if you need to add disable_mini_load=false in fe.conf.");
@@ -260,10 +256,6 @@ public class LoadAction extends RestBaseController {
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db) {
         LOG.info("streamload action 2PC, db: {}, headers: {}", db, getAllHeaders(request));
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }
@@ -274,10 +266,6 @@ public class LoadAction extends RestBaseController {
             @PathVariable(value = DB_KEY) String db,
             @PathVariable(value = TABLE_KEY) String table) {
         LOG.info("streamload action 2PC, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }
@@ -724,10 +712,6 @@ public class LoadAction extends RestBaseController {
     public Object createIngestionLoad(HttpServletRequest request, HttpServletResponse response,
                                   @PathVariable(value = CATALOG_KEY) String catalog,
                                   @PathVariable(value = DB_KEY) String db) {
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         executeCheckPassword(request, response);
 
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {
@@ -845,10 +829,6 @@ public class LoadAction extends RestBaseController {
     public Object updateIngestionLoad(HttpServletRequest request, HttpServletResponse response,
                                       @PathVariable(value = CATALOG_KEY) String catalog,
                                       @PathVariable(value = DB_KEY) String db) {
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         executeCheckPassword(request, response);
 
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {
