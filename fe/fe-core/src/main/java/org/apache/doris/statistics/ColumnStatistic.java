@@ -51,7 +51,7 @@ public class ColumnStatistic {
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatistic.class);
 
-    public static ColumnStatistic UNKNOWN = new ColumnStatisticBuilder(1).setAvgSizeByte(1).setNdv(1)
+    public static ColumnStatistic UNKNOWN = new ColumnStatisticBuilder().setCount(1).setAvgSizeByte(1).setNdv(1)
             .setNumNulls(1).setMaxValue(Double.POSITIVE_INFINITY).setMinValue(Double.NEGATIVE_INFINITY)
             .setIsUnknown(true).setUpdatedTime("")
             .build();
@@ -383,7 +383,8 @@ public class ColumnStatistic {
 
     public static ColumnStatistic createUnknownByDataType(DataType dataType) {
         if (dataType instanceof CharacterType) {
-            return new ColumnStatisticBuilder(1)
+            return new ColumnStatisticBuilder()
+                    .setCount(1)
                     .setAvgSizeByte(Math.max(1, Math.min(dataType.width(), CharacterType.DEFAULT_WIDTH)))
                     .setNdv(1)
                     .setNumNulls(1)
@@ -393,7 +394,8 @@ public class ColumnStatistic {
                     .setUpdatedTime("")
                     .build();
         } else {
-            return new ColumnStatisticBuilder(1)
+            return new ColumnStatisticBuilder()
+                    .setCount(1)
                     .setAvgSizeByte(dataType.width())
                     .setNdv(1)
                     .setNumNulls(1)
