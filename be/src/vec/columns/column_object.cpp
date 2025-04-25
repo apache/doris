@@ -1631,7 +1631,7 @@ bool ColumnObject::is_visible_root_value(size_t nrow) const {
 }
 
 void ColumnObject::serialize_one_row_to_json_format(int64_t row_num, BufferWritable& output,
-                                                      bool* is_null) const {
+                                                    bool* is_null) const {
     // root is not eighther null or empty, we should only process root value
     if (is_visible_root_value(row_num)) {
         subcolumns.get_root()->data.serialize_text_json(row_num, output);

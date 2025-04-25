@@ -333,8 +333,7 @@ public:
     void serialize_one_row_to_string(size_t row, BufferWritable& output) const;
 
     // serialize one row to json format
-    void serialize_one_row_to_json_format(int64_t row, BufferWritable& output,
-                                            bool* is_null) const;
+    void serialize_one_row_to_json_format(int64_t row, BufferWritable& output, bool* is_null) const;
 
     // Fill the `serialized_sparse_column`
     Status serialize_sparse_columns(std::map<std::string_view, Subcolumn>&& remaing_subcolumns);
