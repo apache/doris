@@ -2515,17 +2515,14 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
 } // end commit_txn_with_sub_txn
 
 static bool fuzzy_random() {
-    std::mt19937 gen {std::random_device {}()};
-    auto p = 0.5;
-    std::bernoulli_distribution bd {p};
-    return bd(gen);
+    return std::chrono::steady_clock::now().time_since_epoch().count() & 0x01;
 }
 
 static bool force_txn_lazy_commit() {
-    if (config::enable_cloud_txn_lazy_commit_fuzzy_test && fuzzy_random()) [[unlikely]] {
-        return false;
+    if (config::enable_cloud_txn_lazy_commit_fuzzy_test) [[unlikely]] {
+        return fuzzy_random();
     }
-    return true;
+    return false;
 }
 
 void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
@@ -2567,9 +2564,13 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
             (request->has_is_2pc() && !request->is_2pc() && request->has_enable_txn_lazy_commit() &&
              request->enable_txn_lazy_commit() && config::enable_cloud_txn_lazy_commit);
 
-    if (force_txn_lazy_commit() &&
-        (!enable_txn_lazy_commit_feature ||
-         (tmp_rowsets_meta.size() <= config::txn_lazy_commit_rowsets_thresold))) {
+    while ((!enable_txn_lazy_commit_feature ||
+            (tmp_rowsets_meta.size() <= config::txn_lazy_commit_rowsets_thresold))) {
+        if (force_txn_lazy_commit()) {
+            LOG(INFO) << "fuzzy test force_txn_lazy_commit";
+            break;
+        }
+
         commit_txn_immediately(request, response, txn_kv_, txn_lazy_committer_, code, msg,
                                instance_id, db_id, tmp_rowsets_meta, err);
 
@@ -2585,6 +2586,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         DCHECK(enable_txn_lazy_commit_feature);
         DCHECK(err == TxnErrorCode::TXN_BYTES_TOO_LARGE);
         LOG(INFO) << "txn_id=" << txn_id << " fallthrough commit_txn_eventually";
+        break;
     }
 
     LOG(INFO) << "txn_id=" << txn_id << " commit_txn_eventually"

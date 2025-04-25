@@ -1921,12 +1921,12 @@ TEST(TxnLazyCommitTest, ForceTxnLazyCommit) {
         }
     }
     LOG(INFO) << "force_txn_lazy_commit counter: " << counter;
-    ASSERT_EQ(counter, 10000);
+    ASSERT_EQ(counter, 0);
 
     config::enable_cloud_txn_lazy_commit_fuzzy_test = true;
     counter = 0;
     for (size_t i = 0; i < 10000; i++) {
-        if (!force_txn_lazy_commit()) {
+        if (force_txn_lazy_commit()) {
             counter++;
         }
     }
