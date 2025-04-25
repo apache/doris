@@ -1459,7 +1459,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                         ->get_nested_type());
         const orc::Type* nested_orc_type = orc_column_type->getSubtype(0);
         std::string element_name = col_name + ".element";
-        return _orc_column_to_doris_column<is_filter>(
+        return _orc_column_to_doris_column<false>(
                 element_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
                 nested_orc_type, orc_list->elements.get(), element_size);
     }
@@ -1485,12 +1485,12 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         std::string key_col_name = col_name + ".key";
         std::string value_col_name = col_name + ".value";
-        RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(key_col_name, doris_key_column,
-                                                               doris_key_type, orc_key_type,
-                                                               orc_map->keys.get(), element_size));
-        return _orc_column_to_doris_column<is_filter>(value_col_name, doris_value_column,
-                                                      doris_value_type, orc_value_type,
-                                                      orc_map->elements.get(), element_size);
+        RETURN_IF_ERROR(_orc_column_to_doris_column<false>(key_col_name, doris_key_column,
+                                                           doris_key_type, orc_key_type,
+                                                           orc_map->keys.get(), element_size));
+        return _orc_column_to_doris_column<false>(value_col_name, doris_value_column,
+                                                  doris_value_type, orc_value_type,
+                                                  orc_map->elements.get(), element_size);
     }
     case TypeIndex::Struct: {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
