@@ -171,14 +171,15 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
     int64_t seg_id = seg_id_begin;
     while (seg_id < seg_id_end) {
         std::shared_ptr<segment_v2::Segment> segment;
-        RETURN_IF_ERROR(load_segment(seg_id, &segment));
+        RETURN_IF_ERROR(load_segment(seg_id, nullptr, &segment));
         segments->push_back(std::move(segment));
         seg_id++;
     }
     return Status::OK();
 }
 
-Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment) {
+Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
+                                segment_v2::SegmentSharedPtr* segment) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
@@ -196,7 +197,7 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
 
     auto s = segment_v2::Segment::open(fs, seg_path, _rowset_meta->tablet_id(), seg_id, rowset_id(),
                                        _schema, reader_options, segment,
-                                       _rowset_meta->inverted_index_file_info(seg_id));
+                                       _rowset_meta->inverted_index_file_info(seg_id), stats);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
                      << " : " << s.to_string();

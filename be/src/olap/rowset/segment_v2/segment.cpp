@@ -81,9 +81,9 @@ class InvertedIndexIterator;
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                      uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
-                     InvertedIndexFileInfo idx_file_info) {
+                     InvertedIndexFileInfo idx_file_info, OlapReaderStatistics* stats) {
     auto s = _open(fs, path, segment_id, rowset_id, tablet_schema, reader_options, output,
-                   idx_file_info);
+                   idx_file_info, stats);
     if (!s.ok()) {
         if (!config::is_cloud_mode()) {
             auto res = ExecEnv::get_tablet(tablet_id);
@@ -101,14 +101,14 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tab
 Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                       RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                       const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
-                      InvertedIndexFileInfo idx_file_info) {
+                      InvertedIndexFileInfo idx_file_info, OlapReaderStatistics* stats) {
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
     std::shared_ptr<Segment> segment(
             new Segment(segment_id, rowset_id, std::move(tablet_schema), idx_file_info));
     segment->_fs = fs;
     segment->_file_reader = std::move(file_reader);
-    auto st = segment->_open();
+    auto st = segment->_open(stats);
     TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption", &st);
     if (st.is<ErrorCode::CORRUPTION>() &&
         reader_options.cache_type == io::FileCachePolicy::FILE_BLOCK_CACHE) {
@@ -121,7 +121,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
 
         RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
         segment->_file_reader = std::move(file_reader);
-        st = segment->_open();
+        st = segment->_open(stats);
         TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption1", &st);
         if (st.is<ErrorCode::CORRUPTION>()) { // corrupt again
             LOG(WARNING) << "failed to try to read remote source file again with cache support,"
@@ -134,7 +134,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
             opt.cache_type = io::FileCachePolicy::NO_CACHE; // skip cache
             RETURN_IF_ERROR(fs->open_file(path, &file_reader, &opt));
             segment->_file_reader = std::move(file_reader);
-            st = segment->_open();
+            st = segment->_open(stats);
             if (!st.ok()) {
                 LOG(WARNING) << "failed to try to read remote source file directly,"
                              << " file path: " << path
@@ -177,9 +177,9 @@ void Segment::update_metadata_size() {
     _tracked_meta_mem_usage = _meta_mem_usage;
 }
 
-Status Segment::_open() {
+Status Segment::_open(OlapReaderStatistics* stats) {
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
-    RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared));
+    RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, stats));
 
     _pk_index_meta.reset(
             footer_pb_shared->has_primary_key_index_meta()
@@ -390,7 +390,8 @@ Status Segment::_write_error_file(size_t file_size, size_t offset, size_t bytes_
     return Status::OK(); // already exists
 };
 
-Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer) {
+Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
+                              OlapReaderStatistics* stats) {
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     auto file_size = _file_reader->size();
     if (file_size < 12) {
@@ -402,7 +403,8 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer) {
     uint8_t fixed_buf[12];
     size_t bytes_read = 0;
     // TODO(plat1ko): Support session variable `enable_file_cache`
-    io::IOContext io_ctx {.is_index_data = true};
+    io::IOContext io_ctx {.is_index_data = true,
+                          .file_cache_stats = stats ? &stats->file_cache_stats : nullptr};
     RETURN_IF_ERROR(
             _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read, &io_ctx));
     DCHECK_EQ(bytes_read, 12);
@@ -606,7 +608,7 @@ Status Segment::_create_column_readers_once(OlapReaderStatistics* stats) {
     SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
     return _create_column_readers_once_call.call([&] {
         std::shared_ptr<SegmentFooterPB> footer_pb_shared;
-        RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared));
+        RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, stats));
         return _create_column_readers(*footer_pb_shared);
     });
 }
@@ -1185,7 +1187,8 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
     return Status::OK();
 }
 
-Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb) {
+Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
+                                    OlapReaderStatistics* stats) {
     std::shared_ptr<SegmentFooterPB> footer_pb_shared = _footer_pb.lock();
     if (footer_pb_shared != nullptr) {
         footer_pb = footer_pb_shared;
@@ -1205,7 +1208,7 @@ Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb)
 
     if (!segment_footer_cache->lookup(cache_key, &cache_handle,
                                       segment_v2::PageTypePB::DATA_PAGE)) {
-        RETURN_IF_ERROR(_parse_footer(footer_pb_shared));
+        RETURN_IF_ERROR(_parse_footer(footer_pb_shared, stats));
         segment_footer_cache->insert(cache_key, footer_pb_shared, footer_pb_shared->ByteSizeLong(),
                                      &cache_handle, segment_v2::PageTypePB::DATA_PAGE);
     } else {

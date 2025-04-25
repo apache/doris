@@ -30,9 +30,8 @@ LazyInitSegmentIterator::LazyInitSegmentIterator(BetaRowsetSharedPtr rowset, int
           _schema(std::move(schema)),
           _read_options(opts) {}
 
-/// Here do not use the argument of `opts`,
-/// see where the iterator is created in `BetaRowsetReader::get_segment_iterators`
-Status LazyInitSegmentIterator::init(const StorageReadOptions& /*opts*/) {
+/// See where the iterator is created in `BetaRowsetReader::get_segment_iterators`
+Status LazyInitSegmentIterator::init(const StorageReadOptions& opts) {
     _need_lazy_init = false;
     if (_inner_iterator) {
         return Status::OK();
@@ -42,7 +41,7 @@ Status LazyInitSegmentIterator::init(const StorageReadOptions& /*opts*/) {
     {
         SegmentCacheHandle segment_cache_handle;
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
-                _rowset, _segment_id, &segment_cache_handle, _should_use_cache, false));
+                _rowset, _segment_id, &segment_cache_handle, _should_use_cache, false, opts.stats));
         const auto& tmp_segments = segment_cache_handle.get_segments();
         segment = tmp_segments[0];
     }
