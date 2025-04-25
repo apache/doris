@@ -66,7 +66,7 @@ suite("test_mv_dependence") {
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1"
         )
-        AS select `internal`.`test`.`stu`.`sid`, `internal`.`test`.`stu`.`sname` from `internal`.`test`.`stu` limit 1 
+        AS select  `stu`.`sid`,  `stu`.`sname` from  `stu` limit 1 
     """
 
     sql """
@@ -78,7 +78,7 @@ suite("test_mv_dependence") {
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1"
         )
-        AS select `internal`.`test`.`mv_a`.`sid`, `internal`.`test`.`mv_a`.`sname` from `internal`.`test`.`mv_a` 
+        AS select  `mv_a`.`sid`,  `mv_a`.`sname` from  `mv_a` 
     """
 
     sql """
@@ -90,7 +90,7 @@ suite("test_mv_dependence") {
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1"
         )
-        AS select `internal`.`test`.`stu`.`sid`,`internal`.`test`.`grade`.`cid`,`internal`.`test`.`grade`.`score` from `internal`.`test`.`stu` join `internal`.`test`.`grade` on `internal`.`test`.`stu`.`sid` = `internal`.`test`.`grade`.`sid`
+        AS select  `stu`.`sid`, `grade`.`cid`, `grade`.`score` from  `stu` join  `grade` on  `stu`.`sid` =  `grade`.`sid`
     """
 
     qt_sql "select * from information_schema.mv_dependence where src_database = 'test_mv_dependence_db' order by src_catalog,src_database,src_table"
