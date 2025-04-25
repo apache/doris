@@ -65,7 +65,6 @@ public class AggStateType extends DataType {
 
     /**
      * Constructor for AggStateType
-     * 
      * @param functionName     nested function's name
      * @param subTypes         nested function's argument list
      * @param subTypeNullables nested nested function's argument's nullable list
