@@ -2610,14 +2610,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public void setVariantMaxSubcolumnsCount(int maxSubcoumnsCount) {
-        getOrCreatTableProperty().setVariantMaxSubcolumnsCount(maxSubcoumnsCount);
         List<Column> columns = getBaseSchema(true);
+        boolean hasVariantType = false;
         for (Column column : columns) {
             Type type = column.getType();
             if (type.isVariantType()) {
+                hasVariantType = true;
                 VariantType scType = (VariantType) type;
                 scType.setVariantMaxSubcolumnsCount(maxSubcoumnsCount);
             }
+        }
+        if (hasVariantType) {
+            getOrCreatTableProperty().setVariantMaxSubcolumnsCount(maxSubcoumnsCount);
         }
     }
 

@@ -182,6 +182,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     st = io::global_local_filesystem()->open_file(file_path, &file_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
     ColumnReaderOptions read_opts;
+    read_opts.tablet_schema = _tablet_schema;
     std::unique_ptr<ColumnReader> column_reader;
     st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -558,6 +559,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     st = io::global_local_filesystem()->open_file(file_path, &file_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
     ColumnReaderOptions read_opts;
+    read_opts.tablet_schema = _tablet_schema;
     std::unique_ptr<ColumnReader> column_reader;
     st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -568,11 +570,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     // 8. check statistics
     auto statistics = variant_column_reader->get_stats();
     for (const auto& [path, size] : statistics->subcolumns_non_null_size) {
-        std::cout << "path: " << path << ", size: " << size << std::endl;
         EXPECT_EQ(path_with_size[path], size);
     }
     for (const auto& [path, size] : statistics->sparse_column_non_null_size) {
-        std::cout << "sparse path: " << path << ", size: " << size << std::endl;
         EXPECT_EQ(path_with_size[path], size);
     }
 

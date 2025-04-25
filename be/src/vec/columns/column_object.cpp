@@ -226,11 +226,11 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     DCHECK(!field.is_variant_field());
     auto base_type = WhichDataType(info.scalar_type_id);
-    ++num_rows;
     if (base_type.is_nothing() && info.num_dimensions == 0) {
         insert_default();
         return;
     }
+    ++num_rows;
     auto column_dim = least_common_type.get_dimensions();
     auto value_dim = info.num_dimensions;
     if (is_nothing(least_common_type.get_base())) {
@@ -363,7 +363,6 @@ void ColumnObject::Subcolumn::insert_range_from(const Subcolumn& src, size_t sta
     }
     size_t end = start + length;
     num_rows += length;
-    // num_rows += length;
     if (data.empty()) {
         add_new_column_part(src.get_least_common_type());
     } else if (!least_common_type.get()->equals(*src.get_least_common_type())) {
@@ -859,11 +858,7 @@ void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
         const auto& part = data[i];
         const auto& part_type = data_types[i];
         if (ind < part->size()) {
-            res = vectorized::remove_nullable(part_type)->get_default();
-            part->get(ind, res);
-            Field new_field;
-            convert_field_to_type(res, *least_common_type.get(), &new_field);
-            res = new_field;
+            res = part_type->get_type_field(*part, ind);
             return;
         }
 
@@ -1930,10 +1925,6 @@ Status ColumnObject::pick_subcolumns_to_sparse_column(
 
     // 3. pick config::variant_max_subcolumns_count selected subcolumns
     for (size_t i = 0; i < std::min(size_t(_max_subcolumns_count), sorted_by_size.size()); ++i) {
-        // if too many null values, then consider it as sparse column
-        if ((double)sorted_by_size[i].second < (double)num_rows * 0.99) {
-            continue;
-        }
         selected_path.insert(sorted_by_size[i].first);
     }
     std::map<std::string_view, Subcolumn> remaing_subcolumns;
