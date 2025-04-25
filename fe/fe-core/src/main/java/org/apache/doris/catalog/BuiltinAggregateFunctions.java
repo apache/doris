@@ -87,8 +87,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -172,13 +172,13 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(WindowFunnel.class, "window_funnel")
     );
 
-    public final Set<String> aggFuncNames = aggregateFunctions.stream()
-            .flatMap(fun -> fun.names.stream())
-            .collect(Collectors.toCollection(
-                    () -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER)
-            ))
-            .stream()
-            .collect(ImmutableSet.toImmutableSet());
+    public final Set<String> aggFuncNames = Collections.unmodifiableSet(
+            aggregateFunctions.stream()
+                    .flatMap(fun -> fun.names.stream())
+                    .collect(Collectors.toCollection(
+                            () -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER)
+                    ))
+    );
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
 
