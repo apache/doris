@@ -231,7 +231,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         SCOPED_RAW_TIMER(&_stats->rowset_reader_load_segments_timer_ns);
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                 _rowset, &segment_cache_handle, should_use_cache,
-                /*need_load_pk_index_and_bf*/ false));
+                /*need_load_pk_index_and_bf*/ false, _stats));
     }
 
     // create iterator for each segment
