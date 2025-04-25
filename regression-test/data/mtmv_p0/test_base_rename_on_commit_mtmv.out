@@ -11,22 +11,15 @@ test_base_rename_on_commit_mtmv_mv	SCHEMA_CHANGE	SUCCESS
 -- !select_rename --
 1	1
 
--- !recreate_manual --
-test_base_rename_on_commit_mtmv_mv	NORMAL	SUCCESS
-
--- !select_recreate_manual --
-10	10
-
 -- !recreate_auto --
 test_base_rename_on_commit_mtmv_mv	NORMAL	SUCCESS
 
 -- !select_recreate_auto --
 10	10
-20	20
 
 -- !before_trigger --
-3
+2
 
 -- !after_trigger --
-3
+2
 

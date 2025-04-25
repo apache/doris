@@ -6,21 +6,8 @@
 test_base_recreate_on_commit_mtmv_mv	SCHEMA_CHANGE	SUCCESS
 
 -- !recreate --
-test_base_recreate_on_commit_mtmv_mv	SCHEMA_CHANGE	SUCCESS
+test_base_recreate_on_commit_mtmv_mv	NORMAL	SUCCESS
 
 -- !select_recreate --
-1	1
-
--- !recreate_manual --
-test_base_recreate_on_commit_mtmv_mv	NORMAL	SUCCESS
-
--- !select_recreate_manual --
 2	2
-
--- !recreate_auto --
-test_base_recreate_on_commit_mtmv_mv	NORMAL	SUCCESS
-
--- !select_recreate_auto --
-2	2
-3	3
 
