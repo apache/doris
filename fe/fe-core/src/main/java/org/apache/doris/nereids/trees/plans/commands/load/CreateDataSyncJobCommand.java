@@ -32,6 +32,7 @@ import org.apache.doris.load.sync.DataSyncJobType;
 import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -63,9 +64,9 @@ import java.util.Objects;
 /**
  * CreateDataSyncJobCommand
  */
-public class CreateDataSyncJobCommand extends Command {
+public class CreateDataSyncJobCommand extends Command implements ForwardWithSync {
     private String dbName;
-    private String jobName;
+    private final String jobName;
     private DataSyncJobType dataSyncJobType;
     private final List<ChannelDescription> channelDescriptions;
     private final BinlogDesc binlogDesc;
