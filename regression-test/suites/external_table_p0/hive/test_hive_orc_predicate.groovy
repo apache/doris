@@ -43,6 +43,11 @@ suite("test_hive_orc_predicate", "p0,external,hive,external_docker,external_dock
             qt_predicate_changed_type2 """ select * from type_changed_table where id = '2';"""
             qt_predicate_changed_type3 """ select * from type_changed_table where id = '3';"""
 
+            qt_lazy_materialization_for_list_type """ select l from complex_data_orc where id > 2 order by id; """
+            qt_lazy_materialization_for_map_type """ select m from complex_data_orc where id > 2 order by id; """
+            qt_lazy_materialization_for_list_and_map_type """ select * from complex_data_orc where id > 2 order by id; """
+            qt_lazy_materialization_for_list_type2 """select t_struct_nested from `${catalog_name}`.`default`.orc_all_types_t where t_int=3;"""
+
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }
