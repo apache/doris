@@ -155,7 +155,7 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* st
     }
 
     // serially execute sync to reduce unnecessary network overhead
-    std::lock_guard lock(_sync_meta_lock);
+    std::unique_lock lock(_sync_meta_lock);
     if (options.query_version > 0) {
         std::shared_lock rlock(_meta_lock);
         if (_max_version >= options.query_version) {
@@ -163,7 +163,7 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* st
         }
     }
 
-    auto st = _engine.meta_mgr().sync_tablet_rowsets(this, options, stats);
+    auto st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, options, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
@@ -180,7 +180,7 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
     }
 
     // Serially execute sync to reduce unnecessary network overhead
-    std::lock_guard lock(_sync_meta_lock);
+    std::unique_lock lock(_sync_meta_lock);
 
     {
         std::shared_lock rlock(_meta_lock);
@@ -215,7 +215,7 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
         _max_version = -1;
     }
 
-    st = _engine.meta_mgr().sync_tablet_rowsets(this, {}, stats);
+    st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, {}, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
@@ -386,6 +386,9 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
 }
 
 uint64_t CloudTablet::delete_expired_stale_rowsets() {
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("begin delete_expired_stale_rowset for tablet={}", tablet_id());
+    }
     std::vector<RowsetSharedPtr> expired_rowsets;
     // ATTN: trick, Use stale_rowsets to temporarily increase the reference count of the rowset shared pointer in _stale_rs_version_map so that in the recycle_cached_data function, it checks if the reference count is 2.
     std::vector<RowsetSharedPtr> stale_rowsets;
@@ -437,6 +440,9 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
     }
     _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue(version_to_delete);
     recycle_cached_data(expired_rowsets);
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
+    }
     return expired_rowsets.size();
 }
 

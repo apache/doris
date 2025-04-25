@@ -22,6 +22,7 @@
 #include "runtime/workload_management/resource_context.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 void CPUContext::update_cpu_cost_ms(int64_t delta) const {
     stats_.cpu_cost_ms_counter_->update(delta);
@@ -30,4 +31,5 @@ void CPUContext::update_cpu_cost_ms(int64_t delta) const {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

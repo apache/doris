@@ -483,6 +483,14 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
 
 Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions& options,
                                          SyncRowsetStats* sync_stats) {
+    std::unique_lock lock {tablet->get_sync_meta_lock()};
+    return sync_tablet_rowsets_unlocked(tablet, lock, options, sync_stats);
+}
+
+Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
+                                                  std::unique_lock<bthread::Mutex>& lock,
+                                                  const SyncOptions& options,
+                                                  SyncRowsetStats* sync_stats) {
     using namespace std::chrono;
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
@@ -596,6 +604,12 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions&
             }
             tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
         }
+        DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.modify_tablet_meta", {
+            auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+            if (target_tablet_id == tablet->tablet_id()) {
+                DBUG_BLOCK
+            }
+        });
         {
             const auto& stats = resp.stats();
             std::unique_lock wlock(tablet->get_header_lock());

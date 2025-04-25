@@ -61,6 +61,10 @@ public class HiveProperties {
     public static final String PROP_ESCAPE_CHAR = OpenCSVSerde.ESCAPECHAR;
     public static final String DEFAULT_ESCAPE_CHAR = "\\";
 
+    // org.openx.data.jsonserde.JsonSerDe
+    public static final String PROP_OPENX_IGNORE_MALFORMED_JSON = "ignore.malformed.json";
+    public static final String DEFAULT_OPENX_IGNORE_MALFORMED_JSON = "false";
+
     public static final Set<String> HIVE_SERDE_PROPERTIES = ImmutableSet.of(
             PROP_FIELD_DELIMITER,
             PROP_COLLECTION_DELIMITER_HIVE2,
@@ -149,6 +153,12 @@ public class HiveProperties {
         Optional<String> skipFooterCount = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SKIP_FOOTER_COUNT);
         return Integer
                 .parseInt(HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_SKIP_FOOTER_COUNT, skipFooterCount));
+    }
+
+    public static String getOpenxJsonIgnoreMalformed(Table table) {
+        Optional<String> escapeChar = HiveMetaStoreClientHelper.getSerdeProperty(table,
+                PROP_OPENX_IGNORE_MALFORMED_JSON);
+        return HiveMetaStoreClientHelper.firstPresentOrDefault(DEFAULT_OPENX_IGNORE_MALFORMED_JSON, escapeChar);
     }
 
     // Set properties to table

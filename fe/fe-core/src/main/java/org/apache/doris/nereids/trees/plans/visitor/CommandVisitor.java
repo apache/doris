@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.CleanQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
@@ -57,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -158,6 +161,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowResourcesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRowPolicyCommand;
@@ -259,6 +263,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitExportCommand(ExportCommand exportCommand, C context) {
         return visitCommand(exportCommand, context);
+    }
+
+    default R visitCopyIntoCommand(CopyIntoCommand copyIntoCommand, C context) {
+        return visitCommand(copyIntoCommand, context);
     }
 
     default R visitCreateEncryptKeyCommand(CreateEncryptkeyCommand createEncryptKeyCommand, C context) {
@@ -579,6 +587,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showRepositoriesCommand, context);
     }
 
+    default R visitShowResourcesCommand(ShowResourcesCommand showResourcesCommand, C context) {
+        return visitCommand(showResourcesCommand, context);
+    }
+
     default R visitShowRestoreCommand(ShowRestoreCommand showRestoreCommand, C context) {
         return visitCommand(showRestoreCommand, context);
     }
@@ -897,6 +909,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(describeCommand, context);
     }
 
+    default R visitAlterUserCommand(AlterUserCommand alterUserCommand, C context) {
+        return visitCommand(alterUserCommand, context);
+    }
+
     default R visitShowTableStatusCommand(ShowTableStatusCommand showTableStatusCommand, C context) {
         return visitCommand(showTableStatusCommand, context);
     }
@@ -983,5 +999,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateUserCommand(CreateUserCommand createUserCommand, C context) {
         return visitCommand(createUserCommand, context);
+    }
+
+    default R visitCreateResourceCommand(CreateResourceCommand createResourceCommand, C context) {
+        return visitCommand(createResourceCommand, context);
     }
 }

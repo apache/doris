@@ -161,6 +161,10 @@ supportedDmlStatement
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
     | replayCommand                                                    #replay
+    | COPY INTO selectHint? name=multipartIdentifier columns=identifierList? FROM
+            (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
+                FROM stageAndPattern whereClause? RIGHT_PAREN))
+            properties=propertyClause?                                 #copyInto
     ;
 
 supportedCreateStatement
@@ -219,6 +223,8 @@ supportedCreateStatement
     | CREATE USER (IF NOT EXISTS)? grantUserIdentify
             (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
             passwordOption commentSpec?                            #createUser
+    | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
+            name=identifierOrText properties=propertyClause?                        #createResource
     ;
 
 supportedAlterStatement
@@ -251,6 +257,8 @@ supportedAlterStatement
             QUOTA (quota=identifier | INTEGER_VALUE)                                        #alterDatabaseSetQuota
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
+    | ALTER USER (IF EXISTS)? grantUserIdentify
+        passwordOption (COMMENT STRING_LITERAL)?                                            #alterUser
     ;
 
 supportedDropStatement
@@ -290,6 +298,7 @@ supportedShowStatement
     | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW FULL? BUILTIN? FUNCTIONS
         ((FROM | IN) database=multipartIdentifier)? (LIKE STRING_LITERAL)?          #showFunctions
+    | SHOW GLOBAL FULL? FUNCTIONS (LIKE STRING_LITERAL)?                            #showGlobalFunctions
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
     | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
@@ -332,6 +341,7 @@ supportedShowStatement
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW STAGES                                                                   #showStages
     | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showReplicaDistribution
+    | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
     | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
     | SHOW FRONTENDS name=identifier?                                               #showFrontends
@@ -418,9 +428,7 @@ unsupportedShowStatement
         sortClause? limitClause?                                                    #showAlterTable
     | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
         wildWhere? sortClause? limitClause?                                         #showPartitions
-    | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
-    | SHOW GLOBAL FULL? FUNCTIONS wildWhere?                                        #showGlobalFunctions
     | SHOW TYPECAST ((FROM | IN) database=multipartIdentifier)?                     #showTypeCast
     | SHOW (KEY | KEYS | INDEX | INDEXES)
         (FROM |IN) tableName=multipartIdentifier
@@ -634,8 +642,8 @@ unsupportedAlterStatement
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
-    | ALTER USER (IF EXISTS)? grantUserIdentify
-        passwordOption (COMMENT STRING_LITERAL)?                                    #alterUser
+    | ALTER STORAGE POLICY name=identifierOrText
+        properties=propertyClause                                                   #alterStoragePlicy
     ;
 
 alterSystemClause
@@ -778,8 +786,6 @@ unsupportedCreateStatement
     : CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
         properties=propertyClause?                                              #createDatabase
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
-    | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
-        name=identifierOrText properties=propertyClause?                        #createResource
     | CREATE STORAGE VAULT (IF NOT EXISTS)?
         name=identifierOrText properties=propertyClause?                        #createStorageVault
     | CREATE WORKLOAD POLICY (IF NOT EXISTS)? name=identifierOrText
@@ -889,10 +895,6 @@ unsupportedUseStatement
 
 unsupportedDmlStatement
     : TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?                 #truncateTable
-    | COPY INTO name=multipartIdentifier columns=identifierList? FROM
-        (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
-            FROM stageAndPattern whereClause? RIGHT_PAREN))
-        properties=propertyClause?                                                  #copyInto
     ;
 
 stageAndPattern

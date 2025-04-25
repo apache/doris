@@ -33,8 +33,7 @@ class RuntimeFilterProducerHelperCross : public RuntimeFilterProducerHelper {
 public:
     ~RuntimeFilterProducerHelperCross() override = default;
 
-    RuntimeFilterProducerHelperCross(RuntimeProfile* profile)
-            : RuntimeFilterProducerHelper(profile, true, false) {}
+    RuntimeFilterProducerHelperCross() : RuntimeFilterProducerHelper(true, false) {}
 
     Status process(RuntimeState* state, vectorized::Blocks& blocks) {
         for (auto& block : blocks) {

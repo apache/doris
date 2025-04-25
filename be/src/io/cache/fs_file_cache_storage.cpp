@@ -217,7 +217,6 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     std::vector<FileInfo> files;
     bool exists {false};
     RETURN_IF_ERROR(fs->list(dir, true, &files, &exists));
-    DCHECK(exists);
     if (files.empty()) {
         RETURN_IF_ERROR(fs->delete_directory(dir));
     }
@@ -714,7 +713,7 @@ Status FSFileCacheStorage::clear(std::string& msg) {
     for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
         if (!key_it->is_directory()) continue; // all file cache data is in sub-directories
         ++total;
-        std::string cache_key = key_it->path().filename().native();
+        std::string cache_key = key_it->path().string();
         auto st = global_local_filesystem()->delete_directory(cache_key);
         if (st.ok()) continue;
         failed++;
