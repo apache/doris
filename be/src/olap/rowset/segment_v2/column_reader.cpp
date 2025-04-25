@@ -589,12 +589,17 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
             _subcolumn_readers->add(relative_path,
                                     SubcolumnReader {std::move(reader), get_data_type_fn()});
             TabletSchema::SubColumnInfo sub_column_info;
+            // if subcolumn has index, add index to _variant_subcolumns_indexes
             if (vectorized::schema_util::generate_sub_column_info(
                         *opts.tablet_schema, self_column_pb.unique_id(), relative_path.get_path(),
                         &sub_column_info) &&
                 !sub_column_info.indexes.empty()) {
                 _variant_subcolumns_indexes[path.get_path()] = std::move(sub_column_info.indexes);
-            } else if (!parent_index.empty()) {
+            }
+            // if parent column has index, add index to _variant_subcolumns_indexes
+            else if (!parent_index.empty() &&
+                     InvertedIndexColumnWriter::check_support_inverted_index(
+                             (FieldType)column_pb.type())) {
                 for (const auto& index : parent_index) {
                     const auto& suffix_path = path.get_path();
                     auto subcolumn_index = std::make_unique<TabletIndex>(*index);

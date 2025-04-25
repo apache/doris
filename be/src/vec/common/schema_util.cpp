@@ -1203,7 +1203,8 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
         }
         // 2. find parent column's index
         else if (const auto parent_index = schema.inverted_indexs(col_unique_id);
-                 !parent_index.empty()) {
+                 !parent_index.empty() &&
+                 InvertedIndexColumnWriter::check_support_inverted_index(sub_column_info->column)) {
             for (const auto& index : parent_index) {
                 auto index_ptr = std::make_shared<TabletIndex>(*index);
                 index_ptr->set_escaped_escaped_index_suffix_path(
