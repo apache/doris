@@ -90,7 +90,7 @@ void construct_subcolumn(TabletSchemaSPtr schema, const FieldType& type, int32_t
 //     subcolumns->emplace_back(std::move(subcol));
 // }
 
-TEST_F(SchemaUtilTest, inherit_column_attributes) {
+TEST_F(SchemaUtilTest, test_inherit_column_attributes) {
     TabletSchemaPB schema_pb;
     schema_pb.set_keys_type(KeysType::DUP_KEYS);
     schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
@@ -116,10 +116,10 @@ TEST_F(SchemaUtilTest, inherit_column_attributes) {
     for (const auto& col : subcolumns) {
         switch (col._parent_col_unique_id) {
         case 1:
-            EXPECT_TRUE(tablet_schema->inverted_index(col) != nullptr);
+            EXPECT_EQ(tablet_schema->inverted_indexs(col).size(), 1);
             break;
         case 3:
-            EXPECT_TRUE(tablet_schema->inverted_index(col) == nullptr);
+            EXPECT_EQ(tablet_schema->inverted_indexs(col).size(), 0);
             break;
         default:
             EXPECT_TRUE(false);
@@ -458,15 +458,15 @@ TEST_F(SchemaUtilTest, generate_sub_column_info_advanced) {
             schema_util::generate_sub_column_info(schema, 10, "profile.id.name", &sub_column_info);
     EXPECT_TRUE(match);
     EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
-    EXPECT_TRUE(sub_column_info.index);
+    EXPECT_FALSE(sub_column_info.indexes.empty());
 
     match = schema_util::generate_sub_column_info(schema, 10, "profile.id2", &sub_column_info);
     EXPECT_TRUE(match);
     EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
-    EXPECT_TRUE(sub_column_info.index);
+    EXPECT_FALSE(sub_column_info.indexes.empty());
 
     match = schema_util::generate_sub_column_info(schema, 10, "profilexid", &sub_column_info);
     EXPECT_TRUE(match);
     EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
-    EXPECT_FALSE(sub_column_info.index);
+    EXPECT_TRUE(sub_column_info.indexes.empty());
 }
