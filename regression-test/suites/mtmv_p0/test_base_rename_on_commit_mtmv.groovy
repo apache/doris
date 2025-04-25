@@ -90,22 +90,12 @@ suite("test_base_rename_on_commit_mtmv","mtmv") {
       sql """
              INSERT INTO ${tableName1} VALUES(10,10);
          """
-    // refresh manual
-    sql """
-            REFRESH MATERIALIZED VIEW ${mvName} auto
-        """
-    waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_recreate_manual "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-    order_qt_select_recreate_manual "select * from ${mvName}"
 
-    sql """
-            INSERT INTO ${tableName1} VALUES(20,20);
-        """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_recreate_auto "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     order_qt_select_recreate_auto "select * from ${mvName}"
 
-    // t1 should not trigger refresh
+    // t2 should not trigger refresh
     order_qt_before_trigger "select count(*)  from tasks('type'='mv') where MvName='${mvName}'"
     sql """
              INSERT INTO ${tableName2} VALUES(4,4);

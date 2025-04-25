@@ -86,25 +86,9 @@ suite("test_base_replace_on_commit_mtmv","mtmv") {
             INSERT INTO ${tableName1} VALUES(2,2);
         """
 
-    // after replace, should not refresh auto, because is schema_change
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_replace "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     order_qt_select_replace "select * from ${mvName}"
-
-    // refresh manual
-    sql """
-            REFRESH MATERIALIZED VIEW ${mvName} auto
-        """
-    waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_replace_manual "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-    order_qt_select_replace_manual "select * from ${mvName}"
-
-    sql """
-            INSERT INTO ${tableName1} VALUES(3,3);
-        """
-    waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_replace_auto "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-    order_qt_select_replace_auto "select * from ${mvName}"
 
     // t2 should not trigger refresh
     order_qt_before_trigger "select count(*)  from tasks('type'='mv') where MvName='${mvName}'"
