@@ -40,8 +40,10 @@ import java.util.Optional;
  */
 public class ScalarSubquery extends SubqueryExpr {
 
+    // indicate if the subquery's root plan node is LogicalAggregate
     private final boolean hasTopLevelScalarAgg;
 
+    // indicate if the subquery has limit 1 clause but it's been eliminated in previous process step
     private final boolean limitOneIsEliminated;
 
     public ScalarSubquery(LogicalPlan subquery) {
