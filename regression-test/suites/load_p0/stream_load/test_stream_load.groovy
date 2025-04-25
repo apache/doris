@@ -1457,7 +1457,7 @@ suite("test_stream_load", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism must be an integer, stoi", json.Message)
+            assertEquals("[INVALID_ARGUMENT]Invalid format of 'send_batch_parallelism': 'a', stoi", json.Message)
         }
     }
 
@@ -1474,7 +1474,7 @@ suite("test_stream_load", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("[INVALID_ARGUMENT]send_batch_parallelism out of range, stoi", json.Message)
+            assertEquals("[INVALID_ARGUMENT]'send_batch_parallelism' value out of range: '21474836471', stoi", json.Message)
         }
     }
 
@@ -1626,7 +1626,7 @@ suite("test_stream_load", "p0") {
   
    log.info(sql_result[0][0].toString())
    log.info(sql_result[0][1].toString())
-   log.info(sql_result[0].size.toString())
+   log.info(sql_result.toString())
 
    def beHost=sql_result[0][0]
    def beHttpPort=sql_result[0][1]
