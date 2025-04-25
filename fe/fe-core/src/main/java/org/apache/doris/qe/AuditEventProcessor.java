@@ -48,7 +48,7 @@ public class AuditEventProcessor {
     private List<Plugin> auditPlugins;
     private long lastUpdateTime = 0;
 
-    private BlockingQueue<AuditEvent> eventQueue = Queues.newLinkedBlockingDeque(10000);
+    private BlockingQueue<AuditEvent> eventQueue = Queues.newLinkedBlockingDeque();
     private Thread workerThread;
 
     private volatile boolean isStopped = false;
@@ -89,21 +89,22 @@ public class AuditEventProcessor {
     }
 
     public boolean handleAuditEvent(AuditEvent auditEvent) {
-        return handleAuditEvent(auditEvent, false);
-    }
-
-    public boolean handleAuditEvent(AuditEvent auditEvent, boolean ignoreQueueFullLog) {
         if (skipAuditUsers.contains(auditEvent.user)) {
             // return true to ignore this event
-            LOG.info("yy debug skip audit user: {}, {}", auditEvent.user, auditEvent.queryId);
             return true;
         }
         boolean isAddSucc = true;
         try {
-            eventQueue.add(auditEvent);
+            if (eventQueue.size() >= Config.audit_event_log_queue_size) {
+                isAddSucc = false;
+                LOG.warn("the audit event queue is full with size {}, discard the audit event: {}",
+                        eventQueue.size(), auditEvent.queryId);
+            } else {
+                eventQueue.add(auditEvent);
+            }
         } catch (Exception e) {
             isAddSucc = false;
-            LOG.warn("yy debug encounter exception when handle audit event {}, {}, ignore", auditEvent.type,
+            LOG.warn("encounter exception when handle audit event {}, discard the event",
                     auditEvent.queryId, e);
         }
         return isAddSucc;
@@ -130,7 +131,7 @@ public class AuditEventProcessor {
                         continue;
                     }
                 } catch (InterruptedException e) {
-                    LOG.info("yy debug encounter exception when getting audit event from queue, ignore", e);
+                    LOG.warn("encounter exception when getting audit event from queue, ignore", e);
                     continue;
                 }
 
@@ -138,12 +139,10 @@ public class AuditEventProcessor {
                     for (Plugin plugin : auditPlugins) {
                         if (((AuditPlugin) plugin).eventFilter(auditEvent.type)) {
                             ((AuditPlugin) plugin).exec(auditEvent);
-                        } else {
-                            LOG.info("yy debug the audit log is filtered: {}, {}", auditEvent.type, auditEvent.queryId);
                         }
                     }
                 } catch (Exception e) {
-                    LOG.info("yy debug encounter exception when processing audit event.", e);
+                    LOG.warn("encounter exception when processing audit events. ignore", e);
                 }
             }
         }

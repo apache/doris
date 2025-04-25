@@ -302,7 +302,9 @@ public class AuditLogHelper {
         }
         AuditEvent event = auditEventBuilder.build();
         Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(event);
-        LOG.info("yy debug submitFinishQueryToAudit: {}", event.queryId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("submit audit event: {}", event.queryId);
+        }
     }
 
     private static String getStmtType(StatementBase stmt) {
