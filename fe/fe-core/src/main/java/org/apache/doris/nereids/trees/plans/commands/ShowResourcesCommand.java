@@ -119,6 +119,8 @@ public class ShowResourcesCommand extends ShowCommand {
             if (wildWhere instanceof Like) {
                 if (wildWhere.child(1) instanceof StringLikeLiteral) {
                     likePattern = ((StringLikeLiteral) wildWhere.child(1)).getStringValue();
+                    matcher = PatternMatcherWrapper.createMysqlPattern(likePattern,
+                            CaseSensibility.RESOURCE.getCaseSensibility());
                     nameValue = null;
                 }
             }
