@@ -137,6 +137,24 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
     // example: expr=(n1.n_name = 'FRANCE' and n2.n_name = 'GERMANY'), qualifier="n1."
     // output: n1.n_name = 'FRANCE'
     private Optional<Expression> extractSingleTableExpression(Expression expr, String qualifier) {
+        // suppose the qualifier is table T, then the process steps are as follow:
+        // 1. split the expression into conjunctions: c1 and c2 and c3 and ...
+        // 2. for each conjunction ci, suppose its extract is Ei:
+        //    a) if ci's all slots come from T, then the whole ci is extracted, then Ei = ci;
+        //    b) if ci is an OR expression, then split ci into disjunctions:  ci => d1 or d2 or d3 or ...,
+        //       for each disjunction, extract it recuirsely, suppose after extract dj, we get ej,
+        //       if all the dj can extracted ej, then extract ci succ, which is Ei = e1 or e2 or e3 or ...,
+        //       if any dj extract failed, then extract ci fail
+        // 3. collect all the succ extracted Ei, and the result for table T is `E1 and E2 and E3 and ...`
+        //
+        // for example:
+        // suppose expr = (t1.a = 1 or (t2.b = 2 and t1.c = 3)) and (t1.d = 4 or t2.e = 5), qualifier = t1, then
+        // c1 = (t1.a = 1 or (t2.b = 2 and t1.c = 3)),
+        // because the whole c1 contains slot t2.b not belong to t1, so cannot extract the whole c1,
+        // but c1 is an OR expression, so split c1 into disjunctions:
+        // d1 => t1.a = 1, d2 => (t2.b = 2 and t1.c = 3)
+        // then after extract on d1, we get e1 = t1.a = 1, extract on d2, we get t1.c = 3,
+        // so we can extract E1 for c1:   t1.a = 1 or t1.c = 3
         List<Expression> output = Lists.newArrayList();
         List<Expression> conjuncts = ExpressionUtils.extractConjunction(expr);
         for (Expression conjunct : conjuncts) {
