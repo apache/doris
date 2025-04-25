@@ -50,7 +50,7 @@ public class CreateResourceInfo {
      * CreateResourceInfo
      */
     public CreateResourceInfo(boolean isExternal, boolean ifNotExists, String resourceName,
-            com.google.common.collect.ImmutableMap<String, String> properties) {
+            ImmutableMap<String, String> properties) {
         this.isExternal = isExternal;
         this.ifNotExists = ifNotExists;
         this.resourceName = resourceName;
@@ -122,7 +122,7 @@ public class CreateResourceInfo {
         return resourceName;
     }
 
-    public Map<String, String> getProperties() {
+    public ImmutableMap<String, String> getProperties() {
         return properties;
     }
 
