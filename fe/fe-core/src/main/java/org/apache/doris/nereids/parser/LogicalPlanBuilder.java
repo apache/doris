@@ -6688,7 +6688,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> labelParts = visitMultipartIdentifier(ctx.multipartIdentifier());
         int size = labelParts.size();
         String jobName = labelParts.get(size - 1);
-
         String dbName;
         if (size == 1) {
             dbName = null;
