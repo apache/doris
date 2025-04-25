@@ -758,10 +758,7 @@ void DataDir::_perform_rowset_gc(const std::string& tablet_schema_hash_path) {
         auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (target_tablet_id == tablet_id) {
             LOG(INFO) << "debug point wait tablet to remove rsmgr tabletId=" << tablet_id;
-            while (DebugPoints::instance()->is_enable(
-                    "DataDir::_perform_rowset_gc.simulation.slow")) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            }
+            DBUG_BLOCK;
         }
     });
 
