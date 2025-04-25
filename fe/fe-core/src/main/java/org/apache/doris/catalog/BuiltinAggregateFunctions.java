@@ -91,6 +91,8 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 /**
  * Builtin aggregate functions.
@@ -172,6 +174,10 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
 
     public final Set<String> aggFuncNames = aggregateFunctions.stream()
             .flatMap(fun -> fun.names.stream())
+            .collect(Collectors.toCollection(
+                    () -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER)
+            ))
+            .stream()
             .collect(ImmutableSet.toImmutableSet());
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
