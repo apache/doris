@@ -60,7 +60,7 @@ import java.util.Set;
  */
 public class ShowResourcesCommand extends ShowCommand {
     private final Expression wildWhere;
-    private final String likePattern;
+    private String likePattern;
     private final List<OrderKey> orderKeys;
     private final long limit;
     private final long offset;
@@ -108,10 +108,20 @@ public class ShowResourcesCommand extends ShowCommand {
         // then process the order by
         orderByPairs = processOrderBy();
 
+        // when execute "show resources like '%xxx%'", the likePattern is '%xxx%',
+        // when execute "shore resources where name like '%xxx%'", the likePattern is null,
+        // we use likePattern to handle the two statements.
         PatternMatcher matcher = null;
         if (likePattern != null) {
             matcher = PatternMatcherWrapper.createMysqlPattern(likePattern,
                     CaseSensibility.RESOURCE.getCaseSensibility());
+        } else {
+            if (wildWhere instanceof Like) {
+                if (wildWhere.child(1) instanceof StringLikeLiteral) {
+                    likePattern = ((StringLikeLiteral) wildWhere.child(1)).getStringValue();
+                    nameValue = null;
+                }
+            }
         }
 
         // sort the result
