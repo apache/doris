@@ -204,7 +204,7 @@ public class CollectRelation implements AnalysisRuleFactory {
         }
     }
 
-    private void collectMTMVCandidates(TableIf table, CascadesContext cascadesContext) {
+    protected void collectMTMVCandidates(TableIf table, CascadesContext cascadesContext) {
         boolean shouldCollect = false;
         for (PlannerHook plannerHook : cascadesContext.getStatementContext().getPlannerHooks()) {
             // only collect when InitMaterializationContextHook exists in planner hooks
@@ -247,7 +247,7 @@ public class CollectRelation implements AnalysisRuleFactory {
         }
     }
 
-    private void parseAndCollectFromView(List<String> tableQualifier, View view, CascadesContext parentContext) {
+    protected void parseAndCollectFromView(List<String> tableQualifier, View view, CascadesContext parentContext) {
         Pair<String, Long> viewInfo = parentContext.getStatementContext().getAndCacheViewInfo(tableQualifier, view);
         long originalSqlMode = parentContext.getConnectContext().getSessionVariable().getSqlMode();
         parentContext.getConnectContext().getSessionVariable().setSqlMode(viewInfo.second);
