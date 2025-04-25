@@ -1715,7 +1715,7 @@ void commit_txn_eventually(
         DCHECK(txn_info.txn_id() == txn_id);
         if (txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
             code = MetaServiceCode::TXN_ALREADY_ABORTED;
-            ss << "transaction is already aborted: db_id=" << db_id << " txn_id=" << txn_id;
+            ss << "transaction [" << txn_id << "] is already aborted, db_id=" << db_id;
             msg = ss.str();
             LOG(WARNING) << msg;
             return;
