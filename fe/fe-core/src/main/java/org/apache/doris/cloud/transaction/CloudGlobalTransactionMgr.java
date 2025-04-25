@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.proto.Cloud.AbortSubTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.AbortSubTxnResponse;
@@ -146,6 +147,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Random;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -537,7 +539,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         if (!mowTableList.isEmpty()) {
-            sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos,
+            List<Long> mowTableIds = mowTableList.stream().map(Table::getId).collect(Collectors.toList());
+            sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos, mowTableIds,
                     Config.calculate_delete_bitmap_task_timeout_seconds);
         }
 
@@ -1042,10 +1045,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void sendCalcDeleteBitmaptask(long dbId, long transactionId,
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos,
+            List<Long> mowTableIds,
             long calculateDeleteBitmapTaskTimeoutSeconds) throws UserException {
         if (backendToPartitionInfos == null) {
             throw new UserException("failed to send calculate delete bitmap task to be,transactionId=" + transactionId
                     + ",but backendToPartitionInfos is null");
+        }
+        if (mowTableIds == null) {
+            throw new UserException("failed to send calculate delete bitmap task to be, transactionId=" + transactionId
+                    + ", because mowTableIds is null");
         }
         if (backendToPartitionInfos.isEmpty()) {
             return;
@@ -1056,11 +1064,36 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(
                 totalTaskNum);
         AgentBatchTask batchTask = new AgentBatchTask();
+
+        boolean hasOtherInterleavedTxnBefore = mowTableIds.stream()
+                .anyMatch(tableId -> {
+                    long lastTxnId = ((CloudEnv) Env.getCurrentEnv()).getLastTxnId(dbId, tableId);
+                    return lastTxnId != -1 && lastTxnId != transactionId;
+                });
+        // If there exists other interleaved txns on the same table before,
+        // we can not use the response of previous calc delete bitmap task which is created
+        // by the current transaction before.
+        // So we change the signature to avoid to recieve the response of previous calc delete bitmap task
+        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                .getTransactionState(dbId, transactionId);
+        long signature = transactionState.getCalcTaskSignature();
+        if (signature == -1) {
+            signature = transactionId;
+        }
+        if (hasOtherInterleavedTxnBefore) {
+            signature = UUID.randomUUID().getMostSignificantBits();
+        }
+        transactionState.setCalcTaskSignature(signature);
+        for (long tableId : mowTableIds) {
+            ((CloudEnv) Env.getCurrentEnv()).setLastTxnId(dbId, tableId, transactionId);
+        }
+
         for (Map.Entry<Long, List<TCalcDeleteBitmapPartitionInfo>> entry : backendToPartitionInfos.entrySet()) {
             CalcDeleteBitmapTask task = new CalcDeleteBitmapTask(entry.getKey(),
                     transactionId,
                     dbId,
                     entry.getValue(),
+                    signature,
                     countDownLatch);
             countDownLatch.addMark(entry.getKey(), transactionId);
             // add to AgentTaskQueue for handling finish report.
@@ -1222,7 +1255,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             List<SubTransactionState> subTransactionStates, List<OlapTable> mowTableList,
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos) throws UserException {
         if (!mowTableList.isEmpty()) {
-            sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos,
+            List<Long> mowTableIds = mowTableList.stream().map(Table::getId).collect(Collectors.toList());
+            sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos, mowTableIds,
                     Config.calculate_delete_bitmap_task_timeout_seconds_for_transaction_load);
         }
 

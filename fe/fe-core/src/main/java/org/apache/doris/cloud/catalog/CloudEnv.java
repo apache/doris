@@ -47,6 +47,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -73,6 +74,10 @@ public class CloudEnv extends Env {
     private CleanCopyJobScheduler cleanCopyJobScheduler;
 
     private String cloudInstanceId;
+
+    // dbId -> tableId -> txnId
+    // only used by merge-on-write table
+    private Map<Long, Map<Long, Long>> lastTxnIdMap = Maps.newConcurrentMap();
 
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);
@@ -437,5 +442,23 @@ public class CloudEnv extends Env {
     @Override
     public void modifyFrontendHostName(String srcHost, int srcPort, String destHost) throws DdlException {
         throw new DdlException("Modifying frontend hostname is not supported in cloud mode");
+    }
+
+    public long getLastTxnId(long dbId, long tableId) {
+        Map<Long, Long> tabletIdToTxnId = lastTxnIdMap.get(dbId);
+        if (tabletIdToTxnId == null) {
+            return -1;
+        }
+        return tabletIdToTxnId.getOrDefault(tableId, -1L);
+    }
+
+    public void setLastTxnId(long dbId, long tableId, long txnId) {
+        lastTxnIdMap.compute(dbId, (k, v) -> {
+            if (v == null) {
+                v = Maps.newConcurrentMap();
+            }
+            v.put(tableId, txnId);
+            return v;
+        });
     }
 }

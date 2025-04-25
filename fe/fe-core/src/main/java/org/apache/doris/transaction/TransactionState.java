@@ -293,6 +293,10 @@ public class TransactionState implements Writable {
     // no need to persist.
     private String errMsg = "";
 
+    // only used by cloud merge-on-write table
+    // not need to persist
+    private long calcTaskSignature = -1;
+
     public class SchemaInfo {
         public List<Column> schema;
         public int schemaVersion;
@@ -891,5 +895,13 @@ public class TransactionState implements Writable {
             }
         }
         return tableCommitInfos;
+    }
+
+    public void setCalcTaskSignature(long calcTaskSignature) {
+        this.calcTaskSignature = calcTaskSignature;
+    }
+
+    public long getCalcTaskSignature() {
+        return calcTaskSignature;
     }
 }
