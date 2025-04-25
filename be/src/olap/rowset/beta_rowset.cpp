@@ -163,7 +163,8 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
     return Status::OK();
 }
 
-Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment) {
+Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment,
+                                OlapReaderStatistics* stats) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
@@ -181,7 +182,7 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
 
     auto s = segment_v2::Segment::open(fs, seg_path, _rowset_meta->tablet_id(), seg_id, rowset_id(),
                                        _schema, reader_options, segment,
-                                       _rowset_meta->inverted_index_file_info(seg_id));
+                                       _rowset_meta->inverted_index_file_info(seg_id), stats);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
                      << " : " << s.to_string();
