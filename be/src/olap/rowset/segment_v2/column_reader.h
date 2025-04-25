@@ -89,7 +89,7 @@ struct ColumnReaderOptions {
 
     int be_exec_version = -1;
 
-    const TabletSchemaSPtr tablet_schema = nullptr;
+    TabletSchemaSPtr tablet_schema = nullptr;
 };
 
 struct ColumnIteratorOptions {
