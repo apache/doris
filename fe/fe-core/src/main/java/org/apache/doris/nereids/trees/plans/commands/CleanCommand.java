@@ -25,7 +25,7 @@ import org.apache.doris.qe.StmtExecutor;
 /**
  * base class for all Clean commands
  */
-public abstract class CleanCommand extends Command {
+public abstract class CleanCommand extends Command implements ForwardWithSync {
     public CleanCommand(PlanType type) {
         super(type);
     }

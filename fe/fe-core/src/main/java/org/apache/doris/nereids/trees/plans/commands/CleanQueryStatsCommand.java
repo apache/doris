@@ -82,7 +82,10 @@ public class CleanQueryStatsCommand extends CleanCommand {
         handleCleanQueryStatsCommand(ctx);
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    /**
+     * validate
+     */
+    public void validate(ConnectContext ctx) throws AnalysisException {
         switch (scope) {
             case ALL:
                 if (!Env.getCurrentEnv().getAccessManager()
@@ -101,7 +104,7 @@ public class CleanQueryStatsCommand extends CleanCommand {
 
                 Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(dbName);
                 if (!Env.getCurrentEnv().getAccessManager()
-                        .checkDbPriv(ConnectContext.get(), tableNameInfo.getCtl(), dbName,
+                        .checkDbPriv(ConnectContext.get(), ctx.getCurrentCatalog().getName(), dbName,
                             PrivPredicate.ALTER)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                             "CLEAN DATABASE QUERY STATS FOR " + ClusterNamespace.getNameFromFullName(dbName));
