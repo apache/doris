@@ -371,7 +371,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                                 createTableScan().filter()).iterator()) {
                     int cnt = 0;
                     while (matchingManifest.hasNext()) {
-                        cnt += matchingManifest.next().addedFilesCount();
+                        ManifestFile next = matchingManifest.next();
+                        cnt += next.addedFilesCount() + next.existingFilesCount();
                         if (cnt >= sessionVariable.getNumFilesInBatchMode()) {
                             return true;
                         }
