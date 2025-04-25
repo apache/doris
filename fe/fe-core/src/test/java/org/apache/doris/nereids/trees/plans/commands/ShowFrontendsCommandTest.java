@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -41,6 +42,10 @@ public class ShowFrontendsCommandTest extends TestWithFeService {
     private ConnectContext ctx;
     @Mocked
     private AccessControllerManager accessControllerManager;
+    @Mocked
+    private InternalCatalog catalog;
+    @Mocked
+    private CatalogMgr catalogMgr;
 
     private void runBefore() throws Exception {
         new Expectations() {
