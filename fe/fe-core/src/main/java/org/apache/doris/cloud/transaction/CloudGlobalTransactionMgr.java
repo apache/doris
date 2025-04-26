@@ -1065,23 +1065,26 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 totalTaskNum);
         AgentBatchTask batchTask = new AgentBatchTask();
 
-        boolean hasOtherInterleavedTxnBefore = mowTableIds.stream()
-                .anyMatch(tableId -> {
-                    long lastTxnId = ((CloudEnv) Env.getCurrentEnv()).getLastTxnId(dbId, tableId);
-                    return lastTxnId != -1 && lastTxnId != transactionId;
-                });
-        // If there exists other interleaved txns on the same table before,
-        // we can not use the response of previous calc delete bitmap task which is created
-        // by the current transaction before.
-        // So we change the signature to avoid to recieve the response of previous calc delete bitmap task
         TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
                 .getTransactionState(dbId, transactionId);
         long signature = transactionState.getCalcTaskSignature();
         if (signature == -1) {
+            // use txn_id as signature for every txn in first time
             signature = transactionId;
-        }
-        if (hasOtherInterleavedTxnBefore) {
-            signature = UUID.randomUUID().getMostSignificantBits();
+        } else {
+            // If there exists other interleaved txns on the same table before,
+            // we can not accept the response of previous calc delete bitmap task which is created
+            // by the current transaction before because the delete bitmap written in those tasks
+            // maybe be removed in MS.
+            // So we change the signature to avoid to accept the response of previous calc delete bitmap task
+            boolean hasOtherInterleavedTxnBefore = mowTableIds.stream()
+                    .anyMatch(tableId -> {
+                        long lastTxnId = ((CloudEnv) Env.getCurrentEnv()).getLastTxnId(dbId, tableId);
+                        return lastTxnId != -1 && lastTxnId != transactionId;
+                    });
+            if (hasOtherInterleavedTxnBefore) {
+                signature = UUID.randomUUID().getLeastSignificantBits();
+            }
         }
         transactionState.setCalcTaskSignature(signature);
         for (long tableId : mowTableIds) {
