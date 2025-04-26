@@ -361,6 +361,7 @@ Status PipelineTask::execute(bool* done) {
     int64_t time_spent = 0;
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();
+    SCOPED_ATTACH_TASK(_state);
     Defer running_defer {[&]() {
         if (_task_queue) {
             _task_queue->update_statistics(this, time_spent);

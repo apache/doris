@@ -210,6 +210,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
     }
 #endif
     if (doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0 ||
+        !doris::thread_context()->is_attach_task() ||
         !doris::thread_context()->resource_ctx()->memory_context()->enable_check_mem_limit()) {
         return;
     }

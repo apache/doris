@@ -76,6 +76,10 @@ Status TaskScheduler::schedule_task(PipelineTaskSPtr task) {
 
 // after close_task, task maybe destructed.
 void close_task(PipelineTask* task, Status exec_status, PipelineFragmentContext* ctx) {
+    // Has to attach memory tracker here, because the close task will also release some memory.
+    // Should count the memory to the query or the query's memory will not decrease when part of
+    // task finished.
+    SCOPED_ATTACH_TASK(task->runtime_state());
     if (!exec_status.ok()) {
         ctx->cancel(exec_status);
         LOG(WARNING) << fmt::format("Pipeline task failed. query_id: {} reason: {}",
@@ -108,8 +112,6 @@ void TaskScheduler::_do_work(int index) {
         if (task->is_finalized()) {
             continue;
         }
-
-        SCOPED_ATTACH_TASK(task->runtime_state()); // put it at the beginning.
 
         auto fragment_context = task->fragment_context().lock();
         if (!fragment_context) {

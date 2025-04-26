@@ -202,11 +202,11 @@ void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerC
 
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                                      std::shared_ptr<ScanTask> scan_task) {
-    SCOPED_ATTACH_TASK(ctx->state());
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         return;
     }
+    SCOPED_ATTACH_TASK(task_lock->get_runtime_state());
 
     ctx->update_peak_running_scanner(1);
     Defer defer([&] { ctx->update_peak_running_scanner(-1); });
