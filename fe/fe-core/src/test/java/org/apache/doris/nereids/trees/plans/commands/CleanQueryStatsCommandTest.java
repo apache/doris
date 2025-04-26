@@ -119,7 +119,7 @@ public class CleanQueryStatsCommandTest {
         //normal
         new Expectations() {
             {
-                accessManager.checkDbPriv(connectContext, internalCtl, dbName, PrivPredicate.ALTER);
+                accessManager.checkGlobalPriv(connectContext, PrivPredicate.ALTER);
                 minTimes = 0;
                 result = true;
             }
@@ -147,7 +147,7 @@ public class CleanQueryStatsCommandTest {
         //normal
         new Expectations() {
             {
-                accessManager.checkTblPriv(connectContext, tableNameInfo, PrivPredicate.ALTER);
+                accessManager.checkGlobalPriv(connectContext, PrivPredicate.ALTER);
                 minTimes = 0;
                 result = true;
             }
