@@ -27,7 +27,6 @@
 #include "vec/columns/column_object.h"
 #include "vec/common/schema_util.cpp"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nothing.h"
