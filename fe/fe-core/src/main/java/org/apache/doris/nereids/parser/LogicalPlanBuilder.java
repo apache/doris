@@ -6771,7 +6771,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitCreateResource(DorisParser.CreateResourceContext ctx) {
         String resourceName = visitIdentifierOrText(ctx.name);
-        Map<String, String> properties = new HashMap<>(visitPropertyClause(ctx.properties));
+        ImmutableMap<String, String> properties = ImmutableMap.copyOf(visitPropertyClause(ctx.properties));
 
         CreateResourceInfo createResourceInfo = new CreateResourceInfo(
                 ctx.EXTERNAL() != null,
