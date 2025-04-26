@@ -206,7 +206,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     if (task_lock == nullptr) {
         return;
     }
-    SCOPED_ATTACH_TASK(task_lock->get_runtime_state());
+    SCOPED_ATTACH_TASK(ctx->state());
 
     ctx->update_peak_running_scanner(1);
     Defer defer([&] { ctx->update_peak_running_scanner(-1); });
