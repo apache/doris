@@ -623,7 +623,7 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     }
 
     for (size_t i = 0; i < new_schema_inverted_indexs.size(); ++i) {
-        if (new_schema_inverted_indexs[i] != old_schema_inverted_indexs[i]) {
+        if (!new_schema_inverted_indexs[i]->is_same_except_id(old_schema_inverted_indexs[i])) {
             return true;
         }
     }

@@ -178,7 +178,7 @@ Status IndexBuilder::update_inverted_index_info() {
                 auto exist_indexs = output_rs_tablet_schema->inverted_indexs(col);
                 for (const auto& exist_index : exist_indexs) {
                     if (exist_index->index_id() != index.index_id()) {
-                        if (exist_index->is_same_except_id(index)) {
+                        if (exist_index->is_same_except_id(&index)) {
                             LOG(WARNING) << fmt::format(
                                     "column: {} has a exist inverted index, but the index id not "
                                     "equal "
