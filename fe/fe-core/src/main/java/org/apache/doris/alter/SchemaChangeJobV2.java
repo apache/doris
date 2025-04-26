@@ -599,7 +599,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         }
                         failedBackends.add(task.getBackendId());
                         int expectSucceedTaskNum = tbl.getPartitionInfo()
-                            .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
+                                .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
                         int failedTaskCount = failedBackends.size();
                         if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
                             throw new AlterCancelException(
@@ -655,7 +655,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
                                 LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}"
                                         + " healthyReplicaNum {} expectReplicationNum {}",
-                                    shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);
+                                        shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);
                                 throw new AlterCancelException(
                                     "shadow tablet " + shadowTablet.getId() + " has few healthy replicas");
                             }
