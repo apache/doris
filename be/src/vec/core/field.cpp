@@ -184,4 +184,24 @@ template <>
 bool decimal_less_or_equal(Decimal128V3 x, Decimal128V3 y, UInt32 xs, UInt32 ys) {
     return dec_less_or_equal(x, y, xs, ys);
 }
+
+VariantField::VariantField(Field&& f, TypeIndex type_index, int p, int s)
+        : f(std::make_unique<Field>(std::move(f))), type(type_index), precision(p), scale(s) {}
+
+VariantField::VariantField(const VariantField& other)
+        : f(other.f ? std::make_unique<Field>(*other.f) : nullptr),
+          type(other.type),
+          precision(other.precision),
+          scale(other.scale) {}
+
+VariantField& VariantField::operator=(const VariantField& other) {
+    if (this != &other) {
+        f = other.f ? std::make_unique<Field>(*other.f) : nullptr;
+        type = other.type;
+        precision = other.precision;
+        scale = other.scale;
+    }
+    return *this;
+}
+
 } // namespace doris::vectorized

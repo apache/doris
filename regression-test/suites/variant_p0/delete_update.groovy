@@ -24,7 +24,7 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant
+            v variant<'a' : int, 'b' : array<int>, 'c' : double>
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 3
@@ -50,7 +50,7 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v  variant,
+            v  variant<'a' : int, 'b' : array<int>, 'c' : double>,
             vs string 
         )
         UNIQUE KEY(`k`)

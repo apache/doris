@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/vertical_segment_writer.h"
 
+#include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
@@ -43,7 +44,8 @@
 #include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
-#include "olap/row_cursor.h"                   // RowCursor // IWYU pragma: keep
+#include "olap/row_cursor.h" // RowCursor // IWYU pragma: keep
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
@@ -71,7 +73,10 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/io/reader_buffer.h"
+#include "vec/json/path_in_data.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
 
@@ -1052,6 +1057,10 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
                 remove_nullable(column_ref)->assume_mutable_ref());
         const TabletColumnPtr& parent_column = _tablet_schema->columns()[i];
 
+        std::map<std::string, TabletColumnPtr> typed_columns;
+        for (const auto& col : parent_column->get_sub_columns()) {
+            typed_columns[col->name()] = col;
+        }
         // generate column info by entry info
         auto generate_column_info = [&](const auto& entry) {
             const std::string& column_name =
@@ -1062,6 +1071,13 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
             auto full_path = full_path_builder.append(parent_column->name_lower_case(), false)
                                      .append(entry->path.get_parts(), false)
                                      .build();
+            // typed column takes no effect no nested column
+            if (typed_columns.contains(entry->path.get_path()) && !entry->path.has_nested_part()) {
+                TabletColumn typed_column = *typed_columns[entry->path.get_path()];
+                typed_column.set_path_info(full_path);
+                typed_column.set_parent_unique_id(parent_column->unique_id());
+                return typed_column;
+            }
             return vectorized::schema_util::get_column_by_type(
                     final_data_type_from_object, column_name,
                     vectorized::schema_util::ExtraInfo {
@@ -1081,14 +1097,22 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
             CHECK(entry->data.is_finalized());
             int current_column_id = column_id++;
             TabletColumn tablet_column = generate_column_info(entry);
+            vectorized::DataTypePtr storage_type =
+                    vectorized::DataTypeFactory::instance().create_data_type(tablet_column);
+            vectorized::DataTypePtr finalized_type = entry->data.get_least_common_type();
+            vectorized::ColumnPtr current_column =
+                    entry->data.get_finalized_column_ptr()->get_ptr();
+            if (!storage_type->equals(*finalized_type)) {
+                RETURN_IF_ERROR(vectorized::schema_util::cast_column(
+                        {current_column, finalized_type, ""}, storage_type, &current_column));
+            }
             vectorized::schema_util::inherit_column_attributes(*parent_column, tablet_column,
                                                                &_flush_schema);
             RETURN_IF_ERROR(_create_column_writer(current_column_id /*unused*/, tablet_column,
                                                   _flush_schema));
             RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
-                    {entry->data.get_finalized_column_ptr()->get_ptr(),
-                     entry->data.get_least_common_type(), tablet_column.name()},
-                    data.row_pos, data.num_rows, current_column_id));
+                    {current_column->get_ptr(), storage_type, tablet_column.name()}, data.row_pos,
+                    data.num_rows, current_column_id));
             // convert column data from engine format to storage layer format
             auto [status, column] = _olap_data_convertor->convert_column_data(current_column_id);
             if (!status.ok()) {

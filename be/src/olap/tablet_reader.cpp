@@ -279,6 +279,8 @@ TabletColumn TabletReader::materialize_column(const TabletColumn& orig) {
                                cast_type.type);
     }
     column_with_cast_type.set_type(filed_type);
+    column_with_cast_type.set_precision_frac(cast_type.precision, cast_type.scale);
+    column_with_cast_type.set_is_decimal(cast_type.precision > 0);
     return column_with_cast_type;
 }
 

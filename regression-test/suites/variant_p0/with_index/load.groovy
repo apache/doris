@@ -15,18 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_with_index", "nonConcurrent"){
-    def set_be_config = { key, value ->
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-    }
-
+suite("regression_test_variant_with_index"){
     def timeout = 60000
     def delta_time = 1000
     def alter_res = "null"

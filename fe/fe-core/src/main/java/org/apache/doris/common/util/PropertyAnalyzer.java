@@ -1782,8 +1782,8 @@ public class PropertyAnalyzer {
             String maxSubcoumnsCountStr = properties.get(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
             try {
                 maxSubcoumnsCount = Integer.parseInt(maxSubcoumnsCountStr);
-                if (maxSubcoumnsCount < 0 || maxSubcoumnsCount > 10000) {
-                    throw new AnalysisException("varaint max counts count must between 10 and 10000 ");
+                if (maxSubcoumnsCount < 0 || maxSubcoumnsCount > 100000) {
+                    throw new AnalysisException("varaint max counts count must between 10 and 100000 ");
                 }
             } catch (Exception e) {
                 throw new AnalysisException("varaint max counts count format error");

@@ -19,6 +19,7 @@
 
 #include <assert.h>
 #include <fmt/format.h>
+#include <fnmatch.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
@@ -32,8 +33,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <ostream>
+#include <set>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -52,6 +55,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/defer_op.h"
 #include "vec/columns/column.h"
@@ -61,6 +65,7 @@
 #include "vec/columns/column_object.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/field_visitors.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -190,7 +195,8 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     }
     Block tmp_block {arguments};
     uint32_t result_column = cast_set<uint32_t>(tmp_block.columns());
-    auto ctx = FunctionContext::create_context(nullptr, {}, {});
+    RuntimeState state;
+    auto ctx = FunctionContext::create_context(&state, {}, {});
 
     if (WhichDataType(arg.type).is_nothing()) {
         // cast from nothing to any type should result in nulls
@@ -204,8 +210,13 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     ctx->set_string_as_jsonb_string(true);
     ctx->set_jsonb_string_as_string(true);
     tmp_block.insert({nullptr, type, arg.name});
-    RETURN_IF_ERROR(
-            function->execute(ctx.get(), tmp_block, {0}, result_column, arg.column->size()));
+    if (!function->execute(ctx.get(), tmp_block, {0}, result_column, arg.column->size())) {
+        LOG_EVERY_N(WARNING, 100) << fmt::format("cast from {} to {}", arg.type->get_name(),
+                                                 type->get_name());
+        *result = type->create_column_const_with_default_value(arg.column->size())
+                          ->convert_to_full_column_if_const();
+        return Status::OK();
+    }
     *result = tmp_block.get_by_position(result_column).column->convert_to_full_column_if_const();
     VLOG_DEBUG << fmt::format("{} before convert {}, after convert {}", arg.name,
                               arg.column->get_name(), (*result)->get_name());
@@ -244,10 +255,23 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         column.set_length(INT_MAX);
         return;
     }
-    if (WhichDataType(*data_type).is_simple()) {
+    if (WhichDataType(*data_type).is_simple() || WhichDataType(*data_type).is_date_time() ||
+        WhichDataType(*data_type).is_date() || WhichDataType(*data_type).is_date_v2() ||
+        WhichDataType(*data_type).is_ipv4() || WhichDataType(*data_type).is_ipv6()) {
         column.set_length(data_type->get_size_of_value_in_memory());
         return;
     }
+    // none json type
+    if (WhichDataType(*data_type).is_decimal()) {
+        column.set_precision_frac(data_type->get_precision(), data_type->get_scale());
+        column.set_is_decimal(true);
+        return;
+    }
+    if (WhichDataType(*data_type).is_date_time_v2()) {
+        column.set_precision_frac(-1, data_type->get_scale());
+        return;
+    }
+
     // TODO handle more types like struct/date/datetime/decimal...
     throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                            "unexcepted data column type: {}, column name is: {}",
@@ -264,6 +288,7 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
 void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
                                   TabletSchemaSPtr& common_schema, bool update_sparse_column,
                                   int32_t variant_col_unique_id,
+                                  const std::map<std::string, TabletColumnPtr>& typed_columns,
                                   std::set<PathInData>* path_set = nullptr) {
     PathsInData tuple_paths;
     DataTypes tuple_types;
@@ -300,11 +325,21 @@ void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolu
     // Append all common type columns of this variant
     for (int i = 0; i < tuple_paths.size(); ++i) {
         TabletColumn common_column;
-        // const std::string& column_name = variant_col_name + "." + tuple_paths[i].get_path();
-        get_column_by_type(tuple_types[i], tuple_paths[i].get_path(), common_column,
-                           ExtraInfo {.unique_id = -1,
-                                      .parent_unique_id = variant_col_unique_id,
-                                      .path_info = tuple_paths[i]});
+        // typed path not contains root part
+        auto path_without_root = tuple_paths[i].copy_pop_front().get_path();
+        if (typed_columns.contains(path_without_root) && !tuple_paths[i].has_nested_part()) {
+            common_column = *typed_columns.at(path_without_root);
+            // parent unique id and path may not be init in write path
+            common_column.set_parent_unique_id(variant_col_unique_id);
+            common_column.set_path_info(tuple_paths[i]);
+            common_column.set_name(tuple_paths[i].get_path());
+        } else {
+            // const std::string& column_name = variant_col_name + "." + tuple_paths[i].get_path();
+            get_column_by_type(tuple_types[i], tuple_paths[i].get_path(), common_column,
+                               ExtraInfo {.unique_id = -1,
+                                          .parent_unique_id = variant_col_unique_id,
+                                          .path_info = tuple_paths[i]});
+        }
         if (update_sparse_column) {
             common_schema->mutable_column_by_uid(variant_col_unique_id)
                     .append_sparse_column(common_column);
@@ -320,6 +355,11 @@ void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolu
 void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
                                 std::set<PathInData>* path_set) {
+    std::map<std::string, TabletColumnPtr> typed_columns;
+    for (const TabletColumnPtr& col :
+         common_schema->column_by_uid(variant_col_unique_id).get_sub_columns()) {
+        typed_columns[col->name()] = col;
+    }
     // Types of subcolumns by path from all tuples.
     std::map<PathInData, DataTypes> subcolumns_types;
     for (const TabletSchemaSPtr& schema : schemas) {
@@ -327,7 +367,7 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
             // Get subcolumns of this variant
             if (col->has_path_info() && col->parent_unique_id() > 0 &&
                 col->parent_unique_id() == variant_col_unique_id) {
-                subcolumns_types[*col->path_info_ptr()].push_back(
+                subcolumns_types[*col->path_info_ptr()].emplace_back(
                         DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));
             }
         }
@@ -344,18 +384,23 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                 col->parent_unique_id() == variant_col_unique_id &&
                 // this column have been found in origin columns
                 subcolumns_types.find(*col->path_info_ptr()) != subcolumns_types.end()) {
-                subcolumns_types[*col->path_info_ptr()].push_back(
+                subcolumns_types[*col->path_info_ptr()].emplace_back(
                         DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));
             }
         }
     }
     update_least_schema_internal(subcolumns_types, common_schema, false, variant_col_unique_id,
-                                 path_set);
+                                 typed_columns, path_set);
 }
 
 void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
                                 const std::set<PathInData>& path_set) {
+    std::map<std::string, TabletColumnPtr> typed_columns;
+    for (const TabletColumnPtr& col :
+         common_schema->column_by_uid(variant_col_unique_id).get_sub_columns()) {
+        typed_columns[col->name()] = col;
+    }
     // Types of subcolumns by path from all tuples.
     std::map<PathInData, DataTypes> subcolumns_types;
     for (const TabletSchemaSPtr& schema : schemas) {
@@ -369,17 +414,20 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
             if (col->has_path_info() && col->parent_unique_id() > 0 &&
                 col->parent_unique_id() == variant_col_unique_id &&
                 path_set.find(*col->path_info_ptr()) == path_set.end()) {
-                subcolumns_types[*col->path_info_ptr()].push_back(
+                subcolumns_types[*col->path_info_ptr()].emplace_back(
                         DataTypeFactory::instance().create_data_type(*col, col->is_nullable()));
             }
         }
     }
-    update_least_schema_internal(subcolumns_types, common_schema, true, variant_col_unique_id);
+    update_least_schema_internal(subcolumns_types, common_schema, true, variant_col_unique_id,
+                                 typed_columns);
 }
 
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr* target_schema) {
-    DCHECK(target.is_extracted_column());
+    if (!target.is_extracted_column()) {
+        return;
+    }
     target.set_aggregation_method(source.aggregation());
 
     // 1. bloom filter
@@ -601,7 +649,8 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     res.set_aggregation_method(variant.aggregation());
     res.set_path_info(PathInData {variant.name_lower_case() + "." + SPARSE_COLUMN_PATH});
     res.set_parent_unique_id(variant.unique_id());
-
+    // set default value to "NULL" DefaultColumnIterator will call insert_many_defaults
+    res.set_default_value("NULL");
     TabletColumn child_tcolumn;
     child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     res.add_sub_column(child_tcolumn);
@@ -609,8 +658,10 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     return res;
 }
 
-Status collect_path_stats(const RowsetSharedPtr& rs,
-                          std::unordered_map<int32_t, PathToNoneNullValues>& uid_to_path_stats) {
+Status collect_path_stats(
+        const RowsetSharedPtr& rs,
+        std::unordered_map<int32_t, PathToNoneNullValues>& uid_to_path_stats,
+        std::unordered_map<int32_t, std::unordered_set<std::string>>& uid_to_typed_paths) {
     SegmentCacheHandle segment_cache;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
             std::static_pointer_cast<BetaRowset>(rs), &segment_cache));
@@ -631,19 +682,22 @@ Status collect_path_stats(const RowsetSharedPtr& rs,
             }
 
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-            const auto* source_stats =
-                    static_cast<const segment_v2::VariantColumnReader*>(column_reader)->get_stats();
+            const auto* variant_column_reader =
+                    assert_cast<const segment_v2::VariantColumnReader*>(column_reader);
+            const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
-            // 合并子列统计信息
             for (const auto& [path, size] : source_stats->subcolumns_non_null_size) {
                 uid_to_path_stats[column->unique_id()][path] += size;
             }
 
-            // 合并稀疏列统计信息
             for (const auto& [path, size] : source_stats->sparse_column_non_null_size) {
-                CHECK(!path.empty());
                 uid_to_path_stats[column->unique_id()][path] += size;
+            }
+
+            const auto& typed_paths = variant_column_reader->get_typed_paths();
+            for (const auto& path : typed_paths) {
+                uid_to_typed_paths[column->unique_id()].insert(path);
             }
         }
     }
@@ -651,9 +705,10 @@ Status collect_path_stats(const RowsetSharedPtr& rs,
 }
 
 // get the subpaths and sparse paths for the variant column
-void get_subpaths(const TabletColumn& variant,
+void get_subpaths(const TabletSchema& schema, int32_t col_unique_id,
                   const std::unordered_map<int32_t, PathToNoneNullValues>& path_stats,
                   std::unordered_map<int32_t, TabletSchema::PathsSetInfo>& uid_to_paths_set_info) {
+    const TabletColumn& variant = schema.column_by_uid(col_unique_id);
     if (path_stats.find(variant.unique_id()) == path_stats.end()) {
         return;
     }
@@ -703,11 +758,15 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
         }
     }
     std::unordered_map<int32_t, PathToNoneNullValues> original_uid_to_path_stats;
+    std::unordered_map<int32_t, std::unordered_set<std::string>> original_uid_to_typed_paths;
     for (const auto& rs : intputs) {
-        RETURN_IF_ERROR(collect_path_stats(rs, original_uid_to_path_stats));
+        RETURN_IF_ERROR(
+                collect_path_stats(rs, original_uid_to_path_stats, original_uid_to_typed_paths));
     }
     std::unordered_map<int32_t, PathToNoneNullValues> output_uid_to_path_stats;
-    RETURN_IF_ERROR(collect_path_stats(output, output_uid_to_path_stats));
+    std::unordered_map<int32_t, std::unordered_set<std::string>> output_uid_to_typed_paths;
+    RETURN_IF_ERROR(
+            collect_path_stats(output, output_uid_to_path_stats, output_uid_to_typed_paths));
     for (const auto& [uid, stats] : output_uid_to_path_stats) {
         if (original_uid_to_path_stats.find(uid) == original_uid_to_path_stats.end()) {
             return Status::InternalError("Path stats not found for uid {}, tablet_id {}", uid,
@@ -716,10 +775,14 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
 
         // In input rowsets, some rowsets may have statistics values exceeding the maximum limit,
         // which leads to inaccurate statistics
-        if (stats.size() > VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+        if (stats.size() > config::variant_max_sparse_column_statistics_size) {
             // When there is only one segment, we can ensure that the size of each path in output stats is accurate
             if (output->num_segments() == 1) {
                 for (const auto& [path, size] : stats) {
+                    if (original_uid_to_path_stats.at(uid).find(path) ==
+                        original_uid_to_path_stats.at(uid).end()) {
+                        continue;
+                    }
                     if (original_uid_to_path_stats.at(uid).at(path) > size) {
                         return Status::InternalError(
                                 "Path stats not smaller for uid {} with path `{}`, input size {}, "
@@ -734,13 +797,6 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
         }
         // in this case, input stats is accurate, so we check the stats size and stats value
         else {
-            if (stats.size() != original_uid_to_path_stats.at(uid).size()) {
-                return Status::InternalError(
-                        "Path stats size not match for uid {}, tablet_id {}, input size {}, output "
-                        "size {}",
-                        uid, tablet->tablet_id(), original_uid_to_path_stats.at(uid).size(),
-                        stats.size());
-            }
             for (const auto& [path, size] : stats) {
                 if (original_uid_to_path_stats.at(uid).at(path) != size) {
                     return Status::InternalError(
@@ -766,10 +822,10 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
 Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
                              TabletSchemaSPtr& target) {
     std::unordered_map<int32_t, PathToNoneNullValues> uid_to_path_stats;
-
+    std::unordered_map<int32_t, std::unordered_set<std::string>> uid_to_typed_paths;
     // collect path stats from all rowsets and segments
     for (const auto& rs : rowsets) {
-        RETURN_IF_ERROR(collect_path_stats(rs, uid_to_path_stats));
+        RETURN_IF_ERROR(collect_path_stats(rs, uid_to_path_stats, uid_to_typed_paths));
     }
 
     // build the output schema
@@ -783,25 +839,41 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
         }
         VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
 
-        // get the subpaths
-        get_subpaths(*column, uid_to_path_stats, uid_to_paths_set_info);
-        std::vector<StringRef> sorted_subpaths(
-                uid_to_paths_set_info[column->unique_id()].sub_path_set.begin(),
-                uid_to_paths_set_info[column->unique_id()].sub_path_set.end());
-        std::sort(sorted_subpaths.begin(), sorted_subpaths.end());
-        // append subcolumns
-        for (const auto& subpath : sorted_subpaths) {
-            TabletColumn subcolumn;
-            subcolumn.set_name(column->name_lower_case() + "." + subpath.to_string());
-            subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-            subcolumn.set_parent_unique_id(column->unique_id());
-            subcolumn.set_path_info(
-                    PathInData(column->name_lower_case() + "." + subpath.to_string()));
-            subcolumn.set_aggregation_method(column->aggregation());
-            subcolumn.set_variant_max_subcolumns_count(column->variant_max_subcolumns_count());
-            subcolumn.set_is_nullable(true);
-            output_schema->append_column(subcolumn);
+        // append typed columns
+        for (const auto& path : uid_to_typed_paths[column->unique_id()]) {
+            TabletSchema::SubColumnInfo sub_column_info;
+            if (generate_sub_column_info(*target, column->unique_id(), path, &sub_column_info)) {
+                output_schema->append_column(sub_column_info.column);
+                uid_to_paths_set_info[column->unique_id()].typed_path_set.insert(
+                        {path, std::move(sub_column_info)});
+                VLOG_DEBUG << "append typed column " << path;
+            }
         }
+
+        // get the subpaths
+        get_subpaths(*target, column->unique_id(), uid_to_path_stats, uid_to_paths_set_info);
+
+        // append subcolumns
+        auto append_subcolumn = [&](phmap::flat_hash_set<std::string>& path_set) {
+            std::vector<StringRef> sorted_subpaths(path_set.begin(), path_set.end());
+            std::sort(sorted_subpaths.begin(), sorted_subpaths.end());
+            // append subcolumns
+            for (const auto& subpath : sorted_subpaths) {
+                TabletColumn subcolumn;
+                subcolumn.set_name(column->name_lower_case() + "." + subpath.to_string());
+                subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+                subcolumn.set_parent_unique_id(column->unique_id());
+                subcolumn.set_path_info(
+                        PathInData(column->name_lower_case() + "." + subpath.to_string()));
+                subcolumn.set_aggregation_method(column->aggregation());
+                subcolumn.set_variant_max_subcolumns_count(column->variant_max_subcolumns_count());
+                subcolumn.set_is_nullable(true);
+                output_schema->append_column(subcolumn);
+            }
+        };
+
+        append_subcolumn(uid_to_paths_set_info[column->unique_id()].sub_path_set);
+
         // append sparse column
         TabletColumn sparse_column = create_sparse_column(*column);
         output_schema->append_column(sparse_column);
@@ -809,7 +881,7 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
 
     target = output_schema;
     // used to merge & filter path to sparse column during reading in compaction
-    target->set_path_set_info(uid_to_paths_set_info);
+    target->set_path_set_info(std::move(uid_to_paths_set_info));
     VLOG_DEBUG << "dump schema " << target->dump_full_schema();
     return Status::OK();
 }
@@ -841,20 +913,384 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
             }
             // If path doesn't exist and we haven't hit the max statistics size limit,
             // add it with count 1
-            else if (count_map.size() < VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+            else if (count_map.size() < config::variant_max_sparse_column_statistics_size) {
                 count_map.emplace(sparse_path, 1);
             }
         }
     }
 
     if (stats->sparse_column_non_null_size().size() >
-        VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE) {
+        config::variant_max_sparse_column_statistics_size) {
         throw doris::Exception(
                 ErrorCode::INTERNAL_ERROR,
                 "Sparse column non null size: {} is greater than max statistics size: {}",
                 stats->sparse_column_non_null_size().size(),
-                VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
+                config::variant_max_sparse_column_statistics_size);
     }
+}
+
+/// Calculates number of dimensions in array field.
+/// Returns 0 for scalar fields.
+class FieldVisitorToNumberOfDimensions : public StaticVisitor<size_t> {
+public:
+    size_t operator()(const Array& x) const {
+        const size_t size = x.size();
+        size_t dimensions = 0;
+        for (size_t i = 0; i < size; ++i) {
+            size_t element_dimensions = apply_visitor(*this, x[i]);
+            dimensions = std::max(dimensions, element_dimensions);
+        }
+        return 1 + dimensions;
+    }
+    size_t operator()(const VariantField& x) { return apply_visitor(*this, x.get_field()); }
+    template <typename T>
+    size_t operator()(const T&) const {
+        return 0;
+    }
+};
+
+// Visitor that allows to get type of scalar field
+// but exclude fields contain complex field.This is a faster version
+// for FieldVisitorToScalarType which does not support complex field.
+class SimpleFieldVisitorToScalarType : public StaticVisitor<size_t> {
+public:
+    size_t operator()(const Array& x) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Array type is not supported");
+    }
+    size_t operator()(const UInt64& x) {
+        if (x <= std::numeric_limits<Int8>::max()) {
+            type = TypeIndex::Int8;
+        } else if (x <= std::numeric_limits<Int16>::max()) {
+            type = TypeIndex::Int16;
+        } else if (x <= std::numeric_limits<Int32>::max()) {
+            type = TypeIndex::Int32;
+        } else {
+            type = TypeIndex::Int64;
+        }
+        return 1;
+    }
+    size_t operator()(const Int64& x) {
+        if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
+            type = TypeIndex::Int8;
+        } else if (x <= std::numeric_limits<Int16>::max() &&
+                   x >= std::numeric_limits<Int16>::min()) {
+            type = TypeIndex::Int16;
+        } else if (x <= std::numeric_limits<Int32>::max() &&
+                   x >= std::numeric_limits<Int32>::min()) {
+            type = TypeIndex::Int32;
+        } else {
+            type = TypeIndex::Int64;
+        }
+        return 1;
+    }
+    size_t operator()(const JsonbField& x) {
+        type = TypeIndex::JSONB;
+        return 1;
+    }
+    size_t operator()(const Null&) {
+        have_nulls = true;
+        return 1;
+    }
+    size_t operator()(const VariantMap&) {
+        type = TypeIndex::VARIANT;
+        return 1;
+    }
+    size_t operator()(const VariantField& x) {
+        typed_field_info =
+                FieldInfo {x.get_type_id(), true, false, 0, x.get_scale(), x.get_precision()};
+        return 1;
+    }
+    template <typename T>
+    size_t operator()(const T&) {
+        type = TypeId<NearestFieldType<T>>::value;
+        return 1;
+    }
+    void get_scalar_type(TypeIndex* data_type, int* precision, int* scale) const {
+        if (typed_field_info.has_value()) {
+            *data_type = typed_field_info->scalar_type_id;
+            *precision = typed_field_info->precision;
+            *scale = typed_field_info->scale;
+            return;
+        }
+        *data_type = type;
+    }
+    bool contain_nulls() const { return have_nulls; }
+
+    bool need_convert_field() const { return false; }
+
+private:
+    // initialized when operator()(const VariantField& x)
+    std::optional<FieldInfo> typed_field_info;
+    TypeIndex type = TypeIndex::Nothing;
+    bool have_nulls = false;
+};
+
+/// Visitor that allows to get type of scalar field
+/// or least common type of scalars in array.
+/// More optimized version of FieldToDataType.
+class FieldVisitorToScalarType : public StaticVisitor<size_t> {
+public:
+    using FieldType = Field::Types::Which;
+    size_t operator()(const Array& x) {
+        size_t size = x.size();
+        for (size_t i = 0; i < size; ++i) {
+            apply_visitor(*this, x[i]);
+        }
+        return 0;
+    }
+    // TODO doris not support unsigned integers for now
+    // treat as signed integers
+    size_t operator()(const UInt64& x) {
+        field_types.insert(FieldType::UInt64);
+        if (x <= std::numeric_limits<Int8>::max()) {
+            type_indexes.insert(TypeIndex::Int8);
+        } else if (x <= std::numeric_limits<Int16>::max()) {
+            type_indexes.insert(TypeIndex::Int16);
+        } else if (x <= std::numeric_limits<Int32>::max()) {
+            type_indexes.insert(TypeIndex::Int32);
+        } else {
+            type_indexes.insert(TypeIndex::Int64);
+        }
+        return 0;
+    }
+    size_t operator()(const Int64& x) {
+        field_types.insert(FieldType::Int64);
+        if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
+            type_indexes.insert(TypeIndex::Int8);
+        } else if (x <= std::numeric_limits<Int16>::max() &&
+                   x >= std::numeric_limits<Int16>::min()) {
+            type_indexes.insert(TypeIndex::Int16);
+        } else if (x <= std::numeric_limits<Int32>::max() &&
+                   x >= std::numeric_limits<Int32>::min()) {
+            type_indexes.insert(TypeIndex::Int32);
+        } else {
+            type_indexes.insert(TypeIndex::Int64);
+        }
+        return 0;
+    }
+    size_t operator()(const JsonbField& x) {
+        field_types.insert(FieldType::JSONB);
+        type_indexes.insert(TypeIndex::JSONB);
+        return 0;
+    }
+    size_t operator()(const VariantMap&) {
+        field_types.insert(FieldType::VariantMap);
+        type_indexes.insert(TypeIndex::VARIANT);
+        return 0;
+    }
+    size_t operator()(const VariantField& x) {
+        if (x.get_type_id() == TypeIndex::Array) {
+            apply_visitor(*this, x.get_field());
+        } else {
+            typed_field_info =
+                    FieldInfo {x.get_type_id(), true, false, 0, x.get_scale(), x.get_precision()};
+        }
+        return 0;
+    }
+    size_t operator()(const Null&) {
+        have_nulls = true;
+        return 0;
+    }
+    template <typename T>
+    size_t operator()(const T&) {
+        Field::EnumToType<Field::Types::Array>::Type a;
+        field_types.insert(Field::TypeToEnum<NearestFieldType<T>>::value);
+        type_indexes.insert(TypeId<NearestFieldType<T>>::value);
+        return 0;
+    }
+    void get_scalar_type(TypeIndex* type, int* precision, int* scale) const {
+        if (typed_field_info.has_value()) {
+            // fast path
+            *type = typed_field_info->scalar_type_id;
+            *precision = typed_field_info->precision;
+            *scale = typed_field_info->scale;
+            return;
+        }
+        DataTypePtr data_type;
+        get_least_supertype_jsonb(type_indexes, &data_type);
+        *type = data_type->get_type_id();
+    }
+    bool contain_nulls() const { return have_nulls; }
+    bool need_convert_field() const { return field_types.size() > 1; }
+
+private:
+    // initialized when operator()(const VariantField& x)
+    std::optional<FieldInfo> typed_field_info;
+    phmap::flat_hash_set<TypeIndex> type_indexes;
+    phmap::flat_hash_set<FieldType> field_types;
+    bool have_nulls = false;
+};
+
+template <typename Visitor>
+void get_field_info_impl(const Field& field, FieldInfo* info) {
+    Visitor to_scalar_type_visitor;
+    apply_visitor(to_scalar_type_visitor, field);
+    TypeIndex type_id;
+    int precision = 0;
+    int scale = 0;
+    to_scalar_type_visitor.get_scalar_type(&type_id, &precision, &scale);
+    // array item's dimension may missmatch, eg. [1, 2, [1, 2, 3]]
+    *info = {
+            type_id,
+            to_scalar_type_visitor.contain_nulls(),
+            to_scalar_type_visitor.need_convert_field(),
+            apply_visitor(FieldVisitorToNumberOfDimensions(), field),
+            scale,
+            precision,
+    };
+}
+
+bool is_complex_field(const Field& field) {
+    return field.is_complex_field() ||
+           (field.is_variant_field() &&
+            field.get<const VariantField&>().get_field().is_complex_field());
+}
+
+void get_field_info(const Field& field, FieldInfo* info) {
+    if (is_complex_field(field)) {
+        get_field_info_impl<FieldVisitorToScalarType>(field, info);
+    } else {
+        get_field_info_impl<SimpleFieldVisitorToScalarType>(field, info);
+    }
+}
+
+bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
+                              const std::string& path,
+                              TabletSchema::SubColumnInfo* sub_column_info) {
+    const auto& parent_column = schema.column_by_uid(col_unique_id);
+    std::function<void(const TabletColumn&, TabletColumn*)> generate_result_column =
+            [&](const TabletColumn& from_column, TabletColumn* to_column) {
+                to_column->set_name(parent_column.name_lower_case() + "." + path);
+                to_column->set_type(from_column.type());
+                to_column->set_parent_unique_id(parent_column.unique_id());
+                to_column->set_path_info(
+                        PathInData(parent_column.name_lower_case() + "." + path, true));
+                to_column->set_aggregation_method(parent_column.aggregation());
+                to_column->set_is_nullable(true);
+                to_column->set_precision(from_column.precision());
+                to_column->set_frac(from_column.frac());
+                to_column->set_parent_unique_id(parent_column.unique_id());
+                to_column->set_is_decimal(from_column.is_decimal());
+
+                if (from_column.is_array_type()) {
+                    TabletColumn nested_column;
+                    generate_result_column(*from_column.get_sub_columns()[0], &nested_column);
+                    to_column->add_sub_column(nested_column);
+                }
+            };
+
+    auto generate_index = [&](const std::string& pattern) {
+        // 1. find subcolumn's index
+        if (const auto& index = schema.inverted_index_by_field_pattern(col_unique_id, pattern);
+            index != nullptr) {
+            sub_column_info->index = std::make_shared<TabletIndex>(*index);
+            sub_column_info->index->set_escaped_escaped_index_suffix_path(
+                    sub_column_info->column.path_info_ptr()->get_path());
+        }
+        // 2. find parent column's index
+        else if (const auto* parent_index = schema.inverted_index(col_unique_id);
+                 parent_index != nullptr) {
+            sub_column_info->index = std::make_shared<TabletIndex>(*parent_index);
+            sub_column_info->index->set_escaped_escaped_index_suffix_path(
+                    sub_column_info->column.path_info_ptr()->get_path());
+        } else {
+            sub_column_info->index = nullptr;
+        }
+    };
+
+    const auto& sub_columns = parent_column.get_sub_columns();
+    for (const auto& sub_column : sub_columns) {
+        const char* pattern = sub_column->name().c_str();
+        switch (sub_column->pattern_type()) {
+        case PatternTypePB::MATCH_NAME: {
+            if (strcmp(pattern, path.c_str()) == 0) {
+                generate_result_column(*sub_column, &sub_column_info->column);
+                generate_index(sub_column->name());
+                return true;
+            }
+            break;
+        }
+        case PatternTypePB::MATCH_NAME_GLOB: {
+            int result = fnmatch(pattern, path.c_str(), FNM_PATHNAME);
+            if (result == 0) {
+                generate_result_column(*sub_column, &sub_column_info->column);
+                generate_index(sub_column->name());
+                return true;
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+    return false;
+}
+
+TabletSchemaSPtr calculate_variant_extended_schema(const std::vector<RowsetSharedPtr>& rowsets,
+                                                   const TabletSchemaSPtr& base_schema) {
+    if (rowsets.empty()) {
+        return nullptr;
+    }
+
+    std::vector<TabletSchemaSPtr> schemas;
+    for (const auto& rs : rowsets) {
+        if (rs->num_segments() == 0) {
+            continue;
+        }
+        const auto& tablet_schema = rs->tablet_schema();
+        SegmentCacheHandle segment_cache;
+        auto st = SegmentLoader::instance()->load_segments(std::static_pointer_cast<BetaRowset>(rs),
+                                                           &segment_cache);
+        if (!st.ok()) {
+            return base_schema;
+        }
+        for (const auto& segment : segment_cache.get_segments()) {
+            TabletSchemaSPtr schema = tablet_schema->copy_without_variant_extracted_columns();
+            for (const auto& column : tablet_schema->columns()) {
+                if (!column->is_variant_type()) {
+                    continue;
+                }
+                auto column_reader_or = segment->get_column_reader(column->unique_id());
+                if (!column_reader_or.has_value()) {
+                    continue;
+                }
+                auto* column_reader = column_reader_or.value();
+                if (!column_reader) {
+                    continue;
+                }
+
+                CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
+                const auto* subcolumn_readers =
+                        assert_cast<VariantColumnReader*>(column_reader)->get_subcolumn_readers();
+                for (const auto& entry : *subcolumn_readers) {
+                    if (entry->path.empty()) {
+                        continue;
+                    }
+                    const std::string& column_name =
+                            column->name_lower_case() + "." + entry->path.get_path();
+                    const vectorized::DataTypePtr& data_type = entry->data.file_column_type;
+                    vectorized::PathInDataBuilder full_path_builder;
+                    auto full_path = full_path_builder.append(column->name_lower_case(), false)
+                                             .append(entry->path.get_parts(), false)
+                                             .build();
+                    TabletColumn subcolumn =
+                            get_column_by_type(data_type, column_name,
+                                               vectorized::schema_util::ExtraInfo {
+                                                       .unique_id = -1,
+                                                       .parent_unique_id = column->unique_id(),
+                                                       .path_info = full_path});
+                    schema->append_column(subcolumn);
+                }
+            }
+            schemas.emplace_back(schema);
+        }
+    }
+    TabletSchemaSPtr least_common_schema;
+    auto st = get_least_common_schema(schemas, base_schema, least_common_schema, false);
+    if (!st.ok()) {
+        return base_schema;
+    }
+    return least_common_schema;
 }
 
 #include "common/compile_check_end.h"

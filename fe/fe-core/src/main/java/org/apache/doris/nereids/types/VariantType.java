@@ -17,19 +17,25 @@
 
 package org.apache.doris.nereids.types;
 
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Variant type in Nereids.
  * Why Variant is not complex type? Since it's nested structure is not pre-defined, then using
  * primitive type will be easy to handle meta info in FE.
+ * Also, could predefine some fields of nested columns.
+ * Example: VARIANT <`a.b`:INT, a.c:DATETIMEV2>
+ *
  */
-@Developing
 public class VariantType extends PrimitiveType {
 
     public static final VariantType INSTANCE = new VariantType(0);
@@ -38,17 +44,37 @@ public class VariantType extends PrimitiveType {
 
     private int variantMaxSubcolumnsCount = 0;
 
-    // public static createVariantType(int variantMaxSubcolumnsCount) {
-    //     return new VariantType(variantMaxSubcolumnsCount);
-    // }
+    private final List<VariantField> predefinedFields;
 
+    // No predefined fields
     public VariantType(int variantMaxSubcolumnsCount) {
+        this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
+        predefinedFields = Lists.newArrayList();
+    }
+
+    /**
+     *   Contains predefined fields like struct
+     */
+    public VariantType(List<VariantField> fields) {
+        this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
+    }
+
+    public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount) {
+        this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
     }
 
     @Override
+    public DataType conversion() {
+        return new VariantType(predefinedFields.stream().map(VariantField::conversion)
+                                            .collect(Collectors.toList()), variantMaxSubcolumnsCount);
+    }
+
+    @Override
     public Type toCatalogDataType() {
-        ScalarType type = ScalarType.createVariantType();
+        org.apache.doris.catalog.VariantType type = new org.apache.doris.catalog.VariantType(predefinedFields.stream()
+                .map(VariantField::toCatalogDataType)
+                .collect(Collectors.toCollection(ArrayList::new)));
         type.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
         return type;
     }
@@ -59,8 +85,11 @@ public class VariantType extends PrimitiveType {
     }
 
     @Override
-    public String simpleString() {
-        return "variant";
+    public String toSql() {
+        if (predefinedFields.isEmpty()) {
+            return "VARIANT";
+        }
+        return "VARIANT<" + predefinedFields.stream().map(VariantField::toSql).collect(Collectors.joining(",")) + ">";
     }
 
     @Override
@@ -72,7 +101,8 @@ public class VariantType extends PrimitiveType {
             return false;
         }
         VariantType other = (VariantType) o;
-        return this.variantMaxSubcolumnsCount == other.variantMaxSubcolumnsCount;
+        return this.variantMaxSubcolumnsCount == other.variantMaxSubcolumnsCount
+                    && Objects.equals(predefinedFields, other.predefinedFields);
     }
 
     @Override
@@ -86,12 +116,11 @@ public class VariantType extends PrimitiveType {
     }
 
     @Override
-    public String toSql() {
-        return "VARIANT";
-    }
-
-    @Override
     public String toString() {
         return toSql();
+    }
+
+    public List<VariantField> getPredefinedFields() {
+        return predefinedFields;
     }
 }

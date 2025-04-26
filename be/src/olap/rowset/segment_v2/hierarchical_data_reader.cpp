@@ -173,7 +173,7 @@ ordinal_t HierarchicalDataReader::get_current_ordinal() const {
 
 Status HierarchicalDataReader::_process_sub_columns(
         vectorized::ColumnObject& container_variant,
-        const vectorized::PathsWithColumnAndType& non_nested_subcolumns) {
+        const PathsWithColumnAndType& non_nested_subcolumns) {
     for (const auto& entry : non_nested_subcolumns) {
         DCHECK(!entry.path.has_nested_part());
         bool add = container_variant.add_sub_column(entry.path, entry.column->assume_mutable(),
@@ -188,8 +188,7 @@ Status HierarchicalDataReader::_process_sub_columns(
 
 Status HierarchicalDataReader::_process_nested_columns(
         vectorized::ColumnObject& container_variant,
-        const std::map<vectorized::PathInData, vectorized::PathsWithColumnAndType>&
-                nested_subcolumns,
+        const std::map<vectorized::PathInData, PathsWithColumnAndType>& nested_subcolumns,
         size_t nrows) {
     using namespace vectorized;
     // Iterate nested subcolumns and flatten them, the entry contains the nested subcolumns of the same nested parent
@@ -318,19 +317,23 @@ Status HierarchicalDataReader::_process_sparse_column(vectorized::ColumnObject& 
     using namespace vectorized;
     container_variant.clear_sparse_column();
     if (!_sparse_column_reader) {
-        container_variant.get_sparse_column()->assume_mutable()->insert_many_defaults(nrows);
+        container_variant.get_sparse_column()->assume_mutable()->resize(
+                container_variant.get_sparse_column()->size() + nrows);
+        ENABLE_CHECK_CONSISTENCY(&container_variant);
         return Status::OK();
     }
     // process sparse column
     if (_path.get_parts().empty()) {
         // directly use sparse column if access root
         container_variant.set_sparse_column(_sparse_column_reader->column->get_ptr());
+        ENABLE_CHECK_CONSISTENCY(&container_variant);
     } else {
         const auto& offsets =
                 assert_cast<const ColumnMap&>(*_sparse_column_reader->column).get_offsets();
         /// Check if there is no data in shared data in current range.
         if (offsets.back() == offsets[-1]) {
-            container_variant.get_sparse_column()->assume_mutable()->insert_many_defaults(nrows);
+            container_variant.get_sparse_column()->assume_mutable()->resize(
+                    container_variant.get_sparse_column()->size() + nrows);
         } else {
             // Read for variant sparse column
             // Example path: a.b
@@ -402,6 +405,7 @@ Status HierarchicalDataReader::_process_sparse_column(vectorized::ColumnObject& 
             }
         }
     }
+    ENABLE_CHECK_CONSISTENCY(&container_variant);
     return Status::OK();
 }
 
@@ -474,10 +478,8 @@ void SparseColumnExtractReader::_fill_path_column(vectorized::MutableColumnPtr& 
             *var.get_subcolumn({}) /*root*/, null_map, StringRef {_path.data(), _path.size()},
             _sparse_column->get_ptr(), 0, _sparse_column->size());
     var.incr_num_rows(_sparse_column->size());
-    var.get_sparse_column()->assume_mutable()->insert_many_defaults(_sparse_column->size());
-#ifndef NDEBUG
-    var.check_consistency();
-#endif
+    var.get_sparse_column()->assume_mutable()->resize(var.rows());
+    ENABLE_CHECK_CONSISTENCY(&var);
     // _sparse_column->clear();
 }
 

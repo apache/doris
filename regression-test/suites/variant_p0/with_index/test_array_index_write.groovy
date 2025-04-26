@@ -20,10 +20,10 @@ suite("test_array_index_write", "nonConcurrent"){
     def create_variant_index_table = { testTablex, parser ->
         def stmt = "CREATE TABLE IF NOT EXISTS " + testTablex + "(\n" +
                    "  k1 INT NULL,\n" +
-                   "  c_arr VARIANT NULL COMMENT '',\n"
+                   "  c_arr VARIANT<'c_arr' : array<text>> NULL COMMENT '',\n"
                    
-        String strTmp = parser == "" ? "INDEX index_inverted_c_arr(c_arr) USING INVERTED COMMENT 'c_arr index',\n" :
-                            "INDEX index_inverted_c_arr(c_arr) USING INVERTED PROPERTIES( \"parser\"=\" " + parser + "\") COMMENT 'c_arr index',\n"
+        String strTmp = parser == "" ? "INDEX index_inverted_c_arr(c_arr) USING INVERTED PROPERTIES( \"field_pattern\"=\"c_arr\") COMMENT 'c_arr index',\n" :
+                            "INDEX index_inverted_c_arr(c_arr) USING INVERTED PROPERTIES( \"field_pattern\"=\"c_arr\", \"parser\"=\" " + parser + "\") COMMENT 'c_arr index',\n"
                             
         stmt += strTmp
         stmt = stmt.substring(0, stmt.length()-2)
@@ -32,7 +32,7 @@ suite("test_array_index_write", "nonConcurrent"){
                 "DUPLICATE KEY(`k1`)\n" +
                 "COMMENT 'OLAP'\n" +
                 "DISTRIBUTED BY HASH(`k1`) BUCKETS 10\n" +
-                "PROPERTIES(\"replication_num\" = \"1\", \"inverted_index_storage_format\" = \"$storageFormat\");"
+                "PROPERTIES(\"replication_num\" = \"1\", \"inverted_index_storage_format\" = \"$storageFormat\", \"variant_max_subcolumns_count\" = \"10\");"
         return stmt
     }
 

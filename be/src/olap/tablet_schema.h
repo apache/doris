@@ -24,6 +24,7 @@
 #include <parallel_hashmap/phmap.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -130,7 +131,9 @@ public:
             vectorized::DataTypePtr type, int current_be_exec_version) const;
     vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix,
                                                             int current_be_exec_version) const;
+    void set_precision(int precision) { _precision = precision; }
     int precision() const { return _precision; }
+    void set_frac(int frac) { _frac = frac; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
 
@@ -185,6 +188,15 @@ public:
     const TabletColumn& sparse_column_at(size_t oridinal) const;
     const std::vector<TabletColumnPtr>& sparse_columns() const;
     size_t num_sparse_columns() const { return _num_sparse_columns; }
+
+    void set_precision_frac(int32_t precision, int32_t frac) {
+        _precision = precision;
+        _frac = frac;
+    }
+
+    void set_is_decimal(bool is_decimal) { _is_decimal = is_decimal; }
+    bool is_decimal() const { return _is_decimal; }
+    PatternTypePB pattern_type() const { return _pattern_type; }
 
     Status check_valid() const {
         if (type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
@@ -257,6 +269,7 @@ private:
     std::vector<TabletColumnPtr> _sparse_cols;
     size_t _num_sparse_columns = 0;
     int32_t _variant_max_subcolumns_count = 0;
+    PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -293,6 +306,15 @@ public:
     const std::string& get_index_suffix() const { return _escaped_index_suffix_path; }
 
     void set_escaped_escaped_index_suffix_path(const std::string& name);
+
+    bool is_inverted_index() const { return _index_type == IndexType::INVERTED; }
+
+    std::string field_pattern() const {
+        if (_properties.contains("field_pattern")) {
+            return _properties.at("field_pattern");
+        }
+        return "";
+    }
 
 private:
     int64_t _index_id = -1;
@@ -456,6 +478,8 @@ public:
     // TabletIndex information will be returned as long as it exists.
     const TabletIndex* inverted_index(int32_t col_unique_id,
                                       const std::string& suffix_path = "") const;
+    TabletIndexPtr inverted_index_by_field_pattern(int32_t col_unique_id,
+                                                   const std::string& field_pattern) const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
@@ -565,18 +589,26 @@ public:
 
     using PathSet = phmap::flat_hash_set<std::string>;
 
+    struct SubColumnInfo {
+        TabletColumn column;
+        TabletIndexPtr index;
+    };
+
     struct PathsSetInfo {
-        PathSet sub_path_set;    // extracted columns
-        PathSet sparse_path_set; // sparse columns
+        std::unordered_map<std::string, SubColumnInfo> typed_path_set; // typed columns
+        PathSet sub_path_set;                                          // extracted columns
+        PathSet sparse_path_set;                                       // sparse columns
     };
 
     const PathsSetInfo& path_set_info(int32_t unique_id) const {
         return _path_set_info_map.at(unique_id);
     }
 
-    void set_path_set_info(std::unordered_map<int32_t, PathsSetInfo>& path_set_info_map) {
-        _path_set_info_map = path_set_info_map;
+    void set_path_set_info(std::unordered_map<int32_t, PathsSetInfo>&& path_set_info_map) {
+        _path_set_info_map = std::move(path_set_info_map);
     }
+
+    void clear_path_set_info() { _path_set_info_map.clear(); }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -638,6 +670,11 @@ private:
     // key: unique_id of column
     // value: extracted path set and sparse path set
     std::unordered_map<int32_t, PathsSetInfo> _path_set_info_map;
+
+    // key: field_pattern
+    // value: index
+    using PatternToIndex = std::unordered_map<std::string, TabletIndexPtr>;
+    std::unordered_map<int32_t, PatternToIndex> _index_by_unique_id_with_pattern;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

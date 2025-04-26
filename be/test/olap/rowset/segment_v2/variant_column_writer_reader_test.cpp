@@ -182,6 +182,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     st = io::global_local_filesystem()->open_file(file_path, &file_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
     ColumnReaderOptions read_opts;
+    read_opts.tablet_schema = _tablet_schema;
     std::unique_ptr<ColumnReader> column_reader;
     st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -365,15 +366,15 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     // 13. check statistics size == limit
     auto& variant_stats = variant_column_reader->_statistics;
     EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() <
-                VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
-    auto limit = VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE -
+                config::variant_max_sparse_column_statistics_size);
+    auto limit = config::variant_max_sparse_column_statistics_size -
                  variant_stats->sparse_column_non_null_size.size();
     for (int i = 0; i < limit; ++i) {
         std::string key = parent_column.name_lower_case() + ".key10" + std::to_string(i);
         variant_stats->sparse_column_non_null_size[key] = 10000;
     }
     EXPECT_TRUE(variant_stats->sparse_column_non_null_size.size() ==
-                VariantStatistics::MAX_SPARSE_DATA_STATISTICS_SIZE);
+                config::variant_max_sparse_column_statistics_size);
 
     st = variant_column_reader->new_iterator(&it, subcolumn, &storage_read_opts);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -411,7 +412,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     paths_set_info.sparse_path_set.insert("key8");
     paths_set_info.sparse_path_set.insert("key9");
     uid_to_paths_set_info[parent_column.unique_id()] = paths_set_info;
-    _tablet_schema->set_path_set_info(uid_to_paths_set_info);
+    _tablet_schema->set_path_set_info(std::move(uid_to_paths_set_info));
 
     // 14. check compaction subcolumn reader
     check_leaf_reader();
@@ -558,6 +559,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     st = io::global_local_filesystem()->open_file(file_path, &file_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
     ColumnReaderOptions read_opts;
+    read_opts.tablet_schema = _tablet_schema;
     std::unique_ptr<ColumnReader> column_reader;
     st = ColumnReader::create(read_opts, footer, 0, 1000, file_reader, &column_reader);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -568,11 +570,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     // 8. check statistics
     auto statistics = variant_column_reader->get_stats();
     for (const auto& [path, size] : statistics->subcolumns_non_null_size) {
-        std::cout << "path: " << path << ", size: " << size << std::endl;
         EXPECT_EQ(path_with_size[path], size);
     }
     for (const auto& [path, size] : statistics->sparse_column_non_null_size) {
-        std::cout << "sparse path: " << path << ", size: " << size << std::endl;
         EXPECT_EQ(path_with_size[path], size);
     }
 
@@ -607,7 +607,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
         EXPECT_EQ(value, inserted_jsonstr[i]);
     }
 
-     auto read_to_column_object = [&]() {
+    auto read_to_column_object = [&]() {
         new_column_object = ColumnObject::create(10);
         nrows = 1000;
         st = it->seek_to_ordinal(0);
@@ -641,7 +641,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
         for (int row = 0; row < 1000; ++row) {
             std::string value;
             st = assert_cast<ColumnObject*>(new_column_object.get())
-                        ->serialize_one_row_to_string(row, &value);
+                         ->serialize_one_row_to_string(row, &value);
             EXPECT_TRUE(st.ok()) << st.msg();
             if (value.find("nested" + key_num) != std::string::npos) {
                 key_nested_count++;

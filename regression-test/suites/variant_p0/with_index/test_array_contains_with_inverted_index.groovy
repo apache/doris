@@ -32,8 +32,10 @@ suite("test_array_contains_with_inverted_index") {
 	CREATE TABLE IF NOT EXISTS `${indexTblName}` (
       `apply_date` date NULL COMMENT '',
       `id` varchar(60) NOT NULL COMMENT '',
-      `inventors` variant NULL COMMENT '',
-      INDEX index_inverted_inventors(inventors) USING INVERTED  COMMENT ''
+      `inventors` variant<
+        MATCH_NAME 'inventors' : array<text>
+    > NULL COMMENT '',
+      INDEX index_inverted_inventors(inventors) USING INVERTED PROPERTIES( "field_pattern" = "inventors", "support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
     ) ENGINE=OLAP
     DUPLICATE KEY(`apply_date`, `id`)
     COMMENT 'OLAP'
@@ -45,7 +47,8 @@ suite("test_array_contains_with_inverted_index") {
     "light_schema_change" = "true",
     "disable_auto_compaction" = "false",
     "enable_single_replica_compaction" = "false",
-    "inverted_index_storage_format" = "$storageFormat"
+    "inverted_index_storage_format" = "$storageFormat",
+    "variant_max_subcolumns_count" = "10"
     );
     """
 

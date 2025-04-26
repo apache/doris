@@ -36,6 +36,7 @@ import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TAggregationType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
+import org.apache.doris.thrift.TPatternType;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Strings;
@@ -82,6 +83,8 @@ public class Column implements GsonPostProcessable {
     public static final Column UNSUPPORTED_COLUMN = new Column("unknown", Type.UNSUPPORTED, true, null, true, -1,
             null, "invalid", true, null, -1, null);
 
+    // For variant subfield the name will represent pattern name
+    // e.g. properties.id*
     @SerializedName(value = "name")
     private String name;
     @SerializedName(value = "type")
@@ -154,6 +157,10 @@ public class Column implements GsonPostProcessable {
 
     @SerializedName(value = "gctt")
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
+
+    // used for variant sub-field pattern type
+    @SerializedName(value = "fpt")
+    private TPatternType fieldPatternType;
 
     public Column() {
         this.name = "";
@@ -337,6 +344,16 @@ public class Column implements GsonPostProcessable {
             for (StructField field : fields) {
                 Column c = new Column(field.getName(), field.getType());
                 c.setIsAllowNull(field.getContainsNull());
+                column.addChildrenColumn(c);
+            }
+        } else if (type.isVariantType()) {
+            // variant may contain predefined structured fields
+            ArrayList<VariantField> fields = ((VariantType) type).getPredefinedFields();
+            for (VariantField field : fields) {
+                // set column name as pattern
+                Column c = new Column(field.pattern, field.getType());
+                c.setIsAllowNull(true);
+                c.setFieldPatternType(field.getPatternType());
                 column.addChildrenColumn(c);
             }
         }
@@ -539,6 +556,10 @@ public class Column implements GsonPostProcessable {
         this.isAllowNull = isAllowNull;
     }
 
+    public void setFieldPatternType(TPatternType type) {
+        fieldPatternType = type;
+    }
+
     public String getDefaultValue() {
         return this.defaultValue;
     }
@@ -612,7 +633,7 @@ public class Column implements GsonPostProcessable {
 
         tColumnType.setIndexLen(this.getOlapColumnIndexSize());
         if (this.getType().isVariantType()) {
-            ScalarType variantType = (ScalarType) this.getType();
+            VariantType variantType = (VariantType) this.getType();
             tColumnType.setVariantMaxSubcolumnsCount(variantType.getVariantMaxSubcolumnsCount());
         }
 
@@ -666,6 +687,9 @@ public class Column implements GsonPostProcessable {
 
         childrenTColumn.setColumnType(childrenTColumnType);
         childrenTColumn.setIsAllowNull(children.isAllowNull());
+        if (children.fieldPatternType != null) {
+            childrenTColumn.setPatternType(children.fieldPatternType);
+        }
         // TODO: If we don't set the aggregate type for children, the type will be
         //  considered as TAggregationType::SUM after deserializing in BE.
         //  For now, we make children inherit the aggregate type from their parent.
@@ -676,6 +700,14 @@ public class Column implements GsonPostProcessable {
 
         tColumn.children_column.add(childrenTColumn);
         toChildrenThrift(children, childrenTColumn);
+    }
+
+    private void addChildren(Column column, TColumn tColumn) {
+        List<Column> childrenColumns = column.getChildren();
+        tColumn.setChildrenColumn(new ArrayList<>());
+        for (Column c : childrenColumns) {
+            setChildrenTColumn(c, tColumn);
+        }
     }
 
     private void toChildrenThrift(Column column, TColumn tColumn) {
@@ -690,11 +722,10 @@ public class Column implements GsonPostProcessable {
             setChildrenTColumn(k, tColumn);
             setChildrenTColumn(v, tColumn);
         } else if (column.type.isStructType()) {
-            List<Column> childrenColumns = column.getChildren();
-            tColumn.setChildrenColumn(new ArrayList<>());
-            for (Column children : childrenColumns) {
-                setChildrenTColumn(children, tColumn);
-            }
+            addChildren(column, tColumn);
+        } else if (column.type.isVariantType()) {
+            // variant may contain predefined structured fields
+            addChildren(column, tColumn);
         }
     }
 
@@ -840,12 +871,21 @@ public class Column implements GsonPostProcessable {
                 builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
             }
         } else if (this.type.isVariantType()) {
-            ScalarType variantType = (ScalarType) this.getType();
+            VariantType variantType = (VariantType) this.getType();
             builder.setVariantMaxSubcolumnsCount(variantType.getVariantMaxSubcolumnsCount());
+            // variant may contain predefined structured fields
+            addChildren(builder);
         }
 
         OlapFile.ColumnPB col = builder.build();
         return col;
+    }
+
+    private void addChildren(OlapFile.ColumnPB.Builder builder) throws DdlException {
+        List<Column> childrenColumns = this.getChildren();
+        for (Column c : childrenColumns) {
+            builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
+        }
     }
     // CLOUD_CODE_END
 

@@ -29,11 +29,7 @@
 #include <vector>
 
 #include "gen_cpp/segment_v2.pb.h"
-#include "vec/columns/column.h"
 #include "vec/common/uint128.h"
-#include "vec/core/field.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
@@ -64,7 +60,7 @@ public:
     };
     using Parts = std::vector<Part>;
     PathInData() = default;
-    explicit PathInData(std::string_view path_);
+    explicit PathInData(std::string_view path_, bool is_typed_ = false);
     explicit PathInData(const Parts& parts_);
     explicit PathInData(const std::vector<std::string>& paths);
     explicit PathInData(const std::string& root, const std::vector<std::string>& paths);
@@ -95,6 +91,8 @@ public:
     void to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_unique_id) const;
     void from_protobuf(const segment_v2::ColumnPathInfo& pb);
 
+    bool get_is_typed() const { return is_typed; }
+
     bool operator<(const PathInData& rhs) const {
         return std::lexicographical_compare(
                 parts.begin(), parts.end(), rhs.parts.begin(), rhs.parts.end(),
@@ -113,6 +111,9 @@ private:
     /// True if at least one part is nested.
     /// Cached to avoid linear complexity at 'has_nested'.
     bool has_nested = false;
+
+    /// True if the path is typed, e.g. a.b: int
+    bool is_typed = false;
 };
 
 class PathInDataBuilder {
@@ -134,13 +135,6 @@ private:
     size_t current_anonymous_array_level = 0;
 };
 using PathsInData = std::vector<PathInData>;
-/// Result of parsing of a document.
-/// Contains all paths extracted from document
-/// and values which are related to them.
-struct ParseResult {
-    std::vector<PathInData> paths;
-    std::vector<Field> values;
-};
 
 struct PathInDataRef {
     const PathInData* ref;
@@ -152,13 +146,5 @@ struct PathInDataRef {
     PathInDataRef(const PathInData* ptr) : ref(ptr) {}
     bool operator==(const PathInDataRef& other) const { return *this->ref == *other.ref; }
 };
-
-struct PathWithColumnAndType {
-    PathInData path;
-    ColumnPtr column;
-    DataTypePtr type;
-};
-
-using PathsWithColumnAndType = std::vector<PathWithColumnAndType>;
 
 } // namespace doris::vectorized

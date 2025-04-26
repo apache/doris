@@ -19,7 +19,7 @@ import groovy.json.JsonSlurper
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-suite("test_variant_arrayInvertedIdx_profile", "nonConcurrent"){
+suite("test_variant_arrayInvertedIdx_profile", "p0,nonConcurrent"){
     // prepare test table
     def indexTblName = "var_arr_idx"
     def httpGet = { url ->
@@ -74,8 +74,8 @@ suite("test_variant_arrayInvertedIdx_profile", "nonConcurrent"){
 	CREATE TABLE IF NOT EXISTS `${indexTblName}` (
       `apply_date` date NULL COMMENT '',
       `id` varchar(60) NOT NULL COMMENT '',
-      `inventors` variant NULL COMMENT '',
-      INDEX index_inverted_inventors(inventors) USING INVERTED  COMMENT ''
+      `inventors` variant<'inventors' : array<text>> NULL COMMENT '',
+      INDEX index_inverted_inventors(inventors) USING INVERTED PROPERTIES( "field_pattern" = "inventors") COMMENT ''
     ) ENGINE=OLAP
     DUPLICATE KEY(`apply_date`, `id`)
     COMMENT 'OLAP'
@@ -87,6 +87,7 @@ suite("test_variant_arrayInvertedIdx_profile", "nonConcurrent"){
     "light_schema_change" = "true",
     "disable_auto_compaction" = "false",
     "enable_single_replica_compaction" = "false",
+    "variant_max_subcolumns_count" = "10",
     "inverted_index_storage_format" = "$storageFormat"
     );
     """

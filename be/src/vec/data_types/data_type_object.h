@@ -94,6 +94,8 @@ public:
         return std::make_shared<DataTypeObjectSerDe>(nesting_level);
     };
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
+    // Return Field which wrapped with the real type.
+    Field get_type_field(const IColumn& column, size_t row) const override;
     int32_t variant_max_subcolumns_count() const { return _max_subcolumns_count; }
 };
 } // namespace doris::vectorized

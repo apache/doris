@@ -29,6 +29,7 @@ import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
@@ -63,12 +64,12 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaContext;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -685,7 +686,10 @@ public class SchemaChangeHandler extends AlterHandler {
 
         Type type = modColumn.getType();
         if (type.isVariantType()) {
-            ScalarType scType = (ScalarType) type;
+            if (modColumn.getChildren().size() > 0 || oriColumn.getChildren().size() > 0) {
+                throw new DdlException("Can not modify variant column with children");
+            }
+            VariantType scType = (VariantType) type;
             scType.setVariantMaxSubcolumnsCount(olapTable.getVariantMaxSubcolumnsCount());
         }
 
@@ -1036,7 +1040,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         Type type = newColumn.getType();
         if (type.isVariantType()) {
-            ScalarType scType = (ScalarType) type;
+            VariantType scType = (VariantType) type;
             scType.setVariantMaxSubcolumnsCount(olapTable.getVariantMaxSubcolumnsCount());
         }
         // check if the new column already exist in base schema.
@@ -2739,6 +2743,9 @@ public class SchemaChangeHandler extends AlterHandler {
                         olapTable.getTableProperty().getEnableUniqueKeyMergeOnWrite(),
                         olapTable.getInvertedIndexFileStorageFormat(),
                         disableInvertedIndexV1ForVariant);
+                if (!InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()).isEmpty()) {
+                    throw new DdlException("Can not create index with field pattern");
+                }
                 indexDef.getColumnUniqueIds().add(column.getUniqueId());
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
@@ -2799,6 +2806,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 return true;
             }
             throw new DdlException("index " + indexName + " does not exist");
+        }
+
+        if (!InvertedIndexUtil.getInvertedIndexFieldPattern(found.getProperties()).isEmpty()) {
+            throw new DdlException("Can not drop index with field pattern");
         }
 
         Iterator<Index> itr = indexes.iterator();

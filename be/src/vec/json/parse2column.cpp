@@ -157,7 +157,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     size_t old_num_rows = column_object.rows();
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
-        get_field_info(values[i], &field_info);
+        schema_util::get_field_info(values[i], &field_info);
         if (WhichDataType(field_info.scalar_type_id).is_nothing()) {
             continue;
         }
