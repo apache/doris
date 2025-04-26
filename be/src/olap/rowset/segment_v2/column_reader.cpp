@@ -790,8 +790,10 @@ Status ColumnReader::new_inverted_index_iterator(
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
         auto iter = _inverted_indexs.find(index_meta->index_id());
         if (iter != _inverted_indexs.end()) {
-            RETURN_IF_ERROR(iter->second->new_iterator(read_options.io_ctx, read_options.stats,
-                                                       read_options.runtime_state, iterator));
+            if (iter->second != nullptr) {
+                RETURN_IF_ERROR(iter->second->new_iterator(read_options.io_ctx, read_options.stats,
+                                                           read_options.runtime_state, iterator));
+            }
         }
     }
     return Status::OK();
@@ -1119,8 +1121,8 @@ Status ColumnReader::_load_inverted_index_index(
                     "create BkdIndexReader error: {}", e.what());
         }
     } else {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "Field type {} is not supported for inverted index", type);
+        // return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+        //         "Field type {} is not supported for inverted index", type);
     }
     _inverted_indexs[index_meta->index_id()] = inverted_index;
     return Status::OK();
