@@ -279,7 +279,9 @@ public class CloudPartition extends Partition {
                 v.second = versions.get(verMsIdx++);
             }
         }
-        assert verMsIdx == versions.size() : "size not match, idx=" + verMsIdx + " verSize=" + versions.size();
+        if (!expiredPartitions.isEmpty()) { // Not all partition versions are from cache
+            assert verMsIdx == versions.size() : "size not match, idx=" + verMsIdx + " verSize=" + versions.size();
+        }
         versions = allVersions.stream().map(i -> i.second).collect(Collectors.toList());
 
         return versions;
