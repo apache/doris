@@ -16,23 +16,23 @@
 // under the License.
 
 #include "vec/common/schema_util.h"
-#include "vec/common/schema_util.cpp"
-#include "testutil/variant_util.h"
-#include "vec/columns/column_nothing.h"
-#include "vec/columns/column_object.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_nothing.h"
-#include "vec/data_types/data_type_object.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_time_v2.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "olap/rowset/rowset_fwd.h"
 
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/segment_v2/variant_column_writer_impl.h"
+#include "testutil/variant_util.h"
+#include "vec/columns/column_nothing.h"
+#include "vec/columns/column_object.h"
+#include "vec/common/schema_util.cpp"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_nothing.h"
+#include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_time_v2.h"
 
 using namespace doris::vectorized;
 
@@ -483,7 +483,6 @@ TEST_F(SchemaUtilTest, generate_sub_column_info_advanced) {
     EXPECT_FALSE(sub_column_info.index);
 }
 
-
 TEST_F(SchemaUtilTest, TestArrayDimensions) {
     // Test get_number_of_dimensions for DataType
     auto array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
@@ -494,8 +493,10 @@ TEST_F(SchemaUtilTest, TestArrayDimensions) {
     EXPECT_EQ(schema_util::get_number_of_dimensions(*std::make_shared<DataTypeInt32>()), 0);
 
     // Test get_number_of_dimensions for Column
-    auto array_column = ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
-    auto nested_array_column = ColumnArray::create(array_column->get_ptr(), ColumnArray::ColumnOffsets::create());
+    auto array_column =
+            ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
+    auto nested_array_column =
+            ColumnArray::create(array_column->get_ptr(), ColumnArray::ColumnOffsets::create());
 
     EXPECT_EQ(schema_util::get_number_of_dimensions(*array_column), 1);
     EXPECT_EQ(schema_util::get_number_of_dimensions(*nested_array_column), 2);
@@ -516,15 +517,22 @@ TEST_F(SchemaUtilTest, TestArrayDimensions) {
 
 TEST_F(SchemaUtilTest, TestIntegerConversion) {
     // Test conversion between integers
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::Int8, TypeIndex::Int16));
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::Int8, TypeIndex::Int32));
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::Int16, TypeIndex::Int32));
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::Int8,
+                                                                      TypeIndex::Int16));
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::Int8,
+                                                                      TypeIndex::Int32));
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::Int16,
+                                                                      TypeIndex::Int32));
 
-    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(TypeIndex::Int32, TypeIndex::Int16));
-    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(TypeIndex::Int64, TypeIndex::Int32));
+    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(TypeIndex::Int32,
+                                                                     TypeIndex::Int16));
+    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(TypeIndex::Int64,
+                                                                     TypeIndex::Int32));
 
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::UInt8, TypeIndex::UInt16));
-    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(TypeIndex::UInt32, TypeIndex::UInt16));
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::UInt8,
+                                                                      TypeIndex::UInt16));
+    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(TypeIndex::UInt32,
+                                                                     TypeIndex::UInt16));
 }
 
 TEST_F(SchemaUtilTest, TestColumnCasting) {
@@ -606,7 +614,6 @@ TEST_F(SchemaUtilTest, TestGetColumnByType) {
 //    EXPECT_EQ(sorted[2]->path, "c");
 //}
 
-
 TEST_F(SchemaUtilTest, TestHasSchemaIndexDiff) {
     TabletSchemaPB schema1_pb;
     TabletSchemaPB schema2_pb;
@@ -630,7 +637,6 @@ TEST_F(SchemaUtilTest, TestHasSchemaIndexDiff) {
 
     EXPECT_TRUE(schema_util::has_schema_index_diff(schema1.get(), schema2.get(), 0, 0));
 }
-
 
 TEST_F(SchemaUtilTest, TestParseVariantColumns) {
     // Create a block with variant column
@@ -663,13 +669,13 @@ TEST_F(SchemaUtilTest, TestGetLeastCommonSchema) {
     // Create test schemas
     TabletSchemaPB schema1_pb;
     schema1_pb.set_keys_type(KeysType::DUP_KEYS);
-    construct_column(schema1_pb.add_column(), schema1_pb.add_index(), 10000, "v1_index", 1, "VARIANT",
-                     "v1", IndexType::INVERTED);
+    construct_column(schema1_pb.add_column(), schema1_pb.add_index(), 10000, "v1_index", 1,
+                     "VARIANT", "v1", IndexType::INVERTED);
 
     TabletSchemaPB schema2_pb;
     schema2_pb.set_keys_type(KeysType::DUP_KEYS);
-    construct_column(schema2_pb.add_column(), schema2_pb.add_index(), 10000, "v1_index", 1, "VARIANT",
-                     "v1", IndexType::INVERTED);
+    construct_column(schema2_pb.add_column(), schema2_pb.add_index(), 10000, "v1_index", 1,
+                     "VARIANT", "v1", IndexType::INVERTED);
 
     TabletSchemaSPtr schema1 = std::make_shared<TabletSchema>();
     TabletSchemaSPtr schema2 = std::make_shared<TabletSchema>();
@@ -720,8 +726,10 @@ TEST_F(SchemaUtilTest, TestCastColumnEdgeCases) {
 
     // Test casting to variant type
     auto variant_type = std::make_shared<DataTypeObject>(10);
-    auto nullable_array_type = make_nullable(std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
-    auto array_column = ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
+    auto nullable_array_type =
+            make_nullable(std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
+    auto array_column =
+            ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
     auto nullable_array_column = make_nullable(array_column->get_ptr());
 
     ColumnWithTypeAndName array_col;
@@ -775,7 +783,8 @@ TEST_F(SchemaUtilTest, TestGetColumnByTypeEdgeCases) {
 
     // Test datetime v2 type
     auto datetime_v2_type = std::make_shared<DataTypeDateTimeV2>(6);
-    auto datetime_v2_column = schema_util::get_column_by_type(datetime_v2_type, "datetime_v2_col", ext_info);
+    auto datetime_v2_column =
+            schema_util::get_column_by_type(datetime_v2_type, "datetime_v2_col", ext_info);
     EXPECT_EQ(datetime_v2_column.type(), FieldType::OLAP_FIELD_TYPE_DATETIMEV2);
     EXPECT_EQ(datetime_v2_column.precision(), -1);
     EXPECT_EQ(datetime_v2_column.frac(), 6);
@@ -799,17 +808,15 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSchemaInternal) {
 
     // Add different types for same path
     PathInData test_path("test_variant.a");
-    subcolumns_types[test_path] = {
-            std::make_shared<DataTypeInt32>(),
-            std::make_shared<DataTypeInt64>()
-    };
+    subcolumns_types[test_path] = {std::make_shared<DataTypeInt32>(),
+                                   std::make_shared<DataTypeInt64>()};
 
     // Add array types with different dimensions
     PathInData array_path("test_variant.b");
     subcolumns_types[array_path] = {
             std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()),
-            std::make_shared<DataTypeArray>(std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()))
-    };
+            std::make_shared<DataTypeArray>(
+                    std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()))};
 
     // Add path with single type
     PathInData single_path("test_variant.c");
@@ -1136,8 +1143,8 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSparseColumn2) {
     path_set.insert(PathInData("test.path"));
 
     // This should handle the case where field_index returns -1
-//    schema_util::update_least_sparse_column(schemas, result_schema, 1, path_set);
-//    EXPECT_EQ(result_schema->num_columns(), 0);
+    //    schema_util::update_least_sparse_column(schemas, result_schema, 1, path_set);
+    //    EXPECT_EQ(result_schema->num_columns(), 0);
 
     // Test case 2: schema has variant column but no sparse columns
     TabletColumn variant2;
@@ -1272,13 +1279,7 @@ TEST_F(SchemaUtilTest, TestGetCompactionSchema) {
 
     // Add path statistics
     std::unordered_map<int32_t, schema_util::PathToNoneNullValues> path_stats;
-    path_stats[1] = {
-            {"v1.a", 1000},
-            {"v1.b", 800},
-            {"v1.c", 500},
-            {"v1.d", 300},
-            {"v1.e", 200}
-    };
+    path_stats[1] = {{"v1.a", 1000}, {"v1.b", 800}, {"v1.c", 500}, {"v1.d", 300}, {"v1.e", 200}};
 
     // Mock rowset behavior
     //    BetaRowset rowset1(schema, rowset_meta, "");
