@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Arrays;
@@ -77,7 +78,7 @@ public class S3StorageVault extends StorageVault {
     }
 
     @Override
-    public void modifyProperties(Map<String, String> properties) throws DdlException {
+    public void modifyProperties(ImmutableMap<String, String> properties) throws DdlException {
         resource.setProperties(properties);
     }
 

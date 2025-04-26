@@ -32,6 +32,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 
@@ -48,7 +49,7 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
 
     private final boolean ifNotExists;
     private final String vaultName;
-    private final Map<String, String> properties;
+    private final ImmutableMap<String, String> properties;
     private boolean setAsDefault;
     private int pathVersion = 0;
     private int numShard = 0;
@@ -57,7 +58,7 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
     public CreateStorageVaultStmt(boolean ifNotExists, String vaultName, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.vaultName = vaultName;
-        this.properties = properties;
+        this.properties = ImmutableMap.copyOf(properties);
         this.vaultType = vaultType.UNKNOWN;
     }
 
@@ -81,7 +82,7 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
         return pathVersion;
     }
 
-    public Map<String, String> getProperties() {
+    public ImmutableMap<String, String> getProperties() {
         return properties;
     }
 

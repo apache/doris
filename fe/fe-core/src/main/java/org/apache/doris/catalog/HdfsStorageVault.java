@@ -27,6 +27,7 @@ import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -90,7 +91,7 @@ public class HdfsStorageVault extends StorageVault {
     }
 
     @Override
-    public void modifyProperties(Map<String, String> newProperties) throws DdlException {
+    public void modifyProperties(ImmutableMap<String, String> newProperties) throws DdlException {
         for (Map.Entry<String, String> kv : newProperties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
         }
