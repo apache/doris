@@ -202,6 +202,7 @@ void handle_reserve_memory_failure(RuntimeState* state, std::shared_ptr<ScannerC
 
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                                      std::shared_ptr<ScanTask> scan_task) {
+    SCOPED_ATTACH_TASK(ctx->state());
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         return;
@@ -216,7 +217,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     }
 
     ScannerSPtr& scanner = scanner_delegate->_scanner;
-    SCOPED_ATTACH_TASK(scanner->runtime_state());
     // for cpu hard limit, thread name should not be reset
     if (ctx->_should_reset_thread_name) {
         Thread::set_self_name("_scanner_scan");
