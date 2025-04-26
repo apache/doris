@@ -16,6 +16,18 @@
 // under the License.
 
 #include "vec/common/schema_util.h"
+#include "vec/common/schema_util.cpp"
+#include "testutil/variant_util.h"
+#include "vec/columns/column_nothing.h"
+#include "vec/columns/column_object.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nothing.h"
+#include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "olap/rowset/rowset_fwd.h"
 
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
@@ -354,4 +366,1034 @@ TEST_F(SchemaUtilTest, get_subpaths_no_path_stats) {
 
     EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 0);
     EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 0);
+}
+
+TEST_F(SchemaUtilTest, generate_sub_column_info_based) {
+    TabletColumn variant;
+    variant.set_unique_id(10);
+    variant.set_variant_max_subcolumns_count(3);
+
+    TabletColumn subcolumn;
+    subcolumn.set_name("profile.id.*");
+    subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    variant.add_sub_column(subcolumn);
+
+    TabletColumn subcolumn2;
+    subcolumn2.set_name("profile.name.?");
+    subcolumn2.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    variant.add_sub_column(subcolumn2);
+
+    TabletColumn subcolumn3;
+    subcolumn3.set_name("id[0-9]");
+    subcolumn3.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    variant.add_sub_column(subcolumn3);
+
+    TabletColumn subcolumn4;
+    subcolumn4.set_name("id[0-9].*");
+    subcolumn4.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    variant.add_sub_column(subcolumn4);
+
+    TabletSchema schema;
+    schema.append_column(variant);
+
+    TabletSchema::SubColumnInfo sub_column_info;
+    bool match =
+            schema_util::generate_sub_column_info(schema, 10, "profile.id.name", &sub_column_info);
+    EXPECT_TRUE(match);
+    EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
+
+    match = schema_util::generate_sub_column_info(schema, 10, "profile.name.x", &sub_column_info);
+    EXPECT_TRUE(match);
+    EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
+
+    match = schema_util::generate_sub_column_info(schema, 10, "profile.name.xx", &sub_column_info);
+    EXPECT_FALSE(match);
+
+    match = schema_util::generate_sub_column_info(schema, 10, "id5", &sub_column_info);
+    EXPECT_TRUE(match);
+
+    match = schema_util::generate_sub_column_info(schema, 10, "id5.profile.name", &sub_column_info);
+    EXPECT_TRUE(match);
+}
+
+TEST_F(SchemaUtilTest, generate_sub_column_info_advanced) {
+    TabletColumn variant;
+    variant.set_unique_id(10);
+    variant.set_variant_max_subcolumns_count(3);
+
+    TabletColumn subcolumn;
+    subcolumn.set_name("profile?id");
+    subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn subcolumn_item;
+    subcolumn_item.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    subcolumn.add_sub_column(subcolumn_item);
+    variant.add_sub_column(subcolumn);
+
+    TabletColumn subcolumn2;
+    subcolumn2.set_name("profile?id.*");
+    subcolumn2.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn subcolumn2_item;
+    subcolumn2_item.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    subcolumn2.add_sub_column(subcolumn2_item);
+    variant.add_sub_column(subcolumn2);
+
+    TabletColumn subcolumn3;
+    subcolumn3.set_name("profile.id[0-9]");
+    subcolumn3.set_type(FieldType::OLAP_FIELD_TYPE_DECIMAL64);
+    variant.add_sub_column(subcolumn3);
+
+    TabletSchema schema;
+    schema.append_column(variant);
+
+    TabletIndex index;
+    index._properties["field_pattern"] = "profile?id.*";
+    index._col_unique_ids = {10};
+    schema.append_index(std::move(index));
+
+    TabletIndex index2;
+    index2._properties["field_pattern"] = "profile.id[0-9]";
+    index2._col_unique_ids = {10};
+    schema.append_index(std::move(index2));
+
+    TabletSchema::SubColumnInfo sub_column_info;
+    bool match =
+            schema_util::generate_sub_column_info(schema, 10, "profile.id.name", &sub_column_info);
+    EXPECT_TRUE(match);
+    EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
+    EXPECT_TRUE(sub_column_info.index);
+
+    match = schema_util::generate_sub_column_info(schema, 10, "profile.id2", &sub_column_info);
+    EXPECT_TRUE(match);
+    EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
+    EXPECT_TRUE(sub_column_info.index);
+
+    match = schema_util::generate_sub_column_info(schema, 10, "profilexid", &sub_column_info);
+    EXPECT_TRUE(match);
+    EXPECT_EQ(sub_column_info.column.parent_unique_id(), 10);
+    EXPECT_FALSE(sub_column_info.index);
+}
+
+
+TEST_F(SchemaUtilTest, TestArrayDimensions) {
+    // Test get_number_of_dimensions for DataType
+    auto array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    auto nested_array_type = std::make_shared<DataTypeArray>(array_type);
+
+    EXPECT_EQ(schema_util::get_number_of_dimensions(*array_type), 1);
+    EXPECT_EQ(schema_util::get_number_of_dimensions(*nested_array_type), 2);
+    EXPECT_EQ(schema_util::get_number_of_dimensions(*std::make_shared<DataTypeInt32>()), 0);
+
+    // Test get_number_of_dimensions for Column
+    auto array_column = ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
+    auto nested_array_column = ColumnArray::create(array_column->get_ptr(), ColumnArray::ColumnOffsets::create());
+
+    EXPECT_EQ(schema_util::get_number_of_dimensions(*array_column), 1);
+    EXPECT_EQ(schema_util::get_number_of_dimensions(*nested_array_column), 2);
+    EXPECT_EQ(schema_util::get_number_of_dimensions(*ColumnInt32::create()), 0);
+
+    // Test get_base_type_of_array
+    auto base_type = schema_util::get_base_type_of_array(array_type);
+    EXPECT_EQ(base_type->get_type_id(), TypeIndex::Int32);
+
+    base_type = schema_util::get_base_type_of_array(nested_array_type);
+    EXPECT_EQ(base_type->get_type_id(), TypeIndex::Int32);
+
+    // Test create_empty_array_field
+    auto array_field = schema_util::create_empty_array_field(2);
+    EXPECT_EQ(array_field.size(), 1);
+    EXPECT_TRUE(array_field[0].get<Array>().empty());
+}
+
+TEST_F(SchemaUtilTest, TestIntegerConversion) {
+    // Test conversion between integers
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::Int8, TypeIndex::Int16));
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::Int8, TypeIndex::Int32));
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::Int16, TypeIndex::Int32));
+
+    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(TypeIndex::Int32, TypeIndex::Int16));
+    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(TypeIndex::Int64, TypeIndex::Int32));
+
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::UInt8, TypeIndex::UInt16));
+    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(TypeIndex::UInt32, TypeIndex::UInt16));
+}
+
+TEST_F(SchemaUtilTest, TestColumnCasting) {
+    // Test cast_column
+    auto src_type = std::make_shared<DataTypeInt32>();
+    auto dst_type = std::make_shared<DataTypeInt64>();
+
+    auto column = ColumnInt32::create();
+    column->insert(42);
+
+    ColumnWithTypeAndName src_col;
+    src_col.type = src_type;
+    src_col.column = column->get_ptr();
+    src_col.name = "test_col";
+
+    ColumnPtr result;
+    auto status = schema_util::cast_column(src_col, dst_type, &result);
+
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(result->get_int(0), 42);
+    EXPECT_EQ(result->get_name(), TypeName<Int64>::get());
+}
+
+TEST_F(SchemaUtilTest, TestGetColumnByType) {
+    // Test get_column_by_type
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto string_type = std::make_shared<DataTypeString>();
+    auto array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    auto nullable_type = make_nullable(int_type);
+
+    schema_util::ExtraInfo ext_info;
+    ext_info.unique_id = 1;
+    ext_info.parent_unique_id = 2;
+    ext_info.path_info = PathInData("test.path");
+
+    // Test integer type
+    auto int_column = schema_util::get_column_by_type(int_type, "int_col", ext_info);
+    EXPECT_EQ(int_column.name(), "int_col");
+    EXPECT_EQ(int_column.type(), FieldType::OLAP_FIELD_TYPE_INT);
+    EXPECT_EQ(int_column.unique_id(), 1);
+    EXPECT_EQ(int_column.parent_unique_id(), 2);
+    EXPECT_EQ(int_column.path_info_ptr()->get_path(), "test.path");
+
+    // Test string type
+    auto string_column = schema_util::get_column_by_type(string_type, "string_col", ext_info);
+    EXPECT_EQ(string_column.type(), FieldType::OLAP_FIELD_TYPE_STRING);
+    EXPECT_EQ(string_column.length(), INT_MAX);
+
+    // Test array type
+    auto array_column = schema_util::get_column_by_type(array_type, "array_col", ext_info);
+    EXPECT_EQ(array_column.type(), FieldType::OLAP_FIELD_TYPE_ARRAY);
+    EXPECT_EQ(array_column.get_sub_column(0).type(), FieldType::OLAP_FIELD_TYPE_INT);
+
+    // Test nullable type
+    auto nullable_column = schema_util::get_column_by_type(nullable_type, "nullable_col", ext_info);
+    EXPECT_TRUE(nullable_column.is_nullable());
+    EXPECT_EQ(nullable_column.type(), FieldType::OLAP_FIELD_TYPE_INT);
+}
+
+//TEST_F(SchemaUtilTest, TestGetSortedSubcolumns) {
+//    // Create test subcolumns
+//    vectorized::ColumnObject::Subcolumns subcolumns;
+//
+//    auto create_subcolumn = [](const std::string& path) {
+//        auto subcol = std::make_shared<vectorized::ColumnObject::Subcolumn>();
+//        subcol->path = path;
+//        return subcol;
+//    };
+//
+//    subcolumns.push_back(create_subcolumn("c"));
+//    subcolumns.push_back(create_subcolumn("a"));
+//    subcolumns.push_back(create_subcolumn("b"));
+//
+//    auto sorted = schema_util::get_sorted_subcolumns(subcolumns);
+//
+//    EXPECT_EQ(sorted.size(), 3);
+//    EXPECT_EQ(sorted[0]->path, "a");
+//    EXPECT_EQ(sorted[1]->path, "b");
+//    EXPECT_EQ(sorted[2]->path, "c");
+//}
+
+
+TEST_F(SchemaUtilTest, TestHasSchemaIndexDiff) {
+    TabletSchemaPB schema1_pb;
+    TabletSchemaPB schema2_pb;
+
+    // Setup first schema
+    construct_column(schema1_pb.add_column(), schema1_pb.add_index(), 10000, "test_index", 1, "INT",
+                     "test_col", IndexType::INVERTED);
+    auto* col1 = schema1_pb.mutable_column(0);
+    col1->set_is_bf_column(false);
+
+    // Setup second schema with different index
+    construct_column(schema2_pb.add_column(), schema2_pb.add_index(), 10000, "test_index", 1, "INT",
+                     "test_col", IndexType::BLOOMFILTER);
+    auto* col2 = schema2_pb.mutable_column(0);
+    col2->set_is_bf_column(true);
+
+    TabletSchemaSPtr schema1 = std::make_shared<TabletSchema>();
+    TabletSchemaSPtr schema2 = std::make_shared<TabletSchema>();
+    schema1->init_from_pb(schema1_pb);
+    schema2->init_from_pb(schema2_pb);
+
+    EXPECT_TRUE(schema_util::has_schema_index_diff(schema1.get(), schema2.get(), 0, 0));
+}
+
+
+TEST_F(SchemaUtilTest, TestParseVariantColumns) {
+    // Create a block with variant column
+    Block block;
+
+    // Create a variant column with JSON string data
+    auto variant_type = std::make_shared<DataTypeObject>(10);
+    auto variant_column = ColumnObject::create(10);
+    auto root_column = ColumnString::create();
+    root_column->insert("{'a': 1, 'b': 'test'}");
+    variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
+
+    block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
+
+    std::vector<int> variant_pos {0};
+    ParseConfig config;
+
+    auto status = schema_util::parse_variant_columns(block, variant_pos, config);
+    EXPECT_TRUE(status.ok());
+
+    // Check the parsed variant column
+    const auto& result_column = block.get_by_position(0).column;
+    EXPECT_TRUE(result_column->get_name().find("variant") != std::string::npos);
+
+    const auto& obj_column = assert_cast<const ColumnObject&>(*result_column);
+    EXPECT_TRUE(obj_column.is_scalar_variant());
+}
+
+TEST_F(SchemaUtilTest, TestGetLeastCommonSchema) {
+    // Create test schemas
+    TabletSchemaPB schema1_pb;
+    schema1_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema1_pb.add_column(), schema1_pb.add_index(), 10000, "v1_index", 1, "VARIANT",
+                     "v1", IndexType::INVERTED);
+
+    TabletSchemaPB schema2_pb;
+    schema2_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema2_pb.add_column(), schema2_pb.add_index(), 10000, "v1_index", 1, "VARIANT",
+                     "v1", IndexType::INVERTED);
+
+    TabletSchemaSPtr schema1 = std::make_shared<TabletSchema>();
+    TabletSchemaSPtr schema2 = std::make_shared<TabletSchema>();
+    schema1->init_from_pb(schema1_pb);
+    schema2->init_from_pb(schema2_pb);
+
+    std::vector<TabletSchemaSPtr> schemas {schema1, schema2};
+    TabletSchemaSPtr result_schema;
+
+    auto status = schema_util::get_least_common_schema(schemas, nullptr, result_schema);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(result_schema->num_columns(), 1);
+}
+
+TEST_F(SchemaUtilTest, TestGetSizeOfInteger) {
+    // Test all integer types
+    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::Int8), sizeof(int8_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::Int16), sizeof(int16_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::Int32), sizeof(int32_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::Int64), sizeof(int64_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::Int128), sizeof(int128_t));
+
+    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::UInt8), sizeof(uint8_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::UInt16), sizeof(uint16_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::UInt32), sizeof(uint32_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::UInt64), sizeof(uint64_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::UInt128), sizeof(uint128_t));
+
+    // Test invalid type
+    //    EXPECT_THROW(schema_util::get_size_of_interger(TypeIndex::String), Exception);
+}
+
+TEST_F(SchemaUtilTest, TestCastColumnEdgeCases) {
+    // Test casting from Nothing type
+    auto nothing_type = std::make_shared<DataTypeNothing>();
+    auto dst_type = std::make_shared<DataTypeInt32>();
+
+    auto nothing_column = ColumnNothing::create(1);
+    ColumnWithTypeAndName src_col;
+    src_col.type = nothing_type;
+    src_col.column = nothing_column->get_ptr();
+    src_col.name = "nothing_col";
+
+    ColumnPtr result;
+    auto status = schema_util::cast_column(src_col, dst_type, &result);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(result->size(), 1);
+
+    // Test casting to variant type
+    auto variant_type = std::make_shared<DataTypeObject>(10);
+    auto nullable_array_type = make_nullable(std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
+    auto array_column = ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
+    auto nullable_array_column = make_nullable(array_column->get_ptr());
+
+    ColumnWithTypeAndName array_col;
+    array_col.type = nullable_array_type;
+    array_col.column = nullable_array_column;
+    array_col.name = "array_col";
+
+    // test Array Type cast Int will throw Exception
+    auto int_type = std::make_shared<DataTypeInt32>();
+    Status st = schema_util::cast_column(array_col, int_type, &result);
+    EXPECT_FALSE(st.ok());
+
+    ColumnPtr result1;
+    status = schema_util::cast_column(array_col, variant_type, &result1);
+    EXPECT_TRUE(status.ok());
+    EXPECT_FALSE(result1->is_nullable());
+
+    auto variant_type_nullable = make_nullable(variant_type);
+    status = schema_util::cast_column(array_col, variant_type_nullable, &result1);
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(result1->is_nullable());
+
+    // Test casting from variant to variant
+    auto variant_column = ColumnObject::create(10);
+    variant_column->create_root(nullable_array_type, nullable_array_column->assume_mutable());
+
+    ColumnWithTypeAndName variant_col;
+    variant_col.type = variant_type;
+    variant_col.column = variant_column->get_ptr();
+    variant_col.name = "variant_col";
+
+    ColumnPtr result2;
+    status = schema_util::cast_column(variant_col, variant_type, &result2);
+    EXPECT_TRUE(status.ok());
+    EXPECT_FALSE(result2->is_nullable());
+}
+
+TEST_F(SchemaUtilTest, TestGetColumnByTypeEdgeCases) {
+    // Test decimal type
+    auto decimal_type = std::make_shared<DataTypeDecimal<Decimal128V2>>(18, 2);
+    schema_util::ExtraInfo ext_info;
+    auto decimal_column = schema_util::get_column_by_type(decimal_type, "decimal_col", ext_info);
+    EXPECT_EQ(decimal_column.type(), FieldType::OLAP_FIELD_TYPE_DECIMAL);
+    EXPECT_EQ(decimal_column.precision(), 18);
+    EXPECT_EQ(decimal_column.frac(), 2);
+
+    // Test datetime type
+    auto datetime_type = std::make_shared<DataTypeDateTime>();
+    auto datetime_column = schema_util::get_column_by_type(datetime_type, "datetime_col", ext_info);
+    EXPECT_EQ(datetime_column.type(), FieldType::OLAP_FIELD_TYPE_DATETIME);
+
+    // Test datetime v2 type
+    auto datetime_v2_type = std::make_shared<DataTypeDateTimeV2>(6);
+    auto datetime_v2_column = schema_util::get_column_by_type(datetime_v2_type, "datetime_v2_col", ext_info);
+    EXPECT_EQ(datetime_v2_column.type(), FieldType::OLAP_FIELD_TYPE_DATETIMEV2);
+    EXPECT_EQ(datetime_v2_column.precision(), -1);
+    EXPECT_EQ(datetime_v2_column.frac(), 6);
+
+    // Test invalid type
+    auto invalid_type = std::make_shared<DataTypeNothing>();
+    EXPECT_THROW(schema_util::get_column_by_type(invalid_type, "invalid_col", ext_info), Exception);
+}
+
+TEST_F(SchemaUtilTest, TestUpdateLeastSchemaInternal) {
+    // Create test schemas and types
+    std::map<PathInData, DataTypes> subcolumns_types;
+    auto schema = std::make_shared<TabletSchema>();
+
+    // Add some test columns
+    TabletColumn base_col;
+    base_col.set_unique_id(1);
+    base_col.set_name("test_variant");
+    base_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    schema->append_column(base_col);
+
+    // Add different types for same path
+    PathInData test_path("test_variant.a");
+    subcolumns_types[test_path] = {
+            std::make_shared<DataTypeInt32>(),
+            std::make_shared<DataTypeInt64>()
+    };
+
+    // Add array types with different dimensions
+    PathInData array_path("test_variant.b");
+    subcolumns_types[array_path] = {
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()),
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()))
+    };
+
+    // Add path with single type
+    PathInData single_path("test_variant.c");
+    subcolumns_types[single_path] = {std::make_shared<DataTypeString>()};
+
+    std::map<std::string, TabletColumnPtr> typed_columns;
+    schema_util::update_least_schema_internal(subcolumns_types, schema, false, 1, typed_columns);
+
+    // Check results
+    EXPECT_EQ(schema->num_columns(), 4); // base + 3 subcolumns
+
+    // Check that array path was converted to JSONB due to dimension mismatch
+    int array_col_idx = schema->field_index("test_variant.b");
+    EXPECT_GE(array_col_idx, 0);
+    EXPECT_EQ(schema->column(array_col_idx).type(), FieldType::OLAP_FIELD_TYPE_JSONB);
+
+    // Check that mixed integer types were promoted
+    int int_col_idx = schema->field_index("test_variant.a");
+    EXPECT_GE(int_col_idx, 0);
+    EXPECT_EQ(schema->column(int_col_idx).type(), FieldType::OLAP_FIELD_TYPE_BIGINT);
+}
+
+TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema) {
+    // Create test schemas
+    std::vector<TabletSchemaSPtr> schemas;
+    auto schema1 = std::make_shared<TabletSchema>();
+    auto schema2 = std::make_shared<TabletSchema>();
+
+    // Add variant column to both schemas
+    TabletColumn variant_col;
+    variant_col.set_unique_id(1);
+    variant_col.set_name("test_variant");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    schema1->append_column(variant_col);
+    schema2->append_column(variant_col);
+
+    // Add different subcolumns to schemas
+    TabletColumn subcol1;
+    subcol1.set_name("test_variant.a");
+    subcol1.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    subcol1.set_parent_unique_id(1);
+    subcol1.set_path_info(PathInData("test_variant.a"));
+    schema1->append_column(subcol1);
+
+    TabletColumn subcol2;
+    subcol2.set_name("test_variant.a");
+    subcol2.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    subcol2.set_parent_unique_id(1);
+    subcol2.set_path_info(PathInData("test_variant.a"));
+    schema2->append_column(subcol2);
+
+    schemas.push_back(schema1);
+    schemas.push_back(schema2);
+
+    auto result_schema = std::make_shared<TabletSchema>();
+    result_schema->append_column(variant_col);
+
+    std::set<PathInData> path_set;
+    schema_util::update_least_common_schema(schemas, result_schema, 1, &path_set);
+
+    // Check results
+    EXPECT_EQ(result_schema->num_columns(), 2); // variant + subcolumn
+    EXPECT_EQ(path_set.size(), 1);
+    EXPECT_TRUE(path_set.find(PathInData("test_variant.a")) != path_set.end());
+
+    // Check that subcolumn type was promoted to BIGINT
+    int subcol_idx = result_schema->field_index("test_variant.a");
+    EXPECT_GE(subcol_idx, 0);
+    EXPECT_EQ(result_schema->column(subcol_idx).type(), FieldType::OLAP_FIELD_TYPE_BIGINT);
+}
+
+TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema2) {
+    // Create common schema with a variant column
+    TabletSchemaSPtr common_schema = std::make_shared<TabletSchema>();
+    TabletColumn variant_col;
+    variant_col.set_unique_id(1);
+    variant_col.set_name("test_variant");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+
+    // Create subcolumns for variant column in common_schema
+    TabletColumn sub_col1;
+    sub_col1.set_name("test_variant.field1");
+    sub_col1.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    sub_col1.set_parent_unique_id(1);
+    vectorized::PathInData path1("test_variant.field1");
+    sub_col1.set_path_info(path1);
+    variant_col.add_sub_column(sub_col1);
+
+    TabletColumn sub_col2;
+    sub_col2.set_name("test_variant.field2");
+    sub_col2.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    sub_col2.set_parent_unique_id(1);
+    vectorized::PathInData path2("test_variant.field2");
+    sub_col2.set_path_info(path2);
+    variant_col.add_sub_column(sub_col2);
+
+    common_schema->append_column(variant_col);
+
+    // Create schemas vector with two schemas
+    std::vector<TabletSchemaSPtr> schemas;
+    // Schema1: doesn't have the variant column
+    auto schema1 = std::make_shared<TabletSchema>();
+    schemas.push_back(schema1);
+
+    // Schema2: has variant column with different subcolumns
+    auto schema2 = std::make_shared<TabletSchema>();
+    TabletColumn variant_col2;
+    variant_col2.set_unique_id(1);
+    variant_col2.set_name("test_variant");
+    variant_col2.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+
+    // Add subcolumns to schema2's variant column
+    TabletColumn sub_col3;
+    sub_col3.set_name("test_variant.field3");
+    sub_col3.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    sub_col3.set_parent_unique_id(1);
+    vectorized::PathInData path3("test_variant.field3");
+    sub_col3.set_path_info(path3);
+    variant_col2.add_sub_column(sub_col3);
+
+    // Add a subcolumn with same path but different type
+    TabletColumn sub_col1_different_type;
+    sub_col1_different_type.set_name("test_variant.field1");
+    sub_col1_different_type.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    sub_col1_different_type.set_parent_unique_id(1);
+    sub_col1_different_type.set_path_info(path1);
+    variant_col2.add_sub_column(sub_col1_different_type);
+
+    schema2->append_column(variant_col2);
+    schemas.push_back(schema2);
+
+    // Create path_set that contains some paths
+    std::set<PathInData> path_set;
+    path_set.insert(path1);
+    path_set.insert(path2);
+    path_set.insert(path3);
+
+    // Test update_least_common_schema
+    // This should cover:
+    // 1. schema->field_index(variant_col_unique_id) == -1 branch (via schema1)
+    // 2. The for loop over sparse_columns() (via schema2)
+    // 3. subcolumns_types.find(*col->path_info_ptr()) != subcolumns_types.end() branch
+    schema_util::update_least_common_schema(schemas, common_schema, 1, &path_set);
+
+    // Verify results
+    const auto& result_variant = common_schema->column_by_uid(1);
+
+    // Check that all subcolumns are present
+    EXPECT_EQ(result_variant.get_sub_columns().size(), 2);
+
+    // Check that field1 has the most compatible type (should be BIGINT due to type promotion)
+    bool found_field1 = false;
+    bool found_field2 = false;
+    bool found_field3 = false;
+
+    for (const auto& col : result_variant.get_sub_columns()) {
+        if (col->name() == "test_variant.field1") {
+            found_field1 = true;
+            EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_INT);
+        } else if (col->name() == "test_variant.field2") {
+            found_field2 = true;
+            EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_STRING);
+        } else if (col->name() == "test_variant.field3") {
+            EXPECT_EQ(col->type(), FieldType::OLAP_FIELD_TYPE_INT);
+        }
+    }
+
+    EXPECT_TRUE(found_field1);
+    EXPECT_TRUE(found_field2);
+    EXPECT_FALSE(found_field3);
+}
+
+TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema3) {
+    // Create common schema with a variant column
+    TabletSchemaSPtr common_schema = std::make_shared<TabletSchema>();
+    TabletColumn variant_col;
+    variant_col.set_unique_id(1);
+    variant_col.set_name("test_variant");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+
+    // Create sparse columns for variant column in common_schema
+    TabletColumn sparse_col1;
+    sparse_col1.set_name("test_variant.sparse1");
+    sparse_col1.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    sparse_col1.set_parent_unique_id(1);
+    vectorized::PathInData path1("test_variant.sparse1");
+    sparse_col1.set_path_info(path1);
+    variant_col.append_sparse_column(sparse_col1);
+
+    TabletColumn sparse_col2;
+    sparse_col2.set_name("test_variant.sparse2");
+    sparse_col2.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    sparse_col2.set_parent_unique_id(1);
+    vectorized::PathInData path2("test_variant.sparse2");
+    sparse_col2.set_path_info(path2);
+    variant_col.append_sparse_column(sparse_col2);
+
+    common_schema->append_column(variant_col);
+
+    // Create schemas vector with two schemas
+    std::vector<TabletSchemaSPtr> schemas;
+
+    // Schema1: doesn't have the variant column
+    auto schema1 = std::make_shared<TabletSchema>();
+    schemas.push_back(schema1);
+
+    // Schema2: has variant column with different sparse columns
+    auto schema2 = std::make_shared<TabletSchema>();
+    TabletColumn variant_col2;
+    variant_col2.set_unique_id(1);
+    variant_col2.set_name("test_variant");
+    variant_col2.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+
+    // Add sparse columns to schema2's variant column
+    TabletColumn sparse_col3;
+    sparse_col3.set_name("test_variant.sparse3");
+    sparse_col3.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    sparse_col3.set_parent_unique_id(1);
+    vectorized::PathInData path3("test_variant.sparse3");
+    sparse_col3.set_path_info(path3);
+    variant_col2.append_sparse_column(sparse_col3);
+
+    TabletColumn sparse_col4;
+    sparse_col4.set_name("test_variant.sparse4");
+    sparse_col4.set_type(FieldType::OLAP_FIELD_TYPE_DOUBLE);
+    sparse_col4.set_parent_unique_id(1);
+    vectorized::PathInData path4("test_variant.sparse4");
+    sparse_col4.set_path_info(path4);
+    variant_col2.append_sparse_column(sparse_col4);
+
+    schema2->append_column(variant_col2);
+    schemas.push_back(schema2);
+
+    // Create path_set that contains some but not all sparse column paths
+    std::set<PathInData> path_set;
+    path_set.insert(path1); // from common_schema
+    path_set.insert(path3); // from schema2
+
+    // Test update_least_sparse_column
+    // This should cover:
+    // 1. schema->field_index(variant_col_unique_id) == -1 branch (via schema1)
+    // 2. The for loop over sparse_columns() (via schema2)
+    // 3. path_set.find(*col->path_info_ptr()) == path_set.end() branch (via sparse_col4)
+    schema_util::update_least_common_schema(schemas, common_schema, 1, &path_set);
+
+    // Verify that only sparse columns not in path_set are kept
+    const auto& result_variant = common_schema->column_by_uid(1);
+    EXPECT_EQ(result_variant.sparse_columns().size(), 2);
+
+    // Check that sparse_col2 and sparse_col4 are kept (they weren't in path_set)
+    bool found_sparse2 = false;
+    bool found_sparse4 = false;
+    for (const auto& col : result_variant.sparse_columns()) {
+        if (col->name() == "test_variant.sparse2") {
+            found_sparse2 = true;
+        } else if (col->name() == "test_variant.sparse4") {
+            found_sparse4 = true;
+        }
+    }
+    EXPECT_TRUE(found_sparse2);
+    EXPECT_FALSE(found_sparse4);
+}
+
+TEST_F(SchemaUtilTest, TestUpdateLeastSparseColumn) {
+    // Create test schemas
+    std::vector<TabletSchemaSPtr> schemas;
+    auto schema1 = std::make_shared<TabletSchema>();
+    auto schema2 = std::make_shared<TabletSchema>();
+
+    // Add variant column to both schemas
+    TabletColumn variant_col;
+    variant_col.set_unique_id(1);
+    variant_col.set_name("test_variant");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+
+    // Add sparse columns to schemas
+    TabletColumn sparse_col1;
+    sparse_col1.set_name("test_variant.sparse1");
+    sparse_col1.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    sparse_col1.set_parent_unique_id(1);
+    sparse_col1.set_path_info(PathInData("test_variant.sparse1"));
+
+    TabletColumn sparse_col2;
+    sparse_col2.set_name("test_variant.sparse2");
+    sparse_col2.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    sparse_col2.set_parent_unique_id(1);
+    sparse_col2.set_path_info(PathInData("test_variant.sparse2"));
+
+    schema1->append_column(variant_col);
+    schema1->append_column(sparse_col1);
+    schema2->append_column(variant_col);
+    schema2->append_column(sparse_col2);
+
+    schemas.push_back(schema1);
+    schemas.push_back(schema2);
+
+    auto result_schema = std::make_shared<TabletSchema>();
+    result_schema->append_column(variant_col);
+
+    std::set<PathInData> path_set;
+    path_set.insert(PathInData("test_variant.other_path")); // This path should be excluded
+
+    schema_util::update_least_sparse_column(schemas, result_schema, 1, path_set);
+
+    // Check results : why 0?
+    EXPECT_EQ(result_schema->column_by_uid(1).sparse_columns().size(), 0);
+}
+
+TEST_F(SchemaUtilTest, TestUpdateLeastSparseColumn2) {
+    // Test case 1: schema doesn't have the variant column
+    TabletSchema schema;
+    TabletColumn variant;
+    variant.set_unique_id(2); // Different ID than what we'll search for
+    schema.append_column(variant);
+
+    std::vector<TabletSchemaSPtr> schemas;
+    auto schema1 = std::make_shared<TabletSchema>();
+    auto schema2 = std::make_shared<TabletSchema>();
+    schemas.push_back(schema1);
+    schemas.push_back(schema2);
+
+    auto result_schema = std::make_shared<TabletSchema>();
+    std::set<PathInData> path_set;
+    path_set.insert(PathInData("test.path"));
+
+    // This should handle the case where field_index returns -1
+//    schema_util::update_least_sparse_column(schemas, result_schema, 1, path_set);
+//    EXPECT_EQ(result_schema->num_columns(), 0);
+
+    // Test case 2: schema has variant column but no sparse columns
+    TabletColumn variant2;
+    variant2.set_unique_id(1);
+    variant2.set_name("test_variant");
+    variant2.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    result_schema->append_column(variant2);
+
+    // This should handle the case where sparse_columns is empty
+    schema_util::update_least_sparse_column(schemas, result_schema, 1, path_set);
+    EXPECT_EQ(result_schema->column_by_uid(1).sparse_columns().size(), 0);
+
+    // Test case 3: schema has variant column with sparse columns but empty path_set
+    TabletColumn sparse_col;
+    sparse_col.set_name("test_variant.sparse");
+    sparse_col.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    sparse_col.set_parent_unique_id(1);
+    sparse_col.set_path_info(PathInData("test_variant.sparse"));
+    variant2.append_sparse_column(sparse_col);
+
+    // dropped Variant Col
+
+    std::set<PathInData> empty_path_set;
+    schema_util::update_least_sparse_column(schemas, result_schema, 1, empty_path_set);
+    EXPECT_EQ(result_schema->column_by_uid(1).sparse_columns().size(), 0);
+}
+
+TEST_F(SchemaUtilTest, TestUpdateLeastSparseColumn3) {
+    // Create common schema with a variant column
+    TabletSchemaSPtr common_schema = std::make_shared<TabletSchema>();
+    TabletColumn variant_col;
+    variant_col.set_unique_id(1);
+    variant_col.set_name("test_variant");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+
+    // Create sparse columns for variant column in common_schema
+    TabletColumn sparse_col1;
+    sparse_col1.set_name("test_variant.sparse1");
+    sparse_col1.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    sparse_col1.set_parent_unique_id(1);
+    vectorized::PathInData path1("test_variant.sparse1");
+    sparse_col1.set_path_info(path1);
+    variant_col.append_sparse_column(sparse_col1);
+
+    TabletColumn sparse_col2;
+    sparse_col2.set_name("test_variant.sparse2");
+    sparse_col2.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    sparse_col2.set_parent_unique_id(1);
+    vectorized::PathInData path2("test_variant.sparse2");
+    sparse_col2.set_path_info(path2);
+    variant_col.append_sparse_column(sparse_col2);
+
+    common_schema->append_column(variant_col);
+
+    // Create schemas vector with two schemas
+    std::vector<TabletSchemaSPtr> schemas;
+
+    // Schema1: doesn't have the variant column
+    auto schema1 = std::make_shared<TabletSchema>();
+    schemas.push_back(schema1);
+
+    // Schema2: has variant column with different sparse columns
+    auto schema2 = std::make_shared<TabletSchema>();
+    TabletColumn variant_col2;
+    variant_col2.set_unique_id(1);
+    variant_col2.set_name("test_variant");
+    variant_col2.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+
+    // Add sparse columns to schema2's variant column
+    TabletColumn sparse_col3;
+    sparse_col3.set_name("test_variant.sparse3");
+    sparse_col3.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    sparse_col3.set_parent_unique_id(1);
+    vectorized::PathInData path3("test_variant.sparse3");
+    sparse_col3.set_path_info(path3);
+    variant_col2.append_sparse_column(sparse_col3);
+
+    TabletColumn sparse_col4;
+    sparse_col4.set_name("test_variant.sparse4");
+    sparse_col4.set_type(FieldType::OLAP_FIELD_TYPE_DOUBLE);
+    sparse_col4.set_parent_unique_id(1);
+    vectorized::PathInData path4("test_variant.sparse4");
+    sparse_col4.set_path_info(path4);
+    variant_col2.append_sparse_column(sparse_col4);
+
+    schema2->append_column(variant_col2);
+    schemas.push_back(schema2);
+
+    // Create path_set that contains some but not all sparse column paths
+    std::set<PathInData> path_set;
+    path_set.insert(path1); // from common_schema
+    path_set.insert(path3); // from schema2
+
+    // Test update_least_sparse_column
+    // This should cover:
+    // 1. schema->field_index(variant_col_unique_id) == -1 branch (via schema1)
+    // 2. The for loop over sparse_columns() (via schema2)
+    // 3. path_set.find(*col->path_info_ptr()) == path_set.end() branch (via sparse_col4)
+    schema_util::update_least_sparse_column(schemas, common_schema, 1, path_set);
+
+    // Verify that only sparse columns not in path_set are kept
+    const auto& result_variant = common_schema->column_by_uid(1);
+    EXPECT_EQ(result_variant.sparse_columns().size(), 3);
+
+    // Check that sparse_col2 and sparse_col4 are kept (they weren't in path_set)
+    bool found_sparse2 = false;
+    bool found_sparse4 = false;
+    for (const auto& col : result_variant.sparse_columns()) {
+        if (col->name() == "test_variant.sparse2") {
+            found_sparse2 = true;
+        } else if (col->name() == "test_variant.sparse4") {
+            found_sparse4 = true;
+        }
+    }
+    EXPECT_TRUE(found_sparse2);
+    EXPECT_TRUE(found_sparse4);
+}
+
+TEST_F(SchemaUtilTest, TestGetCompactionSchema) {
+    // Create test rowsets
+    std::vector<RowsetSharedPtr> rowsets;
+    RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
+
+    // Create schema for rowsets
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "v1_index", 1, "VARIANT",
+                     "v1", IndexType::INVERTED);
+
+    auto schema = std::make_shared<TabletSchema>();
+    schema->init_from_pb(schema_pb);
+
+    // Add path statistics
+    std::unordered_map<int32_t, schema_util::PathToNoneNullValues> path_stats;
+    path_stats[1] = {
+            {"v1.a", 1000},
+            {"v1.b", 800},
+            {"v1.c", 500},
+            {"v1.d", 300},
+            {"v1.e", 200}
+    };
+
+    // Mock rowset behavior
+    //    BetaRowset rowset1(schema, rowset_meta, "");
+    //    BetaRowset rowset2(schema, rowset_meta, "");
+    auto rowset1 = std::make_shared<BetaRowset>(schema, rowset_meta, "");
+    auto rowset2 = std::make_shared<BetaRowset>(schema, rowset_meta, "");
+    rowsets.push_back(rowset1);
+    rowsets.push_back(rowset2);
+
+    auto target_schema = std::make_shared<TabletSchema>();
+    target_schema->init_from_pb(schema_pb);
+
+    auto status = schema_util::get_compaction_schema(rowsets, target_schema);
+    EXPECT_TRUE(status.ok());
+
+    // Check that paths were properly distributed between subcolumns and sparse columns
+    const auto& variant_col = target_schema->column_by_uid(1);
+    // this is not work!!!
+    EXPECT_EQ(variant_col.get_sub_columns().size(), 0);
+    EXPECT_EQ(variant_col.sparse_columns().size(), 0);
+}
+
+TEST_F(SchemaUtilTest, TestGetSortedSubcolumns) {
+    // Create test subcolumns
+    vectorized::ColumnObject::Subcolumns subcolumns;
+    auto obj = VariantUtil::construct_dst_varint_column();
+
+    auto sorted = schema_util::get_sorted_subcolumns(obj->get_subcolumns());
+    std::vector<std::string> expected_paths = {"", "v.b", "v.b.d", "v.c.d", "v.e", "v.f"};
+    EXPECT_EQ(sorted.size(), 6);
+    int i = 0;
+    for (auto iter = sorted.begin(); iter != sorted.end(); ++iter) {
+        EXPECT_EQ(iter.operator*()->path.get_path(), expected_paths[i++]);
+    }
+}
+
+TEST_F(SchemaUtilTest, TestCreateSparseColumn) {
+    TabletColumn variant;
+    variant.set_name("test_variant");
+    variant.set_unique_id(42);
+    variant.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_GENERIC);
+
+    auto sparse_column = schema_util::create_sparse_column(variant);
+
+    EXPECT_EQ(sparse_column.name(), "test_variant." + SPARSE_COLUMN_PATH);
+    EXPECT_EQ(sparse_column.type(), FieldType::OLAP_FIELD_TYPE_MAP);
+    EXPECT_EQ(sparse_column.aggregation(), FieldAggregationMethod::OLAP_FIELD_AGGREGATION_GENERIC);
+    EXPECT_EQ(sparse_column.parent_unique_id(), 42);
+    EXPECT_EQ(sparse_column.path_info_ptr()->get_path(), "test_variant." + SPARSE_COLUMN_PATH);
+
+    // Check map value columns
+    EXPECT_EQ(sparse_column.get_sub_column(0).type(), FieldType::OLAP_FIELD_TYPE_STRING);
+    EXPECT_EQ(sparse_column.get_sub_column(1).type(), FieldType::OLAP_FIELD_TYPE_STRING);
+}
+
+TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
+    Block block;
+
+    // Test parsing from string to variant
+    auto variant_type = std::make_shared<DataTypeObject>(10);
+    auto variant_column = ColumnObject::create(10);
+    auto root_column = ColumnString::create();
+
+    // Add some test JSON data
+    root_column->insert("{'a': 1, 'b': 'test'}");
+    root_column->insert("{'a': 2, 'c': [1,2,3]}");
+    root_column->insert("{'a': 3, 'd': {'x': 1}}");
+
+    variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
+    block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
+
+    std::vector<int> variant_pos {0};
+    ParseConfig config;
+
+    auto status = schema_util::parse_variant_columns(block, variant_pos, config);
+    EXPECT_TRUE(status.ok());
+
+    // Test parsing from JSONB to variant
+    auto jsonb_type = std::make_shared<DataTypeJsonb>();
+    auto jsonb_column = ColumnString::create();
+    jsonb_column->insert("{'x': 1}");
+
+    auto variant_column2 = ColumnObject::create(10);
+    variant_column2->create_root(jsonb_type, jsonb_column->get_ptr());
+
+    Block block2;
+    block2.insert({variant_column2->get_ptr(), variant_type, "variant_col2"});
+
+    status = schema_util::parse_variant_columns(block2, {0}, config);
+    EXPECT_TRUE(status.ok());
+
+    // Test parsing already parsed variant
+    auto variant_column3 = ColumnObject::create(10);
+    variant_column3->finalize();
+
+    Block block3;
+    block3.insert({variant_column3->get_ptr(), variant_type, "variant_col3"});
+
+    status = schema_util::parse_variant_columns(block3, {0}, config);
+    EXPECT_TRUE(status.ok());
+}
+
+TEST_F(SchemaUtilTest, TestParseVariantColumnsWithNulls) {
+    Block block;
+
+    // Create a nullable variant column
+    auto variant_type = make_nullable(std::make_shared<DataTypeObject>(10));
+    auto string_type = make_nullable(std::make_shared<DataTypeString>());
+
+    auto string_column = ColumnString::create();
+    string_column->insert("{'a': 1}");
+    auto nullable_string = make_nullable(string_column->get_ptr());
+
+    auto variant_column = ColumnObject::create(10);
+    variant_column->create_root(string_type, nullable_string->assume_mutable());
+    auto nullable_variant = make_nullable(variant_column->get_ptr());
+
+    block.insert({nullable_variant, variant_type, "nullable_variant"});
+
+    std::vector<int> variant_pos {0};
+    ParseConfig config;
+
+    auto status = schema_util::parse_variant_columns(block, variant_pos, config);
+    EXPECT_TRUE(status.ok());
+
+    const auto& result_column = block.get_by_position(0).column;
+    EXPECT_TRUE(result_column->is_nullable());
 }
