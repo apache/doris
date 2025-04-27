@@ -15,29 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.hudi.source;
+package org.apache.doris.datasource.property.fileformat;
 
-import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.FileSplit;
+import org.junit.Before;
+import org.junit.Test;
 
-import lombok.Data;
+import java.util.HashMap;
+import java.util.Map;
 
-import java.util.List;
+public class WalFileFormatPropertiesTest {
 
-@Data
-public class HudiSplit extends FileSplit {
-    public HudiSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
-            List<String> partitionValues) {
-        super(file, start, length, fileLength, 0, hosts, partitionValues);
+    private WalFileFormatProperties walFileFormatProperties;
+
+    @Before
+    public void setUp() {
+        walFileFormatProperties = new WalFileFormatProperties();
     }
 
-    private String instantTime;
-    private String serde;
-    private String inputFormat;
-    private String basePath;
-    private String dataFilePath;
-    private List<String> hudiDeltaLogs;
-    private List<String> hudiColumnNames;
-    private List<String> hudiColumnTypes;
-    private List<String> nestedFields;
+    @Test
+    public void testAnalyzeFileFormatProperties() {
+        Map<String, String> properties = new HashMap<>();
+        // Add properties if needed
+        walFileFormatProperties.analyzeFileFormatProperties(properties, true);
+    }
 }

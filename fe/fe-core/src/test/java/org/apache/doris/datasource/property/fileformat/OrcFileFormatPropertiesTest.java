@@ -15,17 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.hudi;
+package org.apache.doris.datasource.property.fileformat;
 
+import org.apache.doris.thrift.TFileCompressType;
+
+import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
+import java.util.HashMap;
+import java.util.Map;
 
-/**
- * The hudi JniScanner test
- */
-public class HudiJniScannerTest {
-    @Test
-    public void testOpen() {
+public class OrcFileFormatPropertiesTest {
+
+    private OrcFileFormatProperties orcFileFormatProperties;
+
+    @Before
+    public void setUp() {
+        orcFileFormatProperties = new OrcFileFormatProperties();
     }
 
+    @Test
+    public void testAnalyzeFileFormatProperties() {
+        Map<String, String> properties = new HashMap<>();
+        // Add properties if needed
+        orcFileFormatProperties.analyzeFileFormatProperties(properties, true);
+        Assert.assertEquals(TFileCompressType.ZLIB, orcFileFormatProperties.getOrcCompressionType());
+    }
 }
