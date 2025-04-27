@@ -493,7 +493,6 @@ public class HudiScanNode extends HiveScanNode {
         split.setHudiColumnNames(columnNames);
         split.setHudiColumnTypes(columnTypes);
         split.setInstantTime(queryInstant);
-        split.setHudiJniScanner(sessionVariable.getHudiJniScanner());
         return split;
     }
 
