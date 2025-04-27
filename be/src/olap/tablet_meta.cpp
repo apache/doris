@@ -1397,16 +1397,23 @@ DeleteBitmap::Version DeleteBitmap::_get_rowset_cache_version(const BitmapKey& b
 }
 
 void DeleteBitmap::traverse_rowset_id_prefix(
-        const std::function<void(const RowsetId& rowsetId)>& func) const {
+        const std::function<void(const DeleteBitmap&, const RowsetId& rowsetId)>& func) const {
     std::shared_lock rlock {lock};
     auto it = delete_bitmap.cbegin();
     while (it != delete_bitmap.cend()) {
         RowsetId rowset_id = std::get<0>(it->first);
-        func(rowset_id);
+        func(*this, rowset_id);
         // find next rowset id
         it = delete_bitmap.upper_bound({rowset_id, std::numeric_limits<SegmentId>::max(),
                                         std::numeric_limits<Version>::max()});
     }
+}
+
+uint64_t DeleteBitmap::count_key_with_rowset_id_unlocked(const RowsetId& rowset_id) const {
+    auto lower_bound = delete_bitmap.lower_bound({rowset_id, 0, 0});
+    auto upper_bound = delete_bitmap.upper_bound({rowset_id, std::numeric_limits<SegmentId>::max(),
+                                                  std::numeric_limits<Version>::max()});
+    return std::distance(lower_bound, upper_bound);
 }
 
 // We cannot just copy the underlying memory to construct a string

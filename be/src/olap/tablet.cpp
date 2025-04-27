@@ -2892,22 +2892,24 @@ int64_t Tablet::get_inverted_index_file_size(const RowsetMetaSharedPtr& rs_meta)
 uint64_t Tablet::valid_delete_bitmap_key_count() {
     uint64_t ret {0};
     std::shared_lock<std::shared_mutex> rlock {_meta_lock};
-    _tablet_meta->delete_bitmap().traverse_rowset_id_prefix([&](const RowsetId& rowset_id) {
-        if (_contains_rowset(rowset_id)) {
-            ++ret;
-        }
-    });
+    _tablet_meta->delete_bitmap().traverse_rowset_id_prefix(
+            [&](const DeleteBitmap& self, const RowsetId& rowset_id) {
+                if (_contains_rowset(rowset_id)) {
+                    ret += self.count_key_with_rowset_id_unlocked(rowset_id);
+                }
+            });
     return ret;
 }
 
 uint64_t Tablet::invalid_delete_bitmap_key_count() {
     uint64_t ret {0};
     std::shared_lock<std::shared_mutex> rlock {_meta_lock};
-    _tablet_meta->delete_bitmap().traverse_rowset_id_prefix([&](const RowsetId& rowset_id) {
-        if (!_contains_rowset(rowset_id)) {
-            ++ret;
-        }
-    });
+    _tablet_meta->delete_bitmap().traverse_rowset_id_prefix(
+            [&](const DeleteBitmap& self, const RowsetId& rowset_id) {
+                if (!_contains_rowset(rowset_id)) {
+                    ret += self.count_key_with_rowset_id_unlocked(rowset_id);
+                }
+            });
     return ret;
 }
 
