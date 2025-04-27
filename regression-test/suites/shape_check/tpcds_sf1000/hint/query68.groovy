@@ -78,7 +78,7 @@ suite("query68") {
     qt_ds_shape_68 '''
     explain shape plan
     select 
-     /*+ leading(current_addr {customer dn}) */
+     /*+ leading(current_addr (customer dn)) */
      c_last_name
        ,c_first_name
        ,ca_city
@@ -88,7 +88,7 @@ suite("query68") {
        ,extended_tax
        ,list_price
  from (select 
-  /*+ leading(customer_address {store_sales date_dim store household_demographics}) */
+  /*+ leading(customer_address (store_sales date_dim store household_demographics)) */
  ss_ticket_number
              ,ss_customer_sk
              ,ca_city bought_city

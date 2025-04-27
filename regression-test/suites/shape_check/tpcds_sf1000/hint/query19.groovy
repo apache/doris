@@ -61,7 +61,7 @@ limit 100 """
     qt_ds_shape_19 '''
     explain shape plan
     select  
-    /*+ leading( customer_address { customer { store_sales item date_dim}} store) */
+    /*+ leading( customer_address ( customer ( store_sales item date_dim)) store) */
     i_brand_id brand_id, i_brand brand, i_manufact_id, i_manufact,
  	sum(ss_ext_sales_price) ext_price
  from date_dim, store_sales, item,customer,customer_address,store

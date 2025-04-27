@@ -94,7 +94,7 @@ limit 100"""
     explain shape plan
     with ws as
   (select 
-  /*+ leading(web_sales broadcast date_dim web_returns) */
+  /*+ leading(web_sales [broadcast] date_dim web_returns) */
   d_year AS ws_sold_year, ws_item_sk,
     ws_bill_customer_sk ws_customer_sk,
     sum(ws_quantity) ws_qty,
@@ -108,7 +108,7 @@ limit 100"""
    ),
 cs as
   (select 
-  /*+ leading(catalog_sales broadcast date_dim catalog_returns) */
+  /*+ leading(catalog_sales [broadcast] date_dim catalog_returns) */
   d_year AS cs_sold_year, cs_item_sk,
     cs_bill_customer_sk cs_customer_sk,
     sum(cs_quantity) cs_qty,
@@ -122,7 +122,7 @@ cs as
    ),
 ss as
   (select 
-  /*+ leading(store_sales broadcast date_dim store_returns) */
+  /*+ leading(store_sales [broadcast] date_dim store_returns) */
   d_year AS ss_sold_year, ss_item_sk,
     ss_customer_sk,
     sum(ss_quantity) ss_qty,
@@ -135,7 +135,7 @@ ss as
    group by d_year, ss_item_sk, ss_customer_sk
    )
 select 
-/*+ leading(ss shuffle ws shuffle cs) */
+/*+ leading(ss [shuffle] ws [shuffle] cs) */
 ss_customer_sk,
 round(ss_qty/(coalesce(ws_qty,0)+coalesce(cs_qty,0)),2) ratio,
 ss_qty store_qty, ss_wc store_wholesale_cost, ss_sp store_sales_price,

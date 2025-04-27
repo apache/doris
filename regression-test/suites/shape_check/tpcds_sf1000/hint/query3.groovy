@@ -57,7 +57,7 @@ suite("query3") {
     qt_ds_shape_3 '''
     explain shape plan
     select  
-    /*+ leading(store_sales broadcast item broadcast dt) */
+    /*+ leading(store_sales [broadcast] item [broadcast] dt) */
     dt.d_year 
        ,item.i_brand_id brand_id 
        ,item.i_brand brand

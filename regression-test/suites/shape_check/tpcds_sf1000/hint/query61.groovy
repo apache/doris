@@ -84,7 +84,7 @@ limit 100"""
      promotions,total,cast(promotions as decimal(15,4))/cast(total as decimal(15,4))*100
 from
   (select 
-  /*+ leading(customer_address {customer {store_sales date_dim item promotion store}}) */
+  /*+ leading(customer_address (customer (store_sales date_dim item promotion store))) */
   sum(ss_ext_sales_price) promotions
    from  store_sales
         ,store
@@ -106,7 +106,7 @@ from
    and   d_year = 2000
    and   d_moy  = 12) promotional_sales,
   (select 
-  /*+ leading(store_sales date_dim item {customer customer_address} store) */
+  /*+ leading(store_sales date_dim item (customer customer_address) store) */
   sum(ss_ext_sales_price) total
    from  store_sales
         ,store

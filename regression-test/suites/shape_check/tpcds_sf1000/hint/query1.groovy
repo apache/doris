@@ -61,7 +61,7 @@ limit 100"""
     explain shape plan
     with customer_total_return as
 (select 
-/*+ leading(store_returns broadcast date_dim) */
+/*+ leading(store_returns [broadcast] date_dim) */
 sr_customer_sk as ctr_customer_sk
 ,sr_store_sk as ctr_store_sk
 ,sum(SR_FEE) as ctr_total_return

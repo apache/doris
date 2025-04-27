@@ -157,7 +157,7 @@ order by cs1.product_name
     explain shape plan
     with cs_ui as
  (select 
- /*+ leading(catalog_sales shuffle catalog_returns) */
+ /*+ leading(catalog_sales [shuffle] catalog_returns) */
  cs_item_sk
         ,sum(cs_ext_list_price) as sale,sum(cr_refunded_cash+cr_reversed_charge+cr_store_credit) as refund
   from catalog_sales
@@ -168,7 +168,7 @@ order by cs1.product_name
   having sum(cs_ext_list_price)>2*sum(cr_refunded_cash+cr_reversed_charge+cr_store_credit)),
 cross_sales as
  (select 
- /*+ leading(   {store_sales {{customer d2} cd2}}  cd1 d3 item {hd1 ib1} store_returns ad1 hd2 ad2 ib2 d1 store promotion cs_ui) */
+ /*+ leading(   (store_sales ((customer d2) cd2))  cd1 d3 item (hd1 ib1) store_returns ad1 hd2 ad2 ib2 d1 store promotion cs_ui) */
      i_product_name product_name
      ,i_item_sk item_sk
      ,s_store_name store_name
@@ -245,7 +245,7 @@ group by i_product_name
        ,d3.d_year
 )
 select 
-/*+ leading(cs1 shuffle cs2) */
+/*+ leading(cs1 [shuffle] cs2) */
      cs1.product_name
      ,cs1.store_name
      ,cs1.store_zip

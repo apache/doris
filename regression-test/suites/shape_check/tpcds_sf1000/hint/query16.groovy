@@ -67,7 +67,7 @@ limit 100"""
     qt_ds_shape_16 '''
     explain shape plan
     select  
-    /*+ leading(catalog_sales {cs1 customer_address date_dim call_center}) */
+    /*+ leading(catalog_sales (cs1 customer_address date_dim call_center)) */
    count(distinct cs_order_number) as "order count"
   ,sum(cs_ext_ship_cost) as "total shipping cost"
   ,sum(cs_net_profit) as "total net profit"
