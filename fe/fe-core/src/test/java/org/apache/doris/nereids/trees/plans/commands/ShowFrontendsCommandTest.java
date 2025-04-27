@@ -32,7 +32,7 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class ShowFrontendsCommandTest extends TestWithFeService {
+public class ShowFrontendsCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     private static final String infoDB = InfoSchemaDb.DATABASE_NAME;
 
@@ -68,9 +68,9 @@ public class ShowFrontendsCommandTest extends TestWithFeService {
 
                 ConnectContext.get();
                 minTimes = 0;
-                result = connectContext;
+                result = ctx;
 
-                accessControllerManager.checkDbPriv(connectContext, internalCtl, infoDB, PrivPredicate.SELECT);
+                accessControllerManager.checkDbPriv(ctx, internalCtl, infoDB, PrivPredicate.SELECT);
                 minTimes = 0;
                 result = true;
             }
@@ -81,7 +81,7 @@ public class ShowFrontendsCommandTest extends TestWithFeService {
     public void testNormal() throws Exception {
         runBefore();
         ShowFrontendsCommand command = new ShowFrontendsCommand(null);
-        Assertions.assertDoesNotThrow(() -> command.run(connectContext, null));
+        Assertions.assertDoesNotThrow(() -> command.run(ctx, null));
     }
 
     @Test
@@ -106,15 +106,15 @@ public class ShowFrontendsCommandTest extends TestWithFeService {
 
                 ConnectContext.get();
                 minTimes = 0;
-                result = connectContext;
+                result = ctx;
 
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.SHOW);
-                accessControllerManager.checkDbPriv(connectContext, internalCtl, infoDB, PrivPredicate.SELECT);
+                accessControllerManager.checkGlobalPriv(ctx, PrivPredicate.SHOW);
+                accessControllerManager.checkDbPriv(ctx, internalCtl, infoDB, PrivPredicate.SELECT);
                 minTimes = 0;
                 result = false;
             }
         };
         ShowFrontendsCommand command = new ShowFrontendsCommand(null);
-        Assertions.assertThrows(AnalysisException.class, () -> command.run(connectContext, null));
+        Assertions.assertThrows(AnalysisException.class, () -> command.run(ctx, null));
     }
 }
