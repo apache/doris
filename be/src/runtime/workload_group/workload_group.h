@@ -127,6 +127,10 @@ public:
         _wg_refresh_interval_memory_growth.fetch_sub(size);
     }
 
+    int64_t wg_refresh_interval_memory_growth() {
+        return _wg_refresh_interval_memory_growth.load();
+    }
+
     void check_mem_used(bool* is_low_watermark, bool* is_high_watermark) const {
         auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
         *is_low_watermark = (realtime_total_mem_used >
