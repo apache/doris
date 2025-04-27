@@ -258,7 +258,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             // get from lagacy planner context, to be removed
             handleExecute((PrepareStmt) prepareCtx.stmt, stmtId);
         } else {
-            // nererids
+            // nereids
             PreparedStatementContext preparedStatementContext = ctx.getPreparedStementContext(String.valueOf(stmtId));
             if (preparedStatementContext == null) {
                 LOG.warn("No such statement in context, stmtId:{}", stmtId);
