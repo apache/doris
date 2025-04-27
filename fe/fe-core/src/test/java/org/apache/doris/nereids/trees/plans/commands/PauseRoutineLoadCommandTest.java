@@ -21,34 +21,24 @@ import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class PauseRoutineLoadCommandTest {
-    @Mocked
-    private ConnectContext connectContext;
-
-    private void runBefore() {
-        new Expectations() {
-            {
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-            }
-        };
-    }
 
     @Test
     public void test() throws Exception {
-        runBefore();
+        ConnectContext ctx = new ConnectContext();
         LabelNameInfo labelNameInfo = new LabelNameInfo("testDB", "label0");
         PauseRoutineLoadCommand command = new PauseRoutineLoadCommand(labelNameInfo);
-        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertDoesNotThrow(() -> command.validate(ctx));
 
-        connectContext.setDatabase("testDB");
         PauseRoutineLoadCommand command2 = new PauseRoutineLoadCommand();
-        Assertions.assertDoesNotThrow(() -> command2.validate(connectContext));
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () -> command2.validate(ctx),
+                "No database selected");
+
+        ctx.setDatabase("testDB");
+        PauseRoutineLoadCommand command3 = new PauseRoutineLoadCommand();
+        Assertions.assertDoesNotThrow(() -> command3.validate(ctx));
     }
 }
