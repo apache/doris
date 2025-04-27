@@ -181,7 +181,7 @@ public:
     template <typename Predicate>
     bool can_apply_predicate_safely(int cid, Predicate* pred, const Schema& schema,
                                     ReaderType read_type) const {
-        const Field* col = schema.column(cid);
+        const doris::Field* col = schema.column(cid);
         vectorized::DataTypePtr storage_column_type =
                 get_data_type_of(col->get_desc(), read_type != ReaderType::READER_QUERY);
         if (storage_column_type == nullptr) {

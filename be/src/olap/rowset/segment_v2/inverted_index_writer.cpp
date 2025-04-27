@@ -72,11 +72,7 @@ const float MAXMBSortInHeap = 512.0 * 8;
 const int DIMS = 1;
 
 bool InvertedIndexColumnWriter::check_support_inverted_index(const TabletColumn& column) {
-    // bellow types are not supported in inverted index for extracted columns
-    static std::set<FieldType> invalid_types = {FieldType::OLAP_FIELD_TYPE_DOUBLE,
-                                                FieldType::OLAP_FIELD_TYPE_JSONB,
-                                                FieldType::OLAP_FIELD_TYPE_FLOAT};
-    if (invalid_types.contains(column.type())) {
+    if (!check_support_inverted_index(column.type())) {
         return false;
     }
     if (column.is_variant_type()) {
@@ -88,6 +84,14 @@ bool InvertedIndexColumnWriter::check_support_inverted_index(const TabletColumn&
         return !subcolumn.is_array_type() && check_support_inverted_index(subcolumn);
     }
     return true;
+}
+
+bool InvertedIndexColumnWriter::check_support_inverted_index(FieldType type) {
+    // bellow types are not supported in inverted index for extracted columns
+    static std::set<FieldType> invalid_types = {FieldType::OLAP_FIELD_TYPE_DOUBLE,
+                                                FieldType::OLAP_FIELD_TYPE_JSONB,
+                                                FieldType::OLAP_FIELD_TYPE_FLOAT};
+    return !invalid_types.contains(type);
 }
 
 template <FieldType field_type>

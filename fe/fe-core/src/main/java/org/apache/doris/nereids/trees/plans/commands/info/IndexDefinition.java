@@ -312,4 +312,16 @@ public class IndexDefinition {
     public Map<String, String> getProperties() {
         return properties;
     }
+
+    public boolean isAnalyzedInvertedIndex() {
+        return indexType == IndexDef.IndexType.INVERTED
+                && properties != null
+                        && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY);
+    }
+
+    public boolean isNonAnalyzedInvertedIndex() {
+        return indexType == IndexDef.IndexType.INVERTED
+                && (properties == null
+                        || !properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY));
+    }
 }

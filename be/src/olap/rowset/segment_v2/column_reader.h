@@ -42,6 +42,7 @@
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/rowset/segment_v2/parsed_page.h" // for ParsedPage
 #include "olap/rowset/segment_v2/stream_reader.h"
+#include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
 #include "util/once.h"
@@ -300,7 +301,7 @@ private:
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
-    std::shared_ptr<InvertedIndexReader> _inverted_index;
+    std::unordered_map<int64_t, std::shared_ptr<InvertedIndexReader>> _inverted_indexs;
     std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
@@ -329,7 +330,7 @@ public:
 
     int64_t get_metadata_size() const override;
 
-    TabletIndex* find_subcolumn_tablet_index(const std::string&);
+    std::vector<const TabletIndex*> find_subcolumn_tablet_indexes(const std::string&);
 
     bool exist_in_sparse_column(const vectorized::PathInData& path) const;
 
@@ -353,7 +354,8 @@ private:
     std::unique_ptr<SubcolumnColumnReaders> _subcolumn_readers;
     std::unique_ptr<ColumnReader> _sparse_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
-    std::unordered_map<std::string, std::unique_ptr<TabletIndex>> _variant_subcolumns_indexes;
+    // key: subcolumn path, value: subcolumn indexes
+    std::unordered_map<std::string, TabletIndexes> _variant_subcolumns_indexes;
 };
 
 // Base iterator to read one column data

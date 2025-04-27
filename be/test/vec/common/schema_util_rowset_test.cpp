@@ -205,6 +205,92 @@ static RowsetSharedPtr create_rowset(auto& rowset_writer, const TabletSchemaSPtr
     return rowset;
 }
 
+TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_key) {
+    // 1.create tablet schema
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(AGG_KEYS);
+    construct_column(schema_pb.add_column(), 0, "INT", "key", true);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v1");
+    construct_column(schema_pb.add_column(), 2, "STRING", "v2");
+    construct_column(schema_pb.add_column(), 3, "VARIANT", "v3");
+    construct_column(schema_pb.add_column(), 4, "INT", "v4");
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    // 2. create tablet
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(tablet_schema));
+    string absolute_dir = _curreent_dir + std::string("/ut_dir/schema_util_rows");
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(absolute_dir).ok());
+    std::unique_ptr<DataDir> _data_dir = std::make_unique<DataDir>(*_engine_ref, absolute_dir);
+    static_cast<void>(_data_dir->update_capacity());
+    EXPECT_TRUE(_data_dir->init(true).ok());
+
+    TabletSharedPtr _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    EXPECT_TRUE(_tablet->init().ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    // 3. create rowset
+    std::vector<RowsetSharedPtr> rowsets;
+    for (int i = 0; i < 5; i++) {
+        const auto& res = RowsetFactory::create_rowset_writer(
+                *_engine_ref,
+                rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path()), false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        const auto& rowset_writer = res.value();
+        auto rowset = create_rowset(rowset_writer, tablet_schema);
+        EXPECT_TRUE(_tablet->add_rowset(rowset).ok());
+        rowsets.push_back(rowset);
+    }
+
+    // 7. check output rowset
+    EXPECT_TRUE(schema_util::check_path_stats(rowsets, rowsets[0], _tablet).ok());
+}
+
+TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_delete) {
+    // 1.create tablet schema
+    TabletSchemaPB schema_pb;
+    schema_pb.set_delete_sign_idx(0);
+    construct_column(schema_pb.add_column(), 0, "INT", "key", true);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v1");
+    construct_column(schema_pb.add_column(), 2, "STRING", "v2");
+    construct_column(schema_pb.add_column(), 3, "VARIANT", "v3");
+    construct_column(schema_pb.add_column(), 4, "INT", "v4");
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    // 2. create tablet
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(tablet_schema));
+    string absolute_dir = _curreent_dir + std::string("/ut_dir/schema_util_rows1");
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(absolute_dir).ok());
+    std::unique_ptr<DataDir> _data_dir = std::make_unique<DataDir>(*_engine_ref, absolute_dir);
+    static_cast<void>(_data_dir->update_capacity());
+    EXPECT_TRUE(_data_dir->init(true).ok());
+
+    TabletSharedPtr _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    EXPECT_TRUE(_tablet->init().ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    // 3. create rowset
+    std::vector<RowsetSharedPtr> rowsets;
+    for (int i = 0; i < 5; i++) {
+        const auto& res = RowsetFactory::create_rowset_writer(
+                *_engine_ref,
+                rowset_writer_context(_data_dir, tablet_schema, _tablet->tablet_path()), false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        const auto& rowset_writer = res.value();
+        auto rowset = create_rowset(rowset_writer, tablet_schema);
+        EXPECT_TRUE(_tablet->add_rowset(rowset).ok());
+        rowsets.push_back(rowset);
+    }
+
+    // 7. check output rowset
+    Status st = schema_util::check_path_stats(rowsets, rowsets[0], _tablet);
+    std::cout << st.to_string() << std::endl;
+    EXPECT_FALSE(st.ok());
+}
+
 TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_compaction_schema) {
     // 1.create tablet schema
     TabletSchemaPB schema_pb;
@@ -244,7 +330,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_compaction_schema) {
 
     for (const auto& [uid, path_stats] : path_stats) {
         for (const auto& [path, size] : path_stats) {
-            EXPECT_EQ(all_path_stats[uid][path], size);
+            EXPECT_EQ(all_path_stats[uid][path], size * 3);
         }
     }
 
@@ -268,6 +354,56 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_compaction_schema) {
         EXPECT_TRUE(paths[2].ends_with("key1"));
         EXPECT_TRUE(paths[3].ends_with("key2"));
     }
+
+    // 6.compaction for output rs
+    // create input rowset reader
+    vector<RowsetReaderSharedPtr> input_rs_readers;
+    for (auto& rowset : rowsets) {
+        RowsetReaderSharedPtr rs_reader;
+        ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
+        input_rs_readers.push_back(std::move(rs_reader));
+    }
+
+    auto sc = schema_util::calculate_variant_extended_schema(rowsets, tablet_schema);
+    std::cout << sc->columns().size() << std::endl;
+
+    // create output rowset writer
+    auto create_rowset_writer_context = [this](TabletSchemaSPtr tablet_schema,
+                                               const SegmentsOverlapPB& overlap,
+                                               uint32_t max_rows_per_segment, Version version) {
+        static int64_t inc_id = 1000;
+        RowsetWriterContext rowset_writer_context;
+        RowsetId rowset_id;
+        rowset_id.init(inc_id);
+        rowset_writer_context.rowset_id = rowset_id;
+        rowset_writer_context.rowset_type = BETA_ROWSET;
+        rowset_writer_context.rowset_state = VISIBLE;
+        rowset_writer_context.tablet_schema = tablet_schema;
+        rowset_writer_context.tablet_path = _absolute_dir + "/../";
+        rowset_writer_context.version = version;
+        rowset_writer_context.segments_overlap = overlap;
+        rowset_writer_context.max_rows_per_segment = max_rows_per_segment;
+        inc_id++;
+        return rowset_writer_context;
+    };
+    auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
+                                                       {0, rowsets.back()->end_version()});
+    auto res_ = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, true);
+    ASSERT_TRUE(res_.has_value()) << res_.error();
+    auto output_rs_writer = std::move(res_).value();
+    Merger::Statistics stats;
+    RowIdConversion rowid_conversion;
+    stats.rowid_conversion = &rowid_conversion;
+    auto s = Merger::vertical_merge_rowsets(_tablet, ReaderType::READER_BASE_COMPACTION,
+                                            *tablet_schema, input_rs_readers,
+                                            output_rs_writer.get(), 100, 5, &stats);
+    ASSERT_TRUE(s.ok()) << s;
+    RowsetSharedPtr out_rowset;
+    EXPECT_EQ(Status::OK(), output_rs_writer->build(out_rowset));
+    ASSERT_TRUE(out_rowset);
+
+    // 7. check output rowset
+    EXPECT_TRUE(schema_util::check_path_stats(rowsets, out_rowset, _tablet).ok());
 }
 
 TEST_F(SchemaUtilRowsetTest, typed_path) {
