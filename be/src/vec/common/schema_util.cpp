@@ -444,19 +444,20 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
     }
 
     // 2. inverted index
-    const auto* source_index_meta = (*target_schema)->inverted_index(source.unique_id());
-    if (source_index_meta != nullptr) {
-        // add index meta
+    std::vector<TabletIndex> indexes_to_update;
+    auto source_indexes = (*target_schema)->inverted_indexs(source.unique_id());
+    for (const auto& source_index_meta : source_indexes) {
         TabletIndex index_info = *source_index_meta;
         index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
-        const auto* target_index_meta =
-                (*target_schema)
-                        ->inverted_index(target.parent_unique_id(),
-                                         target.path_info_ptr()->get_path());
-        if (target_index_meta != nullptr) {
-            // already exist
-            (*target_schema)->update_index(target, IndexType::INVERTED, std::move(index_info));
-        } else {
+        indexes_to_update.emplace_back(std::move(index_info));
+    }
+    auto target_indexes = (*target_schema)
+                                  ->inverted_indexs(target.parent_unique_id(),
+                                                    target.path_info_ptr()->get_path());
+    if (!target_indexes.empty()) {
+        (*target_schema)->update_index(target, IndexType::INVERTED, std::move(indexes_to_update));
+    } else {
+        for (auto& index_info : indexes_to_update) {
             (*target_schema)->append_index(std::move(index_info));
         }
     }
@@ -636,10 +637,20 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
         return true;
     }
 
-    bool new_schema_has_inverted_index = new_schema->inverted_index(column_new);
-    bool old_schema_has_inverted_index = old_schema->inverted_index(column_old);
+    auto new_schema_inverted_indexs = new_schema->inverted_indexs(column_new);
+    auto old_schema_inverted_indexs = old_schema->inverted_indexs(column_old);
 
-    return new_schema_has_inverted_index != old_schema_has_inverted_index;
+    if (new_schema_inverted_indexs.size() != old_schema_inverted_indexs.size()) {
+        return true;
+    }
+
+    for (size_t i = 0; i < new_schema_inverted_indexs.size(); ++i) {
+        if (!new_schema_inverted_indexs[i]->is_same_except_id(old_schema_inverted_indexs[i])) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 TabletColumn create_sparse_column(const TabletColumn& variant) {
@@ -1181,20 +1192,27 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
 
     auto generate_index = [&](const std::string& pattern) {
         // 1. find subcolumn's index
-        if (const auto& index = schema.inverted_index_by_field_pattern(col_unique_id, pattern);
-            index != nullptr) {
-            sub_column_info->index = std::make_shared<TabletIndex>(*index);
-            sub_column_info->index->set_escaped_escaped_index_suffix_path(
-                    sub_column_info->column.path_info_ptr()->get_path());
+        if (const auto& indexes = schema.inverted_index_by_field_pattern(col_unique_id, pattern);
+            !indexes.empty()) {
+            for (const auto& index : indexes) {
+                auto index_ptr = std::make_shared<TabletIndex>(*index);
+                index_ptr->set_escaped_escaped_index_suffix_path(
+                        sub_column_info->column.path_info_ptr()->get_path());
+                sub_column_info->indexes.emplace_back(std::move(index_ptr));
+            }
         }
         // 2. find parent column's index
-        else if (const auto* parent_index = schema.inverted_index(col_unique_id);
-                 parent_index != nullptr) {
-            sub_column_info->index = std::make_shared<TabletIndex>(*parent_index);
-            sub_column_info->index->set_escaped_escaped_index_suffix_path(
-                    sub_column_info->column.path_info_ptr()->get_path());
+        else if (const auto parent_index = schema.inverted_indexs(col_unique_id);
+                 !parent_index.empty() &&
+                 InvertedIndexColumnWriter::check_support_inverted_index(sub_column_info->column)) {
+            for (const auto& index : parent_index) {
+                auto index_ptr = std::make_shared<TabletIndex>(*index);
+                index_ptr->set_escaped_escaped_index_suffix_path(
+                        sub_column_info->column.path_info_ptr()->get_path());
+                sub_column_info->indexes.emplace_back(std::move(index_ptr));
+            }
         } else {
-            sub_column_info->index = nullptr;
+            sub_column_info->indexes.clear();
         }
     };
 

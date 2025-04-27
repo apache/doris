@@ -522,7 +522,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     _subcolumn_readers = std::make_unique<SubcolumnColumnReaders>();
     _statistics = std::make_unique<VariantStatistics>();
     const ColumnMetaPB& self_column_pb = footer.columns(column_id);
-    const auto* parent_index = opts.tablet_schema->inverted_index(self_column_pb.unique_id());
+    const auto& parent_index = opts.tablet_schema->inverted_indexs(self_column_pb.unique_id());
     for (const ColumnMetaPB& column_pb : footer.columns()) {
         // Find all columns belonging to the current variant column
         // 1. not the variant column
@@ -589,23 +589,23 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
             _subcolumn_readers->add(relative_path,
                                     SubcolumnReader {std::move(reader), get_data_type_fn()});
             TabletSchema::SubColumnInfo sub_column_info;
+            // if subcolumn has index, add index to _variant_subcolumns_indexes
             if (vectorized::schema_util::generate_sub_column_info(
                         *opts.tablet_schema, self_column_pb.unique_id(), relative_path.get_path(),
                         &sub_column_info) &&
-                sub_column_info.index != nullptr) {
-                const auto* index_meta = sub_column_info.index.get();
-                DCHECK(index_meta != nullptr);
-                auto subcolumn_index = std::make_unique<TabletIndex>(*index_meta);
-                _variant_subcolumns_indexes.emplace(path.get_path(), std::move(subcolumn_index));
-            } else if (parent_index) {
-                const auto& suffix_path = path.get_path();
-                auto it = _variant_subcolumns_indexes.find(suffix_path);
-                if (it == _variant_subcolumns_indexes.end()) {
-                    auto subcolumn_index = std::make_unique<TabletIndex>(*parent_index);
+                !sub_column_info.indexes.empty()) {
+                _variant_subcolumns_indexes[path.get_path()] = std::move(sub_column_info.indexes);
+            }
+            // if parent column has index, add index to _variant_subcolumns_indexes
+            else if (!parent_index.empty() &&
+                     InvertedIndexColumnWriter::check_support_inverted_index(
+                             (FieldType)column_pb.type())) {
+                for (const auto& index : parent_index) {
+                    const auto& suffix_path = path.get_path();
+                    auto subcolumn_index = std::make_unique<TabletIndex>(*index);
                     subcolumn_index->set_escaped_escaped_index_suffix_path(suffix_path);
-                    _variant_subcolumns_indexes.emplace(suffix_path, std::move(subcolumn_index));
-                } else {
-                    DCHECK(false);
+                    _variant_subcolumns_indexes[suffix_path].emplace_back(
+                            std::move(subcolumn_index));
                 }
             }
         }
@@ -622,9 +622,16 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
     return Status::OK();
 }
 
-TabletIndex* VariantColumnReader::find_subcolumn_tablet_index(const std::string& path) {
+std::vector<const TabletIndex*> VariantColumnReader::find_subcolumn_tablet_indexes(
+        const std::string& path) {
     auto it = _variant_subcolumns_indexes.find(path);
-    return it == _variant_subcolumns_indexes.end() ? nullptr : it->second.get();
+    std::vector<const TabletIndex*> indexes;
+    if (it != _variant_subcolumns_indexes.end()) {
+        for (const auto& index : it->second) {
+            indexes.push_back(index.get());
+        }
+    }
+    return indexes;
 }
 
 std::vector<std::string> VariantColumnReader::get_typed_paths() const {
@@ -781,9 +788,12 @@ Status ColumnReader::new_inverted_index_iterator(
     RETURN_IF_ERROR(_ensure_inverted_index_loaded(std::move(index_file_reader), index_meta));
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
-        if (_inverted_index) {
-            RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.io_ctx, read_options.stats,
-                                                          read_options.runtime_state, iterator));
+        auto iter = _inverted_indexs.find(index_meta->index_id());
+        if (iter != _inverted_indexs.end()) {
+            if (iter->second != nullptr) {
+                RETURN_IF_ERROR(iter->second->new_iterator(read_options.io_ctx, read_options.stats,
+                                                           read_options.runtime_state, iterator));
+            }
         }
     }
     return Status::OK();
@@ -1066,8 +1076,13 @@ Status ColumnReader::_load_inverted_index_index(
         std::shared_ptr<InvertedIndexFileReader> index_file_reader, const TabletIndex* index_meta) {
     std::unique_lock<std::shared_mutex> wlock(_load_index_lock);
 
-    if (_inverted_index && index_meta &&
-        _inverted_index->get_index_id() == index_meta->index_id()) {
+    if (index_meta == nullptr) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "Failed to load inverted index: index metadata is null");
+    }
+
+    auto it = _inverted_indexs.find(index_meta->index_id());
+    if (it != _inverted_indexs.end()) {
         return Status::OK();
     }
 
@@ -1080,17 +1095,18 @@ Status ColumnReader::_load_inverted_index_index(
         type = _type_info->type();
     }
 
+    std::shared_ptr<InvertedIndexReader> inverted_index;
     if (is_string_type(type)) {
         if (parser_type != InvertedIndexParserType::PARSER_NONE) {
             try {
-                _inverted_index = FullTextIndexReader::create_shared(index_meta, index_file_reader);
+                inverted_index = FullTextIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create FullTextIndexReader error: {}", e.what());
             }
         } else {
             try {
-                _inverted_index =
+                inverted_index =
                         StringTypeInvertedIndexReader::create_shared(index_meta, index_file_reader);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
@@ -1099,18 +1115,16 @@ Status ColumnReader::_load_inverted_index_index(
         }
     } else if (is_numeric_type(type)) {
         try {
-            _inverted_index = BkdIndexReader::create_shared(index_meta, index_file_reader);
+            inverted_index = BkdIndexReader::create_shared(index_meta, index_file_reader);
         } catch (const CLuceneError& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "create BkdIndexReader error: {}", e.what());
         }
     } else {
-        _inverted_index.reset();
+        // return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+        //         "Field type {} is not supported for inverted index", type);
     }
-    // TODO: move has null to inverted_index_reader's query function
-    //bool has_null = true;
-    //RETURN_IF_ERROR(index_file_reader->has_null(index_meta, &has_null));
-    //_inverted_index->set_has_null(has_null);
+    _inverted_indexs[index_meta->index_id()] = inverted_index;
     return Status::OK();
 }
 

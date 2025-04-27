@@ -76,6 +76,8 @@ public:
     // are generated from variant, but not all of them are supported
     static bool check_support_inverted_index(const TabletColumn& column);
 
+    static bool check_support_inverted_index(FieldType);
+
 private:
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexColumnWriter);
 };

@@ -186,7 +186,6 @@ public:
         if (iterator == nullptr) {
             return Status::OK();
         }
-        std::string column_name = name_with_type.first;
         roaring::Roaring indices;
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
@@ -199,7 +198,7 @@ public:
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
             RETURN_IF_ERROR(iterator->read_from_inverted_index(
-                    column_name, query_param->get_value(), query_type, num_rows, index));
+                    name_with_type, query_param->get_value(), query_type, num_rows, index));
             indices |= *index;
             iter->next();
         }

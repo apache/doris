@@ -94,7 +94,7 @@ private:
     VariantStatistics _statistics;
 
     // hold the references of subcolumns indexes
-    std::vector<std::unique_ptr<TabletIndex>> _subcolumns_indexes;
+    std::vector<TabletIndexes> _subcolumns_indexes;
 
     // hold the references of subcolumns info
     std::unordered_map<std::string, TabletSchema::SubColumnInfo> _subcolumns_info;
