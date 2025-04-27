@@ -163,6 +163,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     // dbId -> tableId -> txnId
     private Map<Long, Map<Long, Long>> lastTxnIdMap = Maps.newConcurrentMap();
+    // dbId -> txnId -> signature
+    private Map<Long, Map<Long, Long>> txnLastSignatureMap = Maps.newConcurrentMap();
 
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
@@ -1067,14 +1069,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 totalTaskNum);
         AgentBatchTask batchTask = new AgentBatchTask();
 
-        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
-                .getTransactionState(dbId, transactionId);
-        long signature = transactionState.getCalcTaskSignature();
+        long signature = getTxnLastSignature(dbId, transactionId);
         if (signature == -1) {
             // use txn_id as signature for every txn in first time
             signature = transactionId;
-            LOG.info("use txn_id as signature for every txn in first time, txn_id: {}, signature: {}",
-                    transactionId, signature);
         } else {
             // If there exists other interleaved txns on the same table before,
             // we can not accept the response of previous calc delete bitmap task which is created
@@ -1083,18 +1081,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             // So we change the signature to avoid to accept the response of previous calc delete bitmap task
             boolean hasOtherInterleavedTxnBefore = mowTableIds.stream()
                     .anyMatch(tableId -> {
-                        long lastTxnId = getLastTxnId(dbId, tableId);
+                        long lastTxnId = getTableLastTxnId(dbId, tableId);
                         return lastTxnId != -1 && lastTxnId != transactionId;
                     });
             if (hasOtherInterleavedTxnBefore) {
                 signature = UUID.randomUUID().getLeastSignificantBits();
             }
-            LOG.info("txn_id: {}, hasOtherInterleavedTxnBefore: {}, old_signature: {}, new_signature: {}",
-                    transactionId, hasOtherInterleavedTxnBefore, transactionState.getCalcTaskSignature(), signature);
         }
-        transactionState.setCalcTaskSignature(signature);
+        setTxnLastSignature(dbId, transactionId, signature);
         for (long tableId : mowTableIds) {
-            setLastTxnId(dbId, tableId, transactionId);
+            setTableLastTxnId(dbId, tableId, transactionId);
         }
 
         for (Map.Entry<Long, List<TCalcDeleteBitmapPartitionInfo>> entry : backendToPartitionInfos.entrySet()) {
@@ -1205,6 +1201,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (MetricRepo.isInit) {
                 MetricRepo.HISTO_COMMIT_AND_PUBLISH_LATENCY.update(commitAndPublishTime);
             }
+            clearTxnLastSignature(db.getId(), transactionId);
         }
         return res;
     }
@@ -2229,7 +2226,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    public long getLastTxnId(long dbId, long tableId) {
+    public long getTableLastTxnId(long dbId, long tableId) {
         Map<Long, Long> tabletIdToTxnId = lastTxnIdMap.get(dbId);
         if (tabletIdToTxnId == null) {
             return -1;
@@ -2237,14 +2234,47 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return tabletIdToTxnId.getOrDefault(tableId, -1L);
     }
 
-    public void setLastTxnId(long dbId, long tableId, long txnId) {
+    public void setTableLastTxnId(long dbId, long tableId, long txnId) {
         lastTxnIdMap.compute(dbId, (k, v) -> {
             if (v == null) {
                 v = Maps.newConcurrentMap();
             }
-            LOG.info("setLastTxnId dbId: {}, tableId: {}, txnId: {}", dbId, tableId, txnId);
+            LOG.debug("setTableLastTxnId dbId: {}, tableId: {}, txnId: {}", dbId, tableId, txnId);
             v.put(tableId, txnId);
             return v;
+        });
+    }
+
+    public void clearTableLastTxnId(long dbId, long tableId) {
+        lastTxnIdMap.computeIfPresent(dbId, (k, v) -> {
+            v.remove(tableId);
+            return v.isEmpty() ? null : v;
+        });
+    }
+
+    public long getTxnLastSignature(long dbId, long txnId) {
+        Map<Long, Long> txnIdToLastSignature = txnLastSignatureMap.get(dbId);
+        if (txnIdToLastSignature == null) {
+            return -1;
+        }
+        return txnIdToLastSignature.getOrDefault(txnId, -1L);
+    }
+
+    public void setTxnLastSignature(long dbId, long txnId, long signature) {
+        txnLastSignatureMap.compute(dbId, (k, v) -> {
+            if (v == null) {
+                v = Maps.newConcurrentMap();
+            }
+            LOG.debug("setTxnLastSignature dbId: {}, txnId: {}, signature: {}", dbId, txnId, signature);
+            v.put(txnId, signature);
+            return v;
+        });
+    }
+
+    public void clearTxnLastSignature(long dbId, long txnId) {
+        txnLastSignatureMap.computeIfPresent(dbId, (k, v) -> {
+            v.remove(txnId);
+            return v.isEmpty() ? null : v;
         });
     }
 }

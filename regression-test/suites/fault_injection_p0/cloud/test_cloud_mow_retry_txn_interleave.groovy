@@ -25,7 +25,7 @@ suite("test_cloud_mow_retry_txn_interleave", "multi_cluster,docker") {
     options.setBeNum(1)
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
-        'calculate_delete_bitmap_task_timeout_seconds=6',
+        'calculate_delete_bitmap_task_timeout_seconds=20',
         'mow_calculate_delete_bitmap_retry_times=3'
     ]
     options.beConfigs += [
