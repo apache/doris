@@ -644,11 +644,6 @@ public:
         const bool left_is_string = which_left.is_string_or_fixed_string();
         const bool right_is_string = which_right.is_string_or_fixed_string();
 
-        // Compare date and datetime direct use the Int64 compare. Keep the comment
-        // may we should refactor the code.
-        //        bool date_and_datetime = (left_type != right_type) && which_left.is_date_or_datetime() &&
-        //                                 which_right.is_date_or_datetime();
-
         if (left_is_num_can_compare && right_is_num_can_compare) {
             if (!(execute_num_left_type<UInt8>(block, result, col_left_untyped,
                                                col_right_untyped) ||
