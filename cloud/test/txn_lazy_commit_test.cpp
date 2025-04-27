@@ -1902,20 +1902,20 @@ TEST(TxnLazyCommitTest, RowsetMetaSizeExceedTest) {
 }
 TEST(TxnLazyCommitTest, FuzzyRandom) {
     int counter = 0;
-    for (size_t i = 0; i < 10000; i++) {
+    for (size_t i = 0; i < 100000; i++) {
         if (fuzzy_random()) {
             counter++;
         }
     }
     LOG(INFO) << "fuzzy_random counter: " << counter;
-    ASSERT_GT(counter, 0);
-    ASSERT_LT(counter, 10000);
+    ASSERT_GT(counter, 30000);
+    ASSERT_LT(counter, 70000);
 }
 
 TEST(TxnLazyCommitTest, ForceTxnLazyCommit) {
     int counter = 0;
     config::enable_cloud_txn_lazy_commit_fuzzy_test = false;
-    for (size_t i = 0; i < 10000; i++) {
+    for (size_t i = 0; i < 100000; i++) {
         if (force_txn_lazy_commit()) {
             counter++;
         }
@@ -1925,14 +1925,14 @@ TEST(TxnLazyCommitTest, ForceTxnLazyCommit) {
 
     config::enable_cloud_txn_lazy_commit_fuzzy_test = true;
     counter = 0;
-    for (size_t i = 0; i < 10000; i++) {
+    for (size_t i = 0; i < 100000; i++) {
         if (force_txn_lazy_commit()) {
             counter++;
         }
     }
     LOG(INFO) << "force_txn_lazy_commit counter: " << counter;
-    ASSERT_GT(counter, 0);
-    ASSERT_LT(counter, 10000);
+    ASSERT_GT(counter, 30000);
+    ASSERT_LT(counter, 70000);
     config::enable_cloud_txn_lazy_commit_fuzzy_test = false;
 }
 } // namespace doris::cloud
